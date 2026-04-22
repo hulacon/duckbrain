@@ -1,0 +1,56 @@
+#!/bin/bash
+#SBATCH --job-name=nordic_{{ subject }}_{{ session }}
+#SBATCH --partition={{ slurm.partition }}
+#SBATCH --time={{ slurm.time }}
+#SBATCH --cpus-per-task={{ slurm.cpus }}
+#SBATCH --mem={{ slurm.memory }}
+#SBATCH --output={{ paths.work_dir }}/logs/nordic_%A_%a.out
+#SBATCH --array=1-{{ bold_count }}
+{% if slurm.email %}#SBATCH --mail-user={{ slurm.email }}
+#SBATCH --mail-type={{ slurm.mail_type }}
+{% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
+{% endif %}{% if nordic.excluded_nodes %}#SBATCH --exclude={{ nordic.excluded_nodes }}
+{% endif %}
+echo "=== NORDIC denoise: sub-{{ subject }} ses-{{ session }} (task ${SLURM_ARRAY_TASK_ID}) ==="
+echo "Started: $(date)"
+echo "Node: $(hostname)"
+
+# Discover BOLD runs
+FUNC_DIR={{ paths.bids_dir }}/sub-{{ subject }}/ses-{{ session }}/func
+BOLD_FILES=($(ls ${FUNC_DIR}/*_bold.nii.gz 2>/dev/null | sort))
+NUM_RUNS=${#BOLD_FILES[@]}
+
+if [ $NUM_RUNS -eq 0 ]; then
+    echo "ERROR: No BOLD files found in ${FUNC_DIR}"
+    exit 1
+fi
+
+# Select run for this array task
+IDX=$((SLURM_ARRAY_TASK_ID - 1))
+BOLD_IN=${BOLD_FILES[$IDX]}
+echo "Processing: $BOLD_IN"
+
+# Output directory
+OUT_DIR={{ paths.derivatives_dir }}/nordic/sub-{{ subject }}/ses-{{ session }}/func
+mkdir -p $OUT_DIR
+
+# Check if already processed
+BOLD_BASENAME=$(basename $BOLD_IN)
+if [ -f "${OUT_DIR}/${BOLD_BASENAME}" ]; then
+    echo "Output already exists, skipping: ${OUT_DIR}/${BOLD_BASENAME}"
+    exit 0
+fi
+
+# Run NORDIC via MATLAB
+module load {{ nordic.matlab_module }}
+
+matlab -nodisplay -nosplash -nodesktop -r "\
+    addpath('{{ paths.nordic_toolbox_dir }}'); \
+    addpath('{{ scripts_dir }}'); \
+    nordic_denoise('${BOLD_IN}', '${OUT_DIR}'); \
+    exit;"
+
+EXIT_CODE=$?
+echo "Finished: $(date)"
+echo "Exit code: $EXIT_CODE"
+exit $EXIT_CODE

@@ -1,0 +1,66 @@
+[project]
+name = ""  # User fills in during setup
+
+[paths]
+bids_dir = ""              # Root BIDS dataset directory
+sourcedata_dir = ""        # Where organized DICOMs live (usually <bids_dir>/sourcedata)
+derivatives_dir = ""       # Usually <bids_dir>/derivatives
+work_dir = ""              # Scratch for fMRIPrep etc. (outside BIDS tree)
+containers_dir = ""        # Singularity .sif/.simg images
+nordic_toolbox_dir = ""    # Path to NORDIC_Raw MATLAB toolbox
+fs_license = ""            # FreeSurfer license file path
+
+[dcm_source]
+# LCNI DICOM export location
+base_dir = "/projects/lcni/dcm"
+group = ""                 # e.g., "hulacon"
+project = ""               # e.g., "mmmdata"
+
+[containers]
+dcm2bids_version = "3.2.0"
+fmriprep_version = "24.1.1"
+mriqc_version = "24.1.0"
+
+[fmriprep]
+output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
+nprocs = 8
+mem_gb = 32
+
+[nordic]
+magnitude_only = true
+matlab_module = "matlab/R2024a"
+excluded_nodes = ""
+
+[slurm]
+partition = "medium"
+partition_long = "computelong"
+time = "12:00:00"
+memory = "16G"
+cpus = "4"
+email = ""
+mail_type = "END,FAIL"
+account = ""
+
+[slurm.overrides.dcm2bids]
+time = "03:00:00"
+memory = "8G"
+cpus = "1"
+partition = "compute"
+
+[slurm.overrides.mriqc]
+time = "06:00:00"
+memory = "16G"
+cpus = "4"
+partition = "compute"
+
+[slurm.overrides.nordic]
+time = "02:00:00"
+memory = "32G"
+cpus = "4"
+partition = "compute"
+
+[slurm.overrides.fmriprep]
+time = "48:00:00"
+memory = "48G"
+cpus = "8"
+partition = "computelong"

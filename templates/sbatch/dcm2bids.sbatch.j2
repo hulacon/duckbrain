@@ -1,0 +1,31 @@
+#!/bin/bash
+#SBATCH --job-name=dcm2bids_{{ subject }}_{{ session }}
+#SBATCH --partition={{ slurm.partition }}
+#SBATCH --time={{ slurm.time }}
+#SBATCH --cpus-per-task={{ slurm.cpus }}
+#SBATCH --mem={{ slurm.memory }}
+#SBATCH --output={{ paths.work_dir }}/logs/dcm2bids_%j.out
+{% if slurm.email %}#SBATCH --mail-user={{ slurm.email }}
+#SBATCH --mail-type={{ slurm.mail_type }}
+{% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
+{% endif %}
+echo "=== dcm2bids: sub-{{ subject }} ses-{{ session }} ==="
+echo "Started: $(date)"
+echo "Node: $(hostname)"
+
+singularity run --cleanenv \
+  -B {{ dicom_dir }}:{{ dicom_dir }}:ro \
+  -B {{ paths.bids_dir }}:{{ paths.bids_dir }} \
+  -B {{ config_json_dir }}:{{ config_json_dir }}:ro \
+  {{ container_path }} \
+  -d {{ dicom_dir }} \
+  -p {{ subject }} \
+  -s {{ session }} \
+  -c {{ config_json }} \
+  -o {{ paths.bids_dir }} \
+  {% if force %}--force_dcm2bids{% endif %}
+
+EXIT_CODE=$?
+echo "Finished: $(date)"
+echo "Exit code: $EXIT_CODE"
+exit $EXIT_CODE

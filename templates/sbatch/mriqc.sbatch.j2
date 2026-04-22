@@ -1,0 +1,36 @@
+#!/bin/bash
+#SBATCH --job-name=mriqc_{{ subject }}_{{ session }}
+#SBATCH --partition={{ slurm.partition }}
+#SBATCH --time={{ slurm.time }}
+#SBATCH --cpus-per-task={{ slurm.cpus }}
+#SBATCH --mem={{ slurm.memory }}
+#SBATCH --output={{ paths.work_dir }}/logs/mriqc_%j.out
+{% if slurm.email %}#SBATCH --mail-user={{ slurm.email }}
+#SBATCH --mail-type={{ slurm.mail_type }}
+{% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
+{% endif %}
+echo "=== MRIQC: sub-{{ subject }} ses-{{ session }} ==="
+echo "Started: $(date)"
+echo "Node: $(hostname)"
+
+WORK_DIR={{ paths.work_dir }}/mriqc_sub-{{ subject }}_ses-{{ session }}
+OUTPUT_DIR={{ paths.derivatives_dir }}/mriqc
+mkdir -p $WORK_DIR $OUTPUT_DIR
+
+singularity run --cleanenv \
+  -B {{ paths.bids_dir }}:{{ paths.bids_dir }}:ro \
+  -B $OUTPUT_DIR:$OUTPUT_DIR \
+  -B $WORK_DIR:$WORK_DIR \
+  {{ container_path }} \
+  {{ paths.bids_dir }} $OUTPUT_DIR participant \
+  --participant-label {{ subject }} \
+{% if session %}  --session-id {{ session }} \
+{% endif %}  --nprocs {{ slurm.cpus }} \
+  --mem-gb {{ mem_gb }} \
+  -w $WORK_DIR \
+  --no-sub
+
+EXIT_CODE=$?
+echo "Finished: $(date)"
+echo "Exit code: $EXIT_CODE"
+exit $EXIT_CODE

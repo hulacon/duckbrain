@@ -1,0 +1,53 @@
+#!/bin/bash
+#SBATCH --job-name=fmriprep_nordic_{{ subject }}_{{ session }}
+#SBATCH --partition={{ slurm.partition }}
+#SBATCH --time={{ slurm.time }}
+#SBATCH --cpus-per-task={{ slurm.cpus }}
+#SBATCH --mem={{ slurm.memory }}
+#SBATCH --output={{ paths.work_dir }}/logs/fmriprep_nordic_%j.out
+{% if slurm.email %}#SBATCH --mail-user={{ slurm.email }}
+#SBATCH --mail-type={{ slurm.mail_type }}
+{% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
+{% endif %}
+echo "=== fMRIPrep (NORDIC): sub-{{ subject }} ses-{{ session }} ==="
+echo "Started: $(date)"
+echo "Node: $(hostname)"
+
+export SINGULARITYENV_TEMPLATEFLOW_HOME={{ paths.work_dir }}/templateflow
+export SINGULARITY_TMPDIR={{ paths.work_dir }}/tmp
+mkdir -p $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
+
+NORDIC_BIDS={{ paths.derivatives_dir }}/nordic/bids_input
+NORDIC_OUTPUT={{ paths.derivatives_dir }}/fmriprep_nordic
+WORK_DIR={{ paths.work_dir }}/nordic_sub-{{ subject }}_ses-{{ session }}
+mkdir -p $WORK_DIR $NORDIC_OUTPUT
+
+singularity run --cleanenv \
+  -B $NORDIC_BIDS:$NORDIC_BIDS:ro \
+  -B $NORDIC_OUTPUT:$NORDIC_OUTPUT \
+  -B $WORK_DIR:$WORK_DIR \
+  -B {{ fs_license_dir }}:{{ fs_license_dir }}:ro \
+{% if anat_derivatives %}  -B {{ anat_derivatives }}:{{ anat_derivatives }}:ro \
+{% endif %}  {{ container_path }} \
+  $NORDIC_BIDS $NORDIC_OUTPUT participant \
+  --participant-label {{ subject }} \
+{% if filter_file %}  --bids-filter-file {{ filter_file }} \
+{% endif %}  --output-spaces {{ output_spaces | join(' ') }} \
+  --fs-license-file {{ fs_license }} \
+  --nprocs {{ fmriprep.nprocs }} \
+  --mem-mb {{ fmriprep.mem_gb * 1024 }} \
+  -w $WORK_DIR \
+{% if anat_derivatives %}  --derivatives {{ anat_derivatives }} \
+{% endif %}  --skip-bids-validation --notrack
+
+EXIT_CODE=$?
+
+# Clean up session work dir on success
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "Cleaning up work dir: $WORK_DIR"
+    rm -rf $WORK_DIR
+fi
+
+echo "Finished: $(date)"
+echo "Exit code: $EXIT_CODE"
+exit $EXIT_CODE

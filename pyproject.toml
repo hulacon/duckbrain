@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "duckbrain"
+version = "0.1.0"
+description = "General-purpose neuroimaging toolbox with Streamlit GUI for LCNI/Talapas HPC"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "streamlit>=1.30",
+    "jinja2>=3.1",
+    "pandas>=2.0",
+    "nibabel>=5.0",
+    "plotly>=5.0",
+    "pydicom>=2.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/duckbrain"]
