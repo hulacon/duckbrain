@@ -1,0 +1,49 @@
+---
+cluster: "talapas"
+
+form:
+  - bc_account
+  - bc_queue
+  - bc_num_hours
+  - num_cores
+  - memory_gb
+  - duckbrain_dir
+
+attributes:
+  bc_account:
+    label: "PIRG Account"
+    help: "The PIRG account to charge (required on Talapas)."
+    required: true
+
+  bc_queue:
+    label: "Partition"
+    value: "interactive"
+    help: "SLURM partition. Use 'interactive' for quick access."
+
+  bc_num_hours:
+    label: "Wall Time (hours)"
+    value: 4
+    min: 1
+    max: 24
+    help: "Maximum duration for the session."
+
+  num_cores:
+    widget: "number_field"
+    label: "CPU Cores"
+    value: 2
+    min: 1
+    max: 8
+
+  memory_gb:
+    widget: "number_field"
+    label: "Memory (GB)"
+    value: 4
+    min: 2
+    max: 32
+
+  duckbrain_dir:
+    widget: "text_field"
+    label: "duckbrain install directory"
+    value: "/gpfs/home/%{ENV:USER}/code/duckbrain"
+    help: "Path to the duckbrain repository (must contain src/duckbrain/gui/app.py)."
+    required: true

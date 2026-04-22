@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+# Find an available port for Streamlit
+export port=$(find_port)
+
+# OOD expects a password variable (Streamlit doesn't use it, but set it anyway)
+export password="$(create_passwd 16)"

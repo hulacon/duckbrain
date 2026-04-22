@@ -1,0 +1,8 @@
+---
+name: duckbrain
+category: Interactive Apps
+subcategory: Neuroimaging
+role: batch_connect
+description: |
+  Launch the duckbrain neuroimaging toolbox — a Streamlit GUI for
+  DICOM ingestion, BIDS conversion, fMRIPrep, NORDIC, MRIQC, and QC.

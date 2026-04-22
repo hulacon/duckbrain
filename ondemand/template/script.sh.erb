@@ -1,0 +1,40 @@
+#!/usr/bin/env bash -l
+
+set -x
+
+echo "=== duckbrain OOD session ==="
+echo "Node: $(hostname)"
+echo "Port: ${port}"
+echo "duckbrain dir: <%= context.duckbrain_dir %>"
+
+DUCKBRAIN_DIR="<%= context.duckbrain_dir %>"
+
+# Activate the venv if it exists
+if [ -f "${DUCKBRAIN_DIR}/.venv/bin/activate" ]; then
+    source "${DUCKBRAIN_DIR}/.venv/bin/activate"
+else
+    # Fall back to loading a conda/python module
+    module load python3 2>/dev/null || module load miniconda3 2>/dev/null || true
+fi
+
+# Set config directory
+export DUCKBRAIN_CONFIG_DIR="${DUCKBRAIN_DIR}/config"
+
+# Ensure duckbrain is importable (editable install or add to path)
+if python -c "import duckbrain" 2>/dev/null; then
+    echo "duckbrain package found"
+else
+    echo "Installing duckbrain in editable mode..."
+    pip install -e "${DUCKBRAIN_DIR}" --quiet
+fi
+
+# Launch Streamlit behind OOD's reverse proxy
+# --server.baseUrlPath must match OOD's /node/<host>/<port>/ proxy path
+streamlit run "${DUCKBRAIN_DIR}/src/duckbrain/gui/app.py" \
+    --server.port="${port}" \
+    --server.address="0.0.0.0" \
+    --server.headless=true \
+    --server.enableCORS=false \
+    --server.enableXsrfProtection=false \
+    --server.baseUrlPath="/node/$(hostname)/${port}/" \
+    --browser.gatherUsageStats=false

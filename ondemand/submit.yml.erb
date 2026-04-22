@@ -1,0 +1,24 @@
+---
+batch_connect:
+  template: "basic"
+
+script:
+  native:
+    - "-N"
+    - "1"
+    - "-n"
+    - "<%= num_cores.blank? ? 2 : num_cores.to_i %>"
+    - "--mem"
+    - "<%= memory_gb.blank? ? 4 : memory_gb.to_i %>G"
+    <%- unless bc_account.blank? -%>
+    - "--account"
+    - "<%= bc_account %>"
+    <%- end -%>
+    <%- unless bc_queue.blank? -%>
+    - "--partition"
+    - "<%= bc_queue %>"
+    <%- end -%>
+    - "--time"
+    - "<%= bc_num_hours.blank? ? 4 : bc_num_hours.to_i %>:00:00"
+    - "--job-name"
+    - "ood-duckbrain"
