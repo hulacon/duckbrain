@@ -76,6 +76,20 @@ for s in sessions:
     )
 
 df = pd.DataFrame(session_data)
+
+# ---- Auto-session numbering ----
+if st.button("Auto-assign session numbers by date"):
+    from duckbrain.core.ingestion import auto_number_sessions
+
+    mappings = auto_number_sessions(sessions)
+    mapping_lookup = {m.folder_name: m for m in mappings}
+    for i, row in df.iterrows():
+        m = mapping_lookup.get(row["folder_name"])
+        if m:
+            df.at[i, "bids_subject"] = m.bids_subject
+            df.at[i, "bids_session"] = m.bids_session
+    st.success(f"Auto-assigned sessions for {len(set(m.bids_subject for m in mappings))} subject(s)")
+
 st.markdown("Edit the **bids_subject** and **bids_session** columns to assign BIDS identifiers, then select sessions to ingest.")
 
 edited_df = st.data_editor(
@@ -147,3 +161,84 @@ if not selected.empty:
 
             st.subheader("Ingestion Results")
             st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
+# ---- BIDS Metadata Generation ----
+st.divider()
+st.subheader("BIDS Metadata")
+st.markdown("Generate `participants.tsv` and `dataset_description.json` from DICOM demographics.")
+
+bids_dir = paths.get("bids_dir", "")
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("Generate participants.tsv"):
+        if not bids_dir:
+            st.error("BIDS directory not set in config.")
+        elif not sourcedata_dir or not Path(sourcedata_dir).is_dir():
+            st.error("No sourcedata found.")
+        else:
+            from duckbrain.core.bids_metadata import generate_participants_from_sourcedata
+
+            try:
+                tsv_path = generate_participants_from_sourcedata(sourcedata_dir, bids_dir)
+                st.success(f"Written: `{tsv_path}`")
+                participants_df = pd.read_csv(tsv_path, sep="\t")
+                st.dataframe(participants_df, use_container_width=True, hide_index=True)
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+with col2:
+    if st.button("Generate dataset_description.json"):
+        if not bids_dir:
+            st.error("BIDS directory not set in config.")
+        else:
+            from duckbrain.core.bids_metadata import write_dataset_description
+
+            project_name = config.get("project", {}).get("name", "")
+            try:
+                desc_path = write_dataset_description(bids_dir, name=project_name)
+                st.success(f"Written: `{desc_path}`")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+# ---- DICOM Sorter (for non-LCNI data) ----
+st.divider()
+with st.expander("DICOM Sorter (for unsorted DICOM files)"):
+    st.markdown(
+        "If your DICOMs are not already organized into `Series_NN_Description/` directories "
+        "(e.g., a flat dump from a CD or PACS export), use this tool to sort them first."
+    )
+    sort_input = st.text_input("Input directory (unsorted DICOMs)", key="sort_input")
+    sort_output = st.text_input("Output directory (organized DICOMs)", key="sort_output")
+    sort_col1, sort_col2 = st.columns(2)
+    with sort_col1:
+        sort_copy = st.checkbox("Copy files (instead of moving)", value=False, key="sort_copy")
+        sort_study = st.checkbox("Group by StudyDescription", value=False, key="sort_study")
+    with sort_col2:
+        sort_dry_run = st.checkbox("Dry run (preview only)", value=True, key="sort_dry_run")
+
+    if st.button("Sort DICOMs"):
+        if not sort_input or not sort_output:
+            st.error("Provide both input and output directories.")
+        elif not Path(sort_input).is_dir():
+            st.error(f"Input directory not found: `{sort_input}`")
+        else:
+            from duckbrain.core.dicom_sorter import sort_dicoms
+
+            with st.spinner("Scanning DICOMs..."):
+                result = sort_dicoms(
+                    sort_input,
+                    sort_output,
+                    include_study_dir=sort_study,
+                    copy=sort_copy,
+                    dry_run=sort_dry_run,
+                )
+            action = "Would sort" if sort_dry_run else "Sorted"
+            st.success(
+                f"{action} **{result.sorted_files}** of {result.total_files} files. "
+                f"Skipped: {result.skipped_files} (not DICOM). "
+                f"Duplicates: {result.duplicates}."
+            )
+            if result.errors:
+                with st.expander(f"{len(result.errors)} errors"):
+                    for err in result.errors:
+                        st.text(err)

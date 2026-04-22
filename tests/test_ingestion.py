@@ -4,6 +4,7 @@ import pytest
 from pathlib import Path
 
 from duckbrain.core.ingestion import (
+    auto_number_sessions,
     discover_sessions,
     ingest_session,
     list_ingested_sessions,
@@ -123,3 +124,23 @@ def test_list_ingested_sessions(mock_sourcedata):
     assert result[0]["subject"] == "03"
     assert result[0]["session"] == "05"
     assert result[0]["has_dicom"] is True
+
+
+def test_auto_number_sessions(mock_dcm_source):
+    sessions = discover_sessions(mock_dcm_source)
+    mappings = auto_number_sessions(sessions)
+
+    # Subject 003 has 2 sessions, subject 004 has 1
+    assert len(mappings) == 3
+
+    sub003 = [m for m in mappings if m.bids_subject == "003"]
+    sub004 = [m for m in mappings if m.bids_subject == "004"]
+
+    assert len(sub003) == 2
+    assert len(sub004) == 1
+
+    # Sessions numbered chronologically within each subject
+    sub003.sort(key=lambda m: m.bids_session)
+    assert sub003[0].bids_session == "01"  # sess05 (earlier date)
+    assert sub003[1].bids_session == "02"  # sess06 (later date)
+    assert sub004[0].bids_session == "01"

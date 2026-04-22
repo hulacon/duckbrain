@@ -164,6 +164,45 @@ def ingest_session(
     return target
 
 
+def auto_number_sessions(sessions: list[SessionInfo]) -> list[BidsMapping]:
+    """Auto-assign BIDS session numbers by date order, per subject.
+
+    Groups sessions by parsed_subject, then numbers them sequentially
+    (01, 02, ...) in chronological order. Inspired by mrpyconvert's
+    set_autosession (Jolinda Smith, LCNI/UO).
+
+    Parameters
+    ----------
+    sessions : list[SessionInfo]
+        Discovered sessions (should already be sorted by date).
+
+    Returns
+    -------
+    list[BidsMapping]
+        One mapping per session with auto-assigned bids_session numbers.
+    """
+    from collections import defaultdict
+
+    by_subject: dict[str, list[SessionInfo]] = defaultdict(list)
+    for s in sessions:
+        by_subject[s.parsed_subject].append(s)
+
+    mappings = []
+    for subject, sess_list in by_subject.items():
+        # Sort by date within each subject
+        sess_list.sort(key=lambda s: s.date)
+        for i, s in enumerate(sess_list, start=1):
+            mappings.append(
+                BidsMapping(
+                    folder_name=s.folder_name,
+                    bids_subject=subject,
+                    bids_session=f"{i:02d}",
+                )
+            )
+
+    return mappings
+
+
 def list_ingested_sessions(sourcedata_dir: str | Path) -> list[dict]:
     """List sessions already ingested into sourcedata.
 
