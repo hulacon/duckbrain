@@ -2,6 +2,8 @@
 
 A general-purpose neuroimaging toolbox with a Streamlit GUI for [LCNI](https://lcni.uoregon.edu/)/[Talapas](https://hpcf.uoregon.edu/) HPC users at the University of Oregon.
 
+Use outside of this environment is NOT supported at this time.
+
 **duckbrain** lets any scanner user go from raw DICOMs to QC'd, preprocessed data without writing pipeline scripts. It provides a web-based interface for every step of the pipeline and handles SLURM job submission, dependency chaining, and monitoring behind the scenes.
 
 ## Pipeline Overview
@@ -28,7 +30,7 @@ LCNI DICOMs ──► Ingest ──► BIDS Conversion ──► Preprocessing �
 ### Prerequisites
 
 - Python 3.10+
-- Access to Talapas HPC (or any SLURM cluster with Singularity)
+- Access to Talapas HPC
 - Singularity container images for dcm2bids, fMRIPrep, and MRIQC
 
 ### Installation
