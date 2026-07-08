@@ -81,7 +81,9 @@ df = pd.DataFrame(session_data)
 if st.button("Auto-assign session numbers by date"):
     from duckbrain.core.ingestion import auto_number_sessions
 
-    mappings = auto_number_sessions(sessions)
+    mappings = auto_number_sessions(
+        sessions, use_sessions=config.get("project", {}).get("use_sessions", "auto")
+    )
     mapping_lookup = {m.folder_name: m for m in mappings}
     for i, row in df.iterrows():
         m = mapping_lookup.get(row["folder_name"])
@@ -114,11 +116,9 @@ selected = edited_df[edited_df["select"] == True]  # noqa: E712
 
 if not selected.empty:
     # Validate all selected rows have BIDS mappings
-    missing_mapping = selected[
-        (selected["bids_subject"] == "") | (selected["bids_session"] == "")
-    ]
+    missing_mapping = selected[selected["bids_subject"] == ""]
     if not missing_mapping.empty:
-        st.warning("Some selected sessions are missing BIDS subject/session assignments.")
+        st.warning("Some selected sessions are missing a BIDS subject assignment.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -130,11 +130,9 @@ if not selected.empty:
         )
 
     if st.button("Ingest Selected Sessions", type="primary"):
-        valid = selected[
-            (selected["bids_subject"] != "") & (selected["bids_session"] != "")
-        ]
+        valid = selected[selected["bids_subject"] != ""]
         if valid.empty:
-            st.error("No sessions with complete BIDS mappings selected.")
+            st.error("No sessions with a BIDS subject assignment selected.")
         else:
             progress = st.progress(0)
             results = []

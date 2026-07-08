@@ -155,6 +155,8 @@ def get_container_path(config: dict) -> Path:
         f"fmriprep-{version}.sif",
         f"fmriprep-{version}.simg",
         f"fmriprep_{version}.sif",
+        "fmriprep.sif",
+        "fmriprep.simg",
     ]:
         path = containers_dir / pattern
         if path.exists():

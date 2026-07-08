@@ -111,6 +111,8 @@ def get_container_path(config: dict) -> Path:
         f"mriqc-{version}.sif",
         f"mriqc-{version}.simg",
         f"mriqc_{version}.sif",
+        "mriqc.sif",
+        "mriqc.simg",
     ]:
         path = containers_dir / pattern
         if path.exists():

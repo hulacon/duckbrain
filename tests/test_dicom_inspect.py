@@ -66,6 +66,121 @@ def test_classify_series(mock_dicom_session):
     assert classifications["PhysioLog"] == "physio"
 
 
+@pytest.fixture
+def descriptive_naming_session(tmp_path):
+    """A session whose BOLD runs use study-specific names with no 'bold'/'task-'
+    marker, but each has a matching _SBRef sibling (DIVATTEN-style)."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    series = [
+        ("Series_1_AAHead_Scout_64ch-head-coil", 128),
+        ("Series_5_mprage_p2_64ch", 176),
+        ("Series_6_se_epi_2.5mm_ap", 1),
+        ("Series_7_se_epi_2.5mm_pa", 1),
+        ("Series_8_div_perFace_perTone_r1_SBRef", 1),
+        ("Series_9_div_perFace_perTone_r1", 332),
+        ("Series_10_single_retScene_r2_SBRef", 1),
+        ("Series_11_single_retScene_r2", 332),
+    ]
+    for name, file_count in series:
+        d = session_dir / name
+        d.mkdir()
+        for i in range(file_count):
+            (d / f"file_{i:04d}.dcm").touch()
+    return session_dir
+
+
+def test_classify_recovers_func_via_sbref(descriptive_naming_session):
+    series = classify_series(list_series(descriptive_naming_session))
+    by_desc = {s.description: s.classification for s in series}
+
+    # Runs with no 'bold'/'task-' marker but a matching _SBRef -> func
+    assert by_desc["div_perFace_perTone_r1"] == "func"
+    assert by_desc["single_retScene_r2"] == "func"
+    # SBRefs, anat, fmap, scout unchanged
+    assert by_desc["div_perFace_perTone_r1_SBRef"] == "sbref"
+    assert by_desc["mprage_p2_64ch"] == "anat"
+    assert by_desc["se_epi_2.5mm_ap"] == "fmap"
+    assert by_desc["AAHead_Scout_64ch-head-coil"] == "scout"
+
+    bolds = get_bold_series(series, min_volumes=20)
+    assert {b.description for b in bolds} == {
+        "div_perFace_perTone_r1",
+        "single_retScene_r2",
+    }
+
+
+def test_classify_no_sbref_leaves_unknown(tmp_path):
+    """Without SBRef siblings, unrecognized series stay 'unknown' (no blind
+    volume-count promotion that could mislabel DWI/ASL as func)."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    for name, n in [("Series_1_diff_mb3_98dir", 98), ("Series_2_mprage", 176)]:
+        d = session_dir / name
+        d.mkdir()
+        (d / "f.dcm").touch()
+    series = classify_series(list_series(session_dir))
+    by_desc = {s.description: s.classification for s in series}
+    assert by_desc["diff_mb3_98dir"] == "unknown"
+    assert by_desc["mprage"] == "anat"
+
+
+@pytest.fixture
+def mmm_localizer_session(tmp_path):
+    """MMM origin-study naming: functional *localizer* tasks (not scanner
+    localizers) with SBRef + PhysioLog siblings, plus a real AAHead scout."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    series = [
+        ("Series_01_AAhead_scout", 3),
+        ("Series_02_AAhead_scout_MPR_sag", 3),
+        ("Series_05_se_epi_ap", 3),
+        ("Series_07_localizer_prf_run1_SBRef", 1),
+        ("Series_08_localizer_prf_run1", 300),
+        ("Series_10_localizer_prf_run1_PhysioLog", 1),
+        ("Series_35_localizer_tone_SBRef", 1),
+        ("Series_36_localizer_tone", 200),
+        ("Series_38_localizer_tone_PhysioLog", 1),
+    ]
+    for name, n in series:
+        d = session_dir / name
+        d.mkdir()
+        for i in range(n):
+            (d / f"f_{i:04d}.dcm").touch()
+    return session_dir
+
+
+def test_functional_localizer_not_scout(mmm_localizer_session):
+    series = classify_series(list_series(mmm_localizer_session))
+    by_desc = {s.description: s.classification for s in series}
+
+    # Functional localizer runs -> func (rescued by SBRef pairing), not scout
+    assert by_desc["localizer_prf_run1"] == "func"
+    assert by_desc["localizer_tone"] == "func"
+    # Their SBRef / PhysioLog siblings keep their definitive class, not scout
+    assert by_desc["localizer_prf_run1_SBRef"] == "sbref"
+    assert by_desc["localizer_prf_run1_PhysioLog"] == "physio"
+    # The *actual* scanner scout is still scout
+    assert by_desc["AAhead_scout"] == "scout"
+    assert by_desc["AAhead_scout_MPR_sag"] == "scout"
+    assert by_desc["se_epi_ap"] == "fmap"
+
+    bolds = get_bold_series(series, min_volumes=20)
+    assert {b.description for b in bolds} == {"localizer_prf_run1", "localizer_tone"}
+
+
+def test_standalone_localizer_and_scout_are_scout(tmp_path):
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    for name in ["Series_1_localizer", "Series_2_scout", "Series_3_AAHead_Scout_64ch"]:
+        (session_dir / name).mkdir()
+        (session_dir / name / "f.dcm").touch()
+    series = classify_series(list_series(session_dir))
+    assert all(s.classification == "scout" for s in series), {
+        s.description: s.classification for s in series
+    }
+
+
 def test_detect_fieldmaps(mock_dicom_session):
     series = list_series(mock_dicom_session)
     classify_series(series)

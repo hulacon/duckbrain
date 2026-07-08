@@ -1,12 +1,89 @@
-"""Auto-generate dcm2bids JSON config from DICOM inspection results."""
+"""Auto-generate dcm2bids JSON config from DICOM inspection results.
+
+The task/run assignment for functional runs flows through an explicit, editable
+**mapping** (:class:`TaskRunEntry` / :func:`build_task_run_mapping`) rather than
+being re-derived inline during config generation. The mapping is the source of
+truth: extraction tools (the naming heuristic, or a study-specific glob-like
+template) merely *seed* it, and a GUI can let the user correct any row before it
+is consumed here. This keeps the automatic and manual paths from diverging.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .dicom_inspect import (
+    _SBREF_SUFFIX,
     FieldmapDetection,
     SeriesInfo,
     extract_task_label,
+    parse_task_run,
 )
+
+
+@dataclass
+class TaskRunEntry:
+    """One row of the task/run mapping table (source of truth for func naming).
+
+    ``series_number`` / ``description`` identify the DICOM series; ``role`` is
+    ``"bold"`` or ``"sbref"``; ``task`` and ``run`` are the (editable) BIDS
+    entities. ``run`` of ``None`` emits no ``run-`` entity.
+    """
+
+    series_number: int
+    description: str
+    role: str
+    task: str
+    run: int | None = None
+
+
+def build_task_run_mapping(
+    series_list: list[SeriesInfo], template: str | None = None
+) -> list[TaskRunEntry]:
+    """Seed the task/run mapping for all func/sbref series.
+
+    Task labels come from :func:`parse_task_run` (optionally guided by a
+    glob-like ``template`` such as ``"{task}_r{run}"``). Run indices come from an
+    explicit run token in the name when present, otherwise from counting repeats
+    of the same task in acquisition (series-number) order — so studies that don't
+    encode a run in the description still get sequential ``run-`` entities. Each
+    SBRef inherits the task/run of the BOLD run it references.
+
+    The returned rows are meant to be reviewed/edited (e.g. in the GUI) and then
+    passed to :func:`generate_config`.
+    """
+    entries: list[TaskRunEntry] = []
+    by_base: dict[str, tuple[str, int | None]] = {}
+    counters: dict[str, int] = {}
+
+    func = sorted(
+        (s for s in series_list if s.classification == "func"),
+        key=lambda s: s.series_number,
+    )
+    for s in func:
+        task, run_token = parse_task_run(s.description, template)
+        if run_token is None:
+            counters[task] = counters.get(task, 0) + 1
+            run = counters[task]
+        else:
+            run = run_token
+        by_base[s.description.lower()] = (task, run)
+        entries.append(TaskRunEntry(s.series_number, s.description, "bold", task, run))
+
+    sbref = sorted(
+        (s for s in series_list if s.classification == "sbref"),
+        key=lambda s: s.series_number,
+    )
+    for s in sbref:
+        base = _SBREF_SUFFIX.sub("", s.description)
+        pair = by_base.get(base.lower())
+        if pair is not None:
+            task, run = pair
+        else:
+            task, run = parse_task_run(base, template)
+        entries.append(TaskRunEntry(s.series_number, s.description, "sbref", task, run))
+
+    return entries
 
 
 def generate_config(
@@ -14,6 +91,8 @@ def generate_config(
     fieldmaps: FieldmapDetection,
     subject: str = "",
     session: str = "",
+    mapping: list[TaskRunEntry] | None = None,
+    template: str | None = None,
 ) -> dict:
     """Build a dcm2bids-compatible config dict from classified DICOM series.
 
@@ -27,6 +106,12 @@ def generate_config(
         Subject label (for B0FieldIdentifier naming).
     session : str
         Session label (for B0FieldIdentifier naming).
+    mapping : list[TaskRunEntry], optional
+        The task/run mapping to use as the source of truth for func/sbref
+        naming. If omitted, one is seeded with :func:`build_task_run_mapping`
+        (using ``template``). Pass an edited mapping to honor user corrections.
+    template : str, optional
+        Glob-like naming template used only when ``mapping`` is not supplied.
 
     Returns
     -------
@@ -35,6 +120,10 @@ def generate_config(
     """
     descriptions = []
     sub_ses = f"sub{subject}ses{session}" if subject and session else ""
+
+    if mapping is None:
+        mapping = build_task_run_mapping(series_list, template)
+    entry_by_series = {e.series_number: e for e in mapping}
 
     # Track which fieldmap groups are used by which tasks
     fmap_group_assignments: dict[str, str] = {}
@@ -49,19 +138,25 @@ def generate_config(
 
     # --- Functionals (BOLD) ---
     func_series = [s for s in series_list if s.classification == "func"]
-    run_counters: dict[str, int] = {}
     for s in func_series:
-        task = extract_task_label(s.description)
-        run_counters[task] = run_counters.get(task, 0) + 1
+        entry = entry_by_series.get(s.series_number)
+        task = entry.task if entry else extract_task_label(s.description)
+        run = entry.run if entry else None
+        run_suffix = f"-run{run}" if run is not None else ""
+        custom_entities = f"task-{task}" + (f"_run-{run}" if run is not None else "")
 
         desc = {
-            "id": f"func-bold-{task}",
+            "id": f"func-bold-{task}{run_suffix}",
             "datatype": "func",
             "suffix": "bold",
+            # Match on SeriesNumber, not a SeriesDescription wildcard: a bold's
+            # description is a prefix of its SBRef's (e.g. '..._r1' vs
+            # '..._r1_SBRef'), so '*..._r1*' would also match the SBRef and
+            # dcm2bids would skip both as an ambiguous "Several Pairing".
             "criteria": {
-                "SeriesDescription": f"*{s.description}*",
+                "SeriesNumber": s.series_number,
             },
-            "custom_entities": f"task-{task}",
+            "custom_entities": custom_entities,
             "sidecar_changes": {
                 "TaskName": task,
             },
@@ -80,15 +175,19 @@ def generate_config(
     for s in series_list:
         if s.classification != "sbref":
             continue
-        task = extract_task_label(s.description)
+        entry = entry_by_series.get(s.series_number)
+        task = entry.task if entry else extract_task_label(s.description)
+        run = entry.run if entry else None
+        run_suffix = f"-run{run}" if run is not None else ""
+        custom_entities = f"task-{task}" + (f"_run-{run}" if run is not None else "")
         desc = {
-            "id": f"func-sbref-{task}",
+            "id": f"func-sbref-{task}{run_suffix}",
             "datatype": "func",
             "suffix": "sbref",
             "criteria": {
-                "SeriesDescription": f"*{s.description}*",
+                "SeriesNumber": s.series_number,
             },
-            "custom_entities": f"task-{task}",
+            "custom_entities": custom_entities,
         }
         descriptions.append(desc)
 
@@ -126,7 +225,7 @@ def _anat_description(series: SeriesInfo) -> dict | None:
         "datatype": "anat",
         "suffix": suffix,
         "criteria": {
-            "SeriesDescription": f"*{series.description}*",
+            "SeriesNumber": series.series_number,
         },
     }
 

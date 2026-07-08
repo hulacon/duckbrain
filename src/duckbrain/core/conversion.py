@@ -42,7 +42,12 @@ def build_dcm2bids_command(
     list[str]
         Command arguments for subprocess.
     """
-    dicom_dir = Path(dicom_dir)
+    # Resolve the DICOM dir so the Singularity bind source is the REAL directory.
+    # Sourcedata uses symlink ingestion (sub-XX/dicom -> LCNI export). Binding the
+    # symlink location works on Talapas (Singularity follows it), but binding the
+    # resolved target is explicit and portable across Singularity/Apptainer configs
+    # that restrict or don't follow symlinked bind sources.
+    dicom_dir = Path(dicom_dir).resolve()
     bids_dir = Path(bids_dir)
     config_json = Path(config_json)
     container_path = Path(container_path)
@@ -57,7 +62,13 @@ def build_dcm2bids_command(
         str(container_path),
         "-d", str(dicom_dir),
         "-p", subject,
-        "-s", session,
+    ]
+
+    # Omit -s for single-session studies (no ses- entity)
+    if session:
+        cmd += ["-s", session]
+
+    cmd += [
         "-c", str(config_json),
         "-o", str(bids_dir),
     ]
@@ -132,6 +143,8 @@ def get_container_path(config: dict) -> Path:
         f"dcm2bids-{version}.sif",
         f"dcm2bids-{version}.simg",
         f"dcm2bids_{version}.sif",
+        "dcm2bids.sif",
+        "dcm2bids.simg",
     ]:
         path = containers_dir / pattern
         if path.exists():

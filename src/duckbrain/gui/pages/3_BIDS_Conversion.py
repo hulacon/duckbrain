@@ -44,14 +44,20 @@ col1, col2 = st.columns(2)
 with col1:
     subject = st.selectbox("Subject", subjects)
 with col2:
-    available_sessions = sorted(sessions_by_sub.get(subject, []))
-    session = st.selectbox("Session", available_sessions)
+    available_sessions = sorted(s for s in sessions_by_sub.get(subject, []) if s)
+    if available_sessions:
+        session = st.selectbox("Session", available_sessions)
+    else:
+        session = ""
+        st.caption("Single-session study (no ses- entity)")
 
-if not subject or not session:
+if not subject:
     st.stop()
 
+from duckbrain.core.ingestion import sub_ses_relpath
+
 # ---- DICOM Inspection ----
-dicom_dir = Path(sourcedata_dir) / f"sub-{subject}" / f"ses-{session}" / "dicom"
+dicom_dir = Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dicom"
 
 if not dicom_dir.exists():
     # Handle symlinks — resolve target
@@ -102,11 +108,69 @@ if fieldmaps.warnings:
         for w in fieldmaps.warnings:
             st.warning(w)
 
+# ---- Task / Run mapping (source of truth for func naming) ----
+st.subheader("Task / Run Mapping")
+st.markdown(
+    "Auto-detected task labels and run numbers for functional runs. **This table "
+    "is the source of truth** — edit any row and the dcm2bids config below "
+    "regenerates from it. SBRefs inherit their run's task/run."
+)
+from duckbrain.core.dcm2bids_config import (
+    build_task_run_mapping,
+    generate_config,
+    config_to_json,
+    TaskRunEntry,
+)
+
+template = st.text_input(
+    "Naming template (optional)",
+    value="",
+    placeholder="e.g. {task}_r{run}",
+    help="Glob-like seed for parsing: {task} and {run} placeholders. Leave blank "
+    "to use the built-in heuristic. Editing the table below always wins.",
+)
+
+seed_mapping = build_task_run_mapping(series_list, template=template or None)
+
+if seed_mapping:
+    mapping_df = st.data_editor(
+        pd.DataFrame(
+            [
+                {
+                    "Series #": e.series_number,
+                    "Description": e.description,
+                    "Role": e.role,
+                    "task": e.task,
+                    "run": e.run,
+                }
+                for e in seed_mapping
+            ]
+        ),
+        use_container_width=True,
+        hide_index=True,
+        disabled=["Series #", "Description", "Role"],
+        key="task_run_mapping_editor",
+    )
+    edited_mapping = [
+        TaskRunEntry(
+            series_number=int(row["Series #"]),
+            description=row["Description"],
+            role=row["Role"],
+            task=str(row["task"]),
+            run=int(row["run"]) if pd.notna(row["run"]) else None,
+        )
+        for _, row in mapping_df.iterrows()
+    ]
+else:
+    st.info("No functional runs detected in this session.")
+    edited_mapping = []
+
 # ---- Auto-generate dcm2bids config ----
 st.subheader("dcm2bids Configuration")
-from duckbrain.core.dcm2bids_config import generate_config, config_to_json
 
-auto_config = generate_config(series_list, fieldmaps, subject=subject, session=session)
+auto_config = generate_config(
+    series_list, fieldmaps, subject=subject, session=session, mapping=edited_mapping
+)
 auto_json = config_to_json(auto_config)
 
 st.markdown("Review and edit the auto-generated dcm2bids config below:")
@@ -144,7 +208,7 @@ if parsed_config is None and (save_config_btn or convert_btn or export_btn):
     st.stop()
 
 # Save config
-config_json_path = Path(sourcedata_dir) / f"sub-{subject}" / f"ses-{session}" / "dcm2bids_config.json"
+config_json_path = Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
 
 if save_config_btn and parsed_config:
     from duckbrain.core.conversion import save_dcm2bids_config
