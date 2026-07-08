@@ -115,13 +115,26 @@ def _parse_session_folder(folder: Path) -> SessionInfo | None:
 
 
 def build_dcm_source_path(config: dict) -> Path:
-    """Construct the LCNI DICOM source directory from config."""
+    """Resolve the LCNI DICOM source directory from config.
+
+    Prefers an explicit ``dcm_source.dir`` (the full path to the study's DICOM
+    export). Falls back to the legacy ``base_dir / group / project`` composition
+    for older configs. A single directory is unambiguous across LCNI's varied
+    layouts (e.g. ``hulacon/mmmdata`` vs ``hulacon/Hutchinson/divatten``).
+    """
     dcm = config.get("dcm_source", {})
+    explicit = dcm.get("dir", "")
+    if explicit:
+        return Path(explicit)
+
     base = dcm.get("base_dir", "/projects/lcni/dcm")
     group = dcm.get("group", "")
     project = dcm.get("project", "")
     if not group or not project:
-        raise ValueError("dcm_source.group and dcm_source.project must be set in config")
+        raise ValueError(
+            "Set dcm_source.dir (full path to the DICOM export), "
+            "or the legacy dcm_source.group + dcm_source.project."
+        )
     return Path(base) / group / project
 
 

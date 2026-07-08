@@ -20,6 +20,7 @@ from duckbrain.config import (
     scaffold_project,
     user_config_path,
 )
+from duckbrain.gui.components import directory_picker
 
 st.set_page_config(page_title="Project Setup — duckbrain", layout="wide")
 st.title("Project Setup")
@@ -45,10 +46,13 @@ st.markdown(
 )
 
 current_project = st.session_state.get("project_dir") or os.environ.get(PROJECT_ENV, "")
-project_dir = st.text_input(
+project_dir = directory_picker(
     "Project directory",
-    value=current_project,
-    placeholder="/projects/<pirg>/<user>/<study>",
+    key="project_dir_pick",
+    default=current_project or "/projects",
+    allow_create=True,
+    help="Browse to (or create) your BIDS project directory. Use the ➕ expander "
+    "to make a new folder for a new project.",
 )
 
 col_open, col_info = st.columns([1, 2])
@@ -96,13 +100,18 @@ use_sessions = st.selectbox(
 )
 
 st.subheader("LCNI DICOM source")
-c1, c2, c3 = st.columns(3)
-with c1:
-    dcm_base = st.text_input("Base directory", value=_get("dcm_source", "base_dir") or "/projects/lcni/dcm")
-with c2:
-    dcm_group = st.text_input("Group", value=_get("dcm_source", "group"), help='e.g. "hulacon"')
-with c3:
-    dcm_project = st.text_input("Project", value=_get("dcm_source", "project"), help='e.g. "Hutchinson/divatten"')
+# Legacy configs used base_dir/group/project; if one is present, seed from it.
+_legacy_dcm = _get("dcm_source", "dir") or "/".join(
+    p for p in (_get("dcm_source", "base_dir"), _get("dcm_source", "group"), _get("dcm_source", "project")) if p
+) or "/projects/lcni/dcm"
+dcm_dir = directory_picker(
+    "DICOM source directory",
+    key="dcm_source_pick",
+    default=_legacy_dcm,
+    must_exist=True,
+    help="Full path to this study's DICOM export folder (the one containing the "
+    "session folders, e.g. .../hulacon/Hutchinson/divatten).",
+)
 
 st.subheader("SLURM (project)")
 c1, c2 = st.columns(2)
@@ -116,7 +125,7 @@ with c2:
 if st.button("Save project settings"):
     project_cfg = {
         "project": {"name": project_name, "use_sessions": use_sessions},
-        "dcm_source": {"base_dir": dcm_base, "group": dcm_group, "project": dcm_project},
+        "dcm_source": {"dir": dcm_dir},
         "slurm": {
             "account": slurm_account,
             "partition": slurm_partition,
@@ -132,16 +141,22 @@ if st.button("Save project settings"):
 st.divider()
 st.header("Shared resources (all your projects)")
 st.caption(f"Saved to `{user_config_path()}` — reused across every project.")
+containers_dir = directory_picker(
+    "Containers directory",
+    key="containers_pick",
+    default=_get("paths", "containers_dir") or str(Path.home() / "containers"),
+    must_exist=True,
+    help="Directory holding the Singularity .sif / .simg images.",
+)
 c1, c2 = st.columns(2)
 with c1:
-    containers_dir = st.text_input("Containers directory", value=_get("paths", "containers_dir"))
-    fs_license = st.text_input("FreeSurfer license", value=_get("paths", "fs_license"))
+    fs_license = st.text_input("FreeSurfer license (file)", value=_get("paths", "fs_license"))
     nordic_toolbox_dir = st.text_input("NORDIC toolbox directory", value=_get("paths", "nordic_toolbox_dir"))
+    slurm_email = st.text_input("SLURM email", value=_get("slurm", "email"))
 with c2:
     dcm2bids_ver = st.text_input("dcm2bids version", value=_get("containers", "dcm2bids_version") or "3.2.0")
     fmriprep_ver = st.text_input("fMRIPrep version", value=_get("containers", "fmriprep_version") or "24.1.1")
     mriqc_ver = st.text_input("MRIQC version", value=_get("containers", "mriqc_version") or "24.1.0")
-    slurm_email = st.text_input("SLURM email", value=_get("slurm", "email"))
 
 # Validate shared resources
 issues = []

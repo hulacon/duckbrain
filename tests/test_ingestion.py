@@ -162,6 +162,26 @@ def test_ingest_and_list_no_session(mock_dcm_source, mock_sourcedata):
     assert listed[0]["has_dicom"] is True
 
 
+def test_build_dcm_source_path():
+    from duckbrain.core.ingestion import build_dcm_source_path
+
+    # Preferred: a single explicit directory
+    assert build_dcm_source_path({"dcm_source": {"dir": "/projects/lcni/dcm/g/PI/study"}}) == Path(
+        "/projects/lcni/dcm/g/PI/study"
+    )
+    # Legacy base/group/project still composes
+    assert build_dcm_source_path(
+        {"dcm_source": {"base_dir": "/b", "group": "g", "project": "PI/study"}}
+    ) == Path("/b/g/PI/study")
+    # dir wins over legacy fields when both present
+    assert build_dcm_source_path(
+        {"dcm_source": {"dir": "/x", "group": "g", "project": "p"}}
+    ) == Path("/x")
+    # Neither -> clear error
+    with pytest.raises(ValueError):
+        build_dcm_source_path({"dcm_source": {}})
+
+
 def test_build_dcm2bids_command_omits_session():
     from duckbrain.core.conversion import build_dcm2bids_command
 
