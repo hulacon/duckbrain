@@ -18,8 +18,14 @@ if [ -f "$PROJECT_DIR/.venv/bin/activate" ]; then
     source "$PROJECT_DIR/.venv/bin/activate"
 fi
 
-# Set config dir
+# Locate the shipped base.toml (defaults). Project-specific settings live inside
+# the chosen project dir; shared resources live in ~/.config/duckbrain/.
 export DUCKBRAIN_CONFIG_DIR="$PROJECT_DIR/config"
+
+# Optionally pre-select a project directory. If unset, choose one in Project Setup.
+if [ -n "${DUCKBRAIN_PROJECT_DIR:-}" ]; then
+    export DUCKBRAIN_PROJECT_DIR
+fi
 
 # Find an available port
 PORT=${DUCKBRAIN_PORT:-8501}
@@ -30,6 +36,7 @@ echo "============================================"
 echo "  Node:    $(hostname)"
 echo "  Port:    $PORT"
 echo "  Config:  $DUCKBRAIN_CONFIG_DIR"
+echo "  Project: ${DUCKBRAIN_PROJECT_DIR:-(choose in Project Setup)}"
 echo ""
 echo "  Access via SSH tunnel:"
 echo "    ssh -L ${PORT}:$(hostname):${PORT} $(whoami)@talapas-login.uoregon.edu"

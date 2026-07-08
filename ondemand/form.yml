@@ -8,6 +8,7 @@ form:
   - num_cores
   - memory_gb
   - duckbrain_dir
+  - project_dir
 
 attributes:
   bc_account:
@@ -44,6 +45,13 @@ attributes:
   duckbrain_dir:
     widget: "text_field"
     label: "duckbrain install directory"
-    value: "/gpfs/home/%{ENV:USER}/code/duckbrain"
-    help: "Path to the duckbrain repository (must contain src/duckbrain/gui/app.py)."
+    value: "/gpfs/home/$USER/code/duckbrain"
+    help: "Path to the duckbrain repository (must contain src/duckbrain/gui/app.py). $USER, ${USER}, and ~ are expanded on the compute node."
     required: true
+
+  project_dir:
+    widget: "text_field"
+    label: "Project directory (optional)"
+    value: ""
+    help: "BIDS project directory to open on launch (e.g. /projects/<pirg>/$USER/<study>). Leave blank to choose one in the Project Setup page. $USER/~ are expanded on the compute node."
+    required: false

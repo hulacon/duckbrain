@@ -1,13 +1,21 @@
-#!/usr/bin/env bash -l
+#!/bin/bash -l
+# NOTE: must be `#!/bin/bash -l`, NOT `#!/usr/bin/env bash -l` — env treats
+# "bash -l" as a single program name and fails ("No such file or directory"),
+# which kills the job before Streamlit starts.
 
 set -x
+
+# Resolve the install dir at runtime so shell tokens in the form value expand.
+# Handles the legacy `%{ENV:USER}` default (which OOD does NOT interpolate),
+# plus $USER / ${USER} / ~ in whatever the user typed.
+RAW_DUCKBRAIN_DIR="<%= context.duckbrain_dir %>"
+RAW_DUCKBRAIN_DIR="${RAW_DUCKBRAIN_DIR//%\{ENV:USER\}/$USER}"
+DUCKBRAIN_DIR=$(eval echo "${RAW_DUCKBRAIN_DIR}")
 
 echo "=== duckbrain OOD session ==="
 echo "Node: $(hostname)"
 echo "Port: ${port}"
-echo "duckbrain dir: <%= context.duckbrain_dir %>"
-
-DUCKBRAIN_DIR="<%= context.duckbrain_dir %>"
+echo "duckbrain dir: ${DUCKBRAIN_DIR}"
 
 # Activate the venv if it exists
 if [ -f "${DUCKBRAIN_DIR}/.venv/bin/activate" ]; then
@@ -17,8 +25,15 @@ else
     module load python3 2>/dev/null || module load miniconda3 2>/dev/null || true
 fi
 
-# Set config directory
+# Set config directory (shipped base.toml defaults)
 export DUCKBRAIN_CONFIG_DIR="${DUCKBRAIN_DIR}/config"
+
+# Optionally pre-select a project directory (expand $USER / ~ at runtime)
+RAW_PROJECT_DIR="<%= context.project_dir %>"
+if [ -n "${RAW_PROJECT_DIR}" ]; then
+    export DUCKBRAIN_PROJECT_DIR=$(eval echo "${RAW_PROJECT_DIR}")
+    echo "duckbrain project dir: ${DUCKBRAIN_PROJECT_DIR}"
+fi
 
 # Ensure duckbrain is importable (editable install or add to path)
 if python -c "import duckbrain" 2>/dev/null; then

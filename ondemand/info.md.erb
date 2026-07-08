@@ -1,1 +1,2 @@
-**duckbrain** neuroimaging toolbox running on `<%= host %>`.
+<% h = (host rescue nil) %>
+**duckbrain** neuroimaging toolbox<%= h ? " running on `#{h}`." : " — session is starting…" %>

@@ -48,9 +48,21 @@ dev/working copy.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
   Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.
-- **Config:** two-file TOML — `config/base.toml` (shipped defaults) deep-merged
-  under `config/local.toml` (gitignored, user/project-specific). Loader honors
-  the `DUCKBRAIN_CONFIG_DIR` env var. `local.toml` does not exist yet.
+- **Config (project-dir-first, layered):** deep-merged in order —
+  1. `config/base.toml` (shipped defaults; located via `DUCKBRAIN_CONFIG_DIR`)
+  2. **user config** `~/.config/duckbrain/config.toml` (or `$DUCKBRAIN_USER_CONFIG`) —
+     shared machine resources reused across projects (containers, FS license,
+     NORDIC toolbox, container versions, SLURM email)
+  3. `config/local.toml` — *legacy*, still merged if present (no longer used)
+  4. **project config** `<project_dir>/code/duckbrain.toml` — project-specific
+     (name, `dcm_source`, `use_sessions`, SLURM account/partition)
+
+  The **project directory is the anchor**: `bids_dir`/`sourcedata_dir`/
+  `derivatives_dir`/`code_dir` are derived from it. Choose it via
+  `load_config(project_dir=...)` or the `DUCKBRAIN_PROJECT_DIR` env var (the GUI
+  Setup page and the OOD form's "Project directory" field both set it). `work_dir`
+  defaults to `/tmp` (node-local scratch). See `src/duckbrain/config.py`:
+  `load_config`, `save_user_config`, `save_project_config`, `scaffold_project`.
 
 ## Open OnDemand app (primary way to launch on Talapas)
 

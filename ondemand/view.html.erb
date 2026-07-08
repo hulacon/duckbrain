@@ -1,5 +1,10 @@
-<form action="/node/<%= host %>/<%= port %>/" method="get" target="_blank">
+<% h = (host rescue nil); p = (port rescue nil) %>
+<% if h && p %>
+<form action="/node/<%= h %>/<%= p %>/" method="get" target="_blank">
   <button class="btn btn-primary" type="submit">
     <i class="fa fa-brain"></i> Connect to duckbrain
   </button>
 </form>
+<% else %>
+<p>duckbrain is still starting — the connect button will appear once the server is running.</p>
+<% end %>
