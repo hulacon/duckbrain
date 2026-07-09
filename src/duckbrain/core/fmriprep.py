@@ -7,15 +7,21 @@ import subprocess
 from pathlib import Path
 
 
-_SESSION_FILTER_SUFFIXES = ("bold", "sbref", "fmap", "t1w", "t2w")
+# Only functional-family suffixes are restricted to the session. Anatomicals
+# (t1w/t2w) are deliberately left unfiltered: in multi-session studies the
+# anatomical is often acquired in a single session and shared, so filtering it
+# to a func session would leave fMRIPrep with no anatomical. (Matches mmmdata's
+# run_fmriprep.py.)
+_SESSION_FILTER_SUFFIXES = ("bold", "sbref", "fmap")
 
 
 def write_session_filter(path: str | Path, session: str) -> Path:
-    """Write a BIDS filter JSON restricting all modalities to *session*.
+    """Write a BIDS filter JSON restricting functional acquisitions to *session*.
 
-    Returns the written path. Both ``build_fmriprep_command`` and the GUI's
-    sbatch-template path use this so there is a single definition of what a
-    per-session filter means.
+    Anatomicals are left unfiltered (see ``_SESSION_FILTER_SUFFIXES``). Returns
+    the written path. Both ``build_fmriprep_command`` and the GUI's sbatch-
+    template path use this so there is a single definition of a per-session
+    filter.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

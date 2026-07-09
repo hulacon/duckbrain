@@ -7,10 +7,13 @@ from duckbrain.core.fmriprep import build_fmriprep_command, write_session_filter
 from duckbrain.core.nordic import get_bold_runs
 
 
-def test_write_session_filter_restricts_all_modalities(tmp_path):
+def test_write_session_filter_restricts_functional_only(tmp_path):
+    # Anatomicals (t1w/t2w) must stay unfiltered so a shared, single-session
+    # anatomical is still found when processing a different func session.
     p = write_session_filter(tmp_path / "f.json", "02")
     data = json.loads(p.read_text())
-    assert set(data) == {"bold", "sbref", "fmap", "t1w", "t2w"}
+    assert set(data) == {"bold", "sbref", "fmap"}
+    assert "t1w" not in data and "t2w" not in data
     assert all(v == {"session": "02"} for v in data.values())
 
 
