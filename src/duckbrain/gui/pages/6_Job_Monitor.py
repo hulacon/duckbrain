@@ -48,7 +48,7 @@ if jobs:
             ],
             axis=1,
         ),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 else:
@@ -93,7 +93,7 @@ if history:
             ],
             axis=1,
         ),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 else:

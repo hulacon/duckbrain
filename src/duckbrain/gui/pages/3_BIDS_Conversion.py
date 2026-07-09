@@ -88,7 +88,7 @@ series_df = pd.DataFrame(
         for s in series_list
     ]
 )
-st.dataframe(series_df, use_container_width=True, hide_index=True)
+st.dataframe(series_df, width="stretch", hide_index=True)
 
 # ---- Fieldmap Detection ----
 fieldmaps = detect_fieldmaps(series_list)
@@ -146,7 +146,7 @@ if seed_mapping:
                 for e in seed_mapping
             ]
         ),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         disabled=["Series #", "Description", "Role"],
         key="task_run_mapping_editor",

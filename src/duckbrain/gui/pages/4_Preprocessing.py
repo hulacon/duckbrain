@@ -173,7 +173,7 @@ with tab_fmriprep:
                         except Exception as e:
                             results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
 
-                st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
 
 # ============================================================
 # NORDIC Tab
@@ -245,7 +245,7 @@ with tab_nordic:
                     except Exception as e:
                         results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
 
-            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
 
 # ============================================================
 # MRIQC Tab
@@ -305,4 +305,4 @@ with tab_mriqc:
                     except Exception as e:
                         results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
 
-            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)

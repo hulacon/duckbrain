@@ -73,7 +73,7 @@ st.dataframe(
         ],
         axis=1,
     ),
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
 )
 
@@ -94,7 +94,7 @@ try:
                 hover_data=id_cols,
             )
             fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 except ImportError:
     st.info("Install plotly for interactive distribution charts.")
 
@@ -106,7 +106,7 @@ if modality == "bold" and fmriprep_dir.is_dir():
         motion_id_cols = [c for c in ["sub", "ses", "task", "run"] if c in motion_df.columns]
         motion_display = motion_id_cols + ["mean_fd", "max_fd", "pct_high_motion", "n_volumes"]
         motion_display = [c for c in motion_display if c in motion_df.columns]
-        st.dataframe(motion_df[motion_display], use_container_width=True, hide_index=True)
+        st.dataframe(motion_df[motion_display], width="stretch", hide_index=True)
 
         # Motion scatter plot
         try:
@@ -119,7 +119,7 @@ if modality == "bold" and fmriprep_dir.is_dir():
                     hover_data=motion_id_cols,
                     title="Motion: Mean FD vs % High Motion Frames",
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
         except Exception:
             pass
     else:

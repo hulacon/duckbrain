@@ -49,7 +49,7 @@ if ingested:
     st.subheader("Already Ingested")
     ingested_df = pd.DataFrame(ingested)
     ingested_df["path"] = ingested_df["path"].astype(str)
-    st.dataframe(ingested_df, use_container_width=True, hide_index=True)
+    st.dataframe(ingested_df, width="stretch", hide_index=True)
 
 # ---- Discover available sessions ----
 st.subheader("Available DICOM Sessions")
@@ -84,7 +84,7 @@ if st.session_state.get("_ingest_folders") != folder_key:
     st.session_state["_editor_rev"] = 0
 
 # ---- Auto-session numbering ----
-if st.button("Auto-assign session numbers by date"):
+if st.button("Auto-assign subjects & sessions by date"):
     from duckbrain.core.ingestion import auto_number_sessions
 
     mappings = auto_number_sessions(
@@ -120,7 +120,7 @@ edited_df = st.data_editor(
         "bids_subject": st.column_config.TextColumn("BIDS Subject", help="e.g., 01"),
         "bids_session": st.column_config.TextColumn("BIDS Session", help="e.g., 01"),
     },
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
     key=f"session_editor_{st.session_state['_editor_rev']}",
 )
@@ -172,7 +172,7 @@ if not selected.empty:
                 progress.progress((i + 1) / len(valid))
 
             st.subheader("Ingestion Results")
-            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
 
 # ---- BIDS Metadata Generation ----
 st.divider()
@@ -201,7 +201,7 @@ with col1:
                     )
                 else:
                     st.success(f"Written: `{tsv_path}` ({len(participants_df)} subjects)")
-                    st.dataframe(participants_df, use_container_width=True, hide_index=True)
+                    st.dataframe(participants_df, width="stretch", hide_index=True)
             except Exception as e:
                 st.error(f"Error: {e}")
 
