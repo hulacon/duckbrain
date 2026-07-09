@@ -33,9 +33,12 @@ now, fs_license stays a text field.
   personal sandbox; a new user needs their own OOD sandbox or `launch.sh` +
   tunnel. A shared/RACS-published OOD app is the long-term answer.
 
-## 3. fMRIPrep step
-- Validate end-to-end (container `fmriprep-24.1.1.simg` present). Needs a
-  FreeSurfer license (still a TODO in the user config). Runs via SLURM, not inline.
+## 3. fMRIPrep step — run live (last unrun core stage)
+- Command validated against mmmdata's `run_fmriprep.py` (every substantive flag
+  matches); container `fmriprep-24.1.1.simg` present; FS license now in user
+  config (`/home/bhutch/licenses/fs_license.txt`). Blocker is just the live run:
+  submit one DIVATTEN subject (single-session, anat+func) via SLURM and monitor
+  via the Jobs page. Runs via SLURM, not inline.
 
 ## 4. Naming / discovery robustness (from the LCNI survey)
 - `G##_S##` session style not recognized (parser needs "ses" prefix).
@@ -48,7 +51,9 @@ now, fs_license stays a text field.
 ## 5. Config / mapping niceties
 - Project-wide (vs per-subject/session) task/run mapping option: define once,
   inherit across subjects; per-subject override for exceptions.
-- MRIQC container not present — QC-via-MRIQC not runnable until one is pulled.
+- MRIQC now runnable — `mriqc-24.0.2.simg` present, user config aligned to
+  `mriqc_version = "24.0.2"`. Still needs a live end-to-end run + QC-dashboard
+  validation.
 
 ## 6. Per-subject pipeline status matrix (state awareness)
 duckbrain keeps **no state store** — every page re-derives "what exists" live

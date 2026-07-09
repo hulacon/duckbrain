@@ -121,9 +121,9 @@ duckbrain/
 
 | Page | Purpose |
 |------|---------|
-| **1. Project Setup** | First-run wizard — set paths, SLURM settings, container locations. Validates paths and writes `config/local.toml`. |
-| **2. Data Ingestion** | Browse LCNI DICOM sessions, assign BIDS subject/session labels, symlink or copy into sourcedata. |
-| **3. BIDS Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export conversion job. |
+| **1. Project Setup** | First-run wizard — pick the project directory, set SLURM settings and shared container/license locations. Writes shared settings to `~/.config/duckbrain/config.toml` and project settings to `<project>/code/duckbrain.toml`. |
+| **2. Data Ingestion** | Browse LCNI DICOM sessions, auto-assign BIDS subject/session labels by date, symlink or copy into sourcedata, generate participants.tsv. |
+| **3. BIDS Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export a conversion job — or bulk-convert all unconverted sessions at once. |
 | **4. Preprocessing** | Tabbed interface for fMRIPrep, NORDIC, and MRIQC — select subjects/sessions, configure options, submit SLURM jobs or export scripts. |
 | **5. QC Dashboard** | MRIQC metrics table with IQR outlier highlighting, Plotly distribution plots, motion summary, per-run keep/exclude/investigate decisions. |
 | **6. Job Monitor** | Live squeue table, sacct job history, log viewer with stdout/stderr. |

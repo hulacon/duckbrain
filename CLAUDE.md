@@ -21,17 +21,29 @@ Distribution to other users is via `git clone` from
 `git@github.com:hulacon/duckbrain.git`, so this directory is just the personal
 dev/working copy.
 
-## Current status (as of 2026-07-08)
+## Current status (as of 2026-07-09)
 
-- **Feature-complete across all 3 planned phases.** Every file in `PLAN.md`'s
-  structure exists, plus extras: `core/bids_metadata.py`, `core/dicom_sorter.py`,
-  and a full Open OnDemand app (`ondemand/`).
-- **20 unit tests pass** (`python -m pytest tests/ -v`). These are unit-level.
-- **Committed and pushed** — `main` is in sync with `origin` (HEAD `c4b6310`).
-- **Not yet validated end-to-end against real data.** There is no
-  `config/local.toml` (only the shipped `config/base.toml`), so the pipeline has
-  never been pointed at a real BIDS dir / LCNI DICOM source here. The remaining
-  work is validation, not building — see "Next steps."
+- **Feature-complete across all 3 planned phases**, plus extras:
+  `core/bids_metadata.py`, `core/dicom_sorter.py`, a full Open OnDemand app
+  (`ondemand/`), and bulk BIDS conversion.
+- **69 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
+  smoke/interaction tests for GUI pages.
+- **Committed and pushed** — `main` in sync with `origin` (HEAD `cead6af`; this
+  hash drifts, treat as "latest").
+- **DICOM→BIDS validated end-to-end on real data.** Real dcm2bids conversion of
+  DIVATTEN subjects produces BIDS whose imaging filename set is **identical** to
+  the canonical heudiconv output at `/projects/hulacon/shared/divatten/bids_data`.
+  Validated through the GUI (job 45178139 completed clean).
+- **fMRIPrep command validated against mmmdata** (`code/mmmdata/scripts/
+  run_fmriprep.py`) — every substantive flag matches. **Not yet run live** —
+  that's the main remaining validation (see "Next steps").
+- **Validation projects** (real data, on Talapas):
+  - Source DICOMs: `/projects/lcni/dcm/hulacon/Hutchinson/divatten` (37 subj,
+    single-session, read-only).
+  - BIDS projects: `/projects/hulacon/bhutch/divatten` (sub-001 done) and
+    `/projects/hulacon/bhutch/divatten_gui_beta` (GUI dogfooding).
+- See `TODO.md` for the prioritized backlog and `memory/` (via MEMORY.md) for
+  detailed findings from each validation session.
 
 ## Environment / setup
 
@@ -58,11 +70,18 @@ dev/working copy.
      (name, `dcm_source`, `use_sessions`, SLURM account/partition)
 
   The **project directory is the anchor**: `bids_dir`/`sourcedata_dir`/
-  `derivatives_dir`/`code_dir` are derived from it. Choose it via
+  `derivatives_dir`/`code_dir`/`log_dir` are derived from it. Choose it via
   `load_config(project_dir=...)` or the `DUCKBRAIN_PROJECT_DIR` env var (the GUI
-  Setup page and the OOD form's "Project directory" field both set it). `work_dir`
-  defaults to `/tmp` (node-local scratch). See `src/duckbrain/config.py`:
-  `load_config`, `save_user_config`, `save_project_config`, `scaffold_project`.
+  Setup page and the OOD form's "Project directory" field both set it). See
+  `src/duckbrain/config.py`: `load_config`, `save_user_config`,
+  `save_project_config`, `scaffold_project`, `derive_paths`.
+
+  **Scratch vs. shared-FS split (important):** `work_dir` defaults to `/tmp`
+  (node-local scratch — correct for heavy fMRIPrep intermediates). But SLURM
+  **logs, submitted sbatch scripts, and BIDS filter files must live on shared FS**,
+  or a failed job's log is stranded on the compute node and unreadable from the
+  login node / GUI. Those go to the derived `log_dir` (`<project>/logs`); all
+  sbatch templates' `--output` and the Job Monitor's log viewer point there.
 
 ## Open OnDemand app (primary way to launch on Talapas)
 
@@ -92,11 +111,14 @@ Key behaviors to know when editing the app:
 
 ## Next steps (validation, in order)
 
-1. Create a `config/local.toml` for a real study; confirm `load_config()` and the
-   Project Setup wizard work.
-2. Launch the GUI (OnDemand sandbox app or `scripts/launch.sh`) and walk pages
-   1→6 to catch render/runtime issues.
-3. Dry-run one real LCNI DICOM session: ingestion → dcm2bids config generation,
-   comparing output against a known-good mmmdata BIDS mapping.
-4. Export (don't submit) one sbatch per step and diff against the mmmdata
-   originals before any live SLURM submission.
+DICOM→BIDS is validated end-to-end (see status). Remaining, roughly in order:
+
+1. **Run fMRIPrep live** on one DIVATTEN subject (single-session, anat+func) and
+   monitor via the Jobs page. The command is validated against mmmdata and the
+   container + FS license are in place; this is the last unrun core stage.
+2. Continue GUI dogfooding in `divatten_gui_beta` (bulk convert the remaining
+   subjects, then MRIQC now that a container is present) and fix rough edges.
+3. Onboarding: QUICKSTART + README refresh + the OOD distribution story
+   (TODO #2).
+4. Longer-term: per-subject pipeline status matrix (TODO #6) and the
+   naming/discovery robustness items (TODO #4).
