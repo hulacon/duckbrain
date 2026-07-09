@@ -9,7 +9,7 @@ description = "General-purpose neuroimaging toolbox with Streamlit GUI for LCNI/
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
-    "streamlit>=1.30",
+    "streamlit>=1.48",
     "jinja2>=3.1",
     "pandas>=2.0",
     "nibabel>=5.0",

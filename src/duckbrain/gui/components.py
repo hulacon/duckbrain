@@ -7,8 +7,20 @@ from pathlib import Path
 import streamlit as st
 
 
-_DP_GRID_COLS = 3
 _DP_MAX_BUTTONS = 300
+_DP_LIST_HEIGHT = 280
+
+
+def _nearest_dir(path: str) -> Path:
+    """Deepest existing directory at or above *path* (home as last resort)."""
+    p = Path(path) if path else Path.home()
+    for candidate in (p, *p.parents):
+        try:
+            if candidate.is_dir():
+                return candidate
+        except OSError:
+            continue
+    return Path.home()
 
 
 def directory_picker(
@@ -25,29 +37,40 @@ def directory_picker(
     The GUI runs on the compute node, so this browses the *server's* filesystem
     (a native OS dialog would open on the wrong machine; a recursive-glob tree
     component would choke on large HPC trees). It lists one level at a time
-    (a single ``iterdir``): **click a folder to open it**, use ⬆ Up to go up, or
-    type / paste a full path. With ``allow_create`` a new folder can be made.
-    The currently shown directory is the selection. Returns its path string.
+    (a single ``iterdir``).
+
+    Selection model: the text field holds the **committed** selection (type or
+    paste a path directly). The "Browse" expander below it navigates without
+    committing — clicking folders/breadcrumbs reruns only a fragment, not the
+    whole page — until **✓ Use this folder** commits the browsed directory.
+    With ``allow_create`` a new folder can be made. Returns the committed path.
     """
-    cur_key = f"__dp_{key}"
+    sel_key = f"__dp_{key}"        # committed selection (= text input state)
+    cwd_key = f"__dp_{key}_cwd"    # directory the browser is currently showing
     new_key = f"__dp_{key}_new"
     err_key = f"__dp_{key}_err"
     flt_key = f"__dp_{key}_flt"
 
-    if cur_key not in st.session_state:
-        st.session_state[cur_key] = default or str(Path.home())
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = default or str(Path.home())
+    if cwd_key not in st.session_state:
+        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
+
+    def _typed():
+        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
+
+    def _commit():
+        # runs before widgets instantiate, so writing the text input's state is legal
+        st.session_state[sel_key] = st.session_state[cwd_key]
 
     def _goto(target):
-        st.session_state[cur_key] = str(target)
+        st.session_state[cwd_key] = str(target)
         st.session_state[flt_key] = ""
-
-    def _up():
-        _goto(Path(st.session_state[cur_key]).parent)
 
     def _create():
         name = (st.session_state.get(new_key) or "").strip()
         if name:
-            target = Path(st.session_state[cur_key]) / name
+            target = Path(st.session_state[cwd_key]) / name
             try:
                 target.mkdir(parents=True, exist_ok=True)
                 _goto(target)
@@ -55,58 +78,73 @@ def directory_picker(
             except OSError as e:
                 st.session_state[err_key] = str(e)
 
-    st.text_input(label, key=cur_key, help=help or "Click a folder to open it, or type / paste a full path.")
-    cur = Path(st.session_state[cur_key]) if st.session_state[cur_key] else None
+    st.text_input(label, key=sel_key, on_change=_typed,
+                  help=help or "Type / paste a path, or pick one with Browse below.")
 
-    bar = st.columns([1, 1, 3]) if allow_create else st.columns([1, 4])
-    bar[0].button("⬆ Up", key=f"{key}_up", on_click=_up, use_container_width=True)
-    if allow_create:
-        with bar[1].expander("➕ New"):
-            st.text_input("New folder name", key=new_key, label_visibility="collapsed",
-                          placeholder="folder name")
-            st.button("Create here", key=f"{key}_mk", on_click=_create)
-    flt = bar[-1].text_input("filter", key=flt_key, placeholder="filter folders…",
-                             label_visibility="collapsed")
+    @st.fragment
+    def _browser():
+        cwd = Path(st.session_state[cwd_key])
 
-    subdirs: list[str] = []
-    unreadable = False
-    if cur and cur.is_dir():
+        # breadcrumb — click any segment to jump straight there
+        crumbs = cwd.parts
+        with st.container(horizontal=True, gap=None, vertical_alignment="center"):
+            for i, part in enumerate(crumbs):
+                if i >= 2:
+                    st.markdown("/")
+                st.button(part, key=f"{key}_bc{i}", type="tertiary",
+                          on_click=_goto, args=(Path(*crumbs[: i + 1]),))
+
+        bar = st.columns([3, 1]) if allow_create else st.columns([1])
+        flt = bar[0].text_input("filter", key=flt_key, placeholder="filter folders…",
+                                label_visibility="collapsed")
+        if allow_create:
+            with bar[1].popover("➕ New", width="stretch"):
+                st.text_input("New folder name", key=new_key, placeholder="folder name")
+                st.button("Create here", key=f"{key}_mk", on_click=_create)
+                if (err := st.session_state.pop(err_key, None)):
+                    st.error(f"Could not create folder: {err}")
+
+        subdirs: list[str] = []
+        unreadable = False
         try:
             subdirs = sorted(
-                d.name for d in cur.iterdir() if d.is_dir() and not d.name.startswith(".")
+                d.name for d in cwd.iterdir() if d.is_dir() and not d.name.startswith(".")
             )
         except OSError:
             unreadable = True
-    if flt:
-        subdirs = [d for d in subdirs if flt.lower() in d.lower()]
+        if flt:
+            subdirs = [d for d in subdirs if flt.lower() in d.lower()]
 
-    if unreadable:
-        st.caption("🚫 cannot read this directory")
-    elif subdirs:
-        cols = st.columns(_DP_GRID_COLS)
-        for i, name in enumerate(subdirs[:_DP_MAX_BUTTONS]):
-            cols[i % _DP_GRID_COLS].button(
-                f"📁 {name}", key=f"{key}_d{i}", on_click=_goto,
-                args=(cur / name,), use_container_width=True,
-            )
-        if len(subdirs) > _DP_MAX_BUTTONS:
-            st.caption(f"… {len(subdirs) - _DP_MAX_BUTTONS} more — narrow with the filter")
-    elif cur and cur.is_dir():
-        st.caption("(no subfolders here)" if not flt else "(no folders match the filter)")
+        with st.container(height=_DP_LIST_HEIGHT, border=True):
+            if unreadable:
+                st.caption("🚫 cannot read this directory")
+            elif not subdirs:
+                st.caption("(no subfolders here)" if not flt else "(no folders match the filter)")
+            else:
+                for i, name in enumerate(subdirs[:_DP_MAX_BUTTONS]):
+                    st.button(f"📁 {name}", key=f"{key}_d{i}", type="tertiary",
+                              on_click=_goto, args=(cwd / name,))
+                if len(subdirs) > _DP_MAX_BUTTONS:
+                    st.caption(f"… {len(subdirs) - _DP_MAX_BUTTONS} more — narrow with the filter")
 
-    if (err := st.session_state.pop(err_key, None)):
-        st.error(f"Could not create folder: {err}")
+        if st.button("✓ Use this folder", key=f"{key}_use", type="primary",
+                     on_click=_commit):
+            st.rerun(scope="app")  # propagate the new selection to the whole page
 
-    if not st.session_state[cur_key]:
+    with st.expander("📂 Browse"):
+        _browser()
+
+    sel = st.session_state[sel_key]
+    if not sel:
         st.caption("No folder selected.")
-    elif cur and cur.is_dir():
-        st.caption(f"✓ Selected: `{cur}`")
+    elif Path(sel).is_dir():
+        st.caption(f"✓ Selected: `{sel}`")
     elif must_exist:
-        st.caption(f"⚠ does not exist: `{st.session_state[cur_key]}`")
+        st.caption(f"⚠ does not exist: `{sel}`")
     else:
-        st.caption(f"↳ will be created: `{st.session_state[cur_key]}`")
+        st.caption(f"↳ will be created: `{sel}`")
 
-    return st.session_state[cur_key]
+    return sel
 
 
 def job_card(job_id: str, name: str, state: str, time_used: str = "", partition: str = ""):

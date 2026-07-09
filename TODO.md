@@ -3,27 +3,27 @@
 Prioritized backlog. Newest priorities at the top. See `PLAN.md` for the
 original design and `CLAUDE.md` for current status.
 
-## 1. Folder picker UX (TOP PRIORITY)
+## 1. Folder picker UX — reworked 2026-07-09, needs live look
 
-`components.directory_picker` works and is HPC-safe (lazy, one `iterdir` per
-level — a recursive-glob tree component like `streamlit-file-browser` chokes on
-`/projects/lcni/dcm`), but the UX is **still suboptimal** and needs another pass.
+`components.directory_picker` was rebuilt (still in-house: `streamlit-explorer`'s
+`DirPicker` was evaluated — it IS lazy/HPC-safe, but v0.1.0 with 2 commits and
+no `must_exist`/create-folder/default-path support; we adopted its good ideas
+instead of the dependency). Still lazy, one `iterdir` per level. New model:
 
-Known/candidate issues to address (confirm specifics with user):
-- Every folder click triggers a full Streamlit rerun → feels sluggish, loses
-  scroll position on long folder lists.
-- Grid of `📁` buttons is visually heavy; no breadcrumb to jump up multiple
-  levels at once (only single-step ⬆ Up).
-- Selection model ("the current directory is the selection") may be unclear vs.
-  an explicit "Use this folder" button.
-- Folders only — no file view (needed for e.g. FreeSurfer license, which is
-  currently a plain text field; picker is dirs-only).
-- "➕ New folder" is tucked in an expander.
+- Text field = **committed** selection; browsing lives in a collapsed
+  "📂 Browse" expander whose body is an `st.fragment` — folder clicks rerun
+  only the fragment, not the page (fixes sluggishness/scroll loss).
+- Clickable **breadcrumb** jumps up any number of levels; single-column list of
+  tertiary `📁` buttons in a scrollable container (lighter than the old grid).
+- Explicit **"✓ Use this folder"** commits (via `on_click` callback +
+  `st.rerun(scope="app")`); typing/pasting a path still commits directly.
+- Requires Streamlit ≥ 1.48 (horizontal containers) — pyproject bumped.
+- Covered by `tests/test_gui_components.py` (AppTest: navigate/commit/
+  breadcrumb/filter/create/must_exist).
 
-Directions to consider: breadcrumb navigation; an explicit select button; a
-lighter list style; a file-mode for single-file selection (fs_license);
-possibly a custom lazy-loading tree if worth the effort. Get concrete feedback
-from the user on what felt off before reworking again.
+Remaining: eyeball it in a real browser session (AppTest can't judge feel);
+file-mode for fs_license deliberately deferred — dirs-only is all we need for
+now, fs_license stays a text field.
 
 ## 2. Onboarding for external users
 - Dogfood the GUI new-user path fully, fix rough edges, then write a lean
