@@ -49,3 +49,24 @@ now, fs_license stays a text field.
 - Project-wide (vs per-subject/session) task/run mapping option: define once,
   inherit across subjects; per-subject override for exceptions.
 - MRIQC container not present — QC-via-MRIQC not runnable until one is pulled.
+
+## 6. Per-subject pipeline status matrix (state awareness)
+duckbrain keeps **no state store** — every page re-derives "what exists" live
+from the filesystem via BIDS naming (ingestion reads `sourcedata/sub-XX/dicom`,
+preprocessing globs `bids_dir/sub-*`, QC reads `derivatives/{fmriprep,mriqc}`).
+This is nicely tool-agnostic (external heudiconv/fMRIPrep output is picked up so
+long as it lands in the standard paths), but it has real gaps:
+- **Presence ≠ completion.** A crashed/half-finished fMRIPrep leaves a
+  `derivatives/fmriprep/sub-XX` dir that looks identical to a complete one.
+  Nothing checks a success/completion marker.
+- **No done-vs-todo view.** Pages list all candidates; they don't tell you which
+  subjects still need conversion / fMRIPrep / MRIQC. User has to eyeball it.
+- **Job Monitor is ephemeral** — only what SLURM still remembers, no durable
+  record of what duckbrain submitted.
+
+Proposal: a dashboard status matrix (rows = subjects, cols = ingested /
+converted / fMRIPrep / MRIQC) computed from **completion markers**, not mere
+folder presence — e.g. dcm2bids success, fMRIPrep's `.html` report or
+`dataset_description.json` in the derivative, MRIQC group TSV. Distinguish
+complete / partial-or-failed / missing. This is the concrete form of the
+long-mooted "pipeline DAG/dependency tracking" idea.
