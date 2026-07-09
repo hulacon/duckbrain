@@ -124,6 +124,9 @@ def derive_paths(config: dict, project_dir: str | Path) -> dict:
         "sourcedata_dir": str(project_dir / "sourcedata"),
         "derivatives_dir": str(project_dir / "derivatives"),
         "code_dir": str(project_dir / "code"),
+        # SLURM logs + submitted scripts must live on shared FS (not node-local
+        # work_dir=/tmp), or a failed job's log is stranded on the compute node.
+        "log_dir": str(project_dir / "logs"),
     }
     for key, value in derived.items():
         if not paths.get(key):
@@ -217,7 +220,7 @@ def scaffold_project(project_dir: str | Path) -> Path:
     Returns the project directory. Idempotent.
     """
     project_dir = Path(project_dir)
-    for sub in ("sourcedata", "derivatives", "code"):
+    for sub in ("sourcedata", "derivatives", "code", "logs"):
         (project_dir / sub).mkdir(parents=True, exist_ok=True)
     return project_dir
 

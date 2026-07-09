@@ -233,6 +233,11 @@ ctx = build_context(
     force=force,
 )
 
+# Logs + submitted scripts go to the project's shared log_dir (not node-local
+# work_dir=/tmp), so a failed job's log stays reachable from the GUI/login node.
+log_dir = paths.get("log_dir", "") or f"{paths.get('work_dir', '/tmp')}/logs"
+job_tag = f"{subject}_{session}" if session else subject
+
 # Submit conversion
 if convert_btn and parsed_config:
     # Save config first if not already saved
@@ -240,12 +245,12 @@ if convert_btn and parsed_config:
     save_dcm2bids_config(parsed_config, config_json_path)
 
     try:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)  # SLURM won't create --output dir
         sbatch_content = render_sbatch("dcm2bids", ctx)
         from duckbrain.slurm.submit import submit_job
 
-        work_dir = paths.get("work_dir", "/tmp")
-        job_id = submit_job(sbatch_content, f"dcm2bids_{subject}_{session}", scripts_dir=f"{work_dir}/scripts")
-        st.success(f"Job submitted! Job ID: **{job_id}**")
+        job_id = submit_job(sbatch_content, f"dcm2bids_{job_tag}", scripts_dir=log_dir)
+        st.success(f"Job submitted! Job ID: **{job_id}** — logs will appear in `{log_dir}`")
     except Exception as e:
         st.error(f"Submission failed: {e}")
 
@@ -253,8 +258,7 @@ if convert_btn and parsed_config:
 if export_btn and parsed_config:
     try:
         sbatch_content = render_sbatch("dcm2bids", ctx)
-        work_dir = paths.get("work_dir", ".")
-        export_path = Path(work_dir) / "scripts" / f"dcm2bids_{subject}_{session}.sbatch"
+        export_path = Path(log_dir) / f"dcm2bids_{job_tag}.sbatch"
         from duckbrain.slurm.submit import export_script
 
         export_script(sbatch_content, export_path)

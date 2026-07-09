@@ -4,7 +4,7 @@
 #SBATCH --time={{ slurm.time }}
 #SBATCH --cpus-per-task={{ slurm.cpus }}
 #SBATCH --mem={{ slurm.memory }}
-#SBATCH --output={{ paths.work_dir }}/logs/nordic_%A_%a.out
+#SBATCH --output={{ paths.log_dir }}/nordic_%A_%a.out
 #SBATCH --array=1-{{ bold_count }}
 {% if slurm.email %}#SBATCH --mail-user={{ slurm.email }}
 #SBATCH --mail-type={{ slurm.mail_type }}

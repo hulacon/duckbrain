@@ -20,10 +20,16 @@ paths = config.get("paths", {})
 bids_dir = paths.get("bids_dir", "")
 derivatives_dir = paths.get("derivatives_dir", "")
 work_dir = paths.get("work_dir", "")
+# Logs, submitted scripts, and BIDS filter files must be on shared FS (not
+# node-local work_dir=/tmp): SLURM logs are read back from the login node, and
+# a filter file passed to a compute-node job must be visible there.
+log_dir = paths.get("log_dir", "") or f"{work_dir}/logs"
 
 if not bids_dir or not Path(bids_dir).is_dir():
     st.error("BIDS directory not found. Check Project Setup.")
     st.stop()
+
+Path(log_dir).mkdir(parents=True, exist_ok=True)
 
 # ---- Discover subjects/sessions ----
 bids_path = Path(bids_dir)
@@ -146,7 +152,7 @@ with tab_fmriprep:
                         filter_file = ""
                         if ses:
                             filter_file = str(write_session_filter(
-                                Path(work_dir) / "scripts" / f"bids_filter_{tag}.json", ses))
+                                Path(log_dir) / f"bids_filter_{tag}.json", ses))
                         ctx = build_context(
                             config, "fmriprep",
                             subject=sub, session=ses,
@@ -164,11 +170,11 @@ with tab_fmriprep:
                             script = render_sbatch("fmriprep", ctx)
                             if fp_submit:
                                 from duckbrain.slurm.submit import submit_job
-                                job_id = submit_job(script, f"fmriprep_{tag}", scripts_dir=f"{work_dir}/scripts")
+                                job_id = submit_job(script, f"fmriprep_{tag}", scripts_dir=log_dir)
                                 results.append({"subject": sub, "session": ses, "job_id": job_id, "status": "submitted"})
                             else:
                                 from duckbrain.slurm.submit import export_script
-                                path = export_script(script, Path(work_dir) / "scripts" / f"fmriprep_{tag}.sbatch")
+                                path = export_script(script, Path(log_dir) / f"fmriprep_{tag}.sbatch")
                                 results.append({"subject": sub, "session": ses, "path": str(path), "status": "exported"})
                         except Exception as e:
                             results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
@@ -236,11 +242,11 @@ with tab_nordic:
                         script = render_sbatch("nordic_denoise", ctx)
                         if nd_submit:
                             from duckbrain.slurm.submit import submit_job
-                            job_id = submit_job(script, f"nordic_{tag}", scripts_dir=f"{work_dir}/scripts")
+                            job_id = submit_job(script, f"nordic_{tag}", scripts_dir=log_dir)
                             results.append({"subject": sub, "session": ses, "job_id": job_id, "status": "submitted"})
                         else:
                             from duckbrain.slurm.submit import export_script
-                            path = export_script(script, Path(work_dir) / "scripts" / f"nordic_{tag}.sbatch")
+                            path = export_script(script, Path(log_dir) / f"nordic_{tag}.sbatch")
                             results.append({"subject": sub, "session": ses, "path": str(path), "status": "exported"})
                     except Exception as e:
                         results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
@@ -296,11 +302,11 @@ with tab_mriqc:
                         script = render_sbatch("mriqc", ctx)
                         if mq_submit:
                             from duckbrain.slurm.submit import submit_job
-                            job_id = submit_job(script, f"mriqc_{tag}", scripts_dir=f"{work_dir}/scripts")
+                            job_id = submit_job(script, f"mriqc_{tag}", scripts_dir=log_dir)
                             results.append({"subject": sub, "session": ses, "job_id": job_id, "status": "submitted"})
                         else:
                             from duckbrain.slurm.submit import export_script
-                            path = export_script(script, Path(work_dir) / "scripts" / f"mriqc_{tag}.sbatch")
+                            path = export_script(script, Path(log_dir) / f"mriqc_{tag}.sbatch")
                             results.append({"subject": sub, "session": ses, "path": str(path), "status": "exported"})
                     except Exception as e:
                         results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})

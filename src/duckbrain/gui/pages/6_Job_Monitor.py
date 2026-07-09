@@ -109,9 +109,9 @@ with col2:
     try:
         from duckbrain.config import load_config
         config = load_config()
-        log_dir = config.get("paths", {}).get("work_dir", "")
-        if log_dir:
-            log_dir = f"{log_dir}/logs"
+        # Logs live on shared FS under the project (log_dir), not node-local
+        # work_dir=/tmp — otherwise a failed job's log is stranded on its node.
+        log_dir = config.get("paths", {}).get("log_dir", "")
     except Exception:
         log_dir = ""
     log_dir = st.text_input("Log directory", value=log_dir)
