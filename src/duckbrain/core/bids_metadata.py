@@ -89,12 +89,10 @@ def write_participants_tsv(
 
     new_participants = [p for p in participants if p["participant_id"] not in existing_ids]
 
-    if not new_participants and not existing_ids:
-        # First write
-        new_participants = participants
-
-    if new_participants:
-        write_header = not tsv_path.exists()
+    # Always ensure the file exists with a header, even with nothing to add, so
+    # the returned path is valid (an empty BIDS participants.tsv is header-only).
+    write_header = not tsv_path.exists()
+    if write_header or new_participants:
         with open(tsv_path, "a", newline="") as f:
             writer = csv.DictWriter(f, fields, dialect="excel-tab", extrasaction="ignore")
             if write_header:
@@ -195,10 +193,14 @@ def generate_participants_from_sourcedata(
             continue
         seen_subjects.add(subject_id)
 
-        # Find any DICOM directory for this subject
+        # Find any DICOM directory for this subject. Handles both the
+        # single-session layout (sub-XX/dicom) and the multi-session layout
+        # (sub-XX/ses-YY/dicom).
         demographics = {"sex": "", "age": None}
-        for ses_dir in sorted(sub_dir.iterdir()):
-            dicom_dir = ses_dir / "dicom"
+        dicom_dirs = [sub_dir / "dicom"] + [
+            d / "dicom" for d in sorted(sub_dir.iterdir()) if d.is_dir()
+        ]
+        for dicom_dir in dicom_dirs:
             if dicom_dir.exists():
                 demographics = read_dicom_demographics(dicom_dir)
                 if demographics["sex"] or demographics["age"] is not None:

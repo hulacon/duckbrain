@@ -178,9 +178,16 @@ with col1:
 
             try:
                 tsv_path = generate_participants_from_sourcedata(sourcedata_dir, bids_dir)
-                st.success(f"Written: `{tsv_path}`")
                 participants_df = pd.read_csv(tsv_path, sep="\t")
-                st.dataframe(participants_df, use_container_width=True, hide_index=True)
+                if participants_df.empty:
+                    st.warning(
+                        f"No ingested subjects found under `{sourcedata_dir}` — "
+                        "ingest sessions above first. Wrote a header-only "
+                        f"`{tsv_path}`."
+                    )
+                else:
+                    st.success(f"Written: `{tsv_path}` ({len(participants_df)} subjects)")
+                    st.dataframe(participants_df, use_container_width=True, hide_index=True)
             except Exception as e:
                 st.error(f"Error: {e}")
 
