@@ -40,6 +40,85 @@ sessions_by_sub = {}
 for s in ingested:
     sessions_by_sub.setdefault(s["subject"], []).append(s["session"])
 
+# ---- Bulk conversion (skips per-session review) ----
+bids_dir = paths.get("bids_dir", "")
+from duckbrain.core.conversion import (
+    resolve_dicom_dir,
+    session_bids_exists,
+    generate_session_config,
+    save_dcm2bids_config,
+    get_container_path,
+)
+from duckbrain.core.ingestion import sub_ses_relpath
+
+# Compute conversion status once (rglob per session is not free on shared FS).
+converted_map = {
+    (s["subject"], s["session"]): session_bids_exists(bids_dir, s["subject"], s["session"])
+    for s in ingested
+}
+
+with st.expander(f"⚡ Bulk convert all ingested sessions "
+                 f"({sum(not v for v in converted_map.values())} unconverted of {len(ingested)})"):
+    st.caption(
+        "Submits one dcm2bids job per session using the **automatic** task/run "
+        "mapping — no per-session review. A session that already has a saved "
+        "`dcm2bids_config.json` reuses it (your review isn't overwritten). Good for "
+        "dogfooding / large batches; for careful per-study work use the review flow below."
+    )
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {"subject": s["subject"], "session": s["session"] or "(none)",
+                 "converted": "✓" if converted_map[(s["subject"], s["session"])] else ""}
+                for s in ingested
+            ]
+        ),
+        width="stretch", hide_index=True,
+    )
+
+    bulk_force = st.checkbox(
+        "Reconvert already-converted sessions (dcm2bids --force)", value=False, key="bulk_force"
+    )
+    target = [s for s in ingested if bulk_force or not converted_map[(s["subject"], s["session"])]]
+
+    if st.button(f"Submit conversion for {len(target)} session(s)",
+                 type="primary", key="bulk_submit", disabled=not target):
+        from duckbrain.slurm.templates import render_sbatch, build_context
+        from duckbrain.slurm.submit import submit_job
+
+        container_path = get_container_path(config)
+        log_dir = paths.get("log_dir", "") or f"{paths.get('work_dir', '/tmp')}/logs"
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+        results = []
+        prog = st.progress(0.0)
+        for i, s in enumerate(target):
+            sub, ses = s["subject"], s["session"]
+            tag = f"{sub}_{ses}" if ses else sub
+            try:
+                dicom_dir_b = resolve_dicom_dir(sourcedata_dir, sub, ses)
+                cfg_path = Path(sourcedata_dir) / sub_ses_relpath(sub, ses) / "dcm2bids_config.json"
+                if not cfg_path.exists():  # honor a previously reviewed/saved config
+                    save_dcm2bids_config(generate_session_config(dicom_dir_b, sub, ses), cfg_path)
+                ctx_b = build_context(
+                    config, "dcm2bids", subject=sub, session=ses,
+                    dicom_dir=str(dicom_dir_b), config_json=str(cfg_path),
+                    config_json_dir=str(cfg_path.parent), container_path=str(container_path),
+                    force=bulk_force,
+                )
+                job_id = submit_job(render_sbatch("dcm2bids", ctx_b), f"dcm2bids_{tag}", scripts_dir=log_dir)
+                results.append({"subject": sub, "session": ses or "(none)",
+                                "job_id": job_id, "status": "submitted"})
+            except Exception as e:
+                results.append({"subject": sub, "session": ses or "(none)",
+                                "job_id": "—", "status": f"error: {e}"})
+            prog.progress((i + 1) / len(target))
+
+        st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
+        n_ok = sum(1 for r in results if r["status"] == "submitted")
+        st.success(f"Submitted {n_ok}/{len(target)} job(s). Logs in `{log_dir}`.")
+
+st.markdown("### Per-session review")
 col1, col2 = st.columns(2)
 with col1:
     subject = st.selectbox("Subject", subjects)

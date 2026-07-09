@@ -134,6 +134,52 @@ def save_dcm2bids_config(config_dict: dict, output_path: str | Path) -> Path:
     return output_path
 
 
+def resolve_dicom_dir(sourcedata_dir: str | Path, subject: str, session: str) -> Path:
+    """Path to a session's ingested DICOM dir, following the ingest symlink."""
+    from .ingestion import sub_ses_relpath
+
+    dicom_dir = Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dicom"
+    return dicom_dir.resolve() if dicom_dir.is_symlink() else dicom_dir
+
+
+def session_bids_exists(bids_dir: str | Path, subject: str, session: str) -> bool:
+    """Whether a session already has BIDS output (any NIfTI under its sub[/ses] dir).
+
+    Presence-based, not completion-based: a partial/failed conversion also counts
+    as "exists". Callers that want to redo it should pass force to dcm2bids.
+    """
+    from .ingestion import sub_ses_relpath
+
+    sub_dir = Path(bids_dir) / sub_ses_relpath(subject, session)
+    return sub_dir.is_dir() and any(sub_dir.rglob("*.nii.gz"))
+
+
+def generate_session_config(
+    dicom_dir: str | Path,
+    subject: str,
+    session: str,
+    template: str | None = None,
+) -> dict:
+    """Inspect a session's DICOMs and build a default dcm2bids config.
+
+    The non-interactive equivalent of the Conversion page's inspect → classify →
+    fieldmap → task/run mapping → generate_config pipeline, using the auto-derived
+    task/run mapping (no manual edits). Used for bulk conversion.
+    """
+    from .dicom_inspect import list_series, classify_series, detect_fieldmaps
+    from .dcm2bids_config import build_task_run_mapping, generate_config
+
+    series_list = list_series(dicom_dir)
+    if not series_list:
+        raise ValueError(f"No series directories found in {dicom_dir}")
+    classify_series(series_list)
+    fieldmaps = detect_fieldmaps(series_list)
+    mapping = build_task_run_mapping(series_list, template=template or None)
+    return generate_config(
+        series_list, fieldmaps, subject=subject, session=session, mapping=mapping
+    )
+
+
 def get_container_path(config: dict) -> Path:
     """Get the path to the dcm2bids Singularity image from config."""
     containers_dir = Path(config["paths"]["containers_dir"])
