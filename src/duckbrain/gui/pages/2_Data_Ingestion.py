@@ -59,23 +59,29 @@ if not sessions:
     st.warning("No session folders found in the DICOM source directory.")
     st.stop()
 
-# Build editable table
-session_data = []
-for s in sessions:
-    session_data.append(
-        {
-            "select": False,
-            "folder_name": s.folder_name,
-            "parsed_subject": s.parsed_subject,
-            "parsed_session": s.parsed_session,
-            "date": s.date,
-            "series_count": s.series_count,
-            "bids_subject": "",
-            "bids_session": "",
-        }
+# Build the editable table once and keep it in session_state so programmatic
+# edits (auto-assign) and manual edits survive reruns. Rebuild only when the
+# set of discovered folders changes, so a rerun (e.g. ticking a checkbox)
+# never wipes assigned subjects/sessions.
+folder_key = tuple(s.folder_name for s in sessions)
+if st.session_state.get("_ingest_folders") != folder_key:
+    st.session_state["_ingest_folders"] = folder_key
+    st.session_state["ingest_df"] = pd.DataFrame(
+        [
+            {
+                "select": False,
+                "folder_name": s.folder_name,
+                "parsed_subject": s.parsed_subject,
+                "parsed_session": s.parsed_session,
+                "date": s.date,
+                "series_count": s.series_count,
+                "bids_subject": "",
+                "bids_session": "",
+            }
+            for s in sessions
+        ]
     )
-
-df = pd.DataFrame(session_data)
+    st.session_state["_editor_rev"] = 0
 
 # ---- Auto-session numbering ----
 if st.button("Auto-assign session numbers by date"):
@@ -85,17 +91,25 @@ if st.button("Auto-assign session numbers by date"):
         sessions, use_sessions=config.get("project", {}).get("use_sessions", "auto")
     )
     mapping_lookup = {m.folder_name: m for m in mappings}
-    for i, row in df.iterrows():
+    base = st.session_state["ingest_df"]
+    for i, row in base.iterrows():
         m = mapping_lookup.get(row["folder_name"])
         if m:
-            df.at[i, "bids_subject"] = m.bids_subject
-            df.at[i, "bids_session"] = m.bids_session
-    st.success(f"Auto-assigned sessions for {len(set(m.bids_subject for m in mappings))} subject(s)")
+            base.at[i, "bids_subject"] = m.bids_subject
+            base.at[i, "bids_session"] = m.bids_session
+    # Bump the editor key so it reloads from the freshly-populated base.
+    st.session_state["_editor_rev"] += 1
+    n_subj = len(set(m.bids_subject for m in mappings))
+    used_sessions = any(m.bids_session for m in mappings)
+    msg = f"Auto-assigned {n_subj} subject(s)"
+    if not used_sessions:
+        msg += " — single-session study, so BIDS Session is left blank (by design)."
+    st.success(msg)
 
 st.markdown("Edit the **bids_subject** and **bids_session** columns to assign BIDS identifiers, then select sessions to ingest.")
 
 edited_df = st.data_editor(
-    df,
+    st.session_state["ingest_df"],
     column_config={
         "select": st.column_config.CheckboxColumn("Select", default=False),
         "folder_name": st.column_config.TextColumn("Folder Name", disabled=True),
@@ -108,7 +122,7 @@ edited_df = st.data_editor(
     },
     use_container_width=True,
     hide_index=True,
-    key="session_editor",
+    key=f"session_editor_{st.session_state['_editor_rev']}",
 )
 
 # ---- Ingestion ----
