@@ -28,8 +28,10 @@ def get_bold_runs(
     list[Path]
         Paths to *_bold.nii.gz files, sorted.
     """
+    from .ingestion import sub_ses_relpath
+
     bids_dir = Path(bids_dir)
-    func_dir = bids_dir / f"sub-{subject}" / f"ses-{session}" / "func"
+    func_dir = bids_dir / sub_ses_relpath(subject, session) / "func"
 
     if not func_dir.is_dir():
         return []

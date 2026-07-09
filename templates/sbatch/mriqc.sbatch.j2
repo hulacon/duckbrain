@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=mriqc_{{ subject }}_{{ session }}
+#SBATCH --job-name=mriqc_{{ subject }}{% if session %}_{{ session }}{% endif %}
 #SBATCH --partition={{ slurm.partition }}
 #SBATCH --time={{ slurm.time }}
 #SBATCH --cpus-per-task={{ slurm.cpus }}
@@ -9,11 +9,11 @@
 #SBATCH --mail-type={{ slurm.mail_type }}
 {% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
 {% endif %}
-echo "=== MRIQC: sub-{{ subject }} ses-{{ session }} ==="
+echo "=== MRIQC: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif %} ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-WORK_DIR={{ paths.work_dir }}/mriqc_sub-{{ subject }}_ses-{{ session }}
+WORK_DIR={{ paths.work_dir }}/mriqc_sub-{{ subject }}{% if session %}_ses-{{ session }}{% endif %}
 OUTPUT_DIR={{ paths.derivatives_dir }}/mriqc
 mkdir -p $WORK_DIR $OUTPUT_DIR
 

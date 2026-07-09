@@ -7,6 +7,24 @@ import subprocess
 from pathlib import Path
 
 
+_SESSION_FILTER_SUFFIXES = ("bold", "sbref", "fmap", "t1w", "t2w")
+
+
+def write_session_filter(path: str | Path, session: str) -> Path:
+    """Write a BIDS filter JSON restricting all modalities to *session*.
+
+    Returns the written path. Both ``build_fmriprep_command`` and the GUI's
+    sbatch-template path use this so there is a single definition of what a
+    per-session filter means.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    bids_filter = {suf: {"session": session} for suf in _SESSION_FILTER_SUFFIXES}
+    with open(path, "w") as f:
+        json.dump(bids_filter, f, indent=2)
+    return path
+
+
 def build_fmriprep_command(
     bids_dir: str | Path,
     output_dir: str | Path,
@@ -113,18 +131,7 @@ def build_fmriprep_command(
     if bids_filter_file:
         cmd.extend(["--bids-filter-file", str(bids_filter_file)])
     elif session:
-        # Auto-generate a filter file
-        filter_path = work_dir / "bids_filter.json"
-        filter_path.parent.mkdir(parents=True, exist_ok=True)
-        bids_filter = {
-            "bold": {"session": session},
-            "sbref": {"session": session},
-            "fmap": {"session": session},
-            "t1w": {"session": session},
-            "t2w": {"session": session},
-        }
-        with open(filter_path, "w") as f:
-            json.dump(bids_filter, f, indent=2)
+        filter_path = write_session_filter(work_dir / "bids_filter.json", session)
         cmd.extend(["--bids-filter-file", str(filter_path)])
 
     if extra_args:

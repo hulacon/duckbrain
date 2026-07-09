@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=nordic_{{ subject }}_{{ session }}
+#SBATCH --job-name=nordic_{{ subject }}{% if session %}_{{ session }}{% endif %}
 #SBATCH --partition={{ slurm.partition }}
 #SBATCH --time={{ slurm.time }}
 #SBATCH --cpus-per-task={{ slurm.cpus }}
@@ -11,12 +11,12 @@
 {% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
 {% endif %}{% if nordic.excluded_nodes %}#SBATCH --exclude={{ nordic.excluded_nodes }}
 {% endif %}
-echo "=== NORDIC denoise: sub-{{ subject }} ses-{{ session }} (task ${SLURM_ARRAY_TASK_ID}) ==="
+echo "=== NORDIC denoise: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif %} (task ${SLURM_ARRAY_TASK_ID}) ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
 # Discover BOLD runs
-FUNC_DIR={{ paths.bids_dir }}/sub-{{ subject }}/ses-{{ session }}/func
+FUNC_DIR={{ paths.bids_dir }}/sub-{{ subject }}{% if session %}/ses-{{ session }}{% endif %}/func
 BOLD_FILES=($(ls ${FUNC_DIR}/*_bold.nii.gz 2>/dev/null | sort))
 NUM_RUNS=${#BOLD_FILES[@]}
 
@@ -31,7 +31,7 @@ BOLD_IN=${BOLD_FILES[$IDX]}
 echo "Processing: $BOLD_IN"
 
 # Output directory
-OUT_DIR={{ paths.derivatives_dir }}/nordic/sub-{{ subject }}/ses-{{ session }}/func
+OUT_DIR={{ paths.derivatives_dir }}/nordic/sub-{{ subject }}{% if session %}/ses-{{ session }}{% endif %}/func
 mkdir -p $OUT_DIR
 
 # Check if already processed

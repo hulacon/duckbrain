@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=fmriprep_{{ subject }}_{{ session }}
+#SBATCH --job-name=fmriprep_{{ subject }}{% if session %}_{{ session }}{% endif %}
 #SBATCH --partition={{ slurm.partition }}
 #SBATCH --time={{ slurm.time }}
 #SBATCH --cpus-per-task={{ slurm.cpus }}
@@ -9,7 +9,7 @@
 #SBATCH --mail-type={{ slurm.mail_type }}
 {% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
 {% endif %}
-echo "=== fMRIPrep: sub-{{ subject }} ses-{{ session }} ==="
+echo "=== fMRIPrep: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif %} ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
@@ -17,7 +17,7 @@ export SINGULARITYENV_TEMPLATEFLOW_HOME={{ paths.work_dir }}/templateflow
 export SINGULARITY_TMPDIR={{ paths.work_dir }}/tmp
 mkdir -p $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
 
-WORK_DIR={{ paths.work_dir }}/sub-{{ subject }}_ses-{{ session }}
+WORK_DIR={{ paths.work_dir }}/sub-{{ subject }}{% if session %}_ses-{{ session }}{% endif %}
 mkdir -p $WORK_DIR
 
 singularity run --cleanenv \
