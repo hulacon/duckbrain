@@ -83,6 +83,27 @@ now, fs_license stays a text field.
   `mriqc_version = "24.0.2"`. Still needs a live end-to-end run + QC-dashboard
   validation.
 
+## 5b. NORDIC — wired into surveyor/cockpit 2026-07-10, still needs real validation
+`nordic` is now a surveyor stage (STAGES column, live-state overlay, cockpit
+launch + bulk) — completion = denoised BOLDs under
+`derivatives/nordic/sub-XX[/ses-YY]/func/*_bold.nii.gz`. Code (`core/nordic.py`,
+`scripts/nordic_denoise.m`, `templates/sbatch/nordic_denoise.sbatch.j2`, the
+Preprocessing NORDIC tab) is all present but **never run/validated in duckbrain**.
+Before NORDIC is real:
+- **Configure it:** `nordic_toolbox_dir` (NORDIC_Raw MATLAB toolbox) is unset in
+  user/project config; also needs MATLAB module on the compute node. Until set,
+  clicking "run nordic" in the cockpit produces a failed job (caught/shown).
+- **Validate:** one live run on a converted subject (mirror the fMRIPrep effort).
+- **Fix sessionless path bug:** `nordic_output_dir` / `build_nordic_bids_input`
+  hardcode `ses-{session}`, so sessionless data writes a malformed `ses-/func`
+  dir. The surveyor tracker tolerates it (wildcards), but a real run wouldn't.
+- **Decide chaining:** fMRIPrep currently depends only on `converted`, NOT on
+  `nordic` — so it runs on raw BIDS, not NORDIC-denoised input. If NORDIC→fMRIPrep
+  should chain, wire fmriprep's input to the nordic `bids_input` tree + add the
+  dependency. Left independent (optional branch) for now.
+- Optional: NORDIC column is always-on; for non-NORDIC projects it's a column of
+  ⚪. Fine for LCNI/mmmdata (NORDIC-common), revisit if noisy elsewhere.
+
 ## 6. Per-subject pipeline status matrix (state awareness) — IMPLEMENTED 2026-07-10
 **Done:** `core/surveyor.py` (`survey_project` → matrix, `summarize`) grades each
 `(subject, session)` × stage (ingested/converted/fmriprep/mriqc) as

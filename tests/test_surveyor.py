@@ -166,6 +166,42 @@ def test_mriqc_missing(tmp_path):
     assert df.loc[0, "mriqc"] == Status.MISSING
 
 
+# ---- nordic -----------------------------------------------------------------
+
+def test_nordic_complete_with_denoised_bold(tmp_path):
+    _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
+    nd = tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
+    _touch(nd / "sub-01_task-x_bold.nii.gz")
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "nordic"] == Status.COMPLETE
+
+
+def test_nordic_partial_when_dir_but_no_denoised_bold(tmp_path):
+    _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
+    # NORDIC output dir exists but the denoised bold never landed → crashed/partial.
+    (tmp_path / "derivatives" / "nordic" / "sub-01" / "func").mkdir(parents=True)
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "nordic"] == Status.PARTIAL
+
+
+def test_nordic_missing_when_no_derivative(tmp_path):
+    _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "nordic"] == Status.MISSING
+
+
+def test_nordic_sessionless_and_multisession_same_tracker(tmp_path):
+    # Sessionless output (nordic.py hardcodes an empty ses- dir for these).
+    _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
+    _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "ses-" / "func" / "sub-01_task-x_bold.nii.gz")
+    # Multi-session output.
+    _touch(tmp_path / "sub-02" / "ses-01" / "func" / "sub-02_ses-01_task-x_bold.nii.gz")
+    _touch(tmp_path / "derivatives" / "nordic" / "sub-02" / "ses-01" / "func" / "sub-02_ses-01_task-x_bold.nii.gz")
+    df = survey_project(_config(tmp_path))
+    assert df.set_index("subject").loc["01", "nordic"] == Status.COMPLETE
+    assert df.set_index("subject").loc["02", "nordic"] == Status.COMPLETE
+
+
 # ---- matrix + summary -------------------------------------------------------
 
 def test_survey_columns_and_empty_project(tmp_path):

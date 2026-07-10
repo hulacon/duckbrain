@@ -35,7 +35,7 @@ import pandas as pd
 
 from .ingestion import sub_ses_relpath
 
-STAGES = ("ingested", "converted", "fmriprep", "mriqc")
+STAGES = ("ingested", "converted", "nordic", "fmriprep", "mriqc")
 
 
 class Status(str, Enum):
@@ -199,9 +199,22 @@ def _mriqc_status(paths: dict, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
+def _nordic_status(paths: dict, subject: str, session: str) -> Status:
+    root = Path(paths["derivatives_dir"]) / "nordic"
+    if not root.is_dir():
+        return Status.MISSING
+    # Completion = NORDIC-denoised BOLD niftis under the unit's func dir. The `**`
+    # absorbs the optional session (and NORDIC's own hardcoded ``ses-`` for
+    # sessionless data — a known nordic.py path quirk), so one glob serves both
+    # layouts. A ``nordic/sub-XX`` dir with no denoised bold → partial (crashed).
+    required = [_fmt("{ss}/**/func/sub-{sub}*_bold.nii.gz", subject, session)]
+    return _status_from(root, required, _fmt("{ss}", subject, session))
+
+
 _TRACKERS = {
     "ingested": _ingested_status,
     "converted": _converted_status,
+    "nordic": _nordic_status,
     "fmriprep": _fmriprep_status,
     "mriqc": _mriqc_status,
 }

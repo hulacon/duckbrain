@@ -369,6 +369,8 @@ def survey_live(config: dict):
 
     overlay_stages = [s for s in STAGES if STAGE_SPECS.get(s) and STAGE_SPECS[s].is_slurm]
     for stage in overlay_stages:
+        if stage not in matrix.columns:  # defensive: stage w/o a surveyor column
+            continue
         prefix = STAGE_SPECS[stage].job_prefix
         vals = []
         for _, row in matrix.iterrows():
