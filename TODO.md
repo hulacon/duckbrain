@@ -14,7 +14,15 @@ live-state fusion (`survey_live`/`stage_runnable`), cockpit UI, and polish
 (guarded bulk "run whole stage", opt-in 30s auto-refresh, durable submission log
 `code/logs/submissions.tsv`, deep-links to full pages). 126 tests pass. Full plan
 + status tracker: **`docs/pipeline-cockpit.md`**.
-Remaining: eyeball in a live browser (AppTest can't judge feel) — dogfood pending.
+Dogfooded 2026-07-10: **functionally working** end-to-end. Remaining:
+- **Usability pass (deferred until functionality stable).** Ben's dogfood read:
+  the interface is "a little clunky." Do this once behavior is locked; collect
+  specific pain points before starting. Likely targets: the stacked
+  selectbox → params → button launch flow (lots of vertical scanning); single
+  launch vs. bulk vs. matrix reading as three separate blocks rather than one
+  board; per-cell action being indirect (choose from a dropdown vs. acting on the
+  cell you're looking at). Candidate directions: clickable/actionable matrix
+  cells, per-cell popover for the run controls, tighter layout density.
 
 ## 1. Folder picker UX — reworked 2026-07-09, needs live look
 
