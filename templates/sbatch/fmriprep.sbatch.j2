@@ -42,6 +42,7 @@ singularity run --cleanenv \
   -w $WORK_DIR \
 {% if anat_only %}  --anat-only \
 {% endif %}{% if derivatives %}  --derivatives {{ derivatives }} \
+{% endif %}{% if extra_flags is defined and extra_flags %}  {{ extra_flags }} \
 {% endif %}  --skip-bids-validation --notrack
 
 EXIT_CODE=$?

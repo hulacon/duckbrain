@@ -94,3 +94,14 @@ def test_fmriprep_templateflow_home_is_per_job():
     script = _fmriprep()
     tf_line = next(l for l in script.splitlines() if "TEMPLATEFLOW_HOME=" in l)
     assert "$WORK_DIR/templateflow" in tf_line
+
+
+def test_fmriprep_custom_flags_appended():
+    script = _fmriprep(extra_flags="--fs-no-reconall --dummy-scans 2")
+    assert "--fs-no-reconall --dummy-scans 2" in script
+
+
+def test_fmriprep_no_custom_flags_when_absent():
+    # StrictUndefined must not trip when extra_flags is omitted entirely.
+    script = _fmriprep()
+    assert "--skip-bids-validation --notrack" in script

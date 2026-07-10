@@ -114,6 +114,15 @@ with tab_fmriprep:
         fp_anat_only = st.checkbox("Anat-only mode", value=False)
         fp_use_derivatives = st.checkbox("Reuse anat derivatives", value=False)
 
+    fp_extra_flags = st.text_input(
+        "Custom fMRIPrep flags",
+        value=config.get("fmriprep", {}).get("extra_flags", ""),
+        help="Extra flags appended verbatim to the fMRIPrep command, e.g. "
+        "`--fs-no-reconall --dummy-scans 2 --bold2anat-dof 12`. Applied to every "
+        "selected subject/session. Don't repeat flags duckbrain already sets "
+        "(output spaces, nprocs, mem, -w, filter file).",
+    )
+
     # SLURM resources
     from duckbrain.config import get_slurm_resources
     fp_slurm = get_slurm_resources(config, "fmriprep")
@@ -165,7 +174,15 @@ with tab_fmriprep:
                             filter_file=filter_file,
                             anat_only=fp_anat_only,
                             derivatives=f"{derivatives_dir}/fmriprep" if fp_use_derivatives else "",
+                            extra_flags=fp_extra_flags.strip(),
                         )
+                        # GUI nprocs/mem_gb override the config defaults the
+                        # template reads from the fmriprep context.
+                        ctx["fmriprep"] = {
+                            **ctx.get("fmriprep", {}),
+                            "nprocs": int(fp_nprocs),
+                            "mem_gb": int(fp_mem),
+                        }
                         try:
                             script = render_sbatch("fmriprep", ctx)
                             if fp_submit:
