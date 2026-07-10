@@ -3,6 +3,16 @@
 Prioritized backlog. Newest priorities at the top. See `PLAN.md` for the
 original design and `CLAUDE.md` for current status.
 
+## 0. Pipeline cockpit — actionable Project Status board — PLANNED 2026-07-10
+Make the Project Status matrix actionable: each `(subject, session) × stage` cell
+shows status *and* offers a dependency-gated one-click "run next step". Extends
+the surveyor + the per-stage pages. Full phased build plan (controller extraction
+→ live SLURM-state fusion → cockpit UI), lift estimate, risks, and a
+broken-pipe-resumable status tracker in **`docs/pipeline-cockpit.md`**. Not
+started. Open decision for Ben: is ingestion in or out of the actionable board
+for v1 (recommendation: out — synchronous + raw-folder mapping doesn't fit the
+cell-action model).
+
 ## 1. Folder picker UX — reworked 2026-07-09, needs live look
 
 `components.directory_picker` was rebuilt (still in-house: `streamlit-explorer`'s
