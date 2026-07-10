@@ -126,7 +126,9 @@ def derive_paths(config: dict, project_dir: str | Path) -> dict:
         "code_dir": str(project_dir / "code"),
         # SLURM logs + submitted scripts must live on shared FS (not node-local
         # work_dir=/tmp), or a failed job's log is stranded on the compute node.
-        "log_dir": str(project_dir / "logs"),
+        # Kept under code/ (a BIDS-reserved dir) so no .bidsignore entry is needed
+        # to stay validator-clean.
+        "log_dir": str(project_dir / "code" / "logs"),
     }
     for key, value in derived.items():
         if not paths.get(key):
@@ -214,14 +216,46 @@ def save_project_config(project_dir: str | Path, data: dict) -> Path:
     return _dump_toml(project_config_path(project_dir), data)
 
 
+# Top-level directories duckbrain creates that are NOT BIDS-reserved names
+# (BIDS reserves only sourcedata/, derivatives/, code/, phenotype/, stimuli/).
+# Listing them in .bidsignore keeps the project-dir == BIDS-root layout
+# validator-clean — the standards-alignment that lets us keep the single-dir
+# layout instead of Nipoppy's nested bids/ envelope. See the
+# nipoppy-status-tracking notes.
+_BIDSIGNORE_ENTRIES = ("work/",)
+
+
+def write_bidsignore(project_dir: str | Path) -> Path:
+    """Ensure a ``.bidsignore`` at the project root covers duckbrain's non-BIDS dirs.
+
+    Idempotent and non-destructive: preserves any user-added lines and only
+    appends the duckbrain entries that are missing.
+    """
+    path = Path(project_dir) / ".bidsignore"
+    existing = path.read_text().splitlines() if path.exists() else []
+    present = {line.strip() for line in existing}
+    missing = [e for e in _BIDSIGNORE_ENTRIES if e not in present]
+    if not missing:
+        return path
+
+    lines = list(existing)
+    if not existing:
+        lines.append("# Non-BIDS working dirs created by duckbrain (keeps the")
+        lines.append("# project-dir==BIDS-root layout validator-clean).")
+    lines.extend(missing)
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
 def scaffold_project(project_dir: str | Path) -> Path:
     """Create the standard BIDS-ish project layout (sourcedata/derivatives/code).
 
     Returns the project directory. Idempotent.
     """
     project_dir = Path(project_dir)
-    for sub in ("sourcedata", "derivatives", "code", "logs"):
+    for sub in ("sourcedata", "derivatives", "code", "code/logs"):
         (project_dir / sub).mkdir(parents=True, exist_ok=True)
+    write_bidsignore(project_dir)
     return project_dir
 
 

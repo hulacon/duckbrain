@@ -80,7 +80,8 @@ dev/working copy.
   (node-local scratch — correct for heavy fMRIPrep intermediates). But SLURM
   **logs, submitted sbatch scripts, and BIDS filter files must live on shared FS**,
   or a failed job's log is stranded on the compute node and unreadable from the
-  login node / GUI. Those go to the derived `log_dir` (`<project>/logs`); all
+  login node / GUI. Those go to the derived `log_dir` (`<project>/code/logs`,
+  kept under the BIDS-reserved `code/` so no `.bidsignore` entry is needed); all
   sbatch templates' `--output` and the Job Monitor's log viewer point there.
 
 ## Open OnDemand app (primary way to launch on Talapas)

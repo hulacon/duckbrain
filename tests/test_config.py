@@ -165,3 +165,26 @@ def test_derived_paths_dont_override_explicit(tmp_config_dir, tmp_path):
     config = load_config(tmp_config_dir, project_dir=project)
     assert config["paths"]["sourcedata_dir"] == "/elsewhere/raw"
     assert config["paths"]["derivatives_dir"] == str(project / "derivatives")
+
+
+def test_scaffold_writes_bidsignore(tmp_path):
+    """scaffold_project drops a .bidsignore covering duckbrain's non-BIDS dirs."""
+    from duckbrain.config import scaffold_project
+
+    scaffold_project(tmp_path)
+    entries = (tmp_path / ".bidsignore").read_text().split()
+    assert "work/" in entries
+    # logs live under code/ (BIDS-reserved) now, so they need no ignore entry.
+    assert "logs/" not in entries
+    assert (tmp_path / "code" / "logs").is_dir()
+
+
+def test_write_bidsignore_idempotent_and_preserves_user_lines(tmp_path):
+    from duckbrain.config import write_bidsignore
+
+    (tmp_path / ".bidsignore").write_text("my_custom_scratch/\n")
+    write_bidsignore(tmp_path)
+    write_bidsignore(tmp_path)  # second call must not duplicate
+    lines = [l for l in (tmp_path / ".bidsignore").read_text().splitlines() if l.strip()]
+    assert "my_custom_scratch/" in lines
+    assert lines.count("work/") == 1

@@ -55,7 +55,18 @@ now, fs_license stays a text field.
   `mriqc_version = "24.0.2"`. Still needs a live end-to-end run + QC-dashboard
   validation.
 
-## 6. Per-subject pipeline status matrix (state awareness)
+## 6. Per-subject pipeline status matrix (state awareness) — IMPLEMENTED 2026-07-10
+**Done:** `core/surveyor.py` (`survey_project` → matrix, `summarize`) grades each
+`(subject, session)` × stage (ingested/converted/fmriprep/mriqc) as
+complete/partial/missing by **expected-output globs**, not folder presence —
+borrowing Nipoppy's tracker idea but for duckbrain's flat layout, with the
+sessionless-glob and layout-shim pain points designed out. Surfaced in the new
+`gui/pages/0_Project_Status.py` dashboard (color matrix + rollup). Validated on
+`divatten_gui_beta` (correctly flags mid-run fMRIPrep as partial). 19 new tests.
+Remaining ideas: durable submission log (Job Monitor is still ephemeral); a
+`nipoppy`-compatible `processing_status.tsv` export; port `surveyor.py` back to
+mmmdata. Original rationale below.
+
 duckbrain keeps **no state store** — every page re-derives "what exists" live
 from the filesystem via BIDS naming (ingestion reads `sourcedata/sub-XX/dicom`,
 preprocessing globs `bids_dir/sub-*`, QC reads `derivatives/{fmriprep,mriqc}`).

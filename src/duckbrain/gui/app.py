@@ -35,6 +35,7 @@ def main():
         LCNI/Talapas HPC users at UO.
 
         ### Pipeline Steps
+        - **Project Status** — See at a glance what's done, half-done, or left per subject
         1. **Project Setup** — Configure paths, SLURM settings, containers
         2. **Data Ingestion** — Import DICOMs from LCNI export
         3. **BIDS Conversion** — Convert DICOMs to BIDS format via dcm2bids
