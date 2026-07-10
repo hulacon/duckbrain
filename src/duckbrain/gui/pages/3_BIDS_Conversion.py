@@ -83,30 +83,15 @@ with st.expander(f"⚡ Bulk convert all ingested sessions "
 
     if st.button(f"Submit conversion for {len(target)} session(s)",
                  type="primary", key="bulk_submit", disabled=not target):
-        from duckbrain.slurm.templates import render_sbatch, build_context
-        from duckbrain.slurm.submit import submit_job
+        from duckbrain.core.pipeline import advance_one, _resolve_log_dir
 
-        container_path = get_container_path(config)
-        log_dir = paths.get("log_dir", "") or f"{paths.get('work_dir', '/tmp')}/logs"
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
-
+        log_dir = _resolve_log_dir(config)
         results = []
         prog = st.progress(0.0)
         for i, s in enumerate(target):
             sub, ses = s["subject"], s["session"]
-            tag = f"{sub}_{ses}" if ses else sub
             try:
-                dicom_dir_b = resolve_dicom_dir(sourcedata_dir, sub, ses)
-                cfg_path = Path(sourcedata_dir) / sub_ses_relpath(sub, ses) / "dcm2bids_config.json"
-                if not cfg_path.exists():  # honor a previously reviewed/saved config
-                    save_dcm2bids_config(generate_session_config(dicom_dir_b, sub, ses), cfg_path)
-                ctx_b = build_context(
-                    config, "dcm2bids", subject=sub, session=ses,
-                    dicom_dir=str(dicom_dir_b), config_json=str(cfg_path),
-                    config_json_dir=str(cfg_path.parent), container_path=str(container_path),
-                    force=bulk_force,
-                )
-                job_id = submit_job(render_sbatch("dcm2bids", ctx_b), f"dcm2bids_{tag}", scripts_dir=log_dir)
+                job_id = advance_one(config, "converted", sub, ses, force=bulk_force)
                 results.append({"subject": sub, "session": ses or "(none)",
                                 "job_id": job_id, "status": "submitted"})
             except Exception as e:

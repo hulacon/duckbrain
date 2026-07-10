@@ -18,7 +18,6 @@ except FileNotFoundError:
 
 paths = config.get("paths", {})
 bids_dir = paths.get("bids_dir", "")
-derivatives_dir = paths.get("derivatives_dir", "")
 work_dir = paths.get("work_dir", "")
 # Logs, submitted scripts, and BIDS filter files must be on shared FS (not
 # node-local work_dir=/tmp): SLURM logs are read back from the login node, and
@@ -80,11 +79,6 @@ def _session_picker(selected_subjects: list[str], key: str) -> tuple[list[str], 
     return [], []
 
 
-def _tag(subject: str, session: str) -> str:
-    """Job/script name fragment: ``sub_ses`` when session present, else ``sub``."""
-    return f"{subject}_{session}" if session else subject
-
-
 # ---- Tabs ----
 tab_fmriprep, tab_nordic, tab_mriqc = st.tabs(["fMRIPrep", "NORDIC", "MRIQC"])
 
@@ -141,62 +135,27 @@ with tab_fmriprep:
         elif fp_study_sessions and not fp_sessions:
             st.error("Select at least one session.")
         else:
-            from duckbrain.slurm.templates import render_sbatch, build_context
-            from duckbrain.core.fmriprep import (
-                get_container_path, find_fs_license, write_session_filter,
-            )
+            from duckbrain.core.pipeline import advance_one
 
-            container = get_container_path(config)
-            fs_license = find_fs_license(config)
-            if not fs_license:
-                st.error("FreeSurfer license not found. Set it in Project Setup.")
-            else:
-                output_dir = f"{derivatives_dir}/fmriprep"
-                results = []
-                for sub in fp_subjects:
-                    for ses in _targets(sub, fp_sessions):
-                        tag = _tag(sub, ses)
-                        # Restrict fMRIPrep to this session via a BIDS filter file
-                        # (only meaningful for multi-session subjects).
-                        filter_file = ""
-                        if ses:
-                            filter_file = str(write_session_filter(
-                                Path(log_dir) / f"bids_filter_{tag}.json", ses))
-                        ctx = build_context(
-                            config, "fmriprep",
-                            subject=sub, session=ses,
-                            bids_dir=bids_dir,
-                            output_dir=output_dir,
-                            container_path=str(container),
-                            fs_license=str(fs_license),
-                            fs_license_dir=str(fs_license.parent),
-                            output_spaces=fp_spaces.split(),
-                            filter_file=filter_file,
-                            anat_only=fp_anat_only,
-                            derivatives=f"{derivatives_dir}/fmriprep" if fp_use_derivatives else "",
-                            extra_flags=fp_extra_flags.strip(),
+            results = []
+            for sub in fp_subjects:
+                for ses in _targets(sub, fp_sessions):
+                    try:
+                        ref = advance_one(
+                            config, "fmriprep", sub, ses,
+                            export_only=fp_export,
+                            output_spaces=fp_spaces, anat_only=fp_anat_only,
+                            use_derivatives=fp_use_derivatives,
+                            extra_flags=fp_extra_flags, nprocs=fp_nprocs, mem_gb=fp_mem,
                         )
-                        # GUI nprocs/mem_gb override the config defaults the
-                        # template reads from the fmriprep context.
-                        ctx["fmriprep"] = {
-                            **ctx.get("fmriprep", {}),
-                            "nprocs": int(fp_nprocs),
-                            "mem_gb": int(fp_mem),
-                        }
-                        try:
-                            script = render_sbatch("fmriprep", ctx)
-                            if fp_submit:
-                                from duckbrain.slurm.submit import submit_job
-                                job_id = submit_job(script, f"fmriprep_{tag}", scripts_dir=log_dir)
-                                results.append({"subject": sub, "session": ses, "job_id": job_id, "status": "submitted"})
-                            else:
-                                from duckbrain.slurm.submit import export_script
-                                path = export_script(script, Path(log_dir) / f"fmriprep_{tag}.sbatch")
-                                results.append({"subject": sub, "session": ses, "path": str(path), "status": "exported"})
-                        except Exception as e:
-                            results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
+                        if fp_submit:
+                            results.append({"subject": sub, "session": ses, "job_id": ref, "status": "submitted"})
+                        else:
+                            results.append({"subject": sub, "session": ses, "path": ref, "status": "exported"})
+                    except Exception as e:
+                        results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
 
-                st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
+            st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
 
 # ============================================================
 # NORDIC Tab
@@ -235,36 +194,17 @@ with tab_nordic:
         elif nd_study_sessions and not nd_sessions:
             st.error("Select at least one session.")
         else:
-            from duckbrain.slurm.templates import render_sbatch, build_context
-            from duckbrain.core.nordic import get_bold_runs
-            import sys
+            from duckbrain.core.pipeline import advance_one
 
-            scripts_dir = Path(__file__).resolve().parents[4] / "scripts"
             results = []
             for sub in nd_subjects:
                 for ses in _targets(sub, nd_sessions):
-                    tag = _tag(sub, ses)
-                    bolds = get_bold_runs(bids_dir, sub, ses)
-                    if not bolds:
-                        results.append({"subject": sub, "session": ses, "status": "no BOLD files"})
-                        continue
-                    ctx = build_context(
-                        config, "nordic",
-                        subject=sub, session=ses,
-                        bold_count=len(bolds),
-                        scripts_dir=str(scripts_dir),
-                        python_cmd=sys.executable,
-                    )
                     try:
-                        script = render_sbatch("nordic_denoise", ctx)
+                        ref = advance_one(config, "nordic", sub, ses, export_only=nd_export)
                         if nd_submit:
-                            from duckbrain.slurm.submit import submit_job
-                            job_id = submit_job(script, f"nordic_{tag}", scripts_dir=log_dir)
-                            results.append({"subject": sub, "session": ses, "job_id": job_id, "status": "submitted"})
+                            results.append({"subject": sub, "session": ses, "job_id": ref, "status": "submitted"})
                         else:
-                            from duckbrain.slurm.submit import export_script
-                            path = export_script(script, Path(log_dir) / f"nordic_{tag}.sbatch")
-                            results.append({"subject": sub, "session": ses, "path": str(path), "status": "exported"})
+                            results.append({"subject": sub, "session": ses, "path": ref, "status": "exported"})
                     except Exception as e:
                         results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
 
@@ -298,33 +238,17 @@ with tab_mriqc:
         elif mq_study_sessions and not mq_sessions:
             st.error("Select at least one session.")
         else:
-            from duckbrain.slurm.templates import render_sbatch, build_context
-            from duckbrain.core.mriqc import get_container_path as get_mriqc_container
+            from duckbrain.core.pipeline import advance_one
 
-            container = get_mriqc_container(config)
             results = []
             for sub in mq_subjects:
                 for ses in _targets(sub, mq_sessions):
-                    tag = _tag(sub, ses)
-                    # Parse memory as integer GB
-                    mem_str = mq_slurm.get("memory", "16G")
-                    mem_gb = int(mem_str.replace("G", "").replace("g", ""))
-                    ctx = build_context(
-                        config, "mriqc",
-                        subject=sub, session=ses,
-                        container_path=str(container),
-                        mem_gb=mem_gb,
-                    )
                     try:
-                        script = render_sbatch("mriqc", ctx)
+                        ref = advance_one(config, "mriqc", sub, ses, export_only=mq_export)
                         if mq_submit:
-                            from duckbrain.slurm.submit import submit_job
-                            job_id = submit_job(script, f"mriqc_{tag}", scripts_dir=log_dir)
-                            results.append({"subject": sub, "session": ses, "job_id": job_id, "status": "submitted"})
+                            results.append({"subject": sub, "session": ses, "job_id": ref, "status": "submitted"})
                         else:
-                            from duckbrain.slurm.submit import export_script
-                            path = export_script(script, Path(log_dir) / f"mriqc_{tag}.sbatch")
-                            results.append({"subject": sub, "session": ses, "path": str(path), "status": "exported"})
+                            results.append({"subject": sub, "session": ses, "path": ref, "status": "exported"})
                     except Exception as e:
                         results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
 

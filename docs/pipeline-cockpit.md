@@ -24,8 +24,8 @@ Owner: Ben Hutchinson. Started 2026-07-10. Extends the project surveyor
 | Phase | State | Commit | Notes |
 |---|---|---|---|
 | 0. Plan written | ✅ done | (this file) | — |
-| 1. Controller extraction (`core/pipeline.py`) | ⬜ not started | — | foundation; behavior-preserving |
-| 2. Live-state fusion (`survey_live`) | ⬜ not started | — | correctness linchpin; must precede UI |
+| 1. Controller extraction (`core/pipeline.py`) | ✅ done | (see git log) | `advance_one` + `STAGE_SPECS`; pages 3/4 refactored; 11 tests; 109 suite. Ingestion OUT of board for v1 (Ben agreed 2026-07-10). Per-session dcm2bids *review* submit in page 3 left inline (uses UI-reviewed config path — different semantics; follow-up if worth unifying). |
+| 2. Live-state fusion (`survey_live`) | ⬜ not started | — | correctness linchpin; must precede UI. NEXT. |
 | 3. Cockpit UI (rework `0_Project_Status.py`) | ⬜ not started | — | the actionable board |
 | 4. Polish (bulk/guards/durable log) | ⬜ optional | — | defer |
 
