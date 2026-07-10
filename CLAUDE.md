@@ -21,22 +21,37 @@ Distribution to other users is via `git clone` from
 `git@github.com:hulacon/duckbrain.git`, so this directory is just the personal
 dev/working copy.
 
-## Current status (as of 2026-07-09)
+## Current status (as of 2026-07-10)
 
 - **Feature-complete across all 3 planned phases**, plus extras:
   `core/bids_metadata.py`, `core/dicom_sorter.py`, a full Open OnDemand app
-  (`ondemand/`), and bulk BIDS conversion.
-- **69 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
+  (`ondemand/`), bulk BIDS conversion, and a **project surveyor + actionable
+  pipeline cockpit** (below).
+- **Pipeline cockpit (Project Status page, TODO #0).** The Project Status page
+  fuses filesystem completion (`core/surveyor.py`, graded by expected-output
+  globs) with live SLURM state (`core/pipeline.py` `survey_live`) and lets you
+  **launch the next step per unit** — dependency-gated, no double-submit on a
+  running job. Built in 4 phases: controller extraction (`advance_one` +
+  `STAGE_SPECS`, which the stage pages now also call), live-state fusion,
+  cockpit UI, and polish (guarded bulk run, opt-in 30s auto-refresh, durable
+  submission log `code/logs/submissions.tsv`, deep-links). Stages tracked:
+  `ingested, converted, nordic, fmriprep, mriqc`. Full design + resumable status
+  tracker in `docs/pipeline-cockpit.md`.
+- **130 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
   smoke/interaction tests for GUI pages.
-- **Committed and pushed** — `main` in sync with `origin` (HEAD `cead6af`; this
-  hash drifts, treat as "latest").
+- **Committed and pushed** — `main` in sync with `origin` (HEAD drifts; latest
+  ~`957e49b`, treat as "latest").
 - **DICOM→BIDS validated end-to-end on real data.** Real dcm2bids conversion of
   DIVATTEN subjects produces BIDS whose imaging filename set is **identical** to
   the canonical heudiconv output at `/projects/hulacon/shared/divatten/bids_data`.
   Validated through the GUI (job 45178139 completed clean).
-- **fMRIPrep command validated against mmmdata** (`code/mmmdata/scripts/
-  run_fmriprep.py`) — every substantive flag matches. **Not yet run live** —
-  that's the main remaining validation (see "Next steps").
+- **fMRIPrep now running live** (2026-07-10) — sub-04 and sub-015 in
+  `divatten_gui_beta`, launched via the GUI, past the FreeSurfer stage; 9 MRIQC
+  jobs also running in parallel (MRIQC depends only on `converted`, not fMRIPrep).
+  Command was validated against mmmdata (`code/mmmdata/scripts/run_fmriprep.py`);
+  this is the first live run. **NORDIC is wired into the surveyor/cockpit but
+  parked — unconfigured/unvalidated** (needs `nordic_toolbox_dir` + MATLAB + a
+  validation run; see TODO #5b).
 - **Validation projects** (real data, on Talapas):
   - Source DICOMs: `/projects/lcni/dcm/hulacon/Hutchinson/divatten` (37 subj,
     single-session, read-only).
@@ -112,14 +127,17 @@ Key behaviors to know when editing the app:
 
 ## Next steps (validation, in order)
 
-DICOM→BIDS is validated end-to-end (see status). Remaining, roughly in order:
+DICOM→BIDS is validated; fMRIPrep + MRIQC are now running live (see status).
+Remaining, roughly in order:
 
-1. **Run fMRIPrep live** on one DIVATTEN subject (single-session, anat+func) and
-   monitor via the Jobs page. The command is validated against mmmdata and the
-   container + FS license are in place; this is the last unrun core stage.
-2. Continue GUI dogfooding in `divatten_gui_beta` (bulk convert the remaining
-   subjects, then MRIQC now that a container is present) and fix rough edges.
-3. Onboarding: QUICKSTART + README refresh + the OOD distribution story
-   (TODO #2).
-4. Longer-term: per-subject pipeline status matrix (TODO #6) and the
-   naming/discovery robustness items (TODO #4).
+1. **Confirm the live fMRIPrep + MRIQC runs complete clean** (sub-04/sub-015
+   fMRIPrep + the 9 MRIQC jobs in `divatten_gui_beta`); check outputs and that the
+   cockpit flips them 🟢. First live run of both stages.
+2. **Cockpit usability pass** (TODO #0) — functionally working but Ben finds it
+   "a little clunky"; deferred until behavior is locked. Concrete gripe captured:
+   gated stages vanish from the launch dropdown (per-cell action would fix it).
+3. **NORDIC validation** (TODO #5b) — it's wired into the cockpit but parked:
+   set `nordic_toolbox_dir` + MATLAB, do one live run, fix the sessionless
+   `ses-` path bug, and decide on fMRIPrep chaining.
+4. Onboarding: QUICKSTART + README refresh + the OOD distribution story (TODO #2).
+5. Longer-term: naming/discovery robustness (TODO #4).

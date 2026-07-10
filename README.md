@@ -101,7 +101,9 @@ duckbrain/
 │   │   ├── fmriprep.py             # fMRIPrep command builder
 │   │   ├── nordic.py               # NORDIC MATLAB wrapper + BIDS input builder
 │   │   ├── mriqc.py                # MRIQC orchestration
-│   │   └── qc.py                   # QC metrics, outlier detection, decisions
+│   │   ├── qc.py                   # QC metrics, outlier detection, decisions
+│   │   ├── surveyor.py             # Per-unit × stage completion matrix (+ Nipoppy bagel)
+│   │   └── pipeline.py             # Stage controller (advance_one) + live SLURM-state fusion
 │   ├── slurm/
 │   │   ├── templates.py            # Jinja2 sbatch rendering
 │   │   ├── submit.py               # Job submission + dependency chaining
@@ -109,7 +111,7 @@ duckbrain/
 │   └── gui/
 │       ├── app.py                  # Streamlit main entrypoint
 │       ├── components.py           # Shared widgets
-│       └── pages/                  # 6 GUI pages (see below)
+│       └── pages/                  # 7 GUI pages (see below)
 ├── templates/sbatch/               # Jinja2 sbatch templates
 ├── scripts/
 │   ├── launch.sh                   # Start Streamlit on a compute node
@@ -121,6 +123,7 @@ duckbrain/
 
 | Page | Purpose |
 |------|---------|
+| **0. Project Status** | Pipeline cockpit. Per-`(subject, session)` × stage matrix (ingested → converted → nordic → fmriprep → mriqc) grading completion by **expected outputs** (a crashed run reads *partial*, not done) fused with **live SLURM state** (a running job reads *running*, never re-runnable). Launch the next step per unit — dependency-gated, with a guarded bulk run, opt-in auto-refresh, a durable submission log, and a Nipoppy bagel export. See `docs/pipeline-cockpit.md`. |
 | **1. Project Setup** | First-run wizard — pick the project directory, set SLURM settings and shared container/license locations. Writes shared settings to `~/.config/duckbrain/config.toml` and project settings to `<project>/code/duckbrain.toml`. |
 | **2. Data Ingestion** | Browse LCNI DICOM sessions, auto-assign BIDS subject/session labels by date, symlink or copy into sourcedata, generate participants.tsv. |
 | **3. BIDS Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export a conversion job — or bulk-convert all unconverted sessions at once. |
