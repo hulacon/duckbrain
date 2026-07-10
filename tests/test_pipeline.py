@@ -15,6 +15,8 @@ from duckbrain.core.pipeline import (
     SLURM_STAGES,
     PipelineError,
     advance_one,
+    read_submissions,
+    record_submission,
     stage_runnable,
     survey_live,
     tag_for,
@@ -270,3 +272,42 @@ def test_survey_live_graceful_when_slurm_unavailable(monkeypatch):
     row = survey_live({}).iloc[0]
     assert row["fmriprep_job"] == ""            # no overlay, no crash
     assert stage_runnable(row, "fmriprep") is True
+
+
+# ---- durable submission log -------------------------------------------------
+
+def test_advance_one_records_submission(monkeypatch, tmp_path):
+    cap = {}
+    _patch_dcm2bids(monkeypatch, tmp_path, cap)
+    cfg = _config(tmp_path)
+    advance_one(cfg, "converted", "008", "01")
+    subs = read_submissions(cfg)
+    assert len(subs) == 1
+    r = subs.iloc[0]
+    assert (r["stage"], r["subject"], r["session"], r["job_id"]) == ("converted", "008", "01", "JOB123")
+    assert r["timestamp"]  # non-empty ISO stamp
+
+
+def test_export_only_is_not_recorded(monkeypatch, tmp_path):
+    cap = {}
+    _patch_dcm2bids(monkeypatch, tmp_path, cap)
+    monkeypatch.setattr(P, "export_script", lambda content, path: path)
+    cfg = _config(tmp_path)
+    advance_one(cfg, "converted", "008", "", export_only=True)
+    assert read_submissions(cfg).empty
+
+
+def test_read_submissions_limit_and_order(tmp_path):
+    cfg = _config(tmp_path)
+    for i in range(5):
+        record_submission(cfg, "fmriprep", f"{i:03d}", "", f"J{i}")
+    recent = read_submissions(cfg, limit=3)
+    assert list(recent["subject"]) == ["002", "003", "004"]  # tail, oldest-first
+
+
+def test_submission_log_write_failure_never_sinks_submit(monkeypatch, tmp_path):
+    cap = {}
+    _patch_dcm2bids(monkeypatch, tmp_path, cap)
+    monkeypatch.setattr(P, "record_submission", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    # Submission still returns its job id despite the logging blowup.
+    assert advance_one(_config(tmp_path), "converted", "008", "") == "JOB123"

@@ -101,6 +101,41 @@ def test_run_button_invokes_advance_one(project, monkeypatch):
     assert "nprocs" in calls["params"] and "output_spaces" in calls["params"]
 
 
+def test_bulk_run_gated_by_confirm(project, monkeypatch):
+    calls = []
+
+    def fake_advance(config, stage, subject, session="", *, export_only=False, **params):
+        calls.append((stage, subject, session))
+        return "J"
+
+    monkeypatch.setattr(P, "advance_one", fake_advance)
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    bulk_btn = [b for b in at.button if b.label.startswith("▶▶ Run all")][0]
+    assert bulk_btn.disabled  # gated until the confirm checkbox is ticked
+
+    confirm = [c for c in at.checkbox if c.label.startswith("Yes —")][0]
+    confirm.set_value(True).run()
+    bulk_btn = [b for b in at.button if b.label.startswith("▶▶ Run all")][0]
+    assert not bulk_btn.disabled
+    bulk_btn.click().run()
+    assert not at.exception
+    # Default bulk stage is 'converted' (sorted first) → only sub-02 is ready.
+    assert ("converted", "02", "") in calls
+
+
+def test_submission_log_panel_renders(project):
+    # Pre-seed the durable log; the cockpit should surface it.
+    from duckbrain.core.pipeline import record_submission
+    from duckbrain.config import load_config
+    cfg = load_config(project_dir=str(project))
+    record_submission(cfg, "fmriprep", "01", "", "999001")
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert any((df.value.astype(str) == "999001").any().any() for df in at.dataframe)
+
+
 def test_running_job_shows_badge_and_blocks_rerun(project, monkeypatch):
     monkeypatch.setattr(
         P, "list_jobs",

@@ -20,8 +20,11 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
+
+import pandas as pd
 
 from ..slurm.monitor import job_history, list_jobs
 from ..slurm.submit import export_script, submit_job
@@ -249,7 +252,51 @@ def advance_one(
 
     if export_only:
         return str(export_script(script, Path(log_dir) / f"{job_name}.sbatch"))
-    return submit_job(script, job_name, scripts_dir=log_dir)
+
+    job_id = submit_job(script, job_name, scripts_dir=log_dir)
+    # Durable record of what we launched — survives past sacct's ~7-day window
+    # and is independent of the ephemeral Job Monitor. Never let logging failure
+    # sink an otherwise-successful submission.
+    try:
+        record_submission(config, stage, subject, session, job_id)
+    except Exception:
+        pass
+    return job_id
+
+
+# ---- durable submission log (cockpit phase 4) -------------------------------
+
+_SUBMISSION_LOG = "submissions.tsv"
+_SUBMISSION_COLUMNS = ["timestamp", "subject", "session", "stage", "job_id"]
+
+
+def _submission_log_path(config: dict) -> Path:
+    return Path(_resolve_log_dir(config)) / _SUBMISSION_LOG
+
+
+def record_submission(config: dict, stage: str, subject: str, session: str, job_id: str) -> Path:
+    """Append one launched job to ``<log_dir>/submissions.tsv`` (tab-separated).
+
+    Idempotent header: writes the column row only when creating the file.
+    """
+    path = _submission_log_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists()
+    ts = datetime.now().isoformat(timespec="seconds")
+    with open(path, "a") as f:
+        if write_header:
+            f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
+        f.write("\t".join([ts, subject, session, stage, str(job_id)]) + "\n")
+    return path
+
+
+def read_submissions(config: dict, limit: int | None = None) -> pd.DataFrame:
+    """Read the durable submission log (empty frame if none). Oldest-first."""
+    path = _submission_log_path(config)
+    if not path.exists():
+        return pd.DataFrame(columns=_SUBMISSION_COLUMNS)
+    df = pd.read_csv(path, sep="\t", dtype=str).fillna("")
+    return df.tail(limit) if limit else df
 
 
 # ---- live SLURM-state fusion (cockpit phase 2) ------------------------------
