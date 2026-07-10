@@ -23,6 +23,13 @@ Dogfooded 2026-07-10: **functionally working** end-to-end. Remaining:
   board; per-cell action being indirect (choose from a dropdown vs. acting on the
   cell you're looking at). Candidate directions: clickable/actionable matrix
   cells, per-cell popover for the run controls, tighter layout density.
+  - **Concrete confusion caught 2026-07-10:** the "Ready to run" dropdown only
+    lists *currently-runnable* (unit, stage) pairs, so a stage that's supported
+    but momentarily gated disappears entirely — e.g. with MRIQC running on every
+    subject, the dropdown showed only fMRIPrep and it read as "you can't run
+    MRIQC from here." The matrix still shows 🔵 running for it, but the *launch*
+    control hides it. A per-cell action (button on the cell you see, disabled +
+    labelled "running"/"needs converted") would remove this ambiguity.
 
 ## 1. Folder picker UX — reworked 2026-07-09, needs live look
 
