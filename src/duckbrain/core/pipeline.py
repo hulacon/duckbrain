@@ -23,8 +23,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from ..slurm.monitor import job_history, list_jobs
 from ..slurm.submit import export_script, submit_job
 from ..slurm.templates import build_context, render_sbatch
+from .surveyor import STAGES, Status, survey_project
 
 
 class PipelineError(RuntimeError):
@@ -248,3 +250,110 @@ def advance_one(
     if export_only:
         return str(export_script(script, Path(log_dir) / f"{job_name}.sbatch"))
     return submit_job(script, job_name, scripts_dir=log_dir)
+
+
+# ---- live SLURM-state fusion (cockpit phase 2) ------------------------------
+#
+# The surveyor reads only the filesystem, so a job that is *running right now*
+# leaves the same half-populated derivative as one that *crashed* — both grade
+# PARTIAL. An actionable cockpit must not offer "re-run" on a live job (that
+# double-submits). survey_live() overlays scheduler truth (squeue + sacct) onto
+# the filesystem matrix, keyed by the f"{prefix}_{tag}" job name.
+
+# squeue states we treat as not-yet-running (everything else active = running).
+_QUEUED_STATES = {"PENDING", "CONFIGURING"}
+# sacct terminal states that mean the last attempt did not succeed.
+_FAILED_STATES = {
+    "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY",
+    "NODE_FAIL", "BOOT_FAIL", "DEADLINE", "PREEMPTED",
+}
+
+
+def _norm_state(state: str) -> str:
+    """Leading SLURM state token, upper-cased (sacct emits e.g. 'CANCELLED by 42')."""
+    return state.split()[0].upper() if state else ""
+
+
+def _job_state_maps():
+    """Build name→state lookups from squeue (active) and sacct (recent history).
+
+    Degrades to empty maps when SLURM isn't reachable (e.g. off-cluster), so
+    survey_live() then just returns the filesystem matrix.
+    """
+    try:
+        active_jobs = list_jobs()
+    except Exception:
+        active_jobs = []
+    try:
+        hist = job_history(days=7)
+    except Exception:
+        hist = []
+
+    active: dict[str, str] = {}
+    for j in active_jobs:
+        st = _norm_state(j.state)
+        active[j.name] = "queued" if st in _QUEUED_STATES else "running"
+
+    failed: set[str] = set()
+    completed: set[str] = set()
+    for j in hist:
+        st = _norm_state(j.state)
+        if st in _FAILED_STATES:
+            failed.add(j.name)
+        elif st == "COMPLETED":
+            completed.add(j.name)
+    return active, failed, completed
+
+
+def survey_live(config: dict):
+    """:func:`~duckbrain.core.surveyor.survey_project` overlaid with SLURM state.
+
+    For each surveyor stage that is SLURM-launchable (converted/fmriprep/mriqc),
+    adds a companion ``<stage>_job`` column with one of ``running`` / ``queued``
+    / ``failed`` / ``""``. Precedence: an active job wins; else a filesystem
+    COMPLETE is never downgraded by a stale sacct failure; else a recent
+    failed-and-not-completed run reads ``failed``.
+
+    The base status columns and the Nipoppy bagel export are left untouched —
+    filesystem truth and scheduler truth stay separate, debuggable facts.
+    """
+    matrix = survey_project(config)
+    active, failed, completed = _job_state_maps()
+
+    overlay_stages = [s for s in STAGES if STAGE_SPECS.get(s) and STAGE_SPECS[s].is_slurm]
+    for stage in overlay_stages:
+        prefix = STAGE_SPECS[stage].job_prefix
+        vals = []
+        for _, row in matrix.iterrows():
+            name = f"{prefix}_{tag_for(row['subject'], row['session'])}"
+            if name in active:
+                vals.append(active[name])
+            elif row[stage] == Status.COMPLETE.value:
+                vals.append("")
+            elif name in failed and name not in completed:
+                vals.append("failed")
+            else:
+                vals.append("")
+        matrix[f"{stage}_job"] = vals
+    return matrix
+
+
+def stage_runnable(row, stage: str) -> bool:
+    """Whether *stage* can be launched now for the unit in *row* (a survey_live row).
+
+    True when the stage is SLURM-launchable, not already complete, has no active
+    (running/queued) job, and its dependency stage is complete. This is the
+    cockpit's per-cell run gate — it deliberately excludes re-running a COMPLETE
+    stage (that's a separate "advanced" affordance).
+    """
+    spec = STAGE_SPECS.get(stage)
+    if spec is None or not spec.is_slurm or stage not in row:
+        return False
+    if row.get(f"{stage}_job", "") in ("running", "queued"):
+        return False
+    if row[stage] == Status.COMPLETE.value:
+        return False
+    dep = spec.depends_on
+    if dep is not None and row.get(dep) != Status.COMPLETE.value:
+        return False
+    return True

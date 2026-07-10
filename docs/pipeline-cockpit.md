@@ -25,8 +25,8 @@ Owner: Ben Hutchinson. Started 2026-07-10. Extends the project surveyor
 |---|---|---|---|
 | 0. Plan written | ✅ done | (this file) | — |
 | 1. Controller extraction (`core/pipeline.py`) | ✅ done | (see git log) | `advance_one` + `STAGE_SPECS`; pages 3/4 refactored; 11 tests; 109 suite. Ingestion OUT of board for v1 (Ben agreed 2026-07-10). Per-session dcm2bids *review* submit in page 3 left inline (uses UI-reviewed config path — different semantics; follow-up if worth unifying). |
-| 2. Live-state fusion (`survey_live`) | ⬜ not started | — | correctness linchpin; must precede UI. NEXT. |
-| 3. Cockpit UI (rework `0_Project_Status.py`) | ⬜ not started | — | the actionable board |
+| 2. Live-state fusion (`survey_live`) | ✅ done | (see git log) | `survey_live` + `stage_runnable` in `core/pipeline.py`; `<stage>_job` overlay (running/queued/failed). 8 tests; 117 suite. Validated live: the 2 running fMRIPrep jobs now read `running` + are correctly NOT runnable (double-submit closed). |
+| 3. Cockpit UI (rework `0_Project_Status.py`) | ⬜ not started | — | the actionable board. NEXT. Use `survey_live` + `stage_runnable`. |
 | 4. Polish (bulk/guards/durable log) | ⬜ optional | — | defer |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ done. When resuming, read this row,
