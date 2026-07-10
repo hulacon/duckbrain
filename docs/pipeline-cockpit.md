@@ -26,8 +26,8 @@ Owner: Ben Hutchinson. Started 2026-07-10. Extends the project surveyor
 | 0. Plan written | ✅ done | (this file) | — |
 | 1. Controller extraction (`core/pipeline.py`) | ✅ done | (see git log) | `advance_one` + `STAGE_SPECS`; pages 3/4 refactored; 11 tests; 109 suite. Ingestion OUT of board for v1 (Ben agreed 2026-07-10). Per-session dcm2bids *review* submit in page 3 left inline (uses UI-reviewed config path — different semantics; follow-up if worth unifying). |
 | 2. Live-state fusion (`survey_live`) | ✅ done | (see git log) | `survey_live` + `stage_runnable` in `core/pipeline.py`; `<stage>_job` overlay (running/queued/failed). 8 tests; 117 suite. Validated live: the 2 running fMRIPrep jobs now read `running` + are correctly NOT runnable (double-submit closed). |
-| 3. Cockpit UI (rework `0_Project_Status.py`) | ⬜ not started | — | the actionable board. NEXT. Use `survey_live` + `stage_runnable`. |
-| 4. Polish (bulk/guards/durable log) | ⬜ optional | — | defer |
+| 3. Cockpit UI (rework `0_Project_Status.py`) | ✅ done | (see git log) | Job-aware matrix (🔵running/⏳queued/🔴failed overlay) + "Launch a step" strip: dependency-gated selectbox of runnable (unit,stage) → params (fmriprep knobs / dcm2bids force) → Run via `advance_one`. 6 AppTests; 120 suite. Live-rendered vs real project: running fMRIPrep shows 🔵 + is NOT offered for re-run (double-submit closed). **Still wants a human eyeball in a real browser** (AppTest can't judge feel). |
+| 4. Polish (bulk/guards/durable log) | ⬜ optional | — | defer. Candidates: guarded "run whole column", auto-refresh (`st.fragment(run_every=)` — beware squeue hammering), durable submission log under `code/logs/`, deep-links to full pages. |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ done. When resuming, read this row,
 then the matching phase section, then `git log --oneline` to confirm what landed.
