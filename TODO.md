@@ -3,15 +3,18 @@
 Prioritized backlog. Newest priorities at the top. See `PLAN.md` for the
 original design and `CLAUDE.md` for current status.
 
-## 0. Pipeline cockpit — actionable Project Status board — PLANNED 2026-07-10
-Make the Project Status matrix actionable: each `(subject, session) × stage` cell
-shows status *and* offers a dependency-gated one-click "run next step". Extends
-the surveyor + the per-stage pages. Full phased build plan (controller extraction
-→ live SLURM-state fusion → cockpit UI), lift estimate, risks, and a
-broken-pipe-resumable status tracker in **`docs/pipeline-cockpit.md`**. Not
-started. Open decision for Ben: is ingestion in or out of the actionable board
-for v1 (recommendation: out — synchronous + raw-folder mapping doesn't fit the
-cell-action model).
+## 0. Pipeline cockpit — actionable Project Status board — BUILT 2026-07-10 (phases 1–3)
+The Project Status matrix is now actionable: each `(subject, session) × stage`
+cell shows filesystem status fused with live SLURM state (🔵 running / ⏳ queued /
+🔴 failed), and a dependency-gated "Launch a step" strip runs the next stage per
+unit via `core.pipeline.advance_one`. A running/queued job is never offered for
+re-run (no double-submit); ingestion is read-only here by design (Ben agreed).
+Built in three committed phases — controller extraction (`core/pipeline.py`),
+live-state fusion (`survey_live`/`stage_runnable`), cockpit UI. 120 tests pass.
+Full plan + status tracker: **`docs/pipeline-cockpit.md`**.
+Remaining: (a) eyeball in a live browser (AppTest can't judge feel); (b) optional
+**phase 4** polish — guarded "run whole column" bulk, auto-refresh, a durable
+submission log under `code/logs/`, deep-links to full pages.
 
 ## 1. Folder picker UX — reworked 2026-07-09, needs live look
 
