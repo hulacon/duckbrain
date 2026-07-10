@@ -13,14 +13,16 @@ echo "=== fMRIPrep (NORDIC): sub-{{ subject }} ses-{{ session }} ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-export SINGULARITYENV_TEMPLATEFLOW_HOME={{ paths.work_dir }}/templateflow
-export SINGULARITY_TMPDIR={{ paths.work_dir }}/tmp
-mkdir -p $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
-
 NORDIC_BIDS={{ paths.derivatives_dir }}/nordic/bids_input
 NORDIC_OUTPUT={{ paths.derivatives_dir }}/fmriprep_nordic
 WORK_DIR={{ paths.work_dir }}/nordic_sub-{{ subject }}_ses-{{ session }}
-mkdir -p $WORK_DIR $NORDIC_OUTPUT
+
+# TemplateFlow home and tmpdir are per-job (under WORK_DIR): a shared home on the
+# node-local FS races when two fMRIPrep jobs land on the same node and both
+# initialize the skeleton cache (FileExistsError on tpl-* extraction).
+export SINGULARITYENV_TEMPLATEFLOW_HOME=$WORK_DIR/templateflow
+export SINGULARITY_TMPDIR=$WORK_DIR/tmp
+mkdir -p $WORK_DIR $NORDIC_OUTPUT $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
 
 singularity run --cleanenv \
   -B $NORDIC_BIDS:$NORDIC_BIDS:ro \

@@ -13,12 +13,17 @@ echo "=== fMRIPrep: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif 
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-export SINGULARITYENV_TEMPLATEFLOW_HOME={{ paths.work_dir }}/templateflow
-export SINGULARITY_TMPDIR={{ paths.work_dir }}/tmp
-mkdir -p $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
-
 WORK_DIR={{ paths.work_dir }}/sub-{{ subject }}{% if session %}_ses-{{ session }}{% endif %}
-mkdir -p $WORK_DIR
+
+# TemplateFlow home and tmpdir are per-job (under WORK_DIR): a shared home on the
+# node-local FS races when two fMRIPrep jobs land on the same node and both
+# initialize the skeleton cache (FileExistsError on tpl-* extraction).
+export SINGULARITYENV_TEMPLATEFLOW_HOME=$WORK_DIR/templateflow
+export SINGULARITY_TMPDIR=$WORK_DIR/tmp
+mkdir -p $WORK_DIR $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
+
+# Output dir is bind-mounted below; Singularity requires the source to pre-exist.
+mkdir -p {{ output_dir }}
 
 singularity run --cleanenv \
   -B {{ bids_dir }}:{{ bids_dir }}:ro \

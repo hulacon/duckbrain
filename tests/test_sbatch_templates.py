@@ -64,3 +64,33 @@ def test_logs_go_to_shared_log_dir_not_tmp(step, ctx_extra):
     out_line = next(l for l in script.splitlines() if "--output" in l)
     assert "/projects/study/logs/" in out_line
     assert "/tmp/logs" not in out_line
+
+
+def _fmriprep(**extra):
+    ctx = build_context(
+        _cfg(), "fmriprep", subject="04", session="",
+        bids_dir="/b", output_dir="/projects/study/derivatives/fmriprep",
+        container_path="/x", fs_license="/l", fs_license_dir="/",
+        output_spaces=["func"], filter_file="", anat_only=False, derivatives="",
+        **extra,
+    )
+    return render_sbatch("fmriprep", ctx)
+
+
+def test_fmriprep_creates_output_dir_before_bind():
+    # Regression: Singularity requires the bind source to pre-exist, so the
+    # output dir must be mkdir'd before `singularity run`.
+    script = _fmriprep()
+    lines = script.splitlines()
+    mkdir_i = next(i for i, l in enumerate(lines)
+                   if "mkdir" in l and "/projects/study/derivatives/fmriprep" in l)
+    run_i = next(i for i, l in enumerate(lines) if l.startswith("singularity run"))
+    assert mkdir_i < run_i
+
+
+def test_fmriprep_templateflow_home_is_per_job():
+    # Regression: a shared node-local TemplateFlow home races when two jobs land
+    # on the same node. It must live under the per-job WORK_DIR.
+    script = _fmriprep()
+    tf_line = next(l for l in script.splitlines() if "TEMPLATEFLOW_HOME=" in l)
+    assert "$WORK_DIR/templateflow" in tf_line
