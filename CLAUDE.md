@@ -66,16 +66,23 @@ copy doesn't fall behind.
   OOM-killed; fixed by decoupling (`--mem-gb` = alloc − 8G) and raising the mriqc
   allocation to 32G. (2) a **surveyor false-green** — `_mriqc_status` graded a
   unit complete on the anat T1w json alone, so func-crashed subjects read 🟢;
-  fixed to require func IQMs when the input BIDS has func. **NORDIC producer
-  validated live** (2026-07-15): sub-04 in `divatten_gui_beta` (sessionless, 13
-  BOLD runs) denoised clean via the GUI/`advance_one` path, all outputs
-  dim-matched and the surveyor flips 🟢. Getting there fixed three latent bugs
-  (m-file `ARG.DIROUT`/`fn_out` double-path, a `{#` Jinja collision in the sbatch
-  template that meant it had never rendered, and the sessionless `ses-/func`
-  path); `nordic_toolbox_dir` is now set in user config
-  (`/gpfs/projects/hulacon/shared/mmmdata/code/NORDIC_Raw`). **NORDIC→fMRIPrep
-  chaining (the `use_nordic` toggle) is the next step, not yet built** — see
-  TODO #5b.
+  fixed to require func IQMs when the input BIDS has func. **NORDIC validated live
+  end-to-end** (2026-07-15) — producer *and* fMRIPrep chaining:
+  - **Producer:** all `divatten_gui_beta` subjects denoised clean via the
+    GUI/`advance_one` path (outputs dim-matched, surveyor 🟢). Getting there fixed
+    three latent bugs (m-file `ARG.DIROUT`/`fn_out` double-path, a `{#` Jinja
+    collision in the sbatch template that meant it had never rendered, the
+    sessionless `ses-/func` path); `nordic_toolbox_dir` set in user config
+    (`/gpfs/projects/hulacon/shared/mmmdata/code/NORDIC_Raw`).
+  - **Chaining (`use_nordic` toggle, TODO #5b Case 1):** a project-config
+    `[nordic] use_nordic` flag routes fMRIPrep through the denoised data — NORDIC
+    stays a pure producer, fMRIPrep's input is the only variable. `_build_fmriprep`
+    assembles a self-contained `derivatives/nordic/bids_format` tree (denoised
+    BOLDs hardlinked + anat/fmap/sidecars + root files) and points fMRIPrep there;
+    `effective_depends_on` swings fMRIPrep's dep `converted → nordic`. Validated
+    on sub-008 (fMRIPrep indexed the tree, built the full anat+func workflow, no
+    BIDS errors). Case 2 (same-project raw-vs-NORDIC compare via a distinct
+    `fmriprep-nordic/` derivative) is still deferred.
 - **Validation projects** (real data, on Talapas):
   - Source DICOMs: `/projects/lcni/dcm/hulacon/Hutchinson/divatten` (37 subj,
     single-session, read-only).

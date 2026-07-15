@@ -83,7 +83,7 @@ now, fs_license stays a text field.
   `mriqc_version = "24.0.2"`. Still needs a live end-to-end run + QC-dashboard
   validation.
 
-## 5b. NORDIC — producer VALIDATED LIVE 2026-07-15; chaining still to build
+## 5b. NORDIC — producer + fMRIPrep chaining (Case 1) VALIDATED LIVE 2026-07-15
 `nordic` is a surveyor stage (STAGES column, live-state overlay, cockpit
 launch + bulk) — completion = denoised BOLDs under
 `derivatives/nordic/sub-XX[/ses-YY]/func/*_bold.nii.gz`. The **producer is now
@@ -106,22 +106,26 @@ bugs (all in this commit):
 - **Config (done):** `nordic_toolbox_dir =
   /gpfs/projects/hulacon/shared/mmmdata/code/NORDIC_Raw` in user config; MATLAB
   module default `matlab/R2024a` is the cluster default — no change needed.
-- **Chaining — DECIDED 2026-07-15 (design; not yet built) — this is the next step.** fMRIPrep currently
-  depends only on `converted` and always reads raw `bids_dir`. The plan supports
-  both with- and without-NORDIC pipelines without a DAG rewrite, via one
-  principle: **NORDIC stays a pure independent producer** (denoises → writes its
-  own `derivatives/nordic/.../func/` + `bids_input` tree, knows nothing about
-  fMRIPrep) and **fMRIPrep's input source is the only variable.** Three tiers,
-  build in order:
-  1. **Case 1 — per-project `use_nordic` toggle (BUILD FIRST, the concrete #5b
-     deliverable).** A project-config flag drives two contained changes:
-     (a) fMRIPrep's input source → raw `bids_dir` vs the nordic `bids_input` tree;
-     (b) fMRIPrep's `depends_on` → `nordic` when on, `converted` when off. Fits
-     the current one-cell-per-stage matrix with **no new columns/schema**. Real
-     edit = make `depends_on` and the fMRIPrep input path config-derived instead
-     of static constants (see `STAGE_SPECS`/`_build_fmriprep` in
-     `core/pipeline.py`). with- vs without-NORDIC projects then coexist as
-     separate project dirs. Covers ~90% of use.
+- **Chaining — Case 1 BUILT + VALIDATED LIVE 2026-07-15.** fMRIPrep now reads the
+  NORDIC-denoised input when a project sets `[nordic] use_nordic = true`. Principle
+  held: **NORDIC stays a pure independent producer** and **fMRIPrep's input source
+  is the only variable.** Implementation (`core/pipeline.py`, `core/nordic.py`):
+  `effective_depends_on()` swings fMRIPrep's dependency `converted → nordic` when
+  the toggle is on; `stage_runnable(row, stage, config)` gates the cockpit
+  accordingly; `_build_fmriprep()` assembles the unit's `bids_format` tree and
+  points fMRIPrep at `derivatives/nordic/bids_format` (raises if no denoised BOLDs
+  yet). `build_nordic_bids_input()` builds a **self-contained** tree (folder
+  renamed `bids_input → bids_format`): denoised BOLDs hardlinked, anat included
+  (nifti hardlinked, sidecars copied), fmap + func sidecars copied, dataset root
+  files copied once. Same `fmriprep.sbatch.j2` — no `fmriprep_nordic.sbatch.j2`
+  needed. **Validated:** sub-008 in `divatten_gui_beta` — tree assembled (13
+  hardlinked denoised BOLDs + anat + fmap + `dataset_description.json`), cockpit
+  gated fMRIPrep on `nordic`, and the live run (job 45452962) indexed the tree and
+  built the full 2426-node anat+func workflow ("fMRIPrep started!", no BIDS
+  errors) — confirming fMRIPrep consumes the denoised input. 141 tests pass.
+  **Coexistence caveat:** flipping `use_nordic` on makes the *whole* project
+  NORDIC; sub-04/sub-015 keep their old non-NORDIC `derivatives/fmriprep` (mixed
+  provenance — a dogfooding artifact, not a real project). Remaining tiers:
   2. **Case 2 — same-project comparison (opt-in, defer until actually needed).**
      Needs two fMRIPrep results per subject, which breaks one-cell-per-stage. Do
      NOT branch the pipeline; instead use **distinct derivative names**
