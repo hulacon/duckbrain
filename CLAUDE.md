@@ -156,19 +156,22 @@ Key behaviors to know when editing the app:
 - Because the OnDemand app runs THIS checkout's code, changes made elsewhere only
   take effect here after commit/push/pull into `~/code/duckbrain`.
 
-## Next steps (validation, in order)
+## Next steps (in order)
 
-DICOM→BIDS is validated; fMRIPrep + MRIQC are now running live (see status).
-Remaining, roughly in order:
+All core stages are validated live: DICOM→BIDS, fMRIPrep, MRIQC, and NORDIC
+(producer + `use_nordic` fMRIPrep chaining, 2026-07-15). Remaining, roughly in order:
 
-1. **Confirm the live fMRIPrep + MRIQC runs complete clean** (sub-04/sub-015
-   fMRIPrep + the 9 MRIQC jobs in `divatten_gui_beta`); check outputs and that the
-   cockpit flips them 🟢. First live run of both stages.
-2. **Cockpit usability pass** (TODO #0) — functionally working but Ben finds it
-   "a little clunky"; deferred until behavior is locked. Concrete gripe captured:
-   gated stages vanish from the launch dropdown (per-cell action would fix it).
-3. **NORDIC validation** (TODO #5b) — it's wired into the cockpit but parked:
-   set `nordic_toolbox_dir` + MATLAB, do one live run, fix the sessionless
-   `ses-` path bug, and decide on fMRIPrep chaining.
-4. Onboarding: QUICKSTART + README refresh + the OOD distribution story (TODO #2).
-5. Longer-term: naming/discovery robustness (TODO #4).
+1. **★ TOP PRIORITY — provenance recording + consistency checker (TODO top).**
+   Phase A: record each run's input variant in `code/logs/submissions.tsv` (cheap,
+   makes duckbrain self-authoritative). Phase B: `check_consistency(config)` flags
+   config-vs-provenance / mixed-provenance / staleness / presence mismatches as ⚠️
+   in the cockpit. Motivated by the `use_nordic` mixing foot-gun (see TODO top +
+   `docs/pipeline-extras.md` #5).
+2. **Cockpit usability pass** (TODO #0) — unblocked now that behavior is locked.
+   Concrete gripe: gated stages vanish from the launch dropdown (per-cell action
+   would fix it).
+3. Onboarding: QUICKSTART + README refresh + the OOD distribution story (TODO #2).
+4. Naming/discovery robustness (TODO #4); config/mapping niceties (TODO #5).
+5. Pipeline-extras backlog (TODO #7, `docs/pipeline-extras.md`): de-identification
+   (highest-value), DTI/DWI, physio, scanning-notes, QC dashboard, ReproIn,
+   DeepMReye. NORDIC Case 2 (same-project raw-vs-NORDIC compare) when needed.

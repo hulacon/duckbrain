@@ -3,6 +3,42 @@
 Prioritized backlog. Newest priorities at the top. See `PLAN.md` for the
 original design and `CLAUDE.md` for current status.
 
+## ★ TOP PRIORITY — Provenance recording + consistency checker (2026-07-15)
+Make duckbrain provenance-aware and have it auto-flag inconsistencies. Combines the
+provenance/metadata backlog item (was `docs/pipeline-extras.md` #5) with a
+consistency checker — provenance is the foundation, the checker is the payoff. Two
+phases, in order. Motivated by the NORDIC `use_nordic` coexistence problem: flipping
+the toggle on a project that already had raw-provenance fMRIPrep produces
+self-contradictory metadata, and nothing catches it today.
+
+**Phase A — record provenance (do first; cheap, high-leverage).**
+- Extend the durable submission log (`code/logs/submissions.tsv`) to record each
+  run's *input variant* (`use_nordic` / input path), so duckbrain is
+  self-authoritative about how every derivative it produced was generated.
+- Longer term: emit BIDS-Derivatives-compliant `dataset_description.json` /
+  `GeneratedBy` per duckbrain-produced derivative (extends the pinned container
+  versions + Nipoppy bagel export). Standards-aligned provenance.
+
+**Phase B — consistency / mismatch checker.**
+- `check_consistency(config)` beside `core/surveyor.py`; surfaces ⚠️ in the Project
+  Status cockpit. Cross-references config expectation, on-disk provenance, and mtimes.
+- **Provenance signal (found 2026-07-15):** fMRIPrep records its input in
+  `derivatives/fmriprep/dataset_description.json` → `DatasetLinks.raw` (a NORDIC run
+  points it at `derivatives/nordic/bids_format`; a raw run at the project root), but
+  it's a *single dataset-level* field overwritten by whichever run finished last —
+  so it can't represent mixed provenance. Hence Phase A: duckbrain's own per-run
+  record is what catches mixing.
+- **Checks to flag:**
+  - **Config vs provenance** — `use_nordic` on but a derivative's `DatasetLinks.raw`
+    isn't the nordic tree (or vice-versa).
+  - **Mixed provenance** — some subjects launched raw, some NORDIC, into the same
+    `derivatives/fmriprep/` (only duckbrain's own record catches this).
+  - **Staleness** — a derivative older than the input it derives from (e.g. NORDIC
+    re-run after fMRIPrep) → "stale, re-run" (mtime check).
+  - **Presence consistency** — fMRIPrep exists but NORDIC missing in a NORDIC project.
+- **Not viable:** detecting denoising from pixel data (fMRIPrep resamples to float32;
+  only heuristic). Provenance metadata is the only reliable basis.
+
 ## 0. Pipeline cockpit — actionable Project Status board — BUILT 2026-07-10 (phases 1–4)
 The Project Status matrix is actionable: each `(subject, session) × stage` cell
 shows filesystem status fused with live SLURM state (🔵 running / ⏳ queued /
@@ -189,8 +225,8 @@ to existing duckbrain/mmmdata work, and open questions per item — in
    eyes" path off raw/minimal data. Low demand, unique requirements.
 4. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS
    → confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
-5. **Version/provenance documentation & metadata** — cross-cutting; extend the
-   pinned versions + submission log + bagel into per-derivative provenance.
+5. **Version/provenance documentation & metadata** — **promoted to the ★ TOP
+   PRIORITY item** (paired with the consistency checker); see top of file.
 6. **Scanning-notes/metadata integration** — input-shaping producer (exclude bad
    runs via bids-filter/scans.tsv); reuse mmmdata build_manifest/sessions.tsv.
 7. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC (mmmdata
@@ -210,32 +246,3 @@ Gated behind functionality + onboarding (#2); capture now so it isn't forgotten.
   QUICKSTART/README refresh (#2) happens.
 - Design flourishes generally (empty-state art, page headers) — tasteful, not
   over-designed; do after the product behavior is locked.
-
-## 9. Provenance-aware consistency / mismatch checker (decided 2026-07-15)
-Auto-flag inconsistencies by cross-referencing config expectation, on-disk
-provenance, and file mtimes — surfaced as ⚠️ in the Project Status cockpit. A
-natural extension of the surveyor (#6); foundation is provenance metadata (see
-`docs/pipeline-extras.md` #5, now bumped in priority). Motivated by the NORDIC
-`use_nordic` coexistence problem — flipping the toggle on a project that already
-has raw-provenance fMRIPrep produces self-contradictory metadata.
-- **Provenance signal (found 2026-07-15):** fMRIPrep records its input dataset in
-  `derivatives/fmriprep/dataset_description.json` → `DatasetLinks.raw` (a NORDIC run
-  points it at `derivatives/nordic/bids_format`; a raw run at the project root). But
-  it's a *single dataset-level* field overwritten by whichever run finished last, so
-  it can't represent mixed provenance. duckbrain must record its own per-run
-  provenance to catch mixing.
-- **Checks to flag:**
-  - **Config vs provenance** — `use_nordic` on but a derivative's `DatasetLinks.raw`
-    isn't the nordic tree (or vice-versa).
-  - **Mixed provenance** — duckbrain records show some subjects launched raw, some
-    NORDIC, into the same `derivatives/fmriprep/` (fMRIPrep's own metadata can't
-    catch this — its input link is singular/overwritten).
-  - **Staleness** — a derivative older than the input it derives from (e.g. NORDIC
-    re-run after fMRIPrep) → "stale, re-run" (mtime check).
-  - **Presence consistency** — fMRIPrep exists but NORDIC missing in a NORDIC project.
-- **Not viable:** detecting denoising from pixel data (fMRIPrep resamples to
-  float32; only heuristically recoverable). Provenance metadata is the only
-  reliable basis.
-- **Cheap first step:** record the input variant (`use_nordic` / input path) in
-  `code/logs/submissions.tsv` now, so duckbrain is self-authoritative going forward.
-- Lives as `check_consistency(config)` beside `core/surveyor.py`; ⚠️ in the cockpit.
