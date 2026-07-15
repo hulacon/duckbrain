@@ -183,7 +183,12 @@ def dashboard():
             st.caption(f"{n} ready for **{bstage}**: " + ", ".join(o["unit"] for o in units))
             st.caption("Bulk runs use config-default parameters. For per-unit knobs, "
                        "use the single-launch control above or the full page.")
-            confirm = st.checkbox(f"Yes — submit {n} {bstage} job(s)", key="bulk_confirm")
+            # Scope the confirmation to the selected stage. A fixed key would keep
+            # the box checked when the stage selectbox switches (e.g. arming an
+            # fmriprep bulk run off a nordic confirmation) — the guard must be a
+            # deliberate per-stage tick.
+            confirm = st.checkbox(f"Yes — submit {n} {bstage} job(s)",
+                                  key=f"bulk_confirm_{bstage}")
             if st.button(f"▶▶ Run all {n} {bstage}", type="primary",
                          disabled=not confirm, key="bulk_run"):
                 ok = 0
