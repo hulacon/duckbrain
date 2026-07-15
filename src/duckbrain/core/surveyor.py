@@ -184,17 +184,26 @@ def _mriqc_status(paths: dict, subject: str, session: str) -> Status:
     root = Path(paths["derivatives_dir"]) / "mriqc"
     if not root.is_dir():
         return Status.MISSING
-    # MRIQC completion marker = the per-image IQM JSONs. Check the subject
-    # subtree and the flat root layout MRIQC sometimes uses.
-    iqm_globs = [
-        _fmt("{ss}/**/*_bold.json", subject, session),
-        _fmt("{ss}/**/*_T1w.json", subject, session),
-        f"sub-{subject}*_bold.json",
-        f"sub-{subject}*_T1w.json",
-    ]
-    if any(_has_match(root, g) for g in iqm_globs):
+    # MRIQC writes one IQM JSON per BIDS image. A *finished* run therefore has the
+    # anat T1w IQMs and — when the unit has func — the bold IQMs too. Grading
+    # complete on the anat json alone hid a real failure mode: the func synthstrip
+    # node OOM-killed after the anat json had already landed, so the whole func
+    # QC was missing yet the cell read green (all 9 divatten_gui_beta subjects,
+    # 2026-07-10). Mirror _fmriprep_status: anat required, func required only when
+    # the input BIDS actually has func. Check both MRIQC's nested (sub-XX/anat/…)
+    # and flat-root filename layouts.
+    def _any(*pats: str) -> bool:
+        return any(_has_match(root, p) for p in pats)
+
+    has_anat = _any(_fmt("{ss}/**/*_T1w.json", subject, session),
+                    f"sub-{subject}*_T1w.json")
+    has_func = _any(_fmt("{ss}/**/*_bold.json", subject, session),
+                    f"sub-{subject}*_bold.json")
+    needs_func = _bids_has_func(paths, subject, session)
+    if has_anat and (has_func or not needs_func):
         return Status.COMPLETE
-    if _has_match(root, _fmt("{ss}", subject, session)) or _has_match(root, f"sub-{subject}*"):
+    if has_anat or has_func or _has_match(root, _fmt("{ss}", subject, session)) \
+            or _has_match(root, f"sub-{subject}*"):
         return Status.PARTIAL
     return Status.MISSING
 

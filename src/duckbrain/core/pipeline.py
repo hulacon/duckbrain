@@ -157,8 +157,14 @@ def _build_mriqc(config, subject, session, log_dir, params):
 
     container = get_container_path(config)
     mq_slurm = get_slurm_resources(config, "mriqc")
-    mem_str = str(mq_slurm.get("memory", "16G"))
-    mem_gb = int(params.get("mem_gb", int(mem_str.replace("G", "").replace("g", ""))))
+    mem_str = str(mq_slurm.get("memory", "32G"))
+    alloc_gb = int(mem_str.replace("G", "").replace("g", ""))
+    # MRIQC's --mem-gb is a soft target for its nipype scheduler, not a hard RSS
+    # cap. The func synthstrip node (torch brain extraction) overshoots it, so if
+    # --mem-gb == the SLURM --mem the cgroup OOM-kills the step (observed on all 9
+    # divatten_gui_beta subjects, 2026-07-10). Target the allocation minus an 8 GB
+    # headroom buffer so overshoot stays inside the cgroup limit.
+    mem_gb = int(params.get("mem_gb", max(alloc_gb - 8, 1)))
     ctx = build_context(
         config, "mriqc", subject=subject, session=session,
         container_path=str(container), mem_gb=mem_gb,

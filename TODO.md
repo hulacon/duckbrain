@@ -97,10 +97,33 @@ Before NORDIC is real:
 - **Fix sessionless path bug:** `nordic_output_dir` / `build_nordic_bids_input`
   hardcode `ses-{session}`, so sessionless data writes a malformed `ses-/func`
   dir. The surveyor tracker tolerates it (wildcards), but a real run wouldn't.
-- **Decide chaining:** fMRIPrep currently depends only on `converted`, NOT on
-  `nordic` — so it runs on raw BIDS, not NORDIC-denoised input. If NORDIC→fMRIPrep
-  should chain, wire fmriprep's input to the nordic `bids_input` tree + add the
-  dependency. Left independent (optional branch) for now.
+- **Chaining — DECIDED 2026-07-15 (design; not yet built).** fMRIPrep currently
+  depends only on `converted` and always reads raw `bids_dir`. The plan supports
+  both with- and without-NORDIC pipelines without a DAG rewrite, via one
+  principle: **NORDIC stays a pure independent producer** (denoises → writes its
+  own `derivatives/nordic/.../func/` + `bids_input` tree, knows nothing about
+  fMRIPrep) and **fMRIPrep's input source is the only variable.** Three tiers,
+  build in order:
+  1. **Case 1 — per-project `use_nordic` toggle (BUILD FIRST, the concrete #5b
+     deliverable).** A project-config flag drives two contained changes:
+     (a) fMRIPrep's input source → raw `bids_dir` vs the nordic `bids_input` tree;
+     (b) fMRIPrep's `depends_on` → `nordic` when on, `converted` when off. Fits
+     the current one-cell-per-stage matrix with **no new columns/schema**. Real
+     edit = make `depends_on` and the fMRIPrep input path config-derived instead
+     of static constants (see `STAGE_SPECS`/`_build_fmriprep` in
+     `core/pipeline.py`). with- vs without-NORDIC projects then coexist as
+     separate project dirs. Covers ~90% of use.
+  2. **Case 2 — same-project comparison (opt-in, defer until actually needed).**
+     Needs two fMRIPrep results per subject, which breaks one-cell-per-stage. Do
+     NOT branch the pipeline; instead use **distinct derivative names**
+     (`derivatives/fmriprep/` vs `derivatives/fmriprep-nordic/`) — parameterize
+     the hardcoded derivative dir in `_fmriprep_status` (and the builder) so a
+     variant shows up as an **additive extra column**, only when the project opts
+     in. Matches BIDS-derivatives provenance norms. **Zero-code fallback to try
+     first:** two project dirs over the same BIDS, one with `use_nordic` on.
+  3. **Full named-pipeline DAG — PARKED.** Only if branch count grows (multiple
+     denoisers / fMRIPrep configs routinely). Cases 1+2 don't need it; this is
+     the complexity to avoid for now.
 - Optional: NORDIC column is always-on; for non-NORDIC projects it's a column of
   ⚪. Fine for LCNI/mmmdata (NORDIC-common), revisit if noisy elsewhere.
 

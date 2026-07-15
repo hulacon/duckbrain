@@ -153,9 +153,32 @@ def test_fmriprep_sessionless_and_multisession_same_tracker(tmp_path):
 # ---- mriqc ------------------------------------------------------------------
 
 def test_mriqc_complete_with_iqm_json(tmp_path):
+    # Anat-only subject (no func in BIDS): the anat IQM json alone is complete.
     _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
     mq = tmp_path / "derivatives" / "mriqc"
     _touch(mq / "sub-01" / "anat" / "sub-01_T1w.json", content='{"cnr": 1}')
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "mriqc"] == Status.COMPLETE
+
+
+def test_mriqc_partial_when_func_iqm_missing(tmp_path):
+    # Regression (2026-07-10): func synthstrip OOM-killed after the anat json
+    # landed. BIDS has func, so an anat-only MRIQC output is a crashed/partial
+    # run, not complete.
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
+    _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01" / "anat" / "sub-01_T1w.json", content='{"cnr": 1}')
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "mriqc"] == Status.PARTIAL
+
+
+def test_mriqc_complete_with_anat_and_func_iqm(tmp_path):
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
+    _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01" / "anat" / "sub-01_T1w.json", content='{"cnr": 1}')
+    _touch(mq / "sub-01" / "func" / "sub-01_task-x_bold.json", content='{"fd": 1}')
     df = survey_project(_config(tmp_path))
     assert df.loc[0, "mriqc"] == Status.COMPLETE
 

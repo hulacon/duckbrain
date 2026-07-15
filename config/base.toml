@@ -54,7 +54,9 @@ partition = "compute"
 
 [slurm.overrides.mriqc]
 time = "06:00:00"
-memory = "16G"
+# 32G allocation; MRIQC is handed --mem-gb 24 (alloc - 8 GB headroom) in
+# _build_mriqc so its synthstrip overshoot stays inside the cgroup limit.
+memory = "32G"
 cpus = "4"
 partition = "compute"
 
