@@ -35,13 +35,20 @@ def _seed_raw_and_nordic(root, ss):
     bids = Path(root)
     raw_func = bids / ss / "func"
     raw_fmap = bids / ss / "fmap"
+    raw_anat = bids / ss / "anat"
     raw_func.mkdir(parents=True)
     raw_fmap.mkdir(parents=True)
+    raw_anat.mkdir(parents=True)
     # Raw BOLD (should be skipped — NORDIC version wins) + a sidecar + an event.
     (raw_func / "sub-04_task-x_bold.nii.gz").write_bytes(b"raw")
     (raw_func / "sub-04_task-x_bold.json").write_text("{}")
     (raw_func / "sub-04_task-x_events.tsv").write_text("onset\n")
     (raw_fmap / "sub-04_dir-AP_epi.nii.gz").write_bytes(b"fmap")
+    (raw_anat / "sub-04_T1w.nii.gz").write_bytes(b"anat")
+    (raw_anat / "sub-04_T1w.json").write_text("{}")
+    # Dataset root files (only some present — copying must skip the absent README).
+    (bids / "dataset_description.json").write_text('{"Name":"x","BIDSVersion":"1.8.0"}')
+    (bids / "participants.tsv").write_text("participant_id\nsub-04\n")
 
     deriv = bids / "derivatives"
     nordic_func = deriv / "nordic" / ss / "func"
@@ -56,8 +63,9 @@ def test_build_bids_input_sessionless(tmp_path):
 
     out = build_nordic_bids_input(tmp_path, "04", "", deriv / "nordic")
 
-    # No malformed ses- level anywhere.
-    assert out == deriv / "nordic" / "bids_input" / "sub-04"
+    # Tree lives under bids_format/, no malformed ses- level anywhere.
+    tree_root = deriv / "nordic" / "bids_format"
+    assert out == tree_root / "sub-04"
     assert "ses-" not in str(out)
 
     func = out / "func"
@@ -70,6 +78,14 @@ def test_build_bids_input_sessionless(tmp_path):
     assert (func / "sub-04_task-x_events.tsv").exists()
     # Fieldmap copied.
     assert (out / "fmap" / "sub-04_dir-AP_epi.nii.gz").exists()
+    # Anat included: nifti hardlinked, sidecar copied.
+    raw_t1 = tmp_path / ss / "anat" / "sub-04_T1w.nii.gz"
+    assert (out / "anat" / "sub-04_T1w.nii.gz").stat().st_ino == raw_t1.stat().st_ino
+    assert (out / "anat" / "sub-04_T1w.json").exists()
+    # Dataset root files copied once, at the tree root (present ones only).
+    assert (tree_root / "dataset_description.json").exists()
+    assert (tree_root / "participants.tsv").exists()
+    assert not (tree_root / "README").exists()
 
 
 def test_build_bids_input_multisession(tmp_path):
@@ -78,6 +94,8 @@ def test_build_bids_input_multisession(tmp_path):
 
     out = build_nordic_bids_input(tmp_path, "04", "05", deriv / "nordic")
 
-    assert out == deriv / "nordic" / "bids_input" / "sub-04" / "ses-05"
+    assert out == deriv / "nordic" / "bids_format" / "sub-04" / "ses-05"
     assert (out / "func" / "sub-04_task-x_bold.nii.gz").read_bytes() == b"denoised"
     assert (out / "fmap" / "sub-04_dir-AP_epi.nii.gz").exists()
+    assert (out / "anat" / "sub-04_T1w.nii.gz").exists()
+    assert (deriv / "nordic" / "bids_format" / "dataset_description.json").exists()

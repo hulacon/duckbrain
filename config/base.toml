@@ -35,6 +35,11 @@ mem_gb = 32
 magnitude_only = true
 matlab_module = "matlab/R2024a"
 excluded_nodes = ""
+# Per-project toggle: when true, fMRIPrep reads the NORDIC-denoised BIDS tree
+# (derivatives/nordic/bids_format) and depends on the `nordic` stage instead of
+# `converted`. Set in a project's code/duckbrain.toml. NORDIC still runs as a
+# pure producer regardless; this only redirects fMRIPrep's input.
+use_nordic = false
 
 [slurm]
 partition = "medium"

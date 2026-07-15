@@ -104,6 +104,29 @@ def _build_fmriprep(config, subject, session, log_dir, params):
         raise PipelineError("FreeSurfer license not found. Set it in Project Setup.")
 
     output_dir = f"{derivatives_dir}/fmriprep"
+
+    # Input source is the only variable between with- and without-NORDIC runs
+    # (TODO #5b Case 1). Default: raw BIDS. When use_nordic, assemble the unit's
+    # self-contained bids_format tree (denoised BOLDs + anat/fmap/sidecars + root
+    # files) and read that instead.
+    fmriprep_input = paths["bids_dir"]
+    if _use_nordic(config):
+        from .nordic import build_nordic_bids_input, get_bold_runs
+
+        nordic_root = f"{derivatives_dir}/nordic"
+        denoised = get_bold_runs(nordic_root, subject, session)
+        if not denoised:
+            raise PipelineError(
+                "use_nordic is on but no NORDIC-denoised BOLDs were found for "
+                f"sub-{subject}{('/ses-' + session) if session else ''}. "
+                "Run the NORDIC stage first."
+            )
+        build_nordic_bids_input(
+            bids_dir=paths["bids_dir"], subject=subject, session=session,
+            nordic_derivatives_dir=nordic_root,
+        )
+        fmriprep_input = f"{nordic_root}/bids_format"
+
     # A session filter restricts fMRIPrep to one session (multi-session only).
     filter_file = ""
     if session:
@@ -124,7 +147,7 @@ def _build_fmriprep(config, subject, session, log_dir, params):
 
     ctx = build_context(
         config, "fmriprep", subject=subject, session=session,
-        bids_dir=paths["bids_dir"], output_dir=output_dir,
+        bids_dir=fmriprep_input, output_dir=output_dir,
         container_path=str(container), fs_license=str(fs_license),
         fs_license_dir=str(fs_license.parent), output_spaces=spaces,
         filter_file=filter_file, anat_only=anat_only,
@@ -201,6 +224,27 @@ STAGE_SPECS: dict[str, StageSpec] = {
 
 # SLURM-launchable stages, in pipeline order (cockpit iterates these).
 SLURM_STAGES = tuple(s for s, spec in STAGE_SPECS.items() if spec.is_slurm)
+
+
+def _use_nordic(config: dict) -> bool:
+    """Whether this project routes fMRIPrep through NORDIC (TODO #5b Case 1)."""
+    return bool(config.get("nordic", {}).get("use_nordic", False))
+
+
+def effective_depends_on(config: dict, stage: str) -> str | None:
+    """The dependency stage that must be COMPLETE before *stage* is runnable.
+
+    Same as ``STAGE_SPECS[stage].depends_on`` except fMRIPrep depends on
+    ``nordic`` (not ``converted``) when the project has ``use_nordic`` on — the
+    denoised input must exist first. NORDIC itself stays a pure ``converted``
+    producer regardless.
+    """
+    spec = STAGE_SPECS.get(stage)
+    if spec is None:
+        return None
+    if stage == "fmriprep" and _use_nordic(config):
+        return "nordic"
+    return spec.depends_on
 
 
 # ---- public API -------------------------------------------------------------
@@ -393,13 +437,18 @@ def survey_live(config: dict):
     return matrix
 
 
-def stage_runnable(row, stage: str) -> bool:
+def stage_runnable(row, stage: str, config: dict | None = None) -> bool:
     """Whether *stage* can be launched now for the unit in *row* (a survey_live row).
 
     True when the stage is SLURM-launchable, not already complete, has no active
     (running/queued) job, and its dependency stage is complete. This is the
     cockpit's per-cell run gate — it deliberately excludes re-running a COMPLETE
     stage (that's a separate "advanced" affordance).
+
+    When *config* is supplied, the dependency is resolved via
+    :func:`effective_depends_on`, so a ``use_nordic`` project gates fMRIPrep on
+    ``nordic`` instead of ``converted``. Omitting *config* keeps the static
+    ``STAGE_SPECS`` dependency (back-compat for existing callers).
     """
     spec = STAGE_SPECS.get(stage)
     if spec is None or not spec.is_slurm or stage not in row:
@@ -408,7 +457,7 @@ def stage_runnable(row, stage: str) -> bool:
         return False
     if row[stage] == Status.COMPLETE.value:
         return False
-    dep = spec.depends_on
+    dep = effective_depends_on(config, stage) if config is not None else spec.depends_on
     if dep is not None and row.get(dep) != Status.COMPLETE.value:
         return False
     return True

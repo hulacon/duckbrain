@@ -88,6 +88,11 @@ tab_fmriprep, tab_nordic, tab_mriqc = st.tabs(["fMRIPrep", "NORDIC", "MRIQC"])
 with tab_fmriprep:
     st.subheader("fMRIPrep")
 
+    if config.get("nordic", {}).get("use_nordic", False):
+        st.info("🧊 **use_nordic** is on for this project — fMRIPrep runs on the "
+                "NORDIC-denoised input (`derivatives/nordic/bids_format`) and "
+                "requires the NORDIC stage to be complete for each subject first.")
+
     col1, col2 = st.columns(2)
     with col1:
         fp_subjects = st.multiselect("Subjects", subjects, key="fp_subjects")

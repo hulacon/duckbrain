@@ -38,6 +38,10 @@ project_name = config.get("project", {}).get("name", "")
 if project_name:
     st.caption(f"Project: **{project_name}** — `{paths['bids_dir']}`")
 
+if config.get("nordic", {}).get("use_nordic", False):
+    st.caption("🧊 **use_nordic** on — fMRIPrep reads NORDIC-denoised input and is "
+               "gated on the `nordic` stage.")
+
 from duckbrain.core.surveyor import STAGES, Status, summarize, to_bagel
 from duckbrain.core.pipeline import (
     SLURM_STAGES,
@@ -125,7 +129,7 @@ def dashboard():
     runnable = []
     for _, row in matrix.iterrows():
         for stage in SLURM_STAGES:
-            if stage in matrix.columns and stage_runnable(row, stage):
+            if stage in matrix.columns and stage_runnable(row, stage, config):
                 runnable.append({
                     "subject": row["subject"], "session": row["session"], "stage": stage,
                     "unit": _unit_label(row["subject"], row["session"]),

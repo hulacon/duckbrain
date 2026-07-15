@@ -90,12 +90,18 @@ def build_nordic_bids_input(
     nordic_derivatives_dir: str | Path,
     output_bids_input_dir: str | Path | None = None,
 ) -> Path:
-    """Build a BIDS-compatible input tree from NORDIC-denoised data.
+    """Build a self-contained BIDS tree from NORDIC-denoised data for fMRIPrep.
 
-    Reimplements mmmdata's nordic_build_bids_input.sh in Python:
+    Assembles ``derivatives/nordic/bids_format/`` — a valid BIDS dataset that
+    swaps the NORDIC-denoised BOLDs in for the raw ones while carrying everything
+    else fMRIPrep needs:
     - NORDIC BOLDs are hardlinked (not copied) to save disk
     - All other func/ files (JSON, events, physio, SBRef) copied from raw BIDS
     - Fieldmaps copied from raw BIDS
+    - Anatomicals included (nifti hardlinked, sidecars copied) so fMRIPrep runs
+      end-to-end without a prior non-NORDIC run
+    - Dataset root files (dataset_description.json, participants.*, .bidsignore)
+      copied once, so fMRIPrep accepts the tree as a dataset
 
     Parameters
     ----------
@@ -127,21 +133,24 @@ def build_nordic_bids_input(
     ss = sub_ses_relpath(subject, session)
 
     if output_bids_input_dir is None:
-        # Sibling of the per-subject NORDIC output, i.e. <derivatives>/nordic/
-        # bids_input/ — the location the caller and mmmdata expect. (The caller
-        # passes <derivatives>/nordic as nordic_derivatives_dir.)
-        output_bids_input_dir = nordic_derivatives_dir / "bids_input"
+        # Sibling of the per-subject NORDIC output, i.e.
+        # <derivatives>/nordic/bids_format/ — the self-contained BIDS tree
+        # fMRIPrep reads when use_nordic is on. (The caller passes
+        # <derivatives>/nordic as nordic_derivatives_dir.)
+        output_bids_input_dir = nordic_derivatives_dir / "bids_format"
 
     output_bids_input_dir = Path(output_bids_input_dir)
     out_sub_ses = output_bids_input_dir / ss
     out_func = out_sub_ses / "func"
     out_fmap = out_sub_ses / "fmap"
+    out_anat = out_sub_ses / "anat"
 
     out_func.mkdir(parents=True, exist_ok=True)
     out_fmap.mkdir(parents=True, exist_ok=True)
 
     raw_func = bids_dir / ss / "func"
     raw_fmap = bids_dir / ss / "fmap"
+    raw_anat = bids_dir / ss / "anat"
     nordic_func = nordic_derivatives_dir / ss / "func"
 
     # 1. Hardlink NORDIC BOLDs
@@ -167,7 +176,21 @@ def build_nordic_bids_input(
             if not dest.exists():
                 shutil.copy2(f, dest)
 
-    # 4. Copy the unit-level scans.tsv if present. Its filename carries the same
+    # 4. Include anatomicals so fMRIPrep runs end-to-end (nifti hardlinked to save
+    # disk — anat is unchanged by NORDIC — sidecars copied). Only make the dir if
+    # the unit actually has anat.
+    if raw_anat.is_dir():
+        out_anat.mkdir(parents=True, exist_ok=True)
+        for f in raw_anat.iterdir():
+            dest = out_anat / f.name
+            if dest.exists():
+                continue
+            if f.name.endswith(".nii.gz"):
+                os.link(f, dest)
+            else:
+                shutil.copy2(f, dest)
+
+    # 5. Copy the unit-level scans.tsv if present. Its filename carries the same
     # entities as the dir path: sub-XX_ses-YY_scans.tsv or sub-XX_scans.tsv.
     scans_name = f"{sub}_ses-{session}_scans.tsv" if session else f"{sub}_scans.tsv"
     scans_tsv = bids_dir / ss / scans_name
@@ -175,6 +198,16 @@ def build_nordic_bids_input(
         dest = out_sub_ses / scans_tsv.name
         if not dest.exists():
             shutil.copy2(scans_tsv, dest)
+
+    # 6. Copy dataset root files once, so the tree is a valid BIDS dataset that
+    # fMRIPrep accepts (it errors without dataset_description.json even with
+    # --skip-bids-validation). Idempotent; skips whatever the raw dataset lacks.
+    for root_name in ("dataset_description.json", "participants.tsv",
+                      "participants.json", "README", ".bidsignore"):
+        src = bids_dir / root_name
+        dest = output_bids_input_dir / root_name
+        if src.exists() and not dest.exists():
+            shutil.copy2(src, dest)
 
     return out_sub_ses
 

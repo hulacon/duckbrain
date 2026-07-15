@@ -15,6 +15,7 @@ from duckbrain.core.pipeline import (
     SLURM_STAGES,
     PipelineError,
     advance_one,
+    effective_depends_on,
     read_submissions,
     record_submission,
     stage_runnable,
@@ -247,6 +248,80 @@ def test_stage_runnable_dependency_gating(monkeypatch):
     row = survey_live({}).iloc[0]
     assert stage_runnable(row, "converted") is True   # ingested complete → go
     assert stage_runnable(row, "fmriprep") is False   # converted not complete → gated
+
+
+def test_effective_depends_on_use_nordic():
+    off = {}
+    on = {"nordic": {"use_nordic": True}}
+    # fMRIPrep swings from converted -> nordic when use_nordic is on.
+    assert effective_depends_on(off, "fmriprep") == "converted"
+    assert effective_depends_on(on, "fmriprep") == "nordic"
+    # Other stages are unaffected; NORDIC stays a converted producer.
+    assert effective_depends_on(on, "mriqc") == "converted"
+    assert effective_depends_on(on, "nordic") == "converted"
+    assert effective_depends_on(on, "converted") == "ingested"
+
+
+def test_stage_runnable_use_nordic_gates_fmriprep_on_nordic():
+    # converted done, nordic not yet: fMRIPrep is runnable normally but gated
+    # when use_nordic is on (its input doesn't exist yet).
+    row = {"subject": "08", "session": "", "ingested": "complete",
+           "converted": "complete", "nordic": "missing",
+           "fmriprep": "missing", "mriqc": "missing",
+           "converted_job": "", "nordic_job": "", "fmriprep_job": "", "mriqc_job": ""}
+    assert stage_runnable(row, "fmriprep") is True                 # static dep = converted
+    assert stage_runnable(row, "fmriprep", {}) is True             # config off = converted
+    assert stage_runnable(row, "fmriprep", {"nordic": {"use_nordic": True}}) is False
+    # Once NORDIC completes, the use_nordic gate opens.
+    row2 = {**row, "nordic": "complete"}
+    assert stage_runnable(row2, "fmriprep", {"nordic": {"use_nordic": True}}) is True
+
+
+def _patch_fmriprep_deps(monkeypatch, tmp_path, denoised):
+    """Stub fMRIPrep + NORDIC deps; capture the rendered context. Returns cap dict."""
+    import duckbrain.core.fmriprep as F
+    import duckbrain.core.nordic as N
+    (tmp_path / "fs").mkdir()
+    lic = tmp_path / "fs" / "license.txt"
+    lic.write_text("x")
+    monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
+    monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
+    monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
+    monkeypatch.setattr(N, "get_bold_runs", lambda root, sub, ses: denoised)
+    built = {}
+    monkeypatch.setattr(N, "build_nordic_bids_input",
+                        lambda **kw: built.update(kw) or tmp_path)
+    cap = {"built": built}
+    monkeypatch.setattr(P, "render_sbatch",
+                        lambda t, ctx: cap.update(ctx=ctx) or "s")
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
+    return cap
+
+
+def test_fmriprep_use_nordic_swaps_input_to_bids_format(monkeypatch, tmp_path):
+    cap = _patch_fmriprep_deps(monkeypatch, tmp_path, denoised=[tmp_path / "b_bold.nii.gz"])
+    cfg = _config(tmp_path)
+    cfg["nordic"] = {"use_nordic": True}
+    advance_one(cfg, "fmriprep", "008", "")
+    # fMRIPrep reads the assembled bids_format tree, not raw BIDS.
+    assert cap["ctx"]["bids_dir"].endswith("/derivatives/nordic/bids_format")
+    assert cap["built"]["subject"] == "008"
+
+
+def test_fmriprep_use_nordic_without_denoised_raises(monkeypatch, tmp_path):
+    _patch_fmriprep_deps(monkeypatch, tmp_path, denoised=[])
+    cfg = _config(tmp_path)
+    cfg["nordic"] = {"use_nordic": True}
+    with pytest.raises(PipelineError, match="no NORDIC-denoised"):
+        advance_one(cfg, "fmriprep", "008", "")
+
+
+def test_fmriprep_without_use_nordic_reads_raw_bids(monkeypatch, tmp_path):
+    cap = _patch_fmriprep_deps(monkeypatch, tmp_path, denoised=[])
+    cfg = _config(tmp_path)  # no [nordic] -> use_nordic defaults off
+    advance_one(cfg, "fmriprep", "008", "")
+    assert cap["ctx"]["bids_dir"] == str(tmp_path)  # raw bids_dir, tree never built
+    assert cap["built"] == {}
 
 
 def test_survey_live_multisession_join_key(monkeypatch):
