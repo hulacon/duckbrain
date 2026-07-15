@@ -171,3 +171,26 @@ folder presence — e.g. dcm2bids success, fMRIPrep's `.html` report or
 `dataset_description.json` in the derivative, MRIQC group TSV. Distinguish
 complete / partial-or-failed / missing. This is the concrete form of the
 long-mooted "pipeline DAG/dependency tracking" idea.
+
+## 7. Pipeline extras — candidate stages & integrations (backlog)
+A set of odds-and-ends a typical pipeline involves, several with unknown fMRIPrep
+interactions / pipeline placement. Captured 2026-07-15 with the NORDIC-work lens
+(producer vs consumer vs orthogonal; placement vs fMRIPrep's resampling; does
+fMRIPrep already do it / fight it). Full annotated backlog — candidate tools, ties
+to existing duckbrain/mmmdata work, and open questions per item — in
+**`docs/pipeline-extras.md`**. Each is its own focused effort; none started.
+1. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
+2. **Anatomical skull-stripping** — clarify intent: defacing vs. precomputed-mask
+   fast-track fed to fMRIPrep vs. QC (fMRIPrep already strips internally).
+3. **Eye BOLD preservation / eye-movement reconstruction** — orthogonal branch
+   fMRIPrep *fights* (brain extraction removes the eyes); highest uncertainty.
+4. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS
+   → confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
+5. **Version/provenance documentation & metadata** — cross-cutting; extend the
+   pinned versions + submission log + bagel into per-derivative provenance.
+6. **Scanning-notes/metadata integration** — input-shaping producer (exclude bad
+   runs via bids-filter/scans.tsv); reuse mmmdata build_manifest/sessions.tsv.
+7. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC (mmmdata
+   open item); layer norms on the existing surveyor/QC pages.
+8. **ReproIn evaluation** — upstream naming convention (ties to #4); adopt
+   internally vs. recommend to LCNI users.
