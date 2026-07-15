@@ -21,6 +21,17 @@ Distribution to other users is via `git clone` from
 `git@github.com:hulacon/duckbrain.git`, so this directory is just the personal
 dev/working copy.
 
+## Working convention: stay on `main`
+
+**Work directly on `main` whenever possible** (Ben's preference, 2026-07-15).
+This is a single-maintainer personal working copy, and the OnDemand GUI serves
+whatever is checked out here — so feature branches add ceremony and a stale-code
+risk (the GUI keeps running old code until you merge back). Commit small,
+verified changes straight to `main`. Only branch when a change is genuinely
+risky/experimental and you want an easy bail-out; merge back and delete the
+branch promptly. After committing, **push to `origin`** so the GitHub distribution
+copy doesn't fall behind.
+
 ## Current status (as of 2026-07-10)
 
 - **Feature-complete across all 3 planned phases**, plus extras:
@@ -37,19 +48,25 @@ dev/working copy.
   submission log `code/logs/submissions.tsv`, deep-links). Stages tracked:
   `ingested, converted, nordic, fmriprep, mriqc`. Full design + resumable status
   tracker in `docs/pipeline-cockpit.md`.
-- **130 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
+- **132 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
   smoke/interaction tests for GUI pages.
-- **Committed and pushed** — `main` in sync with `origin` (HEAD drifts; latest
-  ~`957e49b`, treat as "latest").
+- **Committed** — latest ~`b364e26` (HEAD drifts; treat as "latest"). **May be
+  ahead of `origin`; push before relying on distribution** (see workflow note).
 - **DICOM→BIDS validated end-to-end on real data.** Real dcm2bids conversion of
   DIVATTEN subjects produces BIDS whose imaging filename set is **identical** to
   the canonical heudiconv output at `/projects/hulacon/shared/divatten/bids_data`.
   Validated through the GUI (job 45178139 completed clean).
-- **fMRIPrep now running live** (2026-07-10) — sub-04 and sub-015 in
-  `divatten_gui_beta`, launched via the GUI, past the FreeSurfer stage; 9 MRIQC
-  jobs also running in parallel (MRIQC depends only on `converted`, not fMRIPrep).
-  Command was validated against mmmdata (`code/mmmdata/scripts/run_fmriprep.py`);
-  this is the first live run. **NORDIC is wired into the surveyor/cockpit but
+- **fMRIPrep + MRIQC validated live** (fMRIPrep 2026-07-10; MRIQC 2026-07-15).
+  fMRIPrep: sub-04/sub-015 in `divatten_gui_beta`, launched via the GUI, command
+  validated against mmmdata (`code/mmmdata/scripts/run_fmriprep.py`). MRIQC: all 9
+  `divatten_gui_beta` subjects completed clean via the GUI bulk run — but only
+  after fixing two bugs (commit `b364e26`): (1) an **OOM** — the sbatch set
+  `#SBATCH --mem` and MRIQC `--mem-gb` from the same value, so MRIQC's soft
+  scheduler target had no cgroup headroom and the func synthstrip node was
+  OOM-killed; fixed by decoupling (`--mem-gb` = alloc − 8G) and raising the mriqc
+  allocation to 32G. (2) a **surveyor false-green** — `_mriqc_status` graded a
+  unit complete on the anat T1w json alone, so func-crashed subjects read 🟢;
+  fixed to require func IQMs when the input BIDS has func. **NORDIC is wired into the surveyor/cockpit but
   parked — unconfigured/unvalidated** (needs `nordic_toolbox_dir` + MATLAB + a
   validation run; see TODO #5b).
 - **Validation projects** (real data, on Talapas):
