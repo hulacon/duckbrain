@@ -197,3 +197,16 @@ to existing duckbrain/mmmdata work, and open questions per item — in
    open item); layer norms on the existing surveyor/QC pages.
 8. **ReproIn evaluation** — upstream naming convention (ties to #4); adopt
    internally vs. recommend to LCNI users.
+
+## 8. Visual identity & branding (someday — polish, low priority)
+duckbrain will eventually want a real visual identity, not just functional UI.
+Gated behind functionality + onboarding (#2); capture now so it isn't forgotten.
+- **Logo / wordmark** — lean into the "duck brain" concept; needs a mark that
+  works small (favicon / browser tab) and as a header banner.
+- **GUI theming** — a considered Streamlit theme (palette, accent, fonts) instead
+  of defaults; consistent iconography across pages.
+- **Favicon** for the GUI browser tab + the OnDemand app tile.
+- **README banner / docs polish** — a header image and consistent styling once the
+  QUICKSTART/README refresh (#2) happens.
+- Design flourishes generally (empty-state art, page headers) — tasteful, not
+  over-designed; do after the product behavior is locked.
