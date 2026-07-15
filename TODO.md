@@ -210,3 +210,32 @@ Gated behind functionality + onboarding (#2); capture now so it isn't forgotten.
   QUICKSTART/README refresh (#2) happens.
 - Design flourishes generally (empty-state art, page headers) — tasteful, not
   over-designed; do after the product behavior is locked.
+
+## 9. Provenance-aware consistency / mismatch checker (decided 2026-07-15)
+Auto-flag inconsistencies by cross-referencing config expectation, on-disk
+provenance, and file mtimes — surfaced as ⚠️ in the Project Status cockpit. A
+natural extension of the surveyor (#6); foundation is provenance metadata (see
+`docs/pipeline-extras.md` #5, now bumped in priority). Motivated by the NORDIC
+`use_nordic` coexistence problem — flipping the toggle on a project that already
+has raw-provenance fMRIPrep produces self-contradictory metadata.
+- **Provenance signal (found 2026-07-15):** fMRIPrep records its input dataset in
+  `derivatives/fmriprep/dataset_description.json` → `DatasetLinks.raw` (a NORDIC run
+  points it at `derivatives/nordic/bids_format`; a raw run at the project root). But
+  it's a *single dataset-level* field overwritten by whichever run finished last, so
+  it can't represent mixed provenance. duckbrain must record its own per-run
+  provenance to catch mixing.
+- **Checks to flag:**
+  - **Config vs provenance** — `use_nordic` on but a derivative's `DatasetLinks.raw`
+    isn't the nordic tree (or vice-versa).
+  - **Mixed provenance** — duckbrain records show some subjects launched raw, some
+    NORDIC, into the same `derivatives/fmriprep/` (fMRIPrep's own metadata can't
+    catch this — its input link is singular/overwritten).
+  - **Staleness** — a derivative older than the input it derives from (e.g. NORDIC
+    re-run after fMRIPrep) → "stale, re-run" (mtime check).
+  - **Presence consistency** — fMRIPrep exists but NORDIC missing in a NORDIC project.
+- **Not viable:** detecting denoising from pixel data (fMRIPrep resamples to
+  float32; only heuristically recoverable). Provenance metadata is the only
+  reliable basis.
+- **Cheap first step:** record the input variant (`use_nordic` / input path) in
+  `code/logs/submissions.tsv` now, so duckbrain is self-authoritative going forward.
+- Lives as `check_consistency(config)` beside `core/surveyor.py`; ⚠️ in the cockpit.
