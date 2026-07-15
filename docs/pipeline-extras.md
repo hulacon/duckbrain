@@ -34,42 +34,76 @@ Ordered roughly producer → orthogonal → consumer, not by priority.
   duckbrain already does) vs. a lighter custom branch? Shared anat derivatives
   between fMRIPrep and QSIPrep? Scope: this is a large, multi-stage addition.
 
-## 2. Skull-stripping of anatomical images
-- **What:** Brain extraction / defacing of the T1w (and T2w).
-- **Role / placement:** depends entirely on *intent* — three different features
-  hide under this name:
-  - **(a) Defacing / anonymization** (e.g. `pydeface`, `mri_deface`) — an
-    **upstream, in-place** step on the raw BIDS anat, for sharing/privacy. Runs
-    before fMRIPrep; fMRIPrep tolerates defaced anat.
-  - **(b) Precomputed brain mask fed to fMRIPrep** — a **producer** for fMRIPrep's
-    "anatomical fast-track": fMRIPrep (≥ ~23.2) can *consume* a precomputed brain
-    mask / segmentation via BIDS derivatives (`--derivatives`), skipping its own
-    (slow, sometimes imperfect) skull-strip. Lets us control/QC the mask and save
-    runtime.
-  - **(c) QC of fMRIPrep's own stripping** — a **consumer** concern (fMRIPrep
-    already strips via ANTs/SynthStrip internally; is it good enough per subject?).
-- **fMRIPrep interaction:** **fMRIPrep already skull-strips internally**, so this
-  is only worth adding for defacing (a) or the precomputed-mask fast-track (b), not
-  to duplicate (c).
-- **Open questions:** which of (a)/(b)/(c) does Ben actually want? Likely (a)
-  defacing for sharing and/or (b) a controllable precomputed mask.
+## 2. De-identification for data sharing (DECIDED 2026-07-15: this is the goal)
+Ben's intent (2026-07-15): **anonymize so data can be shared without
+identification risk** — *not* the precomputed-mask or QC senses of "skull-strip".
+This is two distinct jobs that belong together, both **upstream / in-place** and
+**orthogonal to fMRIPrep**:
 
-## 3. Eye BOLD signal preservation / eye-movement reconstruction from BOLD
-- **What:** Preserve the orbital/eyeball BOLD signal and decode gaze/eye movements
-  from it (cf. MR-based eye tracking, e.g. Frey et al. 2021 — DeepMReye).
+- **(a) Image defacing** — remove face/ear geometry from the anatomicals (T1w/T2w),
+  which are reconstructable to a face. Tools: `pydeface`, `mri_deface`, `mideface`,
+  or the combined BIDS-App below.
+- **(b) Metadata / header PII scrubbing** — the load-bearing addition Ben flagged.
+  Identifiers live in **two** places, both need scrubbing:
+  - **Source DICOM headers** (before/at conversion): `PatientName`,
+    `PatientID`, `PatientBirthDate`, institution, referring physician, device
+    serial, study dates, etc. duckbrain sorts raw DICOMs (`core/dicom_sorter.py`),
+    so PII is present at that stage too.
+  - **BIDS JSON sidecars** produced by conversion — can retain `AcquisitionDateTime`,
+    institution/device fields, and occasionally patient fields depending on the
+    converter.
+  - **Policy Ben stated — "derive then torch":** it's fine to *compute* demographics
+    (e.g. age from birth date) into `participants.tsv`, but raw identifier fields
+    (name, MRN, and the birth date itself) must be **automatically removed** from
+    retained metadata. Note the standard nuances: exact dates and ages > 89 are
+    HIPAA Safe-Harbor identifiers, so the safe pattern is *birthdate → age (capped
+    at 90+) → discard birthdate*, and scan dates get relativized/dropped.
+- **Candidate — one combined tool:** **`bidsonym`** (a BIDS-App) does exactly this
+  pairing — defaces anatomicals (multiple algorithms) *and* scrubs metadata, with
+  optional PII-leak checks. Worth evaluating vs. wiring `pydeface` + a custom
+  sidecar/DICOM scrubber ourselves.
+- **fMRIPrep interaction:** fMRIPrep tolerates defaced anat. **Open sub-question:**
+  deface the *raw* data before fMRIPrep (simplest for sharing, but defacing can
+  slightly perturb skull-strip/registration) vs. run fMRIPrep on intact data and
+  deface + scrub only the *shared* copy/derivatives. Latter is safer for pipeline
+  quality; former is simpler.
+- **Open questions:** DICOM-level scrub (at `dicom_sorter`) vs. BIDS-level, or both;
+  adopt `bidsonym` vs. roll our own; where the "share-ready" export lives; a
+  verification/PII-audit pass so we can *assert* a dataset is clean before release.
+
+### 2b. (deferred, different feature) Precomputed anatomical mask fast-track
+Separate from the above and NOT what Ben wants now, but noting it so it isn't
+conflated later: fMRIPrep (≥ ~23.2) can *consume* a precomputed brain mask /
+segmentation via `--derivatives` to skip its own skull-strip (control + runtime).
+That's a **producer** for fMRIPrep. Revisit only if that need arises.
+
+## 3. Eye-movement reconstruction from BOLD (DeepMReye-style) — DECIDED 2026-07-15
+- **What:** Decode gaze/eye position from the **orbital (eyeball) BOLD signal** in
+  service of **DeepMReye-like analyses** (Frey et al. 2021). Ben: **most projects
+  won't need this**, but it has *unique pipeline requirements* worth designing for
+  so the standard pipeline doesn't silently preclude it.
 - **Role / placement:** **orthogonal branch that fMRIPrep actively fights.**
-  fMRIPrep's brain extraction removes the eyes and its normalization warps the FOV,
-  so eye signal is destroyed by the standard pipeline. Needs the eye-region
-  timeseries extracted from **raw or minimally-processed** data (pre-mask), OR a
-  parallel pipeline that keeps the orbital FOV.
-- **fMRIPrep interaction:** **strongly negative / unknown** — this is the clearest
-  "fMRIPrep works against you" case in the list. Likely a separate extraction on
-  raw BOLD (or fMRIPrep's pre-normalization/native-space outputs if the eyes
-  survive there), feeding an eye-movement regressor/estimate.
-- **Open questions:** does any fMRIPrep intermediate retain the eyes (native-space
-  `desc-preproc_bold` before MNI warp)? Or must this run entirely off raw data in
-  parallel? Which decoding approach (DeepMReye vs. simpler orbital-signal methods)?
-  Research-grade; highest uncertainty in the list.
+  DeepMReye trains on the MR signal within the eyes; fMRIPrep's brain extraction
+  removes the orbits and its normalization warps the FOV, so the standard pipeline
+  **destroys exactly the signal this needs.** The requirement is to preserve /
+  extract the orbital voxels from **raw or minimally-processed** data before that
+  happens.
+- **The unique requirement (why it needs designing in):** DeepMReye works on the
+  eye region co-registered to its own eye template, typically from **raw/minimally
+  preprocessed** functional data — it does *not* want fMRIPrep's brain-masked,
+  MNI-normalized output. So enabling it means an **opt-in parallel path** that keeps
+  the eyes, separate from the main fMRIPrep branch. The pipeline should let a
+  project flag "preserve eye signal" and route accordingly, rather than assume
+  every BOLD run is brain-only.
+- **fMRIPrep interaction:** **strongly negative** — the clearest "fMRIPrep works
+  against you" case. DeepMReye ingests raw/minimally-processed BOLD in parallel;
+  fMRIPrep's outputs are the wrong input for it.
+- **Open questions:** exact input DeepMReye wants (raw vs. motion-corrected-only);
+  is this a duckbrain stage that *runs* DeepMReye, or just a "don't destroy the
+  eyes / provide the right intermediate" affordance feeding a user's own DeepMReye
+  run? A per-project opt-in flag (like `use_nordic`) fits. Research-grade; low
+  demand but real requirements. Reference: DeepMReye
+  (https://github.com/DeepMReye/DeepMReye).
 
 ## 4. Physiological data as BOLD regressors
 - **What:** Cardiac/respiratory recordings → nuisance regressors (RETROICOR,
