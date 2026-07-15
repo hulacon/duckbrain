@@ -83,21 +83,30 @@ now, fs_license stays a text field.
   `mriqc_version = "24.0.2"`. Still needs a live end-to-end run + QC-dashboard
   validation.
 
-## 5b. NORDIC — wired into surveyor/cockpit 2026-07-10, still needs real validation
-`nordic` is now a surveyor stage (STAGES column, live-state overlay, cockpit
+## 5b. NORDIC — producer VALIDATED LIVE 2026-07-15; chaining still to build
+`nordic` is a surveyor stage (STAGES column, live-state overlay, cockpit
 launch + bulk) — completion = denoised BOLDs under
-`derivatives/nordic/sub-XX[/ses-YY]/func/*_bold.nii.gz`. Code (`core/nordic.py`,
-`scripts/nordic_denoise.m`, `templates/sbatch/nordic_denoise.sbatch.j2`, the
-Preprocessing NORDIC tab) is all present but **never run/validated in duckbrain**.
-Before NORDIC is real:
-- **Configure it:** `nordic_toolbox_dir` (NORDIC_Raw MATLAB toolbox) is unset in
-  user/project config; also needs MATLAB module on the compute node. Until set,
-  clicking "run nordic" in the cockpit produces a failed job (caught/shown).
-- **Validate:** one live run on a converted subject (mirror the fMRIPrep effort).
-- **Fix sessionless path bug:** `nordic_output_dir` / `build_nordic_bids_input`
-  hardcode `ses-{session}`, so sessionless data writes a malformed `ses-/func`
-  dir. The surveyor tracker tolerates it (wildcards), but a real run wouldn't.
-- **Chaining — DECIDED 2026-07-15 (design; not yet built).** fMRIPrep currently
+`derivatives/nordic/sub-XX[/ses-YY]/func/*_bold.nii.gz`. The **producer is now
+validated end-to-end** on real data: sub-04 in `divatten_gui_beta` (sessionless,
+13 BOLD runs) denoised clean via the GUI/`advance_one` path (array job 45428802,
+all tasks COMPLETED, ~2–3 min & ~5.8 GB peak each), every output dim matching its
+raw input, and the surveyor flips the cell 🟢. Getting there fixed three latent
+bugs (all in this commit):
+- **m-file output path** — `scripts/nordic_denoise.m` set `ARG.DIROUT = out_dir`
+  *and* `fn_out = fullfile(out_dir, fname)`; `NIFTI_NORDIC` concatenates
+  `DIROUT + fn_out`, so it would have written `out_dir/out_dir/…`. Aligned to
+  mmmdata's validated form (`ARG.DIROUT = [out_dir '/']`, `fn_out = basename`).
+- **template render** — `nordic_denoise.sbatch.j2` used a bash array-length
+  expansion whose `{#` collided with Jinja's comment-open, so the template never
+  rendered. Replaced with a `wc -l` count. (Proof it had never been run.)
+- **sessionless paths** — `nordic_output_dir` / `build_nordic_bids_input` (and
+  the latter's default `bids_input` location) hardcoded `ses-{session}`; now
+  derived from `sub_ses_relpath`, so sessionless data writes `sub-XX/func` not
+  `ses-/func`.
+- **Config (done):** `nordic_toolbox_dir =
+  /gpfs/projects/hulacon/shared/mmmdata/code/NORDIC_Raw` in user config; MATLAB
+  module default `matlab/R2024a` is the cluster default — no change needed.
+- **Chaining — DECIDED 2026-07-15 (design; not yet built) — this is the next step.** fMRIPrep currently
   depends only on `converted` and always reads raw `bids_dir`. The plan supports
   both with- and without-NORDIC pipelines without a DAG rewrite, via one
   principle: **NORDIC stays a pure independent producer** (denoises → writes its

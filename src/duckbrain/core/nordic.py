@@ -106,35 +106,43 @@ def build_nordic_bids_input(
     session : str
         Session label (without "ses-" prefix).
     nordic_derivatives_dir : path
-        e.g., <derivatives>/nordic/<sub>/<ses>/func/ containing denoised BOLDs.
+        The NORDIC derivatives root, ``<derivatives>/nordic``. The denoised BOLDs
+        for a unit live under ``<nordic_derivatives_dir>/sub-XX[/ses-YY]/func/``.
     output_bids_input_dir : path, optional
-        Output directory. Defaults to <derivatives>/nordic/bids_input/.
+        Output directory. Defaults to ``<derivatives>/nordic/bids_input/``.
 
     Returns
     -------
     Path
         The output BIDS input directory for this subject/session.
     """
+    from .ingestion import sub_ses_relpath
+
     bids_dir = Path(bids_dir)
     nordic_derivatives_dir = Path(nordic_derivatives_dir)
 
     sub = f"sub-{subject}"
-    ses = f"ses-{session}"
+    # Session-aware relative fragment: omits the ses- level for sessionless data,
+    # so nothing writes a malformed ``ses-/func`` path.
+    ss = sub_ses_relpath(subject, session)
 
     if output_bids_input_dir is None:
-        output_bids_input_dir = nordic_derivatives_dir.parent.parent / "bids_input"
+        # Sibling of the per-subject NORDIC output, i.e. <derivatives>/nordic/
+        # bids_input/ — the location the caller and mmmdata expect. (The caller
+        # passes <derivatives>/nordic as nordic_derivatives_dir.)
+        output_bids_input_dir = nordic_derivatives_dir / "bids_input"
 
     output_bids_input_dir = Path(output_bids_input_dir)
-    out_sub_ses = output_bids_input_dir / sub / ses
+    out_sub_ses = output_bids_input_dir / ss
     out_func = out_sub_ses / "func"
     out_fmap = out_sub_ses / "fmap"
 
     out_func.mkdir(parents=True, exist_ok=True)
     out_fmap.mkdir(parents=True, exist_ok=True)
 
-    raw_func = bids_dir / sub / ses / "func"
-    raw_fmap = bids_dir / sub / ses / "fmap"
-    nordic_func = nordic_derivatives_dir / sub / ses / "func"
+    raw_func = bids_dir / ss / "func"
+    raw_fmap = bids_dir / ss / "fmap"
+    nordic_func = nordic_derivatives_dir / ss / "func"
 
     # 1. Hardlink NORDIC BOLDs
     if nordic_func.is_dir():
@@ -159,8 +167,10 @@ def build_nordic_bids_input(
             if not dest.exists():
                 shutil.copy2(f, dest)
 
-    # 4. Copy session-level scans.tsv if present
-    scans_tsv = bids_dir / sub / ses / f"{sub}_{ses}_scans.tsv"
+    # 4. Copy the unit-level scans.tsv if present. Its filename carries the same
+    # entities as the dir path: sub-XX_ses-YY_scans.tsv or sub-XX_scans.tsv.
+    scans_name = f"{sub}_ses-{session}_scans.tsv" if session else f"{sub}_scans.tsv"
+    scans_tsv = bids_dir / ss / scans_name
     if scans_tsv.exists():
         dest = out_sub_ses / scans_tsv.name
         if not dest.exists():
@@ -169,6 +179,14 @@ def build_nordic_bids_input(
     return out_sub_ses
 
 
-def nordic_output_dir(derivatives_dir: str | Path, subject: str, session: str) -> Path:
-    """Standard NORDIC derivatives output path."""
-    return Path(derivatives_dir) / "nordic" / f"sub-{subject}" / f"ses-{session}" / "func"
+def nordic_output_dir(derivatives_dir: str | Path, subject: str, session: str = "") -> Path:
+    """Standard NORDIC derivatives output path.
+
+    ``sub_ses_relpath`` omits the ``ses-`` level for sessionless (single-session)
+    data, so this returns ``.../nordic/sub-XX/func`` when *session* is empty and
+    ``.../nordic/sub-XX/ses-YY/func`` otherwise — matching what the
+    ``nordic_denoise`` sbatch template writes.
+    """
+    from .ingestion import sub_ses_relpath
+
+    return Path(derivatives_dir) / "nordic" / sub_ses_relpath(subject, session) / "func"

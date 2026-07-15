@@ -18,7 +18,9 @@ echo "Node: $(hostname)"
 # Discover BOLD runs
 FUNC_DIR={{ paths.bids_dir }}/sub-{{ subject }}{% if session %}/ses-{{ session }}{% endif %}/func
 BOLD_FILES=($(ls ${FUNC_DIR}/*_bold.nii.gz 2>/dev/null | sort))
-NUM_RUNS=${#BOLD_FILES[@]}
+# Count via wc, not a bash array-length expansion: the hash-brace token in
+# that expansion collides with Jinja's comment-open and breaks rendering.
+NUM_RUNS=$(ls ${FUNC_DIR}/*_bold.nii.gz 2>/dev/null | wc -l)
 
 if [ $NUM_RUNS -eq 0 ]; then
     echo "ERROR: No BOLD files found in ${FUNC_DIR}"
