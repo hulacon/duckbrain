@@ -194,14 +194,21 @@ def generate_config(
     # --- Fieldmaps ---
     for group_name, group_dirs in fieldmaps.groups.items():
         group_id = f"B0map_{group_name}_{sub_ses}" if sub_ses else f"B0map_{group_name}"
+        # Extra entity (acq-/run-) that keeps multiple pairs from colliding on the
+        # same dir-<X> filename; empty for the lone-pair case.
+        extra_entity = fieldmaps.group_entities.get(group_name, "")
 
         if "ap" in group_dirs:
             descriptions.append(
-                _fmap_description(group_dirs["ap"], "AP", group_id, series_list)
+                _fmap_description(
+                    group_dirs["ap"], "AP", group_id, series_list, group_name, extra_entity
+                )
             )
         if "pa" in group_dirs:
             descriptions.append(
-                _fmap_description(group_dirs["pa"], "PA", group_id, series_list)
+                _fmap_description(
+                    group_dirs["pa"], "PA", group_id, series_list, group_name, extra_entity
+                )
             )
 
     return {"descriptions": descriptions}
@@ -235,8 +242,16 @@ def _fmap_description(
     direction: str,
     b0_field_id: str,
     series_list: list[SeriesInfo],
+    group_name: str = "",
+    extra_entity: str = "",
 ) -> dict:
-    """Build a fieldmap description entry."""
+    """Build a fieldmap description entry.
+
+    ``extra_entity`` (an ``acq-<label>`` or ``run-<n>`` token) distinguishes
+    multiple fieldmap pairs in one session; it is placed in BIDS entity order
+    (``acq`` before ``dir``, ``run`` after) and folded into the description id so
+    ids stay unique across pairs.
+    """
     # Find the series to get its description for matching
     series_desc = ""
     for s in series_list:
@@ -244,8 +259,16 @@ def _fmap_description(
             series_desc = s.description
             break
 
+    custom_entities = f"dir-{direction}"
+    if extra_entity.startswith("acq-"):
+        custom_entities = f"{extra_entity}_dir-{direction}"
+    elif extra_entity:
+        custom_entities = f"dir-{direction}_{extra_entity}"
+
+    id_suffix = f"-{group_name}" if group_name else ""
+
     return {
-        "id": f"fmap-epi-{direction.lower()}",
+        "id": f"fmap-epi-{direction.lower()}{id_suffix}",
         "datatype": "fmap",
         "suffix": "epi",
         "criteria": {
@@ -255,7 +278,7 @@ def _fmap_description(
             "B0FieldSource": b0_field_id,
             "PhaseEncodingDirection": "j-" if direction == "AP" else "j",
         },
-        "custom_entities": f"dir-{direction}",
+        "custom_entities": custom_entities,
     }
 
 

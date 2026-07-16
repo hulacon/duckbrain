@@ -25,6 +25,10 @@ class FieldmapDetection:
     strategy: str  # "series_description", "series_number", "none"
     groups: dict = field(default_factory=dict)  # group_name → {"ap": num, "pa": num}
     warnings: list[str] = field(default_factory=list)
+    # group_name → extra BIDS entity that keeps multiple pairs from colliding on
+    # the same ``dir-<X>`` filename, e.g. "run-1" (order) or "acq-encoding"
+    # (named). Empty/absent means no extra entity (the single-pair case).
+    group_entities: dict = field(default_factory=dict)
 
 
 # Classification patterns, tried in order (first match wins). Definitive
@@ -158,12 +162,18 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
     if not fmap_series:
         return FieldmapDetection(strategy="none")
 
-    # Try description-based grouping (e.g., se_epi_ap_encoding, se_epi_pa_encoding)
-    groups: dict[str, dict[str, int]] = {}
+    # Two grouping bases coexist. Fieldmaps whose description carries a group name
+    # (``se_epi_ap_encoding`` → "encoding") are grouped by that name. Fieldmaps
+    # with no name (plain ``se_epi_ap``/``se_epi_pa``) are grouped by *acquisition
+    # order*: a session that reacquires a plain AP/PA pair (e.g. a topup pair
+    # before and after the functionals) yields two distinct pairs, not one
+    # collapsed group that spuriously reads as a "Duplicate AP".
+    named_groups: dict[str, dict[str, int]] = {}
+    unnamed: list[tuple[int, str]] = []  # (series_number, direction), acquisition order
     warnings: list[str] = []
     strategy = "series_number"
 
-    for s in fmap_series:
+    for s in sorted(fmap_series, key=lambda s: s.series_number):
         desc_lower = s.description.lower()
 
         # Extract direction (AP/PA)
@@ -177,19 +187,40 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
             warnings.append(f"Cannot determine direction for Series_{s.series_number}_{s.description}")
             continue
 
-        # Extract group name from description suffix
         group_name = _extract_fmap_group(desc_lower)
         if group_name:
             strategy = "series_description"
+            slot = named_groups.setdefault(group_name, {})
+            if direction in slot:
+                # A named group naming the same direction twice is a genuine
+                # config smell (unlike the unnamed reacquire case below).
+                warnings.append(
+                    f"Duplicate {direction.upper()} in group '{group_name}': "
+                    f"Series {slot[direction]} and {s.series_number}"
+                )
+            slot[direction] = s.series_number
+        else:
+            unnamed.append((s.series_number, direction))
 
-        if group_name not in groups:
-            groups[group_name] = {}
-        if direction in groups[group_name]:
-            warnings.append(
-                f"Duplicate {direction.upper()} in group '{group_name}': "
-                f"Series {groups[group_name][direction]} and {s.series_number}"
-            )
-        groups[group_name][direction] = s.series_number
+    groups: dict[str, dict[str, int]] = dict(named_groups)
+    group_entities: dict[str, str] = {}
+
+    unnamed_pairs = _pair_by_acquisition(unnamed)
+    if len(unnamed_pairs) == 1 and not named_groups:
+        # Sole unnamed pair keeps the historical empty-name group (no extra entity).
+        groups[""] = unnamed_pairs[0]
+    else:
+        for i, pair in enumerate(unnamed_pairs, start=1):
+            groups[str(i)] = pair
+            group_entities[str(i)] = f"run-{i}"
+
+    # When two or more pairs coexist they'd otherwise write the same
+    # ``dir-<X>_epi`` filename; give each named pair an ``acq-`` label so the
+    # converted fieldmaps stay distinct (unnamed pairs already carry ``run-``).
+    if len(groups) >= 2:
+        for name in groups:
+            if name and name not in group_entities:
+                group_entities[name] = f"acq-{_sanitize_task_label(name)}"
 
     # Validate groups have both AP and PA
     for gname, dirs in groups.items():
@@ -201,7 +232,28 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
     if not groups:
         return FieldmapDetection(strategy="none", warnings=warnings)
 
-    return FieldmapDetection(strategy=strategy, groups=groups, warnings=warnings)
+    return FieldmapDetection(
+        strategy=strategy, groups=groups, warnings=warnings, group_entities=group_entities
+    )
+
+
+def _pair_by_acquisition(directed: list[tuple[int, str]]) -> list[dict[str, int]]:
+    """Pair a series of (series_number, direction) fieldmaps by acquisition order.
+
+    Walks in order, filling one ``{"ap": n, "pa": m}`` pair at a time; seeing a
+    direction the current pair already holds starts a new pair. So an interleaved
+    ``AP, PA, AP, PA`` acquisition becomes two complete pairs.
+    """
+    pairs: list[dict[str, int]] = []
+    current: dict[str, int] = {}
+    for series_number, direction in directed:
+        if direction in current:
+            pairs.append(current)
+            current = {}
+        current[direction] = series_number
+    if current:
+        pairs.append(current)
+    return pairs
 
 
 def _is_fieldmap(description: str) -> bool:

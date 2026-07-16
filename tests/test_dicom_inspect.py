@@ -195,6 +195,55 @@ def test_detect_fieldmaps(mock_dicom_session):
     assert fmaps.groups["retrieval"]["pa"] == 13
 
 
+def _fmap_series(pairs):
+    """Build classified fmap SeriesInfo from (series_number, description) tuples."""
+    from duckbrain.core.dicom_inspect import SeriesInfo
+
+    out = []
+    for num, desc in pairs:
+        s = SeriesInfo(series_number=num, description=desc, path=None, file_count=3)
+        s.classification = "fmap"
+        out.append(s)
+    return out
+
+
+def test_detect_fieldmaps_single_unnamed_pair_unchanged():
+    """A lone unnamed AP/PA pair keeps the historical empty-name group and adds
+    no distinguishing entity."""
+    series = _fmap_series([(6, "se_epi_ap"), (7, "se_epi_pa")])
+    fmaps = detect_fieldmaps(series)
+    assert list(fmaps.groups) == [""]
+    assert fmaps.groups[""] == {"ap": 6, "pa": 7}
+    assert fmaps.group_entities == {}
+    assert not any("Duplicate" in w for w in fmaps.warnings)
+
+
+def test_detect_fieldmaps_multiple_unnamed_pairs_split_by_order():
+    """Two reacquired plain AP/PA pairs become two run-numbered groups instead of
+    collapsing into one 'Duplicate AP' warning."""
+    series = _fmap_series(
+        [(6, "se_epi_ap"), (7, "se_epi_pa"), (20, "se_epi_ap"), (21, "se_epi_pa")]
+    )
+    fmaps = detect_fieldmaps(series)
+    assert fmaps.groups == {"1": {"ap": 6, "pa": 7}, "2": {"ap": 20, "pa": 21}}
+    assert fmaps.group_entities == {"1": "run-1", "2": "run-2"}
+    assert not any("Duplicate" in w for w in fmaps.warnings)
+
+
+def test_detect_fieldmaps_named_pairs_get_acq_entities():
+    """Two named pairs each get an acq- entity so their dir-AP files stay distinct."""
+    series = _fmap_series(
+        [
+            (4, "se_epi_ap_encoding"),
+            (5, "se_epi_pa_encoding"),
+            (12, "se_epi_ap_retrieval"),
+            (13, "se_epi_pa_retrieval"),
+        ]
+    )
+    fmaps = detect_fieldmaps(series)
+    assert fmaps.group_entities == {"encoding": "acq-encoding", "retrieval": "acq-retrieval"}
+
+
 def test_detect_fieldmaps_none(tmp_path):
     session_dir = tmp_path / "no_fmaps"
     session_dir.mkdir()

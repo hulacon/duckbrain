@@ -105,6 +105,67 @@ def test_bold_and_sbref_criteria_use_series_number():
     assert all("SeriesDescription" not in d["criteria"] for d in cfg["descriptions"])
 
 
+def test_generate_config_multiple_unnamed_fmap_pairs_no_collision():
+    """Two reacquired AP/PA pairs must produce distinct fmap filenames (run-1 vs
+    run-2) and unique dcm2bids ids, not two colliding dir-AP entries."""
+    series = [
+        _series(6, "se_epi_ap", "fmap", n=3),
+        _series(7, "se_epi_pa", "fmap", n=3),
+        _series(20, "se_epi_ap", "fmap", n=3),
+        _series(21, "se_epi_pa", "fmap", n=3),
+    ]
+    fmaps = FieldmapDetection(
+        strategy="series_number",
+        groups={"1": {"ap": 6, "pa": 7}, "2": {"ap": 20, "pa": 21}},
+        group_entities={"1": "run-1", "2": "run-2"},
+    )
+    cfg = generate_config(series, fmaps)
+    fmap_desc = [d for d in cfg["descriptions"] if d["datatype"] == "fmap"]
+    entities = sorted(d["custom_entities"] for d in fmap_desc)
+    assert entities == ["dir-AP_run-1", "dir-AP_run-2", "dir-PA_run-1", "dir-PA_run-2"]
+    ids = [d["id"] for d in fmap_desc]
+    assert len(ids) == len(set(ids))  # unique ids
+
+
+def test_generate_config_named_fmap_pairs_use_acq_entities():
+    """Named pairs place acq- before dir- (BIDS entity order) and stay distinct."""
+    series = [
+        _series(4, "se_epi_ap_encoding", "fmap", n=3),
+        _series(5, "se_epi_pa_encoding", "fmap", n=3),
+        _series(12, "se_epi_ap_retrieval", "fmap", n=3),
+        _series(13, "se_epi_pa_retrieval", "fmap", n=3),
+    ]
+    fmaps = FieldmapDetection(
+        strategy="series_description",
+        groups={"encoding": {"ap": 4, "pa": 5}, "retrieval": {"ap": 12, "pa": 13}},
+        group_entities={"encoding": "acq-encoding", "retrieval": "acq-retrieval"},
+    )
+    cfg = generate_config(series, fmaps)
+    entities = sorted(
+        d["custom_entities"] for d in cfg["descriptions"] if d["datatype"] == "fmap"
+    )
+    assert entities == [
+        "acq-encoding_dir-AP",
+        "acq-encoding_dir-PA",
+        "acq-retrieval_dir-AP",
+        "acq-retrieval_dir-PA",
+    ]
+
+
+def test_generate_config_single_fmap_pair_unchanged():
+    """A lone pair keeps the bare dir- entity (no acq-/run-), preserving prior output."""
+    series = [
+        _series(6, "se_epi_ap", "fmap", n=3),
+        _series(7, "se_epi_pa", "fmap", n=3),
+    ]
+    fmaps = FieldmapDetection(strategy="series_number", groups={"": {"ap": 6, "pa": 7}})
+    cfg = generate_config(series, fmaps)
+    entities = sorted(
+        d["custom_entities"] for d in cfg["descriptions"] if d["datatype"] == "fmap"
+    )
+    assert entities == ["dir-AP", "dir-PA"]
+
+
 def test_generate_config_honors_edited_mapping():
     series = [_series(9, "div_retScene_perTone_r1", "func")]
     edited = [TaskRunEntry(9, "div_retScene_perTone_r1", "bold", task="attn", run=5)]

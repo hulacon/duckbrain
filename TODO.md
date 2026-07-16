@@ -148,10 +148,24 @@ now, fs_license stays a text field.
   (`TEST_01`) resolves to a numeric subject and is kept; `include_excluded=True`
   opts out of filtering. Whole-token match avoids substring false-positives
   ("Detest"). 5 new tests in `test_ingestion.py`.
-- Multiple fieldmap pairs per session collapse into one group ("Duplicate AP").
-- mmmdata-style nested multi-session org (`func_session_*/anat_session/` under
-  the source) breaks `discover_sessions`, which expects session folders directly
-  under the source dir.
+- ✅ **Multiple fieldmap pairs no longer collapse (2026-07-16).** `detect_fieldmaps`
+  now groups *unnamed* AP/PA fieldmaps by acquisition order (`_pair_by_acquisition`),
+  so a reacquired plain pair (e.g. topup before/after the functionals) yields two
+  distinct pairs instead of a spurious "Duplicate AP". `generate_config` gives each
+  pair a distinguishing BIDS entity so their `dir-<X>_epi` files don't collide —
+  `run-N` for order-numbered pairs, `acq-<name>` for named pairs (which also fixes
+  the latent encoding/retrieval `dir-AP` collision) — placed in BIDS entity order
+  and folded into the dcm2bids `id`. Lone-pair output is unchanged. New field
+  `FieldmapDetection.group_entities`; 6 new tests. **Note:** with ≥2 pairs, bold→fmap
+  linking still defaults every task to the first group (`_assign_fmap_group` has no
+  temporal-proximity logic) — fine for conversion, a candidate refinement later.
+- **DEFERRED (needs cluster/real data): mmmdata-style nested multi-session org.**
+  `func_session_*/anat_session/` under the source breaks `discover_sessions`, which
+  expects session folders directly under the source dir. The exact nesting (per
+  subject? how func/anat sessions fold into one BIDS session?) isn't documented in
+  this repo — the mmmdata reference lives on Talapas. Implementing discovery against
+  a guessed structure is unverifiable offline and risks the working LCNI path; do
+  this with a real example dir or on-cluster.
 
 ## 5. Config / mapping niceties
 - Project-wide (vs per-subject/session) task/run mapping option: define once,
