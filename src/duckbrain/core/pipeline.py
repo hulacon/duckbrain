@@ -162,9 +162,24 @@ def _build_fmriprep(config, subject, session, log_dir, params):
 def _build_nordic(config, subject, session, log_dir, params):
     from .nordic import get_bold_runs
 
-    bolds = get_bold_runs(config["paths"]["bids_dir"], subject, session)
+    paths = config["paths"]
+    bolds = get_bold_runs(paths["bids_dir"], subject, session)
     if not bolds:
         raise PipelineError("No BOLD runs found for this subject/session.")
+    # NORDIC is a MATLAB job that writes no provenance of its own — stamp the
+    # derivative root so it carries on-disk provenance in the same format the
+    # consistency checker reads from tool-written derivatives. Guarded: a
+    # provenance write must never block the launch.
+    try:
+        from .bids_metadata import write_derivative_description
+        prov = run_provenance(config, "nordic")
+        write_derivative_description(
+            f"{paths['derivatives_dir']}/nordic", "nordic",
+            tool=prov["tool"], tool_version=prov["tool_version"],
+            container=prov["container"], source_dataset=paths["bids_dir"],
+        )
+    except Exception:
+        pass
     # NORDIC's sbatch shells out to a duckbrain script in the repo's scripts/ dir.
     scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
     ctx = build_context(

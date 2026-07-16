@@ -117,10 +117,18 @@ def write_participants_tsv(
     return tsv_path
 
 
+def _duckbrain_generated_by() -> dict:
+    """The ``GeneratedBy`` entry for duckbrain itself, versioned from the package."""
+    from .. import __version__
+
+    return {"Name": "duckbrain", "Version": __version__}
+
+
 def write_dataset_description(
     bids_dir: str | Path,
     name: str = "",
     extra_fields: dict | None = None,
+    generated_by: list[dict] | None = None,
 ) -> Path:
     """Write dataset_description.json to the BIDS root.
 
@@ -132,6 +140,9 @@ def write_dataset_description(
         Dataset name. Defaults to the directory name.
     extra_fields : dict, optional
         Additional fields to include (e.g., License, Authors, Funding).
+    generated_by : list[dict], optional
+        ``GeneratedBy`` entries. Defaults to duckbrain's own entry (versioned
+        from the package). Pass e.g. a dcm2bids entry to record the converter.
 
     Returns
     -------
@@ -145,13 +156,67 @@ def write_dataset_description(
     description = {
         "Name": name or bids_dir.name,
         "BIDSVersion": "1.9.0",
-        "GeneratedBy": [
-            {"Name": "duckbrain", "Version": "0.1.0"},
-        ],
+        "GeneratedBy": generated_by or [_duckbrain_generated_by()],
     }
 
     if extra_fields:
         description.update(extra_fields)
+
+    with open(desc_path, "w") as f:
+        json.dump(description, f, indent=2)
+
+    return desc_path
+
+
+def write_derivative_description(
+    deriv_dir: str | Path,
+    pipeline_name: str,
+    *,
+    tool: str = "",
+    tool_version: str = "",
+    container: str = "",
+    source_dataset: str | Path | None = None,
+    name: str = "",
+) -> Path:
+    """Write a BIDS-Derivatives ``dataset_description.json`` for a derivative.
+
+    For derivatives duckbrain *produces itself* (e.g. NORDIC, which is a MATLAB
+    job that writes no provenance of its own) so their on-disk provenance is in
+    the **same format** the consistency checker reads from tool-written
+    derivatives (fMRIPrep/MRIQC). Records ``DatasetType: derivative``, a
+    ``GeneratedBy`` list (duckbrain + the underlying tool, with version and
+    container when known), and — when *source_dataset* is given — a
+    ``SourceDatasets`` entry plus a ``DatasetLinks.raw`` pointer, mirroring how
+    fMRIPrep records its input.
+
+    Idempotent: overwrites the derivative's dataset_description.json.
+    """
+    deriv_dir = Path(deriv_dir)
+    deriv_dir.mkdir(parents=True, exist_ok=True)
+    desc_path = deriv_dir / "dataset_description.json"
+
+    tool_entry: dict = {}
+    if tool:
+        tool_entry["Name"] = tool
+        if tool_version:
+            tool_entry["Version"] = tool_version
+        if container:
+            tool_entry["Container"] = {"Type": "singularity", "Tag": container}
+
+    generated_by = [_duckbrain_generated_by()]
+    if tool_entry:
+        generated_by.append(tool_entry)
+
+    description: dict = {
+        "Name": name or pipeline_name,
+        "BIDSVersion": "1.9.0",
+        "DatasetType": "derivative",
+        "GeneratedBy": generated_by,
+    }
+    if source_dataset is not None:
+        src = str(source_dataset)
+        description["SourceDatasets"] = [{"URL": src}]
+        description["DatasetLinks"] = {"raw": src}
 
     with open(desc_path, "w") as f:
         json.dump(description, f, indent=2)

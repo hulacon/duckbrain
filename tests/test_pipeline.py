@@ -133,6 +133,23 @@ def test_nordic_no_bold_raises(monkeypatch, tmp_path):
         advance_one(_config(tmp_path), "nordic", "008", "")
 
 
+def test_nordic_launch_stamps_derivative_provenance(monkeypatch, tmp_path):
+    import json
+    import duckbrain.core.nordic as N
+    monkeypatch.setattr(N, "get_bold_runs", lambda bids, sub, ses: [tmp_path / "a_bold.nii.gz"])
+    monkeypatch.setattr(P, "build_context", lambda *a, **k: {})
+    monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: "#script")
+    monkeypatch.setattr(P, "submit_job", lambda script, job_name, scripts_dir=None: "JOBN")
+    cfg = _config(tmp_path)
+    advance_one(cfg, "nordic", "008", "")
+    # NORDIC writes no provenance itself, so duckbrain stamps the derivative root
+    # in the same BIDS-Derivatives format the checker reads from other tools.
+    desc = json.loads((tmp_path / "derivatives" / "nordic" / "dataset_description.json").read_text())
+    assert desc["DatasetType"] == "derivative"
+    assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "nordic"]
+    assert desc["DatasetLinks"]["raw"] == cfg["paths"]["bids_dir"]
+
+
 # ---- params flow through to the rendered context ----------------------------
 
 def test_fmriprep_params_reach_context(monkeypatch, tmp_path):
