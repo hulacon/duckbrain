@@ -18,6 +18,7 @@ callers can reason about dependencies.
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -172,11 +173,15 @@ def _build_nordic(config, subject, session, log_dir, params):
     # provenance write must never block the launch.
     try:
         from .bids_metadata import write_derivative_description
+        from .containers import container_uri
         prov = run_provenance(config, "nordic")
+        image = resolve_container(config, "nordic")
         write_derivative_description(
             f"{paths['derivatives_dir']}/nordic", "nordic",
             tool=prov["tool"], tool_version=prov["tool_version"],
-            container=prov["container"], source_dataset=paths["bids_dir"],
+            container=prov["container"],
+            container_uri=container_uri(image) if image else "",
+            source_dataset=paths["bids_dir"],
         )
     except Exception:
         pass
@@ -340,7 +345,7 @@ _SUBMISSION_LOG = "submissions.tsv"
 # dataset-level and overwritten by the last run). See TODO ★ Phase A.
 _SUBMISSION_COLUMNS = [
     "timestamp", "subject", "session", "stage",
-    "tool", "tool_version", "container", "input_variant", "job_id",
+    "tool", "tool_version", "container", "container_source", "input_variant", "job_id",
 ]
 
 # Which underlying tool each surveyor stage runs, and the config key holding its
@@ -353,12 +358,33 @@ _STAGE_TOOL = {
 }
 
 
+def resolve_container(config: dict, stage: str) -> Path | None:
+    """The container file *stage* would run, via the stage's own resolution.
+
+    Single source of truth for "which image does config point at", so provenance
+    recording and the consistency checker can never disagree with the builder.
+    ``None`` for stages that run no container (e.g. NORDIC, a MATLAB job).
+    """
+    if stage == "converted":
+        from .conversion import get_container_path
+    elif stage == "fmriprep":
+        from .fmriprep import get_container_path
+    elif stage == "mriqc":
+        from .mriqc import get_container_path
+    else:
+        return None
+    return get_container_path(config)
+
+
 def run_provenance(config: dict, stage: str) -> dict:
     """Best-effort provenance for a launch: tool, version, container, input variant.
 
     Reads the pinned version from ``[containers]`` and resolves the container
     basename via the stage's own ``get_container_path`` (same resolution the
-    builder used). ``input_variant`` is ``nordic`` when fMRIPrep is routed
+    builder used). ``container_source`` is the image's *build provenance* — the
+    Docker tag it was bootstrapped from, read out of the image's own labels — a
+    stronger identity than the filename, which is only a convention (see
+    ``core.containers``). ``input_variant`` is ``nordic`` when fMRIPrep is routed
     through the denoised tree, else ``raw``. Every field degrades to ``""`` off
     the resolvable path — provenance should never block a submission.
     """
@@ -367,18 +393,16 @@ def run_provenance(config: dict, stage: str) -> dict:
     tool_version = containers.get(version_key, "") if version_key else ""
 
     container = ""
+    container_source = ""
     try:
-        if stage == "converted":
-            from .conversion import get_container_path
-            container = Path(get_container_path(config)).name
-        elif stage == "fmriprep":
-            from .fmriprep import get_container_path
-            container = Path(get_container_path(config)).name
-        elif stage == "mriqc":
-            from .mriqc import get_container_path
-            container = Path(get_container_path(config)).name
+        path = resolve_container(config, stage)
+        if path:
+            container = Path(path).name
+            from .containers import container_build_tag
+            container_source = container_build_tag(path)
     except Exception:
-        container = ""
+        container = container or ""
+        container_source = ""
 
     if stage == "fmriprep":
         input_variant = "nordic" if _use_nordic(config) else "raw"
@@ -391,12 +415,63 @@ def run_provenance(config: dict, stage: str) -> dict:
         "tool": tool,
         "tool_version": tool_version,
         "container": container,
+        "container_source": container_source,
         "input_variant": input_variant,
     }
 
 
 def _submission_log_path(config: dict) -> Path:
     return Path(_resolve_log_dir(config)) / _SUBMISSION_LOG
+
+
+def _parse_log_rows(text: str) -> tuple[list[str], list[dict]]:
+    """Parse the log's header and rows, mapping each row onto its header names.
+
+    Tolerant by design: ragged rows (from a pre-migration append of a wider row
+    onto a narrower header) are zipped against the header rather than rejected,
+    so a log that is already mixed-width still reads.
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return [], []
+    header = lines[0].split("\t")
+    rows = [dict(zip(header, ln.split("\t"))) for ln in lines[1:]]
+    return header, rows
+
+
+def _migrate_log_header(path: Path) -> None:
+    """Rewrite an existing log to the current column set, preserving its rows.
+
+    The provenance columns were added after logs already existed in the wild
+    (`divatten_gui_beta`'s is the original 5-column ``timestamp/subject/session/
+    stage/job_id``). Appending a wider row under a narrower header produces a
+    ragged file that ``pd.read_csv`` refuses outright — which would take the
+    submission log, the Job Monitor, and every log-overlay consistency check down
+    with it. So bring the header up to date *before* appending.
+
+    Rows are re-mapped by column *name*, so no data moves columns and new fields
+    fill empty. Rewritten atomically: a crash mid-migration leaves the original
+    log intact, never a half-written one. Idempotent, and a no-op for a current
+    or absent log.
+    """
+    if not path.exists():
+        return
+    try:
+        text = path.read_text()
+    except OSError:
+        return
+    header, rows = _parse_log_rows(text)
+    if not header or header == _SUBMISSION_COLUMNS:
+        return
+    tmp = path.with_suffix(path.suffix + ".migrating")
+    try:
+        with open(tmp, "w") as f:
+            f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
+            for row in rows:
+                f.write("\t".join(row.get(c, "") for c in _SUBMISSION_COLUMNS) + "\n")
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)  # leave the original untouched
 
 
 def record_submission(
@@ -409,20 +484,24 @@ def record_submission(
     tool: str = "",
     tool_version: str = "",
     container: str = "",
+    container_source: str = "",
     input_variant: str = "",
 ) -> Path:
     """Append one launched job to ``<log_dir>/submissions.tsv`` (tab-separated).
 
-    Provenance fields (``tool``/``tool_version``/``container``/``input_variant``)
-    are keyword-only with empty defaults, so older/hand callers still work; the
-    cockpit passes them via :func:`run_provenance`. Idempotent header: writes the
-    column row only when creating the file.
+    Provenance fields (``tool``/``tool_version``/``container``/
+    ``container_source``/``input_variant``) are keyword-only with empty defaults,
+    so older/hand callers still work; the cockpit passes them via
+    :func:`run_provenance`. Idempotent header: writes the column row only when
+    creating the file.
     """
     path = _submission_log_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _migrate_log_header(path)
     write_header = not path.exists()
     ts = datetime.now().isoformat(timespec="seconds")
-    row = [ts, subject, session, stage, tool, tool_version, container, input_variant, str(job_id)]
+    row = [ts, subject, session, stage, tool, tool_version, container,
+           container_source, input_variant, str(job_id)]
     with open(path, "a") as f:
         if write_header:
             f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
@@ -436,11 +515,23 @@ def read_submissions(config: dict, limit: int | None = None) -> pd.DataFrame:
     Reindexed to the current column set so a legacy log written before the
     provenance columns existed still reads back with those columns present
     (empty), and consumers can rely on a stable schema.
+
+    Never raises on a malformed log: a ragged file (a wider row appended under a
+    narrower header, before :func:`_migrate_log_header` existed) falls back to a
+    tolerant hand parse rather than taking down every caller. A durable record is
+    worth more read best-effort than not at all.
     """
     path = _submission_log_path(config)
     if not path.exists():
         return pd.DataFrame(columns=_SUBMISSION_COLUMNS)
-    df = pd.read_csv(path, sep="\t", dtype=str).fillna("")
+    try:
+        df = pd.read_csv(path, sep="\t", dtype=str).fillna("")
+    except (ValueError, OSError, pd.errors.ParserError):
+        try:
+            _, rows = _parse_log_rows(path.read_text())
+        except OSError:
+            return pd.DataFrame(columns=_SUBMISSION_COLUMNS)
+        df = pd.DataFrame(rows, dtype=str).fillna("")
     df = df.reindex(columns=_SUBMISSION_COLUMNS, fill_value="")
     return df.tail(limit) if limit else df
 

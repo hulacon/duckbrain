@@ -7,6 +7,7 @@ never flagged just for lacking a log row.
 """
 
 import json
+from pathlib import Path
 
 from duckbrain.core.consistency import (
     ConsistencyIssue,
@@ -184,6 +185,81 @@ def test_on_disk_container_tag_beats_log_overlay(tmp_path):
     record_submission(cfg, "fmriprep", "01", "", "J1",
                       tool="fmriprep", container="fmriprep-99.9.9.simg")
     assert "container-drift" not in _codes(check_consistency(cfg))
+
+
+def _build_tags(monkeypatch, mapping):
+    """Stub the images' recorded build provenance: {filename: docker tag}."""
+    import duckbrain.core.consistency as CO
+    monkeypatch.setattr(CO, "container_build_tag",
+                        lambda p: mapping.get(Path(p).name, ""))
+
+
+def test_same_filename_rebuilt_from_a_different_image_is_drift(monkeypatch, tmp_path):
+    """Build provenance catches what the filename cannot: the image at
+    `fmriprep-24.1.1.simg` was rebuilt in place from a different source."""
+    _fmriprep_desc(tmp_path)
+    _fmriprep_unit(tmp_path, "01")
+    cfg = _config(
+        tmp_path,
+        containers={"fmriprep_version": "24.1.1"},
+        containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
+    )
+    _build_tags(monkeypatch, {"fmriprep-24.1.1.simg": "nipreps/fmriprep:24.1.1"})
+    record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
+                      container="fmriprep-24.1.1.simg",
+                      container_source="nipreps/fmriprep:23.0.0")  # what actually ran
+    assert "container-drift" in _codes(check_consistency(cfg))
+
+
+def test_renamed_container_with_same_build_source_is_clean(monkeypatch, tmp_path):
+    """The mirror case: filenames differ, but it is the same image — the
+    filename would cry wolf, build provenance knows better."""
+    _fmriprep_desc(tmp_path)
+    _fmriprep_unit(tmp_path, "01")
+    cfg = _config(
+        tmp_path,
+        containers={"fmriprep_version": "24.1.1"},
+        containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
+    )
+    _build_tags(monkeypatch, {"fmriprep-24.1.1.simg": "nipreps/fmriprep:24.1.1"})
+    record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
+                      container="fmriprep-24.1.1-copy.simg",
+                      container_source="nipreps/fmriprep:24.1.1")
+    assert "container-drift" not in _codes(check_consistency(cfg))
+
+
+def test_falls_back_to_filename_when_build_tag_unknown(monkeypatch, tmp_path):
+    """Pre-container_source log rows still get filename-level drift detection."""
+    _fmriprep_desc(tmp_path)
+    _fmriprep_unit(tmp_path, "01")
+    cfg = _config(
+        tmp_path,
+        containers={"fmriprep_version": "25.0.0"},
+        containers_dir=_containers(tmp_path, "fmriprep-25.0.0.simg"),
+    )
+    _build_tags(monkeypatch, {})  # no image records provenance
+    record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
+                      container="fmriprep-24.1.1.simg")  # legacy row: no source
+    assert "container-drift" in _codes(check_consistency(cfg))
+
+
+def test_on_disk_container_uri_is_read_as_build_provenance(monkeypatch, tmp_path):
+    """A duckbrain-stamped Container.URI is authoritative build provenance."""
+    deriv = tmp_path / "derivatives" / "fmriprep"
+    write_derivative_description(
+        deriv, "fmriprep", tool="fMRIPrep", tool_version="24.1.1",
+        container="fmriprep-24.1.1.simg",
+        container_uri="docker://nipreps/fmriprep:23.0.0",
+    )
+    _fmriprep_unit(tmp_path, "01")
+    cfg = _config(
+        tmp_path,
+        containers={"fmriprep_version": "24.1.1"},
+        containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
+    )
+    _build_tags(monkeypatch, {"fmriprep-24.1.1.simg": "nipreps/fmriprep:24.1.1"})
+    # Filenames match, but the stamped build source does not: drift.
+    assert "container-drift" in _codes(check_consistency(cfg))
 
 
 def test_external_derivative_without_recorded_container_never_flagged(tmp_path):

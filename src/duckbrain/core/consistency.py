@@ -46,7 +46,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .pipeline import read_submissions
+from .containers import container_build_tag
+from .pipeline import read_submissions, resolve_container
 from .surveyor import survey_project
 
 
@@ -100,18 +101,26 @@ class DerivativeProvenance:
         """
         return str(self._tool_entry(tool).get("Version", ""))
 
-    def tool_container(self, tool: str) -> str:
-        """Container tag recorded for *tool* in GeneratedBy, or "".
+    def _container(self, tool: str) -> dict:
+        container = self._tool_entry(tool).get("Container", {})
+        return container if isinstance(container, dict) else {}
 
-        Only duckbrain-written descriptions carry ``Container.Tag`` (see
+    def tool_container(self, tool: str) -> str:
+        """Container tag (the image filename) recorded for *tool*, or "".
+
+        Only duckbrain-written descriptions carry ``Container`` (see
         ``bids_metadata.write_derivative_description``). fMRIPrep/MRIQC overwrite
         the description with their own, which records no container — hence the
         log overlay fallback in ``_check_container_drift``.
         """
-        container = self._tool_entry(tool).get("Container", {})
-        if not isinstance(container, dict):
-            return ""
-        return str(container.get("Tag", ""))
+        return str(self._container(tool).get("Tag", ""))
+
+    def tool_container_uri(self, tool: str) -> str:
+        """Container build source recorded for *tool* (``docker://…``), or "".
+
+        The image's own build provenance, stronger than the filename in ``Tag``.
+        """
+        return str(self._container(tool).get("URI", ""))
 
 
 def read_derivative_provenance(config: dict, pipeline: str) -> DerivativeProvenance:
@@ -184,73 +193,96 @@ def _check_config_vs_provenance(config: dict) -> list[ConsistencyIssue]:
     return []
 
 
-def _configured_container(config: dict, stage: str) -> str:
-    """Basename of the container config currently resolves for *stage*, or "".
+def _configured_container(config: dict, stage: str) -> tuple[str, str]:
+    """What config currently points at for *stage*: ``(filename, build_tag)``.
 
-    Same resolution the builder and ``run_provenance`` use, so a comparison
-    against a recorded container is like-for-like.
+    Resolved via ``pipeline.resolve_container`` — the same resolution the builder
+    and ``run_provenance`` use — so a comparison against recorded provenance is
+    like-for-like. ``build_tag`` is the image's own record of what it was built
+    from, ``""`` when unreadable.
     """
     try:
-        if stage == "fmriprep":
-            from .fmriprep import get_container_path
-        elif stage == "mriqc":
-            from .mriqc import get_container_path
-        elif stage == "converted":
-            from .conversion import get_container_path
-        else:
-            return ""
-        return Path(get_container_path(config)).name
+        path = resolve_container(config, stage)
+        if not path:
+            return "", ""
+        return Path(path).name, container_build_tag(path)
     except Exception:
-        return ""
+        return "", ""
 
 
-def _recorded_container(config: dict, stage: str, tool: str) -> str:
-    """Container the derivative was actually produced with, or "" if unrecorded.
+def _recorded_container(config: dict, stage: str, tool: str) -> tuple[str, str]:
+    """What produced the derivative: ``(filename, build_tag)``, "" where unknown.
 
-    On-disk provenance is authoritative (``GeneratedBy[].Container.Tag``); the
-    submission log is the overlay consulted only when on-disk records no
-    container — which is the norm, since fMRIPrep/MRIQC overwrite the
-    description with their own and omit the container. An externally-produced
-    derivative has neither, and correctly yields "" (never flagged).
+    On-disk provenance is authoritative (``GeneratedBy[].Container`` — ``Tag`` is
+    the filename, ``URI`` the build source); the submission log is the overlay,
+    consulted only when on-disk records no container — the norm, since
+    fMRIPrep/MRIQC overwrite the description with their own and omit it. An
+    externally-produced derivative has neither and correctly yields ``("", "")``.
     """
-    on_disk = read_derivative_provenance(config, stage).tool_container(tool)
-    if on_disk:
-        return on_disk
+    prov = read_derivative_provenance(config, stage)
+    on_disk_name = prov.tool_container(tool)
+    if on_disk_name:
+        return on_disk_name, _uri_to_build_tag(prov.tool_container_uri(tool))
+
     latest = _latest_per_subject(config, stage)
-    recorded = {
-        str(row.get("container", "")).strip()
-        for row in latest.values()
-        if str(row.get("container", "")).strip()
-    }
-    # Mixed containers across subjects are _check_mixed_provenance's business.
-    return recorded.pop() if len(recorded) == 1 else ""
+
+    def _single(column: str) -> str:
+        # Mixing across subjects is _check_mixed_provenance's business, not ours.
+        values = {
+            str(row.get(column, "")).strip()
+            for row in latest.values()
+            if str(row.get(column, "")).strip()
+        }
+        return values.pop() if len(values) == 1 else ""
+
+    return _single("container"), _single("container_source")
+
+
+def _uri_to_build_tag(uri: str) -> str:
+    """``docker://nipreps/mriqc:24.0.2`` → ``nipreps/mriqc:24.0.2``."""
+    return uri.split("://", 1)[1] if "://" in uri else uri
 
 
 def _check_container_drift(config: dict) -> list[ConsistencyIssue]:
     """Config now points at a different container than the one that produced the
     derivative — i.e. the pin was bumped without re-running.
 
-    Compares **container identity**, not version strings. The pinned
+    Compares **container identity**, never version strings. The pinned
     ``*_version`` is a container *tag* (it builds ``<tool>-<tag>.simg``), whereas
     a tool's ``GeneratedBy.Version`` is its own self-reported version — different
     namespaces that need not agree. Confirmed on real data 2026-07-16:
-    ``mriqc-24.0.2.simg`` self-reports ``24.1.0.dev0+gd5b13cb5.d20240826``, so
-    comparing the two flagged a correctly-configured project.
+    ``mriqc-24.0.2.simg`` is built from ``nipreps/mriqc:24.0.2`` (so the filename
+    is *right*) yet self-reports ``24.1.0.dev0+gd5b13cb5.d20240826``, an upstream
+    packaging artifact. Comparing those flagged a correctly-configured project.
+
+    Prefers **build provenance** (the Docker tag the image records being built
+    from) over the filename when both sides know it: the filename is a
+    convention, so it misses an image rebuilt in place and cries wolf over one
+    merely renamed. Falls back to the filename when build tags are unavailable
+    (e.g. runs logged before ``container_source`` existed), and stays silent when
+    neither side is knowable.
     """
     issues: list[ConsistencyIssue] = []
     for stage, tool in (("fmriprep", "fMRIPrep"), ("mriqc", "MRIQC")):
-        prov = read_derivative_provenance(config, stage)
-        if not prov.exists:
+        if not read_derivative_provenance(config, stage).exists:
             continue
-        recorded = _recorded_container(config, stage, tool)
-        configured = _configured_container(config, stage)
-        if recorded and configured and recorded != configured:
+        rec_name, rec_tag = _recorded_container(config, stage, tool)
+        cfg_name, cfg_tag = _configured_container(config, stage)
+
+        if rec_tag and cfg_tag:
+            drifted, was, now, basis = rec_tag != cfg_tag, rec_tag, cfg_tag, "built from"
+        elif rec_name and cfg_name:
+            drifted, was, now, basis = rec_name != cfg_name, rec_name, cfg_name, "container"
+        else:
+            continue
+
+        if drifted:
             issues.append(ConsistencyIssue(
                 "container-drift", stage=stage,
                 message=(
-                    f"Config now resolves {tool} to container `{configured}`, but "
-                    f"the existing derivative was produced with `{recorded}`. The "
-                    "pinned version was bumped without re-running — re-run to "
+                    f"Config now resolves {tool} to {basis} `{now}`, but the "
+                    f"existing derivative was produced with `{was}`. The pin was "
+                    "bumped (or the image rebuilt) without re-running — re-run to "
                     "match, or the derivative is stale relative to the pin."),
             ))
     return issues

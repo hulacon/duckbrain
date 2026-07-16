@@ -6,6 +6,8 @@ that misconfigured / non-launchable stages raise ``PipelineError`` rather than
 submitting junk.
 """
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -451,6 +453,78 @@ def test_read_submissions_limit_and_order(tmp_path):
         record_submission(cfg, "fmriprep", f"{i:03d}", "", f"J{i}")
     recent = read_submissions(cfg, limit=3)
     assert list(recent["subject"]) == ["002", "003", "004"]  # tail, oldest-first
+
+
+# ---- legacy submission-log migration ----------------------------------------
+#
+# Provenance columns were added after logs existed in the wild. Real case
+# (divatten_gui_beta, 2026-07-16): a log with the original 5-column header
+# `timestamp/subject/session/stage/job_id`. Appending a wider provenance row
+# under that narrower header produces a ragged file that pd.read_csv refuses
+# outright — taking the log, the Job Monitor, and every log-overlay consistency
+# check down with it on the next launch.
+
+_LEGACY_HEADER = "timestamp\tsubject\tsession\tstage\tjob_id"
+_LEGACY_ROWS = [
+    "2026-07-10T13:56:08\t008\t\tconverted\t45191143",
+    "2026-07-15T13:31:43\t04\t\tnordic\t45428802",
+]
+
+
+def _write_legacy_log(cfg):
+    path = Path(cfg["paths"]["log_dir"]) / "submissions.tsv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join([_LEGACY_HEADER, *_LEGACY_ROWS]) + "\n")
+    return path
+
+
+def test_appending_to_a_legacy_log_keeps_it_readable(tmp_path):
+    cfg = _config(tmp_path)
+    _write_legacy_log(cfg)
+    record_submission(cfg, "fmriprep", "099", "", "J999",
+                      tool="fmriprep", container="fmriprep-24.1.1.simg",
+                      input_variant="raw")
+    df = read_submissions(cfg)  # must not raise
+    assert len(df) == 3
+    assert list(df["job_id"]) == ["45191143", "45428802", "J999"]
+
+
+def test_migration_preserves_legacy_rows_by_column_name(tmp_path):
+    cfg = _config(tmp_path)
+    _write_legacy_log(cfg)
+    record_submission(cfg, "fmriprep", "099", "", "J999", tool="fmriprep")
+    df = read_submissions(cfg)
+    legacy = df.iloc[0]
+    # No data shifted columns; new fields fill empty rather than borrowing values.
+    assert legacy["subject"] == "008"
+    assert legacy["stage"] == "converted"
+    assert legacy["job_id"] == "45191143"
+    assert legacy["container"] == ""
+    assert legacy["container_source"] == ""
+
+
+def test_migration_is_idempotent(tmp_path):
+    cfg = _config(tmp_path)
+    _write_legacy_log(cfg)
+    record_submission(cfg, "fmriprep", "01", "", "J1")
+    record_submission(cfg, "fmriprep", "02", "", "J2")
+    path = Path(cfg["paths"]["log_dir"]) / "submissions.tsv"
+    header_lines = [ln for ln in path.read_text().splitlines() if ln.startswith("timestamp\t")]
+    assert len(header_lines) == 1
+    assert len(read_submissions(cfg)) == 4
+
+
+def test_read_submissions_tolerates_an_already_ragged_log(tmp_path):
+    """A log corrupted by a pre-migration append still reads best-effort — a
+    durable record is worth more read imperfectly than not at all."""
+    cfg = _config(tmp_path)
+    path = _write_legacy_log(cfg)
+    with open(path, "a") as f:  # the wide row that used to break the parser
+        f.write("2026-07-16T10:00:00\t099\t\tfmriprep\tfmriprep\t24.1.1\t"
+                "fmriprep-24.1.1.simg\tnipreps/fmriprep:24.1.1\traw\tJ999\n")
+    df = read_submissions(cfg)
+    assert len(df) == 3
+    assert list(df["subject"]) == ["008", "04", "099"]
 
 
 def test_submission_log_write_failure_never_sinks_submit(monkeypatch, tmp_path):

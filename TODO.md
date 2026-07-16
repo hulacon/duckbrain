@@ -109,9 +109,39 @@ reading: it is clean single-provenance raw with a correctly-configured container
   (Corrects an earlier note in this file calling the container misnamed.) This
   vindicates comparing container identity: the tag is an accurate, stable
   identifier; the self-reported version is an upstream packaging artifact.
-  - Possible refinement: read `deffile.from` via `apptainer inspect` for a
-    build-provenance-grade container identity. Costs a subprocess per check and only
-    matters if filenames stop tracking Docker tags — not needed today.
+- **✅ BUILT 2026-07-16: build provenance as container identity.** New
+  `core/containers.py` reads `deffile.from` out of the image (`inspect_labels`,
+  `container_build_tag`, `container_uri`), cached per (path, mtime, size) so an
+  in-place rebuild re-inspects. Measured on Talapas: **~20–50 ms** even for a 5 GB
+  image (`apptainer inspect` reads the SIF header, not the payload); full
+  `check_consistency` on the real project is ~130 ms, dominated by the surveyor's
+  filesystem walk — fine for a page render.
+  - `run_provenance` now records `container_source` (new submission-log column);
+    `write_derivative_description` records it as BIDS `Container.URI` alongside the
+    filename in `Container.Tag`. Verified live: `fmriprep-24.1.1.simg` →
+    `nipreps/fmriprep:24.1.1`, `mriqc-24.0.2.simg` → `nipreps/mriqc:24.0.2`,
+    `dcm2bids-3.2.0.sif` → `unfmontreal/dcm2bids:3.2.0`.
+  - `container-drift` now **prefers build tags** over filenames when both sides know
+    them, falling back to the filename otherwise (legacy rows) and staying silent
+    when neither is knowable. This catches an image **rebuilt in place** (same
+    filename, different image — invisible to a filename check) and stops it crying
+    wolf over a container merely **renamed**. `resolve_container(config, stage)` in
+    `core/pipeline.py` is now the single source of truth for "which image does config
+    point at", shared by the builder, provenance recording, and the checker.
+
+- **✅ FIXED 2026-07-16 (latent, pre-existing, would have bitten on the next launch):
+  appending a provenance row to a legacy submission log corrupted it.** Phase A added
+  columns but never migrated existing logs, and `divatten_gui_beta`'s real log still
+  had the original **5-column** header (`timestamp/subject/session/stage/job_id`).
+  Appending a wider row under it produces a ragged file that `pd.read_csv` refuses
+  outright (`Expected 5 fields, saw 10`) — which would have taken the submission log,
+  the Job Monitor, and *every* log-overlay consistency check down on the first launch
+  (silently, for the checks: the per-check guard swallows it). It had never fired only
+  because all 35 real rows predate Phase A, so nothing had appended yet.
+  `_migrate_log_header` now rewrites the header before appending — atomically
+  (`os.replace`), remapping rows by column *name* so no data shifts and new fields
+  fill empty — and `read_submissions` falls back to a tolerant hand parse so an
+  already-ragged log still reads. Validated on a copy of the real 35-row log.
 
 Original Phase B design notes (kept for reference):
 - Cross-references config expectation, on-disk provenance, and mtimes.

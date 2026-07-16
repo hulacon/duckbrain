@@ -175,6 +175,7 @@ def write_derivative_description(
     tool: str = "",
     tool_version: str = "",
     container: str = "",
+    container_uri: str = "",
     source_dataset: str | Path | None = None,
     name: str = "",
 ) -> Path:
@@ -201,7 +202,12 @@ def write_derivative_description(
         if tool_version:
             tool_entry["Version"] = tool_version
         if container:
+            # BIDS Container: Tag is the image we ran; URI its build source (the
+            # registry reference the image records being built from), which is
+            # provenance the filename can only approximate.
             tool_entry["Container"] = {"Type": "singularity", "Tag": container}
+            if container_uri:
+                tool_entry["Container"]["URI"] = container_uri
 
     generated_by = [_duckbrain_generated_by()]
     if tool_entry:
