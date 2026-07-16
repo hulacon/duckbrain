@@ -11,13 +11,28 @@ phases, in order. Motivated by the NORDIC `use_nordic` coexistence problem: flip
 the toggle on a project that already had raw-provenance fMRIPrep produces
 self-contradictory metadata, and nothing catches it today.
 
-**Phase A — record provenance (do first; cheap, high-leverage).**
-- Extend the durable submission log (`code/logs/submissions.tsv`) to record each
-  run's *input variant* (`use_nordic` / input path), so duckbrain is
-  self-authoritative about how every derivative it produced was generated.
-- Longer term: emit BIDS-Derivatives-compliant `dataset_description.json` /
-  `GeneratedBy` per duckbrain-produced derivative (extends the pinned container
-  versions + Nipoppy bagel export). Standards-aligned provenance.
+**Phase A — record provenance (do first; cheap, high-leverage). BUILT 2026-07-16.**
+- ✅ Durable submission log (`code/logs/submissions.tsv`) now records per run:
+  `tool`, `tool_version`, `container`, and *input variant* (`raw` vs `nordic`),
+  via `run_provenance(config, stage)` threaded through `advance_one`
+  (`core/pipeline.py`). Every field degrades to `""` off the resolvable path so
+  provenance can never sink a submission; `read_submissions` backfills the new
+  columns for legacy logs.
+- ✅ BIDS-Derivatives `GeneratedBy` written for duckbrain-produced derivatives:
+  `write_dataset_description` versions duckbrain from the package + accepts a
+  custom `generated_by`; new `write_derivative_description` emits
+  `DatasetType=derivative` + `GeneratedBy` (duckbrain + tool, version + container
+  Tag) + `SourceDatasets`/`DatasetLinks.raw`. NORDIC (a MATLAB job that writes no
+  provenance of its own) is stamped at launch. This puts duckbrain-produced and
+  tool-written derivatives in the **same on-disk format** the checker reads.
+- **Design decision (2026-07-16):** on-disk provenance is the *authoritative*
+  substrate; the submission log is an *overlay* that only adds what on-disk can't
+  represent (per-subject mixing within one dataset-level `dataset_description`).
+  This keeps duckbrain's "no state store, fold in external data" principle intact
+  — externally-produced derivatives are first-class, never flagged for lacking a
+  log row. Phase B's `check_consistency` must honor this ordering.
+- Not yet done: emit `GeneratedBy` for the *ingested BIDS root* with the dcm2bids
+  entry (converter provenance); Nipoppy bagel export tie-in.
 
 **Phase B — consistency / mismatch checker.**
 - `check_consistency(config)` beside `core/surveyor.py`; surfaces ⚠️ in the Project
