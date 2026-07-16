@@ -159,12 +159,17 @@ def generate_session_config(
     subject: str,
     session: str,
     template: str | None = None,
+    rules: list | None = None,
 ) -> dict:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
     The non-interactive equivalent of the Conversion page's inspect → classify →
     fieldmap → task/run mapping → generate_config pipeline, using the auto-derived
     task/run mapping (no manual edits). Used for bulk conversion.
+
+    ``rules`` is an optional list of project-wide :class:`TaskRule`s; when given,
+    they override the naming heuristic for the series they name, so a bulk convert
+    inherits the study's once-defined task/run mapping.
     """
     from .dicom_inspect import list_series, classify_series, detect_fieldmaps
     from .dcm2bids_config import build_task_run_mapping, generate_config
@@ -174,7 +179,7 @@ def generate_session_config(
         raise ValueError(f"No series directories found in {dicom_dir}")
     classify_series(series_list)
     fieldmaps = detect_fieldmaps(series_list)
-    mapping = build_task_run_mapping(series_list, template=template or None)
+    mapping = build_task_run_mapping(series_list, template=template or None, rules=rules)
     return generate_config(
         series_list, fieldmaps, subject=subject, session=session, mapping=mapping
     )

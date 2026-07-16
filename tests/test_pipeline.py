@@ -75,7 +75,7 @@ def _patch_dcm2bids(monkeypatch, tmp_path, capture):
     import duckbrain.core.conversion as C
     monkeypatch.setattr(C, "get_container_path", lambda cfg: "cont.simg")
     monkeypatch.setattr(C, "resolve_dicom_dir", lambda sd, sub, ses: tmp_path / "dcm")
-    monkeypatch.setattr(C, "generate_session_config", lambda d, sub, ses: {})
+    monkeypatch.setattr(C, "generate_session_config", lambda d, sub, ses, rules=None: {})
     monkeypatch.setattr(C, "save_dcm2bids_config", lambda cfg, path: None)
     monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: f"#script:{template}")
 

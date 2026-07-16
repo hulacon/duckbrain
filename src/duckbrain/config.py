@@ -216,6 +216,25 @@ def save_project_config(project_dir: str | Path, data: dict) -> Path:
     return _dump_toml(project_config_path(project_dir), data)
 
 
+def save_project_task_map(project_dir: str | Path, rules: list) -> Path:
+    """Persist project-wide task/run rules into the project config.
+
+    Read-modify-write so it only touches the ``[task_mapping]`` section and
+    preserves every other project setting. ``rules`` is a list of
+    :class:`~duckbrain.core.dcm2bids_config.TaskRule`; an empty list removes the
+    section entirely (reverting to the pure heuristic).
+    """
+    from .core.dcm2bids_config import task_rules_to_config_section
+
+    path = project_config_path(project_dir)
+    data = _load_toml(path)
+    if rules:
+        data["task_mapping"] = task_rules_to_config_section(rules)
+    else:
+        data.pop("task_mapping", None)
+    return _dump_toml(path, data)
+
+
 # Top-level directories duckbrain creates that are NOT BIDS-reserved names
 # (BIDS reserves only sourcedata/, derivatives/, code/, phenotype/, stimuli/).
 # Listing them in .bidsignore keeps the project-dir == BIDS-root layout

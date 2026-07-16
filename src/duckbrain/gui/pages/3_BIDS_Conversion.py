@@ -184,6 +184,8 @@ from duckbrain.core.dcm2bids_config import (
     generate_config,
     config_to_json,
     TaskRunEntry,
+    task_rules_from_config,
+    task_rules_from_mapping,
 )
 
 template = st.text_input(
@@ -194,7 +196,19 @@ template = st.text_input(
     "to use the built-in heuristic. Editing the table below always wins.",
 )
 
-seed_mapping = build_task_run_mapping(series_list, template=template or None)
+# Project-wide task rules (defined once, inherited by every subject) seed the
+# mapping's task labels over the heuristic; this session's edits below still win
+# as exceptions, and run numbers stay per-session.
+project_rules = task_rules_from_config(config)
+if project_rules:
+    st.caption(
+        f"↪ {len(project_rules)} project-wide task rule(s) applied as defaults. "
+        "Edit any row below to override them for this session only."
+    )
+
+seed_mapping = build_task_run_mapping(
+    series_list, template=template or None, rules=project_rules
+)
 
 if seed_mapping:
     mapping_df = st.data_editor(
@@ -225,6 +239,28 @@ if seed_mapping:
         )
         for _, row in mapping_df.iterrows()
     ]
+
+    # Promote this reviewed mapping to the project-wide default so every other
+    # subject inherits it (keyed on SeriesDescription; SBRefs inherit their BOLD).
+    if st.button(
+        "⭑ Save this mapping as the project default",
+        key="save_project_task_map",
+        help="Writes the BOLD task/run rows to the project config's "
+        "[task_mapping]. Other subjects then seed from these instead of the "
+        "heuristic. Per-session edits still override.",
+    ):
+        from duckbrain.config import resolve_project_dir, save_project_task_map
+
+        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
+        if not project_dir:
+            st.error("No project directory resolved — can't save the default.")
+        else:
+            rules = task_rules_from_mapping(edited_mapping)
+            save_project_task_map(project_dir, rules)
+            st.success(
+                f"Saved {len(rules)} task rule(s) as the project default in "
+                f"`{project_dir}/code/duckbrain.toml`."
+            )
 else:
     st.info("No functional runs detected in this session.")
     edited_mapping = []

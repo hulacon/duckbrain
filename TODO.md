@@ -346,8 +346,36 @@ Still OPEN (unchanged — need a cluster/browser, not attempted):
   this with a real example dir or on-cluster.
 
 ## 5. Config / mapping niceties
-- Project-wide (vs per-subject/session) task/run mapping option: define once,
-  inherit across subjects; per-subject override for exceptions.
+- ✅ **Project-wide task mapping — BUILT 2026-07-16 (web session).** Define the
+  task label once, inherit it across every subject, override per-session for
+  exceptions. Keyed on **SeriesDescription** (the stable identity across subjects
+  — series *numbers* vary, the scanner protocol's descriptions recur). Seeding
+  now layers three sources, each overriding the prior: heuristic/template →
+  **project-wide rules** → per-session manual edits.
+  - **Rules fix the task ONLY, never the run.** This was a real design bug caught
+    in an end-to-end check before it shipped: an early version let a rule pin the
+    run, which collided every repeat of a task onto the same `run-` across
+    subjects (a subject with two `MB4_rest` acquisitions got `run-2, run-2`). Run
+    numbers are positional — name token else per-session acquisition-order count —
+    so they stay a per-session concern. Regression test locks this
+    (`test_repeated_task_never_collides_on_run_across_subjects`).
+  - **Where:** `TaskRule` + `build_task_run_mapping(..., rules=)` +
+    `task_rules_from_mapping/_from_config/_to_config_section` in
+    `core/dcm2bids_config.py`; persisted read-modify-write into the project
+    config's `[task_mapping]` by `save_project_task_map` (`config.py`, preserves
+    other keys); threaded through `generate_session_config` and the cockpit's
+    `_build_dcm2bids` so **bulk/cockpit conversion inherits the rules too**. GUI:
+    the Conversion page seeds from project rules and has a "⭑ Save this mapping as
+    the project default" button. 18 new tests; 273 pass.
+  - ⚠️ **`UNVALIDATED` (no browser here):** the Conversion-page wiring — the
+    "applied N rules" caption, the save button writing `[task_mapping]`, and a
+    second subject visibly seeding from it — has only been exercised via the core
+    API + an in-process end-to-end script, **not** in a real Streamlit session.
+    Next on-cluster session: review two subjects through the page, save subject
+    1's mapping as default, confirm subject 2's table shows the inherited tasks.
+  - Deferred (fine as-is): no per-rule temporal-proximity for fmap linking (same
+    known limitation as multi-fieldmap conversion); rules are dataset-wide, no
+    per-subject *rule* scoping (per-subject *edits* cover the exception case).
 - MRIQC now runnable — `mriqc-24.0.2.simg` present, user config aligned to
   `mriqc_version = "24.0.2"`. Still needs a live end-to-end run + QC-dashboard
   validation.

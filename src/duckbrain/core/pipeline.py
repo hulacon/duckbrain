@@ -81,8 +81,15 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
     dicom_dir = resolve_dicom_dir(sourcedata_dir, subject, session)
     cfg_path = Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
     # Reuse a previously reviewed/saved config; only auto-generate when absent.
+    # Auto-generation inherits the project-wide task/run mapping (if any), so a
+    # bulk/cockpit convert honors the study's once-defined task labels.
     if not cfg_path.exists():
-        save_dcm2bids_config(generate_session_config(dicom_dir, subject, session), cfg_path)
+        from .dcm2bids_config import task_rules_from_config
+
+        rules = task_rules_from_config(config)
+        save_dcm2bids_config(
+            generate_session_config(dicom_dir, subject, session, rules=rules), cfg_path
+        )
     ctx = build_context(
         config, "dcm2bids", subject=subject, session=session,
         dicom_dir=str(dicom_dir), config_json=str(cfg_path),

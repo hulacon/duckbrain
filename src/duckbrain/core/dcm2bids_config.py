@@ -6,6 +6,22 @@ being re-derived inline during config generation. The mapping is the source of
 truth: extraction tools (the naming heuristic, or a study-specific glob-like
 template) merely *seed* it, and a GUI can let the user correct any row before it
 is consumed here. This keeps the automatic and manual paths from diverging.
+
+**Project-wide mapping.** A study's scanner protocol is the same across subjects,
+so the same SeriesDescriptions recur — which makes description the stable key a
+mapping can be *defined once and inherited* across every subject. A
+:class:`TaskRule` names ``description -> task`` at the project level (stored in the
+project config's ``[task_mapping]`` section). Seeding then layers three sources,
+each overriding the one before it:
+
+  1. the per-session heuristic / template (:func:`parse_task_run`),
+  2. **project-wide rules** — override the heuristic's *task* for series they name,
+  3. per-session manual edits — the final override, for one-off exceptions.
+
+Rules fix the task only; run numbers stay per-session (positional), so a subject
+that repeats a task never collides on run-. :func:`task_rules_from_mapping`
+collapses a reviewed session back into rules, so a user reviews one subject and
+saves that as the project default for the rest.
 """
 
 from __future__ import annotations
@@ -37,8 +53,36 @@ class TaskRunEntry:
     run: int | None = None
 
 
+@dataclass
+class TaskRule:
+    """A project-wide task rule keyed on SeriesDescription.
+
+    ``description`` is matched case-insensitively (whitespace-stripped) against a
+    series' SeriesDescription; a match overrides the naming heuristic's *task*
+    label with this rule's ``task``. Defined once per study and inherited by
+    every subject.
+
+    A rule deliberately fixes only the task, never the run. Run numbers are
+    positional — they come from an explicit run token in the series name or, when
+    absent, from acquisition-order counting *within each session*. Pinning a run
+    project-wide would collide the moment a subject acquired that task more than
+    once (every repeat would land on the same run-), so run derivation is left
+    untouched and stays a per-session concern (and a per-session manual edit).
+    """
+
+    description: str
+    task: str
+
+
+def _rule_lookup(rules: list[TaskRule] | None) -> dict[str, TaskRule]:
+    """Index rules by normalized (stripped, lowercased) description; last wins."""
+    return {r.description.strip().lower(): r for r in rules} if rules else {}
+
+
 def build_task_run_mapping(
-    series_list: list[SeriesInfo], template: str | None = None
+    series_list: list[SeriesInfo],
+    template: str | None = None,
+    rules: list[TaskRule] | None = None,
 ) -> list[TaskRunEntry]:
     """Seed the task/run mapping for all func/sbref series.
 
@@ -49,19 +93,30 @@ def build_task_run_mapping(
     encode a run in the description still get sequential ``run-`` entities. Each
     SBRef inherits the task/run of the BOLD run it references.
 
+    A project-wide ``rules`` list (description-keyed :class:`TaskRule`) takes
+    precedence over the heuristic for any series it names — this is how a study
+    defines task/run once and every subject inherits it. A series no rule names
+    still falls back to the heuristic, and per-session manual edits remain the
+    final override downstream of this.
+
     The returned rows are meant to be reviewed/edited (e.g. in the GUI) and then
     passed to :func:`generate_config`.
     """
     entries: list[TaskRunEntry] = []
     by_base: dict[str, tuple[str, int | None]] = {}
     counters: dict[str, int] = {}
+    lookup = _rule_lookup(rules)
 
     func = sorted(
         (s for s in series_list if s.classification == "func"),
         key=lambda s: s.series_number,
     )
     for s in func:
-        task, run_token = parse_task_run(s.description, template)
+        # A rule overrides only the task; the run still comes from the name token
+        # (else acquisition-order counting), so repeats never collide.
+        parsed_task, run_token = parse_task_run(s.description, template)
+        rule = lookup.get(s.description.strip().lower())
+        task = rule.task if rule is not None else parsed_task
         if run_token is None:
             counters[task] = counters.get(task, 0) + 1
             run = counters[task]
@@ -80,10 +135,55 @@ def build_task_run_mapping(
         if pair is not None:
             task, run = pair
         else:
-            task, run = parse_task_run(base, template)
+            parsed_task, run = parse_task_run(base, template)
+            rule = lookup.get(base.strip().lower())
+            task = rule.task if rule is not None else parsed_task
         entries.append(TaskRunEntry(s.series_number, s.description, "sbref", task, run))
 
     return entries
+
+
+def task_rules_from_mapping(entries: list[TaskRunEntry]) -> list[TaskRule]:
+    """Collapse a reviewed session's BOLD rows into project-wide task rules.
+
+    One rule per distinct BOLD SeriesDescription (SBRefs inherit their BOLD, so
+    they are skipped); later duplicate descriptions win, matching the mapping's
+    own last-write semantics. Only the task carries over — run numbers are
+    positional and stay per-session. This is the "save this subject's mapping as
+    the project default" direction.
+    """
+    by_desc: dict[str, TaskRule] = {}
+    for e in entries:
+        if e.role != "bold":
+            continue
+        desc = e.description.strip()
+        if not desc:
+            continue
+        by_desc[desc.lower()] = TaskRule(desc, e.task)
+    return list(by_desc.values())
+
+
+def task_rules_from_config(config: dict) -> list[TaskRule]:
+    """Read project-wide task rules from a merged config's ``[task_mapping]``.
+
+    Tolerant of malformed rows (missing description/task are skipped) so a
+    hand-edited section can never sink config loading. A legacy ``run`` key is
+    ignored — rules fix the task only.
+    """
+    section = config.get("task_mapping") or {}
+    out: list[TaskRule] = []
+    for row in section.get("rule") or []:
+        desc = str(row.get("description", "")).strip()
+        task = str(row.get("task", "")).strip()
+        if not desc or not task:
+            continue
+        out.append(TaskRule(desc, task))
+    return out
+
+
+def task_rules_to_config_section(rules: list[TaskRule]) -> dict:
+    """Serialize rules into a TOML-friendly ``[task_mapping]`` section."""
+    return {"rule": [{"description": r.description, "task": r.task} for r in rules]}
 
 
 def generate_config(
