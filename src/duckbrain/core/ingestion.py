@@ -21,13 +21,19 @@ class SessionInfo:
     series_list: list[str] = field(default_factory=list)
 
 
-def discover_sessions(dcm_source_dir: str | Path) -> list[SessionInfo]:
+def discover_sessions(
+    dcm_source_dir: str | Path, include_excluded: bool = False
+) -> list[SessionInfo]:
     """List available DICOM session folders from the LCNI export directory.
 
     Parameters
     ----------
     dcm_source_dir : path
         e.g., /projects/lcni/dcm/<group>/<project>/
+    include_excluded : bool
+        When ``False`` (default), skip non-subject folders — phantoms, QA scans,
+        test/demo runs, and any name containing whitespace (see
+        ``_is_excluded_folder``). Set ``True`` to return everything.
 
     Returns
     -------
@@ -44,6 +50,8 @@ def discover_sessions(dcm_source_dir: str | Path) -> list[SessionInfo]:
             continue
         info = _parse_session_folder(entry)
         if info is not None:
+            if not include_excluded and _is_excluded_folder(entry.name, info.parsed_subject):
+                continue
             # Count series subdirectories
             series = [
                 d.name
@@ -62,6 +70,37 @@ _DATE_TIME_RE = re.compile(r"_(\d{8})_(\d{6})$")
 # A distinctly session-looking token, e.g. "ses01", "sess05", "ses-1".
 # Requires the "ses" prefix so a bare subject id like "s01" isn't mistaken for one.
 _SESSION_TOKEN_RE = re.compile(r"^ses{1,2}[-_]?\d+$", re.IGNORECASE)
+# The mmmdata/LCNI "G##_S##" style: the last token is a session like "S02" only
+# when the preceding token is a subject like "G01". Requiring the paired G-token
+# keeps a bare "s01" subject id from being misread as a session — the same reason
+# _SESSION_TOKEN_RE demands the "ses" prefix.
+_GS_SUBJECT_RE = re.compile(r"^G\d+$", re.IGNORECASE)
+_GS_SESSION_RE = re.compile(r"^S\d+$", re.IGNORECASE)
+
+# Folders that aren't real subject sessions: QA scans, phantoms, test/demo runs.
+# Marker words are matched as whole underscore/space/hyphen tokens (so a project
+# like "Detest" won't trip on the "test" substring). Names containing whitespace
+# are also skipped — real LCNI exports never have spaces, but scratch/test
+# folders do.
+_EXCLUDE_TOKENS = frozenset({"test", "phantom", "demo", "qa"})
+_TOKEN_SPLIT_RE = re.compile(r"[_\s-]+")
+
+
+def _is_excluded_folder(name: str, subject_label: str) -> bool:
+    """True for non-subject folders (phantoms, QA, test/demo runs, spaced names).
+
+    A marker word alone isn't decisive: a real study may *use* one as its project
+    prefix (e.g. ``TEST_01_...``). Such a folder still resolves to a numeric
+    subject id, so it's kept; a marker paired with a non-numeric identity
+    (``phantom``, ``QA_daily``, ``DEMO``) is treated as a non-subject folder.
+    ``subject_label`` is the already-parsed subject (see ``_parse_session_folder``).
+    """
+    if any(ch.isspace() for ch in name):
+        return True
+    tokens = {t.lower() for t in _TOKEN_SPLIT_RE.split(name) if t}
+    if tokens & _EXCLUDE_TOKENS:
+        return not any(ch.isdigit() for ch in subject_label)
+    return False
 
 
 def _sanitize_label(raw: str) -> str:
@@ -100,6 +139,14 @@ def _parse_session_folder(folder: Path) -> SessionInfo | None:
 
     session = ""
     if len(tokens) >= 2 and _SESSION_TOKEN_RE.match(tokens[-1]):
+        session = tokens[-1]
+        tokens = tokens[:-1]
+    elif (
+        len(tokens) >= 2
+        and _GS_SESSION_RE.match(tokens[-1])
+        and _GS_SUBJECT_RE.match(tokens[-2])
+    ):
+        # "G##_S##" style: last token is the session, the paired G-token is the subject.
         session = tokens[-1]
         tokens = tokens[:-1]
 

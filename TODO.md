@@ -136,8 +136,18 @@ now, fs_license stays a text field.
   via the Jobs page. Runs via SLURM, not inline.
 
 ## 4. Naming / discovery robustness (from the LCNI survey)
-- `G##_S##` session style not recognized (parser needs "ses" prefix).
-- Phantom/test-folder filtering (skip `test`/`phantom`/`demo`/QA, space-containing).
+- ✅ **`G##_S##` session style recognized (2026-07-16).** `_parse_session_folder`
+  now reads the trailing `S##` token as the session when the preceding token is a
+  `G##` subject (`_GS_SUBJECT_RE`/`_GS_SESSION_RE` in `core/ingestion.py`).
+  Requiring the paired G-token keeps a bare `s01`/`S01` subject id from being
+  misread as a session — the same safeguard the "ses"-prefix rule provides.
+- ✅ **Phantom/test-folder filtering (2026-07-16).** `discover_sessions` skips
+  non-subject folders via `_is_excluded_folder`: names containing whitespace, or a
+  whole-token marker (`test`/`phantom`/`demo`/`qa`) paired with a *non-numeric*
+  identity. A study that legitimately uses a marker as its project prefix
+  (`TEST_01`) resolves to a numeric subject and is kept; `include_excluded=True`
+  opts out of filtering. Whole-token match avoids substring false-positives
+  ("Detest"). 5 new tests in `test_ingestion.py`.
 - Multiple fieldmap pairs per session collapse into one group ("Duplicate AP").
 - mmmdata-style nested multi-session org (`func_session_*/anat_session/` under
   the source) breaks `discover_sessions`, which expects session folders directly

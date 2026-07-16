@@ -87,6 +87,80 @@ def test_auto_number_no_session_label(tmp_path):
     assert all(m.bids_session == "01" for m in forced)
 
 
+def test_discover_sessions_gs_session_style(tmp_path):
+    """mmmdata/LCNI 'G##_S##' folders: S## is recognized as the session and the
+    paired G## token as the subject (the parser previously needed a 'ses' prefix)."""
+    dcm_dir = tmp_path / "dcm"
+    dcm_dir.mkdir()
+    for name in ["MMM_G01_S01_20250301_120000", "MMM_G01_S02_20250315_140000"]:
+        (dcm_dir / name).mkdir()
+        (dcm_dir / name / "Series_01_mprage").mkdir()
+
+    sessions = discover_sessions(dcm_dir)
+    parsed = {s.folder_name: (s.parsed_subject, s.parsed_session) for s in sessions}
+    assert parsed["MMM_G01_S01_20250301_120000"] == ("G01", "S01")
+    assert parsed["MMM_G01_S02_20250315_140000"] == ("G01", "S02")
+
+
+def test_bare_s_token_not_treated_as_session(tmp_path):
+    """A bare 'S01'/'s01' subject id (no paired G## token) must NOT be read as a
+    session — it stays the subject, matching the 'ses'-prefix safeguard."""
+    dcm_dir = tmp_path / "dcm"
+    dcm_dir.mkdir()
+    (dcm_dir / "STUDY_S01_20250301_120000").mkdir()
+    sessions = discover_sessions(dcm_dir)
+    assert len(sessions) == 1
+    assert sessions[0].parsed_subject == "S01"
+    assert sessions[0].parsed_session == ""
+
+
+def test_discover_sessions_excludes_phantom_and_test_folders(tmp_path):
+    """Phantom/QA/test/demo and whitespace-containing folders are skipped by
+    default; real subject folders are kept."""
+    dcm_dir = tmp_path / "dcm"
+    dcm_dir.mkdir()
+    for name in [
+        "DIVATTEN_001_20220408_100353",  # real subject -> kept
+        "DIVATTEN_phantom_20220408_090000",  # phantom -> skipped
+        "QA_daily_20220408_080000",  # QA -> skipped
+        "test_scan_20220408_070000",  # test -> skipped
+        "DEMO_20220408_060000",  # demo -> skipped
+        "some scratch folder",  # whitespace -> skipped
+    ]:
+        (dcm_dir / name).mkdir()
+
+    sessions = discover_sessions(dcm_dir)
+    assert [s.folder_name for s in sessions] == ["DIVATTEN_001_20220408_100353"]
+
+    # Opt-in returns the folders that still parse (whitespace/no-date ones drop out)
+    all_folders = {s.folder_name for s in discover_sessions(dcm_dir, include_excluded=True)}
+    assert "DIVATTEN_phantom_20220408_090000" in all_folders
+    assert "DIVATTEN_001_20220408_100353" in all_folders
+
+
+def test_marker_prefix_with_numeric_subject_is_kept(tmp_path):
+    """A study that legitimately uses a marker word as its project prefix (e.g.
+    'TEST_01') resolves to a numeric subject and is kept; only marker folders
+    with a non-numeric identity ('TEST_phantom') are dropped."""
+    dcm_dir = tmp_path / "dcm"
+    dcm_dir.mkdir()
+    (dcm_dir / "TEST_01_20250301_120000").mkdir()
+    (dcm_dir / "TEST_phantom_20250301_130000").mkdir()
+    sessions = discover_sessions(dcm_dir)
+    assert [s.parsed_subject for s in sessions] == ["01"]
+
+
+def test_substring_not_mistaken_for_excluded_token(tmp_path):
+    """A project whose name merely contains an excluded word as a substring
+    (e.g. 'Detest') is not filtered — only whole tokens match."""
+    dcm_dir = tmp_path / "dcm"
+    dcm_dir.mkdir()
+    (dcm_dir / "Detest_001_20250301_120000").mkdir()
+    sessions = discover_sessions(dcm_dir)
+    assert len(sessions) == 1
+    assert sessions[0].parsed_subject == "001"
+
+
 def test_discover_sessions_sorted_by_date(mock_dcm_source):
     sessions = discover_sessions(mock_dcm_source)
     dates = [s.date for s in sessions]
