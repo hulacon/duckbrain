@@ -210,11 +210,19 @@ with col2:
         if not bids_dir:
             st.error("BIDS directory not set in config.")
         else:
-            from duckbrain.core.bids_metadata import write_dataset_description
+            from duckbrain.core.bids_metadata import (
+                converter_generated_by,
+                write_dataset_description,
+            )
 
             project_name = config.get("project", {}).get("name", "")
             try:
-                desc_path = write_dataset_description(bids_dir, name=project_name)
+                # Record the converter too, not just duckbrain — dcm2bids' version
+                # is what determines the BIDS this root contains.
+                desc_path = write_dataset_description(
+                    bids_dir, name=project_name,
+                    generated_by=converter_generated_by(config),
+                )
                 st.success(f"Written: `{desc_path}`")
             except Exception as e:
                 st.error(f"Error: {e}")

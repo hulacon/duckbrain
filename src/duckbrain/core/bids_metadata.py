@@ -152,6 +152,41 @@ def _duckbrain_generated_by() -> dict:
     return {"Name": "duckbrain", "Version": duckbrain_version()}
 
 
+def converter_generated_by(config: dict) -> list[dict]:
+    """``GeneratedBy`` for an ingested BIDS root: duckbrain **and** its converter.
+
+    The raw BIDS root is duckbrain's own output too — it ran dcm2bids to make it —
+    so it should say which converter produced it, in the same shape the derivative
+    stamps use. Without this the root records duckbrain but not the tool that
+    actually did the conversion, which is the more decision-relevant of the two:
+    dcm2bids' own version determines the BIDS it emits.
+
+    Note this complements rather than duplicates dcm2bids' per-file
+    ``Dcm2bidsVersion`` sidecar fields — those describe each file, this describes
+    the dataset. Best-effort: degrades to duckbrain's entry alone rather than
+    blocking a write.
+    """
+    entries = [_duckbrain_generated_by()]
+    try:
+        from .containers import container_uri
+        from .pipeline import resolve_container, run_provenance
+
+        prov = run_provenance(config, "converted")
+        entry: dict = {"Name": prov["tool"] or "dcm2bids"}
+        if prov["tool_version"]:
+            entry["Version"] = prov["tool_version"]
+        if prov["runtime"]:
+            entry["Container"] = {"Type": "singularity", "Tag": prov["runtime"]}
+            image = resolve_container(config, "converted")
+            uri = container_uri(image) if image else ""
+            if uri:
+                entry["Container"]["URI"] = uri
+        entries.append(entry)
+    except Exception:
+        pass
+    return entries
+
+
 def write_dataset_description(
     bids_dir: str | Path,
     name: str = "",

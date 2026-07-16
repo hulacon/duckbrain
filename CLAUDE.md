@@ -172,14 +172,18 @@ Key behaviors to know when editing the app:
 All core stages are validated live: DICOM→BIDS, fMRIPrep, MRIQC, and NORDIC
 (producer + `use_nordic` fMRIPrep chaining, 2026-07-15). Remaining, roughly in order:
 
-1. **★ Provenance recording + consistency checker — BUILT (Phases A+B), on `main`.**
-   Records each run's tool/version/container/input-variant in
-   `code/logs/submissions.tsv` and writes BIDS `GeneratedBy`; `check_consistency(config)`
-   surfaces config-vs-provenance / mixed-provenance / version-drift / staleness /
-   presence mismatches as ⚠️ in the cockpit. **Next-session (on-cluster) TODO:**
-   live-validate the checker on a real mixed-provenance project (e.g. the
-   `divatten_gui_beta` sub-04/sub-015 raw-fMRIPrep + `use_nordic` mix) and wire the
-   two Phase A leftovers (ingested-root dcm2bids `GeneratedBy`; Nipoppy bagel export).
+1. ~~**Provenance recording + consistency checker**~~ — **✅ CLOSED 2026-07-16**
+   (live-validated on-cluster; see TODO.md). Provenance recorded per run; BIDS
+   `GeneratedBy` on every duckbrain-produced dataset (incl. the ingested root's
+   dcm2bids converter and per-file NORDIC sidecars); `check_consistency()` surfaces
+   seven checks in the cockpit. **The rule to know:** provenance for derivatives
+   duckbrain *produces* lives in the data (sidecars → dataset stamp); for
+   tool-produced derivatives (fMRIPrep/MRIQC) the submission log is the only
+   channel. Never compare a config-pinned container *tag* to a tool's
+   *self-reported* version — different namespaces. Residual: the mixing check has
+   never been driven by two *completed* real fMRIPrep runs (hours of compute, and
+   it works by corrupting a derivative) — accepted, close it free when a project
+   genuinely mixes variants.
 2. **Cockpit usability pass** (TODO #0) — unblocked now that behavior is locked.
    Concrete gripe: gated stages vanish from the launch dropdown (per-cell action
    would fix it). Needs a live browser look (feel can't be judged from AppTest).

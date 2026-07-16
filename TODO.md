@@ -3,13 +3,46 @@
 Prioritized backlog. Newest priorities at the top. See `PLAN.md` for the
 original design and `CLAUDE.md` for current status.
 
-## ★ TOP PRIORITY — Provenance recording + consistency checker (2026-07-15)
-Make duckbrain provenance-aware and have it auto-flag inconsistencies. Combines the
-provenance/metadata backlog item (was `docs/pipeline-extras.md` #5) with a
-consistency checker — provenance is the foundation, the checker is the payoff. Two
-phases, in order. Motivated by the NORDIC `use_nordic` coexistence problem: flipping
-the toggle on a project that already had raw-provenance fMRIPrep produces
-self-contradictory metadata, and nothing catches it today.
+## ✅ CLOSED 2026-07-16 — Provenance recording + consistency checker
+Made duckbrain provenance-aware, auto-flagging inconsistencies in the cockpit.
+Combined the provenance/metadata backlog item (was `docs/pipeline-extras.md` #5)
+with a consistency checker — provenance the foundation, the checker the payoff.
+Motivated by the NORDIC `use_nordic` coexistence problem: flipping the toggle on a
+project that already had raw-provenance fMRIPrep produces self-contradictory
+metadata and nothing caught it.
+
+**Closed. What ships:** provenance recorded per run (tool, version, runtime, code
+source, input variant) in `code/logs/submissions.tsv`; BIDS `GeneratedBy` on every
+duckbrain-produced dataset — including the **ingested root's dcm2bids converter**
+and per-file **NORDIC sidecars**; and `check_consistency()` surfacing seven checks
+in the cockpit (config-vs-provenance, container-drift, toolbox-drift, matlab-drift,
+duckbrain-drift, mixed-provenance/version/runtime, staleness, presence). Every
+stage now reports honest provenance by one rule — containers by build tag, NORDIC
+by toolbox commit, duckbrain by its own checkout. **255 tests.**
+
+**The motivating foot-gun is validated.** `mixed-provenance` fires on real
+`run_provenance` values: two fMRIPrep subjects recorded under different variants in
+one derivative →
+`fMRIPrep was run under different input variants across subjects (nordic: 015; raw: 04)`.
+
+**Residual (accepted, not forgotten):** the mixing check has never been driven by
+two *completed* real fMRIPrep runs — that costs hours of compute and works by
+deliberately corrupting a derivative to prove a warning fires. Judged a bad trade:
+every *input* to the check is live-validated (real config layering, real
+`run_provenance`, real log format+migration, real `dataset_description` shapes), so
+the unproven residue is grouping logic over real values — which the exercise above
+drives end-to-end into a temp project. Close it for free the next time a project
+genuinely mixes variants.
+
+**Remaining polish (minor, non-blocking):** per-subject config-vs-provenance
+(currently dataset-level); an mriqc `DatasetLinks` check if MRIQC ever records one;
+`tool_version` is overloaded (container *tag* for container stages vs `git describe`
+for NORDIC — defensible, same class of misnomer the `runtime`/`code_source` rename
+fixed, not worth its own migration); NORDIC log rows carry provenance columns
+nothing reads now that sidecars are the source (the row still earns its place via
+`job_id`).
+
+Original plan and the full build/validation record below.
 
 **Phase A — record provenance (do first; cheap, high-leverage). BUILT 2026-07-16.**
 - ✅ Durable submission log (`code/logs/submissions.tsv`) now records per run:
@@ -31,9 +64,17 @@ self-contradictory metadata, and nothing catches it today.
   This keeps duckbrain's "no state store, fold in external data" principle intact
   — externally-produced derivatives are first-class, never flagged for lacking a
   log row. Phase B's `check_consistency` must honor this ordering.
-- Not yet done: emit `GeneratedBy` for the *ingested BIDS root* with the dcm2bids
-  entry (converter provenance). ~~Nipoppy bagel export tie-in~~ — **the bagel
-  export was removed 2026-07-16**, see §6.
+- ✅ **Ingested BIDS root now names its converter (2026-07-16).**
+  `converter_generated_by(config)` assembles duckbrain + dcm2bids entries and the
+  Ingestion page passes them to `write_dataset_description`. The root previously
+  recorded duckbrain but not the tool that actually did the conversion — the more
+  decision-relevant of the two, since dcm2bids' version determines the BIDS emitted.
+  Complements rather than duplicates dcm2bids' per-file `Dcm2bidsVersion` sidecar
+  fields (those describe each file, this describes the dataset). Verified on real
+  config: `[{duckbrain v0.1.0-5-g986f8cc}, {dcm2bids 3.2.0, Container{Tag:
+  dcm2bids-3.2.0.sif, URI: docker://unfmontreal/dcm2bids:3.2.0}}]`. Best-effort —
+  degrades to duckbrain's entry alone rather than blocking the write.
+  ~~Nipoppy bagel export tie-in~~ — **the bagel export was removed 2026-07-16**, see §6.
 
 **Phase B — consistency / mismatch checker. BUILT 2026-07-16.**
 - ✅ `check_consistency(config)` in `core/consistency.py`; surfaces ⚠️ in the
@@ -49,9 +90,9 @@ self-contradictory metadata, and nothing catches it today.
   (`test_consistency.py` + 2 AppTest panel tests); 168 total pass. Externally-run
   derivatives fold in — never flagged merely for lacking a log row.
 - Remaining polish: per-subject config-vs-provenance (currently dataset-level);
-  add mriqc `DatasetLinks` check if MRIQC starts recording one; wire the remaining
-  Phase A item (ingested-root dcm2bids `GeneratedBy`). The bagel tie-in is moot —
-  the export was removed 2026-07-16 (§6).
+  add mriqc `DatasetLinks` check if MRIQC starts recording one. Both Phase A
+  leftovers are now closed (ingested-root dcm2bids `GeneratedBy` built; the bagel
+  tie-in is moot — that export was removed, §6).
 
 **Phase B — VALIDATED LIVE 2026-07-16** against real Talapas data
 (`divatten_gui_beta` + the real containers dir). 183 tests pass. Two bugs found

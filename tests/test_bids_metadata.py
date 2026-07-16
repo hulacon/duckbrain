@@ -112,3 +112,42 @@ def test_write_participants_append_dedupes(tmp_path):
     )
     ids = [r["participant_id"] for r in _rows(tmp_path / "participants.tsv")]
     assert ids == ["sub-001", "sub-002"]
+
+
+# ---- ingested BIDS root: converter provenance -------------------------------
+#
+# The raw BIDS root is duckbrain's output too (it ran dcm2bids to make it), so it
+# must name the converter — dcm2bids' version determines the BIDS it emits.
+
+def test_converter_generated_by_names_duckbrain_and_dcm2bids(monkeypatch, tmp_path):
+    from duckbrain.core.bids_metadata import converter_generated_by
+    import duckbrain.core.conversion as C
+    img = tmp_path / "dcm2bids-3.2.0.sif"
+    img.write_text("img")
+    monkeypatch.setattr(C, "get_container_path", lambda cfg: img)
+    cfg = {"paths": {"containers_dir": str(tmp_path)},
+           "containers": {"dcm2bids_version": "3.2.0"}}
+    entries = converter_generated_by(cfg)
+    assert [e["Name"] for e in entries] == ["duckbrain", "dcm2bids"]
+    assert entries[1]["Version"] == "3.2.0"
+    assert entries[1]["Container"]["Tag"] == "dcm2bids-3.2.0.sif"
+
+
+def test_converter_generated_by_degrades_to_duckbrain_alone(tmp_path):
+    """No containers configured: record what we know, never block the write."""
+    from duckbrain.core.bids_metadata import converter_generated_by
+    entries = converter_generated_by({"paths": {}})
+    assert entries[0]["Name"] == "duckbrain"
+
+
+def test_root_description_records_the_converter(monkeypatch, tmp_path):
+    from duckbrain.core.bids_metadata import converter_generated_by
+    import duckbrain.core.conversion as C
+    img = tmp_path / "dcm2bids-3.2.0.sif"
+    img.write_text("img")
+    monkeypatch.setattr(C, "get_container_path", lambda cfg: img)
+    cfg = {"paths": {"containers_dir": str(tmp_path)},
+           "containers": {"dcm2bids_version": "3.2.0"}}
+    desc = _json(write_dataset_description(
+        tmp_path / "bids", name="study", generated_by=converter_generated_by(cfg)))
+    assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "dcm2bids"]
