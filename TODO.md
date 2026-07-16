@@ -34,9 +34,25 @@ self-contradictory metadata, and nothing catches it today.
 - Not yet done: emit `GeneratedBy` for the *ingested BIDS root* with the dcm2bids
   entry (converter provenance); Nipoppy bagel export tie-in.
 
-**Phase B — consistency / mismatch checker.**
-- `check_consistency(config)` beside `core/surveyor.py`; surfaces ⚠️ in the Project
-  Status cockpit. Cross-references config expectation, on-disk provenance, and mtimes.
+**Phase B — consistency / mismatch checker. BUILT 2026-07-16.**
+- ✅ `check_consistency(config)` in `core/consistency.py`; surfaces ⚠️ in the
+  Project Status cockpit (panel after the Overview rollup, silent when clean).
+  On-disk provenance is authoritative (`read_derivative_provenance` reads any
+  derivative's `dataset_description.json` → `GeneratedBy`/`DatasetLinks`), the
+  submission log is the overlay for cross-subject mixing. Each check is guarded so
+  one blowing up can't sink the panel. Checks implemented: **config-vs-provenance**
+  (fMRIPrep `DatasetLinks.raw` vs `use_nordic`), **version-drift** (config-pinned
+  vs on-disk `GeneratedBy` version), **mixed-provenance** + **mixed-version**
+  (latest-per-subject from the log), **staleness** (NORDIC newer than fMRIPrep,
+  mtime), **presence** (fMRIPrep present but NORDIC input missing). 17 new tests
+  (`test_consistency.py` + 2 AppTest panel tests); 168 total pass. Externally-run
+  derivatives fold in — never flagged merely for lacking a log row.
+- Remaining polish: per-subject config-vs-provenance (currently dataset-level);
+  add mriqc `DatasetLinks` check if MRIQC starts recording one; wire the two
+  "not yet done" Phase A items (ingested-root dcm2bids `GeneratedBy`, bagel tie-in).
+
+Original Phase B design notes (kept for reference):
+- Cross-references config expectation, on-disk provenance, and mtimes.
 - **Provenance signal (found 2026-07-15):** fMRIPrep records its input in
   `derivatives/fmriprep/dataset_description.json` → `DatasetLinks.raw` (a NORDIC run
   points it at `derivatives/nordic/bids_format`; a raw run at the project root), but

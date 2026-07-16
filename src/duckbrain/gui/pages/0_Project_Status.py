@@ -50,6 +50,7 @@ from duckbrain.core.pipeline import (
     stage_runnable,
     survey_live,
 )
+from duckbrain.core.consistency import check_consistency
 
 # ---- Refresh controls ----
 c_refresh, c_auto = st.columns([1, 3])
@@ -124,6 +125,20 @@ def dashboard():
         if counts[Status.MISSING.value]:
             bits.append(f"○ {counts[Status.MISSING.value]} missing")
         col.caption(" · ".join(bits) if bits else "✓ all complete")
+
+    # ---- Provenance consistency (⚠️) ----
+    # On-disk provenance is authoritative; the submission log is an overlay that
+    # catches cross-subject mixing on-disk can't represent. Silent when clean.
+    issues = check_consistency(config)
+    if issues:
+        st.subheader("⚠️ Provenance warnings")
+        st.caption(
+            "Self-contradictory pipeline state — config vs. what's on disk, mixed "
+            "provenance/versions across subjects, staleness, or a missing input."
+        )
+        for issue in issues:
+            where = f" *(sub-{issue.subject})*" if issue.subject else ""
+            st.warning(f"**{issue.check}** — {issue.message}{where}")
 
     # ---- Runnable (unit, stage) universe ----
     runnable = []

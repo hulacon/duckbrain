@@ -136,6 +136,31 @@ def test_submission_log_panel_renders(project):
     assert any((df.value.astype(str) == "999001").any().any() for df in at.dataframe)
 
 
+def test_consistency_warning_panel_renders(project):
+    # use_nordic on, but the fMRIPrep derivative was generated from raw data —
+    # check_consistency should flag it and the cockpit should surface the ⚠️.
+    import json
+    from duckbrain.config import save_project_config
+    save_project_config(str(project), {"project": {"name": "test"},
+                                        "nordic": {"use_nordic": True}})
+    deriv = project / "derivatives" / "fmriprep"
+    deriv.mkdir(parents=True, exist_ok=True)
+    (deriv / "dataset_description.json").write_text(json.dumps({
+        "Name": "fMRIPrep", "GeneratedBy": [{"Name": "fMRIPrep", "Version": "24.1.1"}],
+        "DatasetLinks": {"raw": str(project)},  # raw = project root, not the nordic tree
+    }))
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert any("config-vs-provenance" in w.value for w in at.warning)
+
+
+def test_no_consistency_warning_when_clean(project):
+    # The stock fixture project has no derivatives → nothing to contradict.
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert not any("provenance" in w.value.lower() for w in at.warning)
+
+
 def test_running_job_shows_badge_and_blocks_rerun(project, monkeypatch):
     monkeypatch.setattr(
         P, "list_jobs",
