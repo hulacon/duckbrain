@@ -30,6 +30,9 @@ The checks, and which source each rests on:
   Compares container *identity*, never version strings — a pinned ``*_version``
   is a container tag, while ``GeneratedBy.Version`` is the tool's self-reported
   version, and the two legitimately differ.
+* **Toolbox drift** (on-disk, log fallback) — NORDIC's equivalent, against the
+  git checkout it runs from rather than an image. Here comparing versions *is*
+  sound: both sides are ``git describe`` of the same repo.
 * **Mixed input variant / version** (log overlay) — some subjects launched raw,
   some NORDIC (or under different tool versions) into the same derivative.
 * **Staleness** (mtime) — a derivative older than an input it derives from
@@ -47,8 +50,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .containers import container_build_tag
-from .pipeline import read_submissions, resolve_container
+from .pipeline import nordic_toolbox_dir, read_submissions, resolve_container
 from .surveyor import survey_project
+from .toolbox import describe
 
 
 @dataclass(frozen=True)
@@ -297,6 +301,56 @@ def _subjects_with_output(config: dict, stage: str) -> set[str]:
     return {str(s) for s in done["subject"]}
 
 
+def _check_toolbox_drift(config: dict) -> list[ConsistencyIssue]:
+    """The NORDIC toolbox checkout has moved since it produced the derivative.
+
+    NORDIC's analogue of ``container-drift``, kept separate because its artifact
+    is a git checkout, not an image. Unlike the container case, comparing
+    *versions* is sound here: both sides are ``git describe`` of the same repo —
+    one namespace, so equality means what it looks like.
+
+    This is the drift most likely to actually happen. A container image is
+    effectively immutable once pulled, but the toolbox is a git checkout on a
+    group-writable shared path: any lab member's ``git pull`` silently changes
+    denoising for every project pointing at it, with no path or config change to
+    notice. A ``-dirty`` marker likewise surfaces a hand-edited toolbox.
+    """
+    if not read_derivative_provenance(config, "nordic").exists:
+        return []
+    recorded = _recorded_toolbox(config)
+    current = describe(nordic_toolbox_dir(config))
+    if not recorded or not current or recorded == current:
+        return []
+    return [ConsistencyIssue(
+        "toolbox-drift", stage="nordic",
+        message=(
+            f"The NORDIC toolbox is now at `{current}`, but the existing NORDIC "
+            f"derivative was produced with `{recorded}`. The checkout moved (a "
+            "`git pull`, or a local edit if marked -dirty) — the derivative no "
+            "longer reflects the toolbox that would run today. Re-run NORDIC, or "
+            "check out the recorded version."),
+    )]
+
+
+def _recorded_toolbox(config: dict) -> str:
+    """``git describe`` recorded for the NORDIC derivative, or "" if unknown.
+
+    On-disk first (duckbrain stamps NORDIC itself, so its ``GeneratedBy`` version
+    *is* the describe string), then the log overlay. Unknowable → "", never a
+    guess: a NORDIC tree produced before this was recorded, or by other means, is
+    not evidence of drift.
+    """
+    on_disk = read_derivative_provenance(config, "nordic").tool_version("nordic")
+    if on_disk:
+        return on_disk
+    versions = {
+        str(row.get("tool_version", "")).strip()
+        for row in _latest_per_subject(config, "nordic").values()
+        if str(row.get("tool_version", "")).strip()
+    }
+    return versions.pop() if len(versions) == 1 else ""
+
+
 def _latest_per_subject(config: dict, stage: str) -> dict[str, dict]:
     """Latest submission-log row per subject for *stage*, reconciled against disk.
 
@@ -420,6 +474,7 @@ def check_consistency(config: dict) -> list[ConsistencyIssue]:
     for check in (
         _check_config_vs_provenance,
         _check_container_drift,
+        _check_toolbox_drift,
         _check_mixed_provenance,
         _check_staleness,
         _check_presence,

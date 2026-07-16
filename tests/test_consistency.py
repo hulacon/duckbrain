@@ -275,6 +275,88 @@ def test_external_derivative_without_recorded_container_never_flagged(tmp_path):
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
+# ---- toolbox drift (NORDIC) -------------------------------------------------
+#
+# NORDIC's analogue of container-drift, against a git checkout rather than an
+# image — and the drift most likely to happen for real: the toolbox lives on a
+# group-writable shared path, so any lab member's `git pull` silently changes
+# denoising for every project pointing at it.
+
+def _nordic_deriv(root, *, version=""):
+    """A NORDIC derivative as duckbrain stamps it."""
+    deriv = root / "derivatives" / "nordic"
+    write_derivative_description(deriv, "nordic", tool="nordic", tool_version=version)
+    return deriv
+
+
+def _toolbox(monkeypatch, current):
+    import duckbrain.core.consistency as CO
+    monkeypatch.setattr(CO, "describe", lambda repo: current)
+
+
+def test_toolbox_moved_since_the_derivative_was_produced_is_drift(monkeypatch, tmp_path):
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
+    _nordic_deriv(tmp_path, version="v1.0.2-24-g0861968")
+    _toolbox(monkeypatch, "v1.0.2-31-gabcdef1")  # someone ran `git pull`
+    issues = check_consistency(cfg)
+    assert "toolbox-drift" in _codes(issues)
+    assert any("0861968" in i.message for i in issues if i.check == "toolbox-drift")
+
+
+def test_unchanged_toolbox_is_clean(monkeypatch, tmp_path):
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
+    _nordic_deriv(tmp_path, version="v1.0.2-24-g0861968")
+    _toolbox(monkeypatch, "v1.0.2-24-g0861968")
+    assert "toolbox-drift" not in _codes(check_consistency(cfg))
+
+
+def test_toolbox_edited_locally_since_the_run_is_drift(monkeypatch, tmp_path):
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
+    _nordic_deriv(tmp_path, version="v1.0.2-24-g0861968")
+    _toolbox(monkeypatch, "v1.0.2-24-g0861968-dirty")  # hand-edited NIFTI_NORDIC.m
+    assert "toolbox-drift" in _codes(check_consistency(cfg))
+
+
+def test_toolbox_drift_falls_back_to_the_log_when_on_disk_is_silent(monkeypatch, tmp_path):
+    """A NORDIC tree from before duckbrain stamped provenance: the log overlay
+    still knows what ran."""
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
+    (tmp_path / "derivatives" / "nordic" / "sub-01" / "func").mkdir(parents=True)
+    (tmp_path / "sub-01" / "func").mkdir(parents=True)
+    for f in ("sub-01_task-x_bold.nii.gz",):
+        (tmp_path / "derivatives" / "nordic" / "sub-01" / "func" / f).write_text("x")
+        (tmp_path / "sub-01" / "func" / f).write_text("x")
+    record_submission(cfg, "nordic", "01", "", "J1",
+                      tool="nordic", tool_version="v1.0.2-24-g0861968")
+    _toolbox(monkeypatch, "v1.0.2-31-gabcdef1")
+    assert "toolbox-drift" in _codes(check_consistency(cfg))
+
+
+def test_unknowable_toolbox_version_is_never_drift(monkeypatch, tmp_path):
+    """No recorded version (an externally-produced NORDIC tree, or a toolbox held
+    as a plain unpacked copy) must not read as drift."""
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
+    _nordic_deriv(tmp_path, version="")   # nothing recorded
+    _toolbox(monkeypatch, "v1.0.2-31-gabcdef1")
+    assert "toolbox-drift" not in _codes(check_consistency(cfg))
+
+    _nordic_deriv(tmp_path, version="v1.0.2-24-g0861968")
+    _toolbox(monkeypatch, "")             # toolbox not a checkout / not configured
+    assert "toolbox-drift" not in _codes(check_consistency(cfg))
+
+
+def test_no_nordic_derivative_means_no_toolbox_check(monkeypatch, tmp_path):
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
+    _toolbox(monkeypatch, "v1.0.2-31-gabcdef1")
+    assert "toolbox-drift" not in _codes(check_consistency(cfg))
+
+
 # ---- mixed provenance / version (log overlay) -------------------------------
 
 def test_mixed_input_variant_across_subjects_flagged(tmp_path):

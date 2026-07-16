@@ -174,6 +174,7 @@ def _build_nordic(config, subject, session, log_dir, params):
     try:
         from .bids_metadata import write_derivative_description
         from .containers import container_uri
+        from .toolbox import code_url
         prov = run_provenance(config, "nordic")
         image = resolve_container(config, "nordic")
         write_derivative_description(
@@ -181,6 +182,7 @@ def _build_nordic(config, subject, session, log_dir, params):
             tool=prov["tool"], tool_version=prov["tool_version"],
             container=prov["container"],
             container_uri=container_uri(image) if image else "",
+            code_url=code_url(nordic_toolbox_dir(config)),
             source_dataset=paths["bids_dir"],
         )
     except Exception:
@@ -358,6 +360,15 @@ _STAGE_TOOL = {
 }
 
 
+def nordic_toolbox_dir(config: dict) -> str:
+    """Configured NORDIC toolbox checkout, or ``""``.
+
+    Each user holds their own clone (the licence forbids redistribution), so this
+    path — and the commit at it — varies per user. See ``core.toolbox``.
+    """
+    return str(config.get("paths", {}).get("nordic_toolbox_dir", "") or "")
+
+
 def resolve_container(config: dict, stage: str) -> Path | None:
     """The container file *stage* would run, via the stage's own resolution.
 
@@ -403,6 +414,20 @@ def run_provenance(config: dict, stage: str) -> dict:
     except Exception:
         container = container or ""
         container_source = ""
+
+    # NORDIC runs no container: its artifact is a git checkout of the toolbox, so
+    # its identity comes from the checkout instead (core.toolbox). ``container``
+    # stays empty — there is no image — while ``container_source`` carries the
+    # same *where did this code come from* role it does for an image.
+    if stage == "nordic":
+        try:
+            from .toolbox import describe, source_ref
+            repo = nordic_toolbox_dir(config)
+            tool_version = describe(repo)
+            container_source = source_ref(repo)
+        except Exception:
+            tool_version = tool_version or ""
+            container_source = ""
 
     if stage == "fmriprep":
         input_variant = "nordic" if _use_nordic(config) else "raw"

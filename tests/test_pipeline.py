@@ -418,11 +418,47 @@ def test_run_provenance_degrades_when_container_unresolvable(tmp_path):
     assert prov["input_variant"] == "raw"
 
 
-def test_run_provenance_nordic_has_no_version(tmp_path):
+def test_run_provenance_nordic_without_a_toolbox_has_no_version(tmp_path):
     prov = run_provenance(_config(tmp_path), "nordic")
     assert prov["tool"] == "nordic"
-    assert prov["tool_version"] == ""  # MATLAB toolbox stage, no [containers] version
+    assert prov["tool_version"] == ""  # no toolbox configured: unknowable, not guessed
+    assert prov["container"] == ""     # NORDIC runs no container, ever
+    assert prov["container_source"] == ""
     assert prov["input_variant"] == "raw"
+
+
+def test_unset_toolbox_never_describes_the_current_directory(monkeypatch, tmp_path):
+    """Regression: Path("") is `.`, so an unset nordic_toolbox_dir used to
+    resolve to the CWD and record *duckbrain's own* git version as the
+    toolbox's. Silently wrong provenance is worse than none."""
+    monkeypatch.chdir(tmp_path)  # any repo-like CWD must not leak in
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = ""
+    prov = run_provenance(cfg, "nordic")
+    assert prov["tool_version"] == ""
+    assert prov["container_source"] == ""
+
+
+def test_run_provenance_nordic_reads_the_toolbox_checkout(tmp_path):
+    repo = _git_repo(tmp_path / "NORDIC_Raw", remote="https://github.com/SteenMoeller/NORDIC_Raw.git")
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(repo)
+    prov = run_provenance(cfg, "nordic")
+    sha = _sha(repo)
+    assert prov["tool"] == "nordic"
+    assert prov["tool_version"] == sha            # no tags yet: --always gives the sha
+    assert prov["container_source"] == f"SteenMoeller/NORDIC_Raw@{sha}"
+    assert prov["container"] == ""
+
+
+def test_run_provenance_nordic_marks_a_locally_edited_toolbox_dirty(tmp_path):
+    """A hand-edited NIFTI_NORDIC.m makes results unreproducible — that belongs
+    in the record."""
+    repo = _git_repo(tmp_path / "NORDIC_Raw")
+    (repo / "NIFTI_NORDIC.m").write_text("% locally hacked\n")
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(repo)
+    assert run_provenance(cfg, "nordic")["tool_version"].endswith("-dirty")
 
 
 def test_read_submissions_backfills_legacy_columns(tmp_path):
@@ -463,6 +499,29 @@ def test_read_submissions_limit_and_order(tmp_path):
 # under that narrower header produces a ragged file that pd.read_csv refuses
 # outright — taking the log, the Job Monitor, and every log-overlay consistency
 # check down with it on the next launch.
+
+def _git_repo(path, remote=None):
+    """A throwaway git checkout, standing in for a user's NORDIC_Raw clone."""
+    import subprocess
+    path.mkdir(parents=True, exist_ok=True)
+    run = lambda *a: subprocess.run(["git", "-C", str(path), *a], check=True,
+                                    capture_output=True)
+    run("init", "-q")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (path / "NIFTI_NORDIC.m").write_text("% stub\n")
+    run("add", "-A")
+    run("commit", "-qm", "initial")
+    if remote:
+        run("remote", "add", "origin", remote)
+    return path
+
+
+def _sha(path):
+    import subprocess
+    return subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+
 
 _LEGACY_HEADER = "timestamp\tsubject\tsession\tstage\tjob_id"
 _LEGACY_ROWS = [

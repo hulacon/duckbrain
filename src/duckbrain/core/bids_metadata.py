@@ -176,6 +176,7 @@ def write_derivative_description(
     tool_version: str = "",
     container: str = "",
     container_uri: str = "",
+    code_url: str = "",
     source_dataset: str | Path | None = None,
     name: str = "",
 ) -> Path:
@@ -208,6 +209,10 @@ def write_derivative_description(
             tool_entry["Container"] = {"Type": "singularity", "Tag": container}
             if container_uri:
                 tool_entry["Container"]["URI"] = container_uri
+        if code_url:
+            # For a tool that runs from a source checkout rather than an image
+            # (NORDIC), the commit is the artifact — CodeURL pins it browsably.
+            tool_entry["CodeURL"] = code_url
 
     generated_by = [_duckbrain_generated_by()]
     if tool_entry:
