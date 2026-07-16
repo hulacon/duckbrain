@@ -117,11 +117,31 @@ def write_participants_tsv(
     return tsv_path
 
 
-def _duckbrain_generated_by() -> dict:
-    """The ``GeneratedBy`` entry for duckbrain itself, versioned from the package."""
-    from .. import __version__
+def _duckbrain_repo() -> Path:
+    """duckbrain's own source root (``src/duckbrain/core/`` → repo root)."""
+    return Path(__file__).resolve().parents[3]
 
-    return {"Name": "duckbrain", "Version": __version__}
+
+def _duckbrain_generated_by() -> dict:
+    """The ``GeneratedBy`` entry for duckbrain itself.
+
+    Prefers a ``git describe`` of duckbrain's *own checkout* over the packaged
+    ``__version__``. duckbrain is distributed by ``git clone`` and served straight
+    from a working copy (the OnDemand app runs whatever is checked out), so users
+    sit on arbitrary commits — a hand-maintained ``__version__`` would go stale
+    between releases and stamp every derivative with the same number regardless of
+    what actually ran. That is precisely the failure this codebase already
+    diagnosed *upstream* in NORDIC, whose in-file ``% VERSION 4/22/2021`` marker is
+    years behind its own HEAD (see ``core.toolbox``); recording it of others while
+    committing it ourselves would be indefensible.
+
+    Falls back to ``__version__`` when duckbrain is installed from a wheel rather
+    than a checkout — there the packaged version *is* the truth.
+    """
+    from .. import __version__
+    from .toolbox import describe
+
+    return {"Name": "duckbrain", "Version": describe(_duckbrain_repo()) or __version__}
 
 
 def write_dataset_description(

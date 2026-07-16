@@ -24,10 +24,24 @@ def _json(path):
 
 # ---- dataset_description provenance -----------------------------------------
 
-def test_write_dataset_description_versions_duckbrain_from_package(tmp_path):
+def test_write_dataset_description_versions_duckbrain_from_its_checkout(tmp_path):
+    """duckbrain is distributed by git clone and served from a working copy, so
+    users sit on arbitrary commits: stamp the actual checkout, not a
+    hand-maintained __version__ that would go stale between releases — the very
+    failure this codebase diagnoses upstream in NORDIC."""
     desc = _json(write_dataset_description(tmp_path / "bids", name="study"))
-    gb = desc["GeneratedBy"]
-    assert gb == [{"Name": "duckbrain", "Version": __version__}]
+    (entry,) = desc["GeneratedBy"]
+    assert entry["Name"] == "duckbrain"
+    assert entry["Version"]  # a git describe here, or __version__ off a checkout
+
+
+def test_duckbrain_version_falls_back_to_the_package_off_a_checkout(monkeypatch, tmp_path):
+    """Installed from a wheel there is no git to ask, and the packaged version
+    *is* the truth."""
+    import duckbrain.core.bids_metadata as M
+    monkeypatch.setattr(M, "_duckbrain_repo", lambda: tmp_path / "not-a-checkout")
+    desc = _json(write_dataset_description(tmp_path / "bids", name="study"))
+    assert desc["GeneratedBy"] == [{"Name": "duckbrain", "Version": __version__}]
 
 
 def test_write_dataset_description_custom_generated_by(tmp_path):
