@@ -404,7 +404,39 @@ the same reason, duckbrain stamps `dataset_description.json`.
 - Validated live: on the real project every sub-04 output exists → **0 written**
   (skip rule holds, nothing mutated); against a temp derivatives dir off the real
   raw BIDS → 13 sidecars, 71 keys each (real dcm2bids sidecar + `Sources` +
-  `Duckbrain`), no `GeneratedBy`. 253 tests pass.
+  `Duckbrain`), no `GeneratedBy`.
+
+**Sidecar *reading* — BUILT 2026-07-16 (a swap, not a new tier).** The sidecars
+were briefly a write path with no reader. Now the checker reads them for NORDIC
+*instead of* the log — same number of code paths, better granularity. The rule
+this makes explicit (now in `consistency.py`'s module docstring):
+```
+derivatives duckbrain produces (nordic)    -> provenance lives IN the data
+derivatives tools produce (fmriprep/mriqc) -> the log, the only channel we have
+```
+- `_recorded_toolbox` / `_recorded_runtime` now read **sidecars first** (per-file =
+  most specific), then the dataset-level stamp — which whichever run finished last
+  overwrites, so it can't represent a part-re-run derivative. The log tier is gone
+  for NORDIC. `_check_mixed_provenance` reads sidecars for NORDIC, the log for
+  fMRIPrep.
+- **The case that justifies it:** the sbatch skips already-denoised runs, so a
+  partial array failure re-launched after a toolbox bump leaves survivors on the
+  old toolbox — one subject's 13 files genuinely differ. The log's
+  latest-per-subject row would report the new toolbox for all of them (a **false
+  negative**). Validated: a synthetic sub-04 with run-3 re-denoised yields
+  `mixed-version ... (v1.0.2-24-g0861968: 04; v1.0.2-31-gNEWER: 04)` — the same
+  subject under both values *is* the signal.
+- Safe to drop the log tier: the real project's log carries **zero** provenance
+  (all 35 rows predate Phase A — verified), so no history was lost. Disagreeing
+  sidecars return `""` from `_sidecar_consensus`, so mixing reads as *unknown* to
+  drift rather than firing both checks; sidecars with no `Duckbrain` object are
+  ignored (unknowable, not evidence).
+- Live: real project has 0 sidecars (pre-sidecar outputs) → `_recorded_toolbox` is
+  `""` → correctly silent, 0 issues, ~420 ms. 252 tests pass.
+- **Honest scope:** this did *not* reduce redundancy — all three layers are still
+  written. It removed the write-path-with-no-reader and fixed a real false
+  negative. The `tool_version`/`runtime`/`code_source` columns on NORDIC log rows
+  are now written but unread (the row still earns its place via `job_id`).
 
 **Known remaining wrinkle (minor):** `tool_version` is itself now overloaded — it
 holds a container *tag* for container stages (`24.1.1`) but a `git describe` for

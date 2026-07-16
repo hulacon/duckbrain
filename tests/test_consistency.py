@@ -294,6 +294,16 @@ def _toolbox(monkeypatch, current):
     monkeypatch.setattr(CO, "describe", lambda repo: current)
 
 
+def _nordic_sidecar(root, sub, run, **prov):
+    """A NORDIC output plus the per-file sidecar duckbrain stamps beside it."""
+    d = root / "derivatives" / "nordic" / f"sub-{sub}" / "func"
+    d.mkdir(parents=True, exist_ok=True)
+    name = f"sub-{sub}_task-x_run-{run}_bold"
+    (d / f"{name}.nii.gz").write_text("nii")
+    (d / f"{name}.json").write_text(json.dumps({"Duckbrain": prov}))
+    return d / f"{name}.json"
+
+
 def _nordic_unit(root, sub):
     """Make sub-*sub* read as having real NORDIC output on disk."""
     nd = root / "derivatives" / "nordic" / f"sub-{sub}" / "func"
@@ -330,20 +340,23 @@ def test_toolbox_edited_locally_since_the_run_is_drift(monkeypatch, tmp_path):
     assert "toolbox-drift" in _codes(check_consistency(cfg))
 
 
-def test_toolbox_drift_falls_back_to_the_log_when_on_disk_is_silent(monkeypatch, tmp_path):
-    """A NORDIC tree from before duckbrain stamped provenance: the log overlay
-    still knows what ran."""
-    cfg = _config(tmp_path)
-    cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
-    (tmp_path / "derivatives" / "nordic" / "sub-01" / "func").mkdir(parents=True)
-    (tmp_path / "sub-01" / "func").mkdir(parents=True)
-    for f in ("sub-01_task-x_bold.nii.gz",):
-        (tmp_path / "derivatives" / "nordic" / "sub-01" / "func" / f).write_text("x")
-        (tmp_path / "sub-01" / "func" / f).write_text("x")
-    record_submission(cfg, "nordic", "01", "", "J1",
-                      tool="nordic", tool_version="v1.0.2-24-g0861968")
+def test_toolbox_drift_reads_sidecars_when_the_dataset_stamp_is_silent(monkeypatch, tmp_path):
+    """duckbrain writes NORDIC's files, so their own sidecars are the source —
+    not the submission log."""
+    cfg = _nordic_cfg(tmp_path)
+    _nordic_sidecar(tmp_path, "01", 1, ToolVersion="v1.0.2-24-g0861968")
     _toolbox(monkeypatch, "v1.0.2-31-gabcdef1")
     assert "toolbox-drift" in _codes(check_consistency(cfg))
+
+
+def test_sidecars_outrank_the_dataset_level_stamp(monkeypatch, tmp_path):
+    """dataset_description is overwritten by whichever run finished last, so it
+    cannot represent a part-re-run derivative. The per-file sidecar wins."""
+    cfg = _nordic_cfg(tmp_path)
+    _nordic_deriv(tmp_path, version="v9.9.9-gstale")   # dataset-level, stale
+    _nordic_sidecar(tmp_path, "01", 1, ToolVersion="v1.0.2-24-g0861968")
+    _toolbox(monkeypatch, "v1.0.2-24-g0861968")        # matches the sidecar
+    assert "toolbox-drift" not in _codes(check_consistency(cfg))
 
 
 def test_unknowable_toolbox_version_is_never_drift(monkeypatch, tmp_path):
@@ -400,12 +413,10 @@ def test_unchanged_matlab_module_is_clean(monkeypatch, tmp_path):
     assert "matlab-drift" not in _codes(check_consistency(cfg))
 
 
-def test_matlab_drift_falls_back_to_the_log(monkeypatch, tmp_path):
+def test_matlab_drift_reads_sidecars(monkeypatch, tmp_path):
     cfg = _nordic_cfg(tmp_path, matlab="matlab/R2025a")
-    _nordic_deriv(tmp_path)  # stamped without a runtime
-    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic",
-                      runtime="matlab/R2024a")
-    _nordic_unit(tmp_path, "01")
+    _nordic_deriv(tmp_path)  # dataset stamp carries no runtime
+    _nordic_sidecar(tmp_path, "01", 1, Runtime="matlab/R2024a")
     _toolbox(monkeypatch, "")
     assert "matlab-drift" in _codes(check_consistency(cfg))
 
@@ -539,50 +550,66 @@ def test_mixed_tool_version_across_subjects_flagged(tmp_path):
 
 
 def test_mixed_toolbox_versions_across_nordic_subjects_flagged(tmp_path):
-    """Mixing is not fMRIPrep-only: subjects denoised under different toolbox
-    commits land in one derivatives/nordic, and dataset-level on-disk provenance
-    cannot represent it."""
+    """Mixing is not fMRIPrep-only — and for NORDIC the sidecars are the source."""
     cfg = _nordic_cfg(tmp_path)
-    _nordic_unit(tmp_path, "01")
-    _nordic_unit(tmp_path, "02")
-    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic",
-                      tool_version="v1.0.2-24-g0861968")
-    record_submission(cfg, "nordic", "02", "", "J2", tool="nordic",
-                      tool_version="v1.0.2-31-gabcdef1")
+    _nordic_sidecar(tmp_path, "01", 1, ToolVersion="v1.0.2-24-g0861968")
+    _nordic_sidecar(tmp_path, "02", 1, ToolVersion="v1.0.2-31-gabcdef1")
     issues = check_consistency(cfg)
     assert "mixed-version" in _codes(issues)
     assert any(i.stage == "nordic" for i in issues if i.check == "mixed-version")
 
 
+def test_mixed_toolbox_versions_WITHIN_one_subject_flagged(tmp_path):
+    """The case only sidecars can catch, and the reason for the swap.
+
+    The sbatch skips already-denoised runs, so a partial array failure re-launched
+    after a toolbox bump leaves survivors on the old toolbox. The log records one
+    row per submission, so latest-per-subject would report the new toolbox for all
+    13 files. Per-file sidecars report the truth.
+    """
+    cfg = _nordic_cfg(tmp_path)
+    _nordic_sidecar(tmp_path, "01", 1, ToolVersion="v1.0.2-24-g0861968")  # survivor
+    _nordic_sidecar(tmp_path, "01", 2, ToolVersion="v1.0.2-31-gabcdef1")  # re-denoised
+    issues = [i for i in check_consistency(cfg) if i.check == "mixed-version"]
+    assert issues
+    # The same subject appears under both versions — that IS the signal.
+    assert issues[0].message.count("01") == 2
+
+
 def test_mixed_matlab_runtimes_across_nordic_subjects_flagged(tmp_path):
     cfg = _nordic_cfg(tmp_path)
-    _nordic_unit(tmp_path, "01")
-    _nordic_unit(tmp_path, "02")
-    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic", runtime="matlab/R2024a")
-    record_submission(cfg, "nordic", "02", "", "J2", tool="nordic", runtime="matlab/R2025a")
+    _nordic_sidecar(tmp_path, "01", 1, Runtime="matlab/R2024a")
+    _nordic_sidecar(tmp_path, "02", 1, Runtime="matlab/R2025a")
     assert "mixed-runtime" in _codes(check_consistency(cfg))
 
 
 def test_uniform_nordic_provenance_is_clean(tmp_path):
     cfg = _nordic_cfg(tmp_path)
-    _nordic_unit(tmp_path, "01")
-    _nordic_unit(tmp_path, "02")
     for sub in ("01", "02"):
-        record_submission(cfg, "nordic", sub, "", f"J{sub}", tool="nordic",
-                          tool_version="v1.0.2-24-g0861968", runtime="matlab/R2024a")
+        _nordic_sidecar(tmp_path, sub, 1, ToolVersion="v1.0.2-24-g0861968",
+                        Runtime="matlab/R2024a")
     codes = _codes(check_consistency(cfg))
     assert "mixed-version" not in codes and "mixed-runtime" not in codes
 
 
 def test_blank_provenance_is_unknown_not_a_distinct_value(tmp_path):
-    """A derivative half of whose runs predate a provenance field must not read
+    """A derivative half of whose files predate a provenance field must not read
     as mixed — blank is unknown, not a value."""
     cfg = _nordic_cfg(tmp_path)
-    _nordic_unit(tmp_path, "01")
-    _nordic_unit(tmp_path, "02")
-    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic", runtime="")
-    record_submission(cfg, "nordic", "02", "", "J2", tool="nordic", runtime="matlab/R2024a")
+    _nordic_sidecar(tmp_path, "01", 1, Runtime="")
+    _nordic_sidecar(tmp_path, "02", 1, Runtime="matlab/R2024a")
     assert "mixed-runtime" not in _codes(check_consistency(cfg))
+
+
+def test_sidecars_without_provenance_are_ignored(tmp_path):
+    """A NORDIC output duckbrain didn't stamp is unknowable, not evidence."""
+    cfg = _nordic_cfg(tmp_path)
+    d = tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
+    d.mkdir(parents=True)
+    (d / "sub-01_task-x_bold.nii.gz").write_text("nii")
+    (d / "sub-01_task-x_bold.json").write_text(json.dumps({"RepetitionTime": 1.0}))
+    _nordic_sidecar(tmp_path, "02", 1, ToolVersion="v1.0.2-24-g0861968")
+    assert "mixed-version" not in _codes(check_consistency(cfg))
 
 
 def test_submission_without_output_on_disk_contributes_no_provenance(tmp_path):

@@ -21,6 +21,18 @@ cancelled, and since-deleted runs — while the filesystem records what was actu
 produced. For provenance the files arbitrate, so every log-overlay check reads the
 log through ``_latest_per_subject``, which drops rows with no output on disk.
 
+**Which source serves which stage.** It follows from what duckbrain authors:
+
+* derivatives duckbrain **produces** (NORDIC) → provenance lives *in the data*
+  (per-file sidecars, then the dataset-level stamp). The sidecars are the only
+  source correct at NORDIC's real granularity: the sbatch skips already-denoised
+  runs, so one subject's files can legitimately differ (a partial array failure
+  re-launched after a toolbox bump leaves survivors on the old toolbox), and the
+  log's one-row-per-subject view would misreport all of them.
+* derivatives **tools** produce (fMRIPrep/MRIQC) → the submission log, because
+  they author their own outputs and overwrite their own ``dataset_description``,
+  leaving duckbrain no channel inside the data at all.
+
 The checks, and which source each rests on:
 
 * **Config vs provenance** (on-disk) — ``use_nordic`` on but fMRIPrep's
@@ -459,46 +471,103 @@ def _check_matlab_drift(config: dict) -> list[ConsistencyIssue]:
     )]
 
 
+# ---- NORDIC sidecars: per-file provenance -----------------------------------
+#
+# The source rule this codebase follows:
+#
+#   derivatives duckbrain *produces* (nordic)    → provenance lives IN the data
+#   derivatives *tools* produce (fmriprep/mriqc) → the log, the only channel we have
+#
+# duckbrain writes NORDIC's outputs, so it stamps each one (``write_nordic_sidecars``)
+# — and those sidecars are the only source correct at NORDIC's real granularity.
+# The sbatch skips already-denoised runs, so one subject's files can genuinely carry
+# *different* provenance (a partial array failure re-launched after a toolbox bump
+# leaves survivors on the old toolbox). The log records one row per submission, so
+# its latest-per-subject view would report the new toolbox for all of them.
+
+
+def read_nordic_sidecars(config: dict) -> list[dict]:
+    """Per-file provenance from every NORDIC output sidecar.
+
+    Each entry is the sidecar's ``Duckbrain`` object plus a ``subject`` key.
+    Sidecars without one (produced before duckbrain wrote them, or by other
+    means) are skipped — unknowable, not evidence.
+    """
+    root = Path(config["paths"]["derivatives_dir"]) / "nordic"
+    found: list[dict] = []
+    try:
+        paths = sorted(root.glob("sub-*/**/func/*_bold.json"))
+    except (OSError, ValueError):
+        return []
+    for path in paths:
+        prov = _read_json(path).get("Duckbrain")
+        if not isinstance(prov, dict) or not prov:
+            continue
+        subject = path.name.split("_", 1)[0].removeprefix("sub-")
+        found.append({**prov, "subject": subject})
+    return found
+
+
+def _sidecar_groups(config: dict, field: str) -> dict[str, list[str]]:
+    """Subjects grouped by their sidecars' *field* value, blanks ignored.
+
+    A subject appears under two values when its own files disagree — which is
+    real, and precisely what the log cannot express.
+    """
+    groups: dict[str, set[str]] = {}
+    for prov in read_nordic_sidecars(config):
+        value = str(prov.get(field, "")).strip()
+        if value:
+            groups.setdefault(value, set()).add(prov["subject"])
+    return {v: sorted(subs) for v, subs in groups.items()}
+
+
+def _sidecar_consensus(config: dict, field: str) -> str | None:
+    """The one *field* value all NORDIC sidecars agree on.
+
+    ``""`` when they disagree — mixing is ``_check_mixed_provenance``'s business,
+    not drift's. ``None`` when no sidecar records the field at all, so the caller
+    can fall back rather than read silence as agreement.
+    """
+    groups = _sidecar_groups(config, field)
+    if not groups:
+        return None
+    return next(iter(groups)) if len(groups) == 1 else ""
+
+
 def _recorded_runtime(config: dict, stage: str) -> str:
     """Runtime recorded for *stage*'s derivative, or "" if unknown.
 
-    Log-only: the runtime for a non-container stage has no dedicated BIDS field,
-    so ``_runtime_generated_by`` writes it as its own ``GeneratedBy`` entry —
-    which we read back here by name.
+    Sidecars first — they are per-file, so the most specific truth we hold. Then
+    the dataset-level ``GeneratedBy`` entry ``_runtime_generated_by`` writes (a
+    non-container runtime has no dedicated BIDS field, so MATLAB gets its own
+    entry).
     """
-    prov = read_derivative_provenance(config, stage)
-    for entry in prov.generated_by:
+    consensus = _sidecar_consensus(config, "Runtime")
+    if consensus is not None:
+        return consensus
+    for entry in read_derivative_provenance(config, stage).generated_by:
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("Name", ""))
         if name and name.lower() == "matlab":
             version = str(entry.get("Version", ""))
             return f"{name}/{version}" if version else name
-    runtimes = {
-        str(row.get("runtime", "")).strip()
-        for row in _latest_per_subject(config, stage).values()
-        if str(row.get("runtime", "")).strip()
-    }
-    return runtimes.pop() if len(runtimes) == 1 else ""
+    return ""
 
 
 def _recorded_toolbox(config: dict) -> str:
     """``git describe`` recorded for the NORDIC derivative, or "" if unknown.
 
-    On-disk first (duckbrain stamps NORDIC itself, so its ``GeneratedBy`` version
-    *is* the describe string), then the log overlay. Unknowable → "", never a
-    guess: a NORDIC tree produced before this was recorded, or by other means, is
-    not evidence of drift.
+    Sidecars first (per-file, so the most specific), then the dataset-level
+    ``GeneratedBy`` — which the *last* launch overwrites, so it cannot represent a
+    part-re-run derivative. Unknowable → "", never a guess: a NORDIC tree produced
+    before duckbrain recorded this, or by other means, is not evidence of drift.
     """
-    on_disk = read_derivative_provenance(config, "nordic").tool_version("nordic")
-    if on_disk:
-        return on_disk
-    versions = {
-        str(row.get("tool_version", "")).strip()
-        for row in _latest_per_subject(config, "nordic").values()
-        if str(row.get("tool_version", "")).strip()
-    }
-    return versions.pop() if len(versions) == 1 else ""
+    consensus = _sidecar_consensus(config, "ToolVersion")
+    if consensus is not None:
+        return consensus
+    return read_derivative_provenance(config, "nordic").tool_version("nordic")
 
 
 def _latest_per_subject(config: dict, stage: str) -> dict[str, dict]:
@@ -529,49 +598,51 @@ def _latest_per_subject(config: dict, stage: str) -> dict[str, dict]:
     return latest
 
 
-def _check_mixed_provenance(config: dict) -> list[ConsistencyIssue]:
-    """Log-overlay check: subjects launched under different variants/versions.
+def _mixed_issue(check: str, stage: str, label: str, what: str,
+                 groups: dict[str, list[str]]) -> list[ConsistencyIssue]:
+    if len(groups) < 2:
+        return []
+    return [ConsistencyIssue(
+        check, stage=stage,
+        message=(
+            f"{label} was run under different {what} within the same derivative "
+            f"({_describe_groups(groups)}). Re-run so it is uniform."),
+    )]
 
-    On-disk ``dataset_description.json`` is dataset-level, so this mixing is
-    invisible there — only duckbrain's own per-run record catches it.
+
+def _check_mixed_provenance(config: dict) -> list[ConsistencyIssue]:
+    """Subjects (or files) produced under different variants/versions/runtimes.
+
+    ``dataset_description.json`` is dataset-level and overwritten by whichever run
+    finished last, so mixing is invisible there. The source used per stage follows
+    the rule above: duckbrain writes NORDIC's files, so their sidecars are read;
+    fMRIPrep's outputs are its own, so the submission log is the only channel.
     """
     issues: list[ConsistencyIssue] = []
-    for stage, label in (("fmriprep", "fMRIPrep"), ("nordic", "NORDIC")):
-        latest = _latest_per_subject(config, stage)
-        if not latest:
-            continue
 
-        # Input variant only varies for fMRIPrep — NORDIC always consumes raw.
-        if stage == "fmriprep":
-            variants = _group_subjects_by(latest, "input_variant")
-            if len(variants) > 1:
-                issues.append(ConsistencyIssue(
-                    "mixed-provenance", stage=stage,
-                    message=(
-                        f"{label} was run over different input variants across "
-                        f"subjects in the same derivative ({_describe_groups(variants)}). "
-                        "Mixed provenance — re-run so all subjects share one variant."),
-                ))
+    # fMRIPrep — log overlay (duckbrain cannot write into fMRIPrep's outputs).
+    latest = _latest_per_subject(config, "fmriprep")
+    if latest:
+        issues += _mixed_issue(
+            "mixed-provenance", "fmriprep", "fMRIPrep", "input variants across subjects",
+            _group_subjects_by(latest, "input_variant"))
+        issues += _mixed_issue(
+            "mixed-version", "fmriprep", "fMRIPrep", "tool versions across subjects",
+            _group_subjects_by(latest, "tool_version"))
+        issues += _mixed_issue(
+            "mixed-runtime", "fmriprep", "fMRIPrep", "runtimes across subjects",
+            _group_subjects_by(latest, "runtime"))
 
-        versions = _group_subjects_by(latest, "tool_version")
-        if len(versions) > 1:
-            issues.append(ConsistencyIssue(
-                "mixed-version", stage=stage,
-                message=(
-                    f"{label} was run under different tool versions across subjects "
-                    f"in the same derivative ({_describe_groups(versions)}). Re-run "
-                    "so all subjects share one version."),
-            ))
-
-        runtimes = _group_subjects_by(latest, "runtime")
-        if len(runtimes) > 1:
-            issues.append(ConsistencyIssue(
-                "mixed-runtime", stage=stage,
-                message=(
-                    f"{label} was run under different runtimes across subjects in "
-                    f"the same derivative ({_describe_groups(runtimes)}). Re-run so "
-                    "all subjects share one runtime."),
-            ))
+    # NORDIC — its own sidecars, the only source correct per *file*. A subject
+    # listed under two values means its own runs disagree (a part re-run), which
+    # the log's one-row-per-subject view cannot express. Input variant is not
+    # checked: NORDIC always consumes raw.
+    issues += _mixed_issue(
+        "mixed-version", "nordic", "NORDIC", "toolbox versions",
+        _sidecar_groups(config, "ToolVersion"))
+    issues += _mixed_issue(
+        "mixed-runtime", "nordic", "NORDIC", "runtimes",
+        _sidecar_groups(config, "Runtime"))
     return issues
 
 
