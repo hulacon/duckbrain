@@ -15,12 +15,21 @@ single dataset-level file overwritten by whichever run finished last, so it can'
 represent *mixed* provenance across subjects in one derivative dir. That is the
 one thing the log-overlay checks catch.
 
+**The log is job tracking, the files are the record (2026-07-16).** The two track
+related but distinct things: the log records *submissions* — including in-flight,
+cancelled, and since-deleted runs — while the filesystem records what was actually
+produced. For provenance the files arbitrate, so every log-overlay check reads the
+log through ``_latest_per_subject``, which drops rows with no output on disk.
+
 The checks, and which source each rests on:
 
 * **Config vs provenance** (on-disk) — ``use_nordic`` on but fMRIPrep's
   ``DatasetLinks.raw`` isn't the NORDIC tree, or vice-versa.
-* **Version drift** (on-disk) — a derivative's ``GeneratedBy`` version differs
-  from the version config now pins (config bumped without re-running).
+* **Container drift** (on-disk, log fallback) — config resolves a different
+  container than the one that produced the derivative (pin bumped, no re-run).
+  Compares container *identity*, never version strings — a pinned ``*_version``
+  is a container tag, while ``GeneratedBy.Version`` is the tool's self-reported
+  version, and the two legitimately differ.
 * **Mixed input variant / version** (log overlay) — some subjects launched raw,
   some NORDIC (or under different tool versions) into the same derivative.
 * **Staleness** (mtime) — a derivative older than an input it derives from
@@ -74,14 +83,35 @@ class DerivativeProvenance:
     generated_by: list  # list of {Name, Version, ...}
     raw_link: str       # DatasetLinks.raw, "" if absent
 
-    def tool_version(self, tool: str) -> str:
-        """Version recorded for *tool* in GeneratedBy (case-insensitive), or ""."""
+    def _tool_entry(self, tool: str) -> dict:
         for entry in self.generated_by:
             if not isinstance(entry, dict):
                 continue
             if str(entry.get("Name", "")).lower() == tool.lower():
-                return str(entry.get("Version", ""))
-        return ""
+                return entry
+        return {}
+
+    def tool_version(self, tool: str) -> str:
+        """Version *tool* self-reports in GeneratedBy (case-insensitive), or "".
+
+        Informational only: this is the tool's own version string, which lives in
+        a different namespace from the container tag config pins. Do not compare
+        the two — see ``_check_container_drift``.
+        """
+        return str(self._tool_entry(tool).get("Version", ""))
+
+    def tool_container(self, tool: str) -> str:
+        """Container tag recorded for *tool* in GeneratedBy, or "".
+
+        Only duckbrain-written descriptions carry ``Container.Tag`` (see
+        ``bids_metadata.write_derivative_description``). fMRIPrep/MRIQC overwrite
+        the description with their own, which records no container — hence the
+        log overlay fallback in ``_check_container_drift``.
+        """
+        container = self._tool_entry(tool).get("Container", {})
+        if not isinstance(container, dict):
+            return ""
+        return str(container.get("Tag", ""))
 
 
 def read_derivative_provenance(config: dict, pipeline: str) -> DerivativeProvenance:
@@ -154,38 +184,112 @@ def _check_config_vs_provenance(config: dict) -> list[ConsistencyIssue]:
     return []
 
 
-def _check_version_drift(config: dict) -> list[ConsistencyIssue]:
-    versions = config.get("containers", {})
+def _configured_container(config: dict, stage: str) -> str:
+    """Basename of the container config currently resolves for *stage*, or "".
+
+    Same resolution the builder and ``run_provenance`` use, so a comparison
+    against a recorded container is like-for-like.
+    """
+    try:
+        if stage == "fmriprep":
+            from .fmriprep import get_container_path
+        elif stage == "mriqc":
+            from .mriqc import get_container_path
+        elif stage == "converted":
+            from .conversion import get_container_path
+        else:
+            return ""
+        return Path(get_container_path(config)).name
+    except Exception:
+        return ""
+
+
+def _recorded_container(config: dict, stage: str, tool: str) -> str:
+    """Container the derivative was actually produced with, or "" if unrecorded.
+
+    On-disk provenance is authoritative (``GeneratedBy[].Container.Tag``); the
+    submission log is the overlay consulted only when on-disk records no
+    container — which is the norm, since fMRIPrep/MRIQC overwrite the
+    description with their own and omit the container. An externally-produced
+    derivative has neither, and correctly yields "" (never flagged).
+    """
+    on_disk = read_derivative_provenance(config, stage).tool_container(tool)
+    if on_disk:
+        return on_disk
+    latest = _latest_per_subject(config, stage)
+    recorded = {
+        str(row.get("container", "")).strip()
+        for row in latest.values()
+        if str(row.get("container", "")).strip()
+    }
+    # Mixed containers across subjects are _check_mixed_provenance's business.
+    return recorded.pop() if len(recorded) == 1 else ""
+
+
+def _check_container_drift(config: dict) -> list[ConsistencyIssue]:
+    """Config now points at a different container than the one that produced the
+    derivative — i.e. the pin was bumped without re-running.
+
+    Compares **container identity**, not version strings. The pinned
+    ``*_version`` is a container *tag* (it builds ``<tool>-<tag>.simg``), whereas
+    a tool's ``GeneratedBy.Version`` is its own self-reported version — different
+    namespaces that need not agree. Confirmed on real data 2026-07-16:
+    ``mriqc-24.0.2.simg`` self-reports ``24.1.0.dev0+gd5b13cb5.d20240826``, so
+    comparing the two flagged a correctly-configured project.
+    """
     issues: list[ConsistencyIssue] = []
-    for pipeline, tool, vkey in (
-        ("fmriprep", "fMRIPrep", "fmriprep_version"),
-        ("mriqc", "MRIQC", "mriqc_version"),
-    ):
-        expected = str(versions.get(vkey, ""))
-        if not expected:
+    for stage, tool in (("fmriprep", "fMRIPrep"), ("mriqc", "MRIQC")):
+        prov = read_derivative_provenance(config, stage)
+        if not prov.exists:
             continue
-        prov = read_derivative_provenance(config, pipeline)
-        on_disk = prov.tool_version(tool)
-        if on_disk and on_disk != expected:
+        recorded = _recorded_container(config, stage, tool)
+        configured = _configured_container(config, stage)
+        if recorded and configured and recorded != configured:
             issues.append(ConsistencyIssue(
-                "version-drift", stage=pipeline,
+                "container-drift", stage=stage,
                 message=(
-                    f"Config pins {tool} {expected}, but the existing derivative "
-                    f"was generated by {tool} {on_disk}. Re-run to match, or the "
-                    "derivative is stale relative to the pinned version."),
+                    f"Config now resolves {tool} to container `{configured}`, but "
+                    f"the existing derivative was produced with `{recorded}`. The "
+                    "pinned version was bumped without re-running — re-run to "
+                    "match, or the derivative is stale relative to the pin."),
             ))
     return issues
 
 
+def _subjects_with_output(config: dict, stage: str) -> set[str]:
+    """Subjects that actually have *stage* output on disk (complete or partial)."""
+    matrix = survey_project(config)
+    if matrix.empty or stage not in matrix.columns:
+        return set()
+    done = matrix[matrix[stage].isin(("complete", "partial"))]
+    return {str(s) for s in done["subject"]}
+
+
 def _latest_per_subject(config: dict, stage: str) -> dict[str, dict]:
-    """Latest submission-log row per subject for *stage* (a re-run supersedes)."""
+    """Latest submission-log row per subject for *stage*, reconciled against disk.
+
+    The log and the filesystem track two related but distinct things: the log
+    records *submissions* (job tracking, including in-flight work), while the
+    files record what was actually *produced*. For provenance — a claim about
+    what a derivative is made of — the files are the arbiter. So rows whose
+    output isn't on disk are dropped: a cancelled or deleted run, or one still
+    in flight, must not contribute provenance for a subject the derivative
+    doesn't contain.
+
+    Within what survives, the log is still the overlay that on-disk can't
+    replace: it alone says *how* each subject was produced. A re-run supersedes
+    its predecessor (the log is oldest-first, so the last write wins).
+    """
     subs = read_submissions(config)
     if subs.empty or "stage" not in subs.columns:
         return {}
+    on_disk = _subjects_with_output(config, stage)
     stage_rows = subs[subs["stage"] == stage]
     latest: dict[str, dict] = {}
-    for _, row in stage_rows.iterrows():  # log is oldest-first, so last write wins
-        latest[str(row.get("subject", ""))] = row.to_dict()
+    for _, row in stage_rows.iterrows():
+        subject = str(row.get("subject", ""))
+        if subject in on_disk:
+            latest[subject] = row.to_dict()
     return latest
 
 
@@ -283,7 +387,7 @@ def check_consistency(config: dict) -> list[ConsistencyIssue]:
     issues: list[ConsistencyIssue] = []
     for check in (
         _check_config_vs_provenance,
-        _check_version_drift,
+        _check_container_drift,
         _check_mixed_provenance,
         _check_staleness,
         _check_presence,

@@ -25,16 +25,17 @@ pull.
 
 ## VALIDATE LIVE (priority order)
 
-### 1. Provenance consistency checker (Phase B) on a real mixed project
-`check_consistency(config)` (`core/consistency.py`) is unit-tested but never run
-against real on-disk derivatives. Best target: `divatten_gui_beta`, which is
-genuinely mixed — sub-04/sub-015 have raw-input `derivatives/fmriprep`, the rest
-went through `use_nordic`. Open the **Project Status** page and confirm the ⚠️
-panel (below the Overview rollup) fires the expected checks: config-vs-provenance,
-mixed-provenance, version-drift, staleness, presence. Confirm it stays **silent on
-a clean single-provenance project** (no false positives). The panel is guarded per
-check, but a real derivative tree may expose `dataset_description.json` shapes the
-fixtures didn't.
+### 1. Provenance consistency checker (Phase B) — ✅ DONE 2026-07-16
+Validated live against `divatten_gui_beta` and the real containers dir. Found and
+fixed two bugs (`version-drift` → `container-drift`; log overlay counting
+cancelled/deleted runs). **Two premises in the original item were wrong:**
+`divatten_gui_beta` is *not* mixed (only sub-04 + sub-015 in `derivatives/fmriprep`,
+both raw — the sub-008 NORDIC run was cancelled and removed), and the "silent on a
+clean project" criterion *failed* on first run — the real MRIQC container exposed a
+namespace bug the fixtures couldn't. Full findings in `TODO.md` (Phase B validated
+section). **Still open:** `mixed-provenance`/`mixed-version` remain unvalidated —
+the real log is all pre-Phase-A rows with empty provenance columns, so the
+log-overlay checks are inert until new runs are launched under two variants.
 
 ### 2. Discovery fixes against real LCNI export dirs
 Sanity-check `discover_sessions` on actual source dirs — synthetic fixtures can't

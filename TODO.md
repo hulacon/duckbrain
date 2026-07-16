@@ -41,8 +41,8 @@ self-contradictory metadata, and nothing catches it today.
   derivative's `dataset_description.json` → `GeneratedBy`/`DatasetLinks`), the
   submission log is the overlay for cross-subject mixing. Each check is guarded so
   one blowing up can't sink the panel. Checks implemented: **config-vs-provenance**
-  (fMRIPrep `DatasetLinks.raw` vs `use_nordic`), **version-drift** (config-pinned
-  vs on-disk `GeneratedBy` version), **mixed-provenance** + **mixed-version**
+  (fMRIPrep `DatasetLinks.raw` vs `use_nordic`), **container-drift** (config-resolved
+  container vs the one that produced the derivative), **mixed-provenance** + **mixed-version**
   (latest-per-subject from the log), **staleness** (NORDIC newer than fMRIPrep,
   mtime), **presence** (fMRIPrep present but NORDIC input missing). 17 new tests
   (`test_consistency.py` + 2 AppTest panel tests); 168 total pass. Externally-run
@@ -50,6 +50,49 @@ self-contradictory metadata, and nothing catches it today.
 - Remaining polish: per-subject config-vs-provenance (currently dataset-level);
   add mriqc `DatasetLinks` check if MRIQC starts recording one; wire the two
   "not yet done" Phase A items (ingested-root dcm2bids `GeneratedBy`, bagel tie-in).
+
+**Phase B — VALIDATED LIVE 2026-07-16** against real Talapas data
+(`divatten_gui_beta` + the real containers dir). 183 tests pass. Two bugs found
+and fixed. The checker is now silent on that project, which is the *correct*
+reading: it is clean single-provenance raw with a correctly-configured container.
+- **Fixed: `version-drift` was a guaranteed false positive → replaced by
+  `container-drift`.** It compared the config-pinned `*_version` (a container
+  *tag*, used to build `<tool>-<tag>.simg`) against the tool's self-reported
+  `GeneratedBy.Version`. Different namespaces. Proven on real data: the container
+  `mriqc-24.0.2.simg` self-reports `MRIQC v24.1.0.dev0+gd5b13cb5.d20240826`, so the
+  panel warned about a correctly-configured project. fMRIPrep escaped only by
+  coincidence (`fmriprep-24.1.1.simg` reports `24.1.1`) — which is why the fixtures
+  missed it: they used matched clean semver, encoding the bad assumption. The check
+  now compares **container identity**: `_configured_container` (same resolution the
+  builder uses) vs `_recorded_container` (on-disk `GeneratedBy[].Container.Tag`,
+  authoritative; submission-log `container` column as fallback, since fMRIPrep/MRIQC
+  overwrite the description and omit the container). Unknowable → silent. A bumped
+  pin still fires, since it resolves a different container file. Version strings are
+  informational only now.
+- **Fixed: the log overlay counted runs that produced nothing.** The log records
+  *submissions* (job tracking, incl. in-flight/cancelled/deleted); the filesystem
+  records what was *produced*. For provenance the files arbitrate, so
+  `_latest_per_subject` now drops rows with no output on disk
+  (`_subjects_with_output`, via the surveyor). Real case: `divatten_gui_beta`'s only
+  fMRIPrep log row is sub-008 — a NORDIC-chained run that was cancelled and its
+  output removed — which would have claimed phantom provenance for a subject the
+  derivative doesn't contain, once Phase A starts populating `input_variant`.
+- **Still unvalidated on real data: `mixed-provenance` / `mixed-version`.** Phase A
+  records provenance only for *future* runs, and all 35 rows in the real log are the
+  legacy 5-column schema (`tool`/`tool_version`/`container`/`input_variant` all
+  empty — backfill works, no crash). So every log-overlay check is inert on existing
+  projects. The handoff's premise was stale: `divatten_gui_beta` is **not** mixed —
+  `derivatives/fmriprep` holds only sub-04 + sub-015, both raw (the sub-008 NORDIC
+  run was cancelled and removed). Validating mixing needs new post-Phase-A runs
+  under two variants.
+- Verified live-correct against real trees: `config-vs-provenance` (silent when
+  config agrees, fires when `use_nordic` flipped in-memory), `staleness` (real
+  NORDIC 7/15 genuinely newer than fMRIPrep 7/10), `presence` (true negative —
+  sub-04/sub-015 both have NORDIC output), `_configured_container` (resolves the
+  real `fmriprep-24.1.1.simg` / `mriqc-24.0.2.simg`).
+- Data-hygiene note: `mriqc-24.0.2.simg` is genuinely misnamed for its contents (a
+  24.1.0.dev0 build). Renaming would fix that instance, not the class — hence the
+  namespace fix above.
 
 Original Phase B design notes (kept for reference):
 - Cross-references config expectation, on-disk provenance, and mtimes.
