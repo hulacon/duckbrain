@@ -256,12 +256,55 @@ file-mode for fs_license deliberately deferred — dirs-only is all we need for
 now, fs_license stays a text field.
 
 ## 2. Onboarding for external users
-- Dogfood the GUI new-user path fully, fix rough edges, then write a lean
-  QUICKSTART (access, container acquisition, launch) + refresh the README.
-- Add in-GUI guidance at friction points (Setup, ingestion mapping, conversion).
-- Resolve the **launch/distribution story**: OOD app is currently bhutch's
-  personal sandbox; a new user needs their own OOD sandbox or `launch.sh` +
-  tunnel. A shared/RACS-published OOD app is the long-term answer.
+**Status: the *writing* is done; the dogfooding and the distribution story stay
+OPEN. Do NOT tick this item off.**
+
+- ✅ **Docs written (2026-07-16, web session).** New `QUICKSTART.md` (access →
+  containers/NORDIC → layered config → launch → first project) and a refreshed
+  `README.md`. What the refresh corrected while it was there:
+  - Broken NORDIC URL (`SteenMoworCortx` → `SteenMoeller/NORDIC_Raw`).
+  - Config section rewritten from the stale "two-file base + local.toml" model to
+    the real layered, project-dir-first one (base → user → project; local.toml
+    marked legacy).
+  - Removed dead **Nipoppy bagel** references (surveyor comment, Project Status
+    page description) — that export was removed (§6).
+  - NORDIC's non-redistributable status stated plainly; every user clones their
+    own copy. FreeSurfer license called out as a prerequisite.
+- ⚠️ **`UNVALIDATED` — what the next on-cluster session must actually walk through.**
+  The writer had no Talapas FS, no SLURM, no containers, no browser, so none of
+  the *new-user path* is confirmed. Each is flagged inline in the docs too:
+  1. **Fresh install** — `git clone` → venv → `pip install -e ".[dev]"` → tests
+     pass on a clean account. (The offline test run *was* confirmed here: 255
+     pass. The cluster-side install was not.)
+  2. **Container builds** — the three `singularity build` refs actually build on
+     Talapas; correct `module load` name (apptainer vs singularity); build-node
+     requirements.
+  3. **MRIQC version** — see the open question just below.
+  4. **Config** — confirm the exact key set the Setup page emits matches the
+     hand-written shapes shown in QUICKSTART/README (`src/duckbrain/config.py`).
+  5. **Launch** — the `srun` flags for `scripts/launch.sh` (partition,
+     `--account` requirement) on a current-policy fresh account; and the
+     personal-OOD-sandbox registration steps for a *new* user (never written up).
+  6. **First-project GUI feel** — the actual friction points in Ingestion
+     mapping / Conversion (bullet 2 below) — needs a real browser walkthrough.
+- ❓ **OPEN QUESTION for someone who can run MRIQC: should the shipped default be
+  the validated `24.0.2`?** `config/base.toml` pins `mriqc_version = "24.1.0"`
+  and the README's build command follows it, but the setup validated end-to-end
+  (all 9 test subjects clean) is **`24.0.2`** — what the maintainer's *user*
+  config pins, overriding the untested default. So base.toml's default has never
+  been run. Deciding this needs live MRIQC; not changed here (would be a silent,
+  unverifiable edit). *(Unrelated trap, don't "fix" in docs: that container
+  self-reports `24.1.0.dev0+gd5b13cb5` — a container tag and a tool's
+  self-reported version are different namespaces.)*
+
+Still OPEN (unchanged — need a cluster/browser, not attempted):
+- **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —
+  needs a real walkthrough to know where the friction is.
+- **Launch/distribution story** — OOD app is currently a personal sandbox; a new
+  user needs their own OOD sandbox or `launch.sh` + tunnel. Three candidate
+  answers laid out (not picked) in `QUICKSTART.md#the-distribution-question`:
+  personal sandbox / `launch.sh`+tunnel / a shared RACS-published app. Resolving
+  it needs RACS.
 
 ## 3. fMRIPrep step — run live (last unrun core stage)
 - Command validated against mmmdata's `run_fmriprep.py` (every substantive flag
