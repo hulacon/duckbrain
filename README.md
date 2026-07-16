@@ -6,6 +6,9 @@ Use outside of this environment is NOT supported at this time.
 
 **duckbrain** lets any scanner user go from raw DICOMs to QC'd, preprocessed data without writing pipeline scripts. It provides a web-based interface for every step of the pipeline and handles SLURM job submission, dependency chaining, and monitoring behind the scenes.
 
+**New here?** Start with the [Quickstart](QUICKSTART.md) — access, containers,
+config, launch, and your first project, in order.
+
 ## Pipeline Overview
 
 ```
@@ -21,7 +24,7 @@ LCNI DICOMs ──► Ingest ──► BIDS Conversion ──► Preprocessing �
 | **Ingestion** | Built-in | Discovers sessions from LCNI DICOM export (`/projects/lcni/dcm/`), maps to BIDS subject/session, symlinks into sourcedata |
 | **BIDS Conversion** | [dcm2bids](https://unfmontreal.github.io/Dcm2Bids/) | Auto-inspects DICOMs, classifies series (anat/func/fmap/sbref), generates dcm2bids config JSON, runs conversion via Singularity |
 | **fMRIPrep** | [fMRIPrep](https://fmriprep.org/) | Anatomical + functional preprocessing with session isolation, split anat/func pipelines, BIDS filter support |
-| **NORDIC** | [NIFTI_NORDIC](https://github.com/SteenMoworCortx/NORDIC_Raw) | Thermal noise removal via MATLAB, then builds a BIDS-compatible input tree (hardlinked, no disk duplication) for fMRIPrep |
+| **NORDIC** | [NIFTI_NORDIC](https://github.com/SteenMoeller/NORDIC_Raw) | Thermal noise removal via MATLAB, then builds a BIDS-compatible input tree (hardlinked, no disk duplication) for fMRIPrep |
 | **MRIQC** | [MRIQC](https://mriqc.readthedocs.io/) | Image quality metrics for anatomical and functional data |
 | **QC** | Built-in | IQR-based outlier detection, motion summaries, per-run keep/exclude/investigate decisions with audit history |
 
@@ -30,8 +33,11 @@ LCNI DICOMs ──► Ingest ──► BIDS Conversion ──► Preprocessing �
 ### Prerequisites
 
 - Python 3.10+
-- Access to Talapas HPC
-- Singularity container images for dcm2bids, fMRIPrep, and MRIQC
+- Access to Talapas HPC (an account and a PIRG to charge jobs against)
+- Singularity/Apptainer container images for dcm2bids, fMRIPrep, and MRIQC
+- A FreeSurfer license file (for fMRIPrep and MRIQC)
+- Your own copy of the NORDIC toolbox, if you denoise (not redistributable — see
+  the [Quickstart](QUICKSTART.md#2-acquire-the-containers-and-nordic))
 
 ### Installation
 
@@ -65,6 +71,24 @@ singularity build $CONTAINERS_DIR/fmriprep-24.1.1.sif docker://nipreps/fmriprep:
 singularity build $CONTAINERS_DIR/mriqc-24.1.0.sif docker://nipreps/mriqc:24.1.0
 ```
 
+> **Heads-up on the MRIQC version.** The `24.1.0` above matches the shipped
+> default in `config/base.toml`, but that default is **untested** — the setup
+> actually validated end-to-end used **`24.0.2`** (pinned in the maintainer's
+> user config, which overrides the default). If MRIQC misbehaves, try `24.0.2`.
+> Whether the shipped default should change is an open question — see `TODO.md`
+> §2.
+
+Users also need a **FreeSurfer license file** for fMRIPrep and MRIQC (free from
+<https://surfer.nmr.mgh.harvard.edu/registration.html>); point config's
+`fs_license` at it. **NORDIC is not a container** and is not redistributable —
+each user clones their own copy from
+[upstream](https://github.com/SteenMoeller/NORDIC_Raw); see the
+[Quickstart](QUICKSTART.md#2-acquire-the-containers-and-nordic).
+
+duckbrain selects a container by **filename** (`<tool>-<pin>.sif`/`.simg`, built
+from the `[containers]` version pins), so the filenames above must match your
+pins.
+
 ### Launch the GUI
 
 ```bash
@@ -84,15 +108,22 @@ ssh -L 8501:<compute-node>:8501 youruser@talapas-login.uoregon.edu
 
 The GUI will walk you through project setup on first launch.
 
+> **How to launch is not yet a settled, one-click story for new users.** The
+> OnDemand app under `ondemand/` is currently registered as one user's *personal
+> sandbox*, so a new user today needs either their own OnDemand sandbox or the
+> `scripts/launch.sh` + SSH-tunnel path shown above. A shared, RACS-published
+> OnDemand app is the intended long-term answer but does not exist yet. The
+> [Quickstart](QUICKSTART.md#the-distribution-question) lays out the options.
+
 ## Project Structure
 
 ```
 duckbrain/
 ├── config/
 │   ├── base.toml                   # Shipped defaults (SLURM, containers, etc.)
-│   └── local.toml                  # Your overrides (gitignored)
+│   └── local.toml                  # Legacy overrides (gitignored; user + project config preferred)
 ├── src/duckbrain/
-│   ├── config.py                   # TOML config loader (base + local deep-merge)
+│   ├── config.py                   # Layered TOML config loader (base → user → project)
 │   ├── core/
 │   │   ├── ingestion.py            # LCNI DICOM export → sourcedata
 │   │   ├── dicom_inspect.py        # Series enumeration + classification
@@ -102,7 +133,7 @@ duckbrain/
 │   │   ├── nordic.py               # NORDIC MATLAB wrapper + BIDS input builder
 │   │   ├── mriqc.py                # MRIQC orchestration
 │   │   ├── qc.py                   # QC metrics, outlier detection, decisions
-│   │   ├── surveyor.py             # Per-unit × stage completion matrix (+ Nipoppy bagel)
+│   │   ├── surveyor.py             # Per-unit × stage completion matrix
 │   │   └── pipeline.py             # Stage controller (advance_one) + live SLURM-state fusion
 │   ├── slurm/
 │   │   ├── templates.py            # Jinja2 sbatch rendering
@@ -123,7 +154,7 @@ duckbrain/
 
 | Page | Purpose |
 |------|---------|
-| **0. Project Status** | Pipeline cockpit. Per-`(subject, session)` × stage matrix (ingested → converted → nordic → fmriprep → mriqc) grading completion by **expected outputs** (a crashed run reads *partial*, not done) fused with **live SLURM state** (a running job reads *running*, never re-runnable). Launch the next step per unit — dependency-gated, with a guarded bulk run, opt-in auto-refresh, a durable submission log, and a Nipoppy bagel export. See `docs/pipeline-cockpit.md`. |
+| **0. Project Status** | Pipeline cockpit. Per-`(subject, session)` × stage matrix (ingested → converted → nordic → fmriprep → mriqc) grading completion by **expected outputs** (a crashed run reads *partial*, not done) fused with **live SLURM state** (a running job reads *running*, never re-runnable). Launch the next step per unit — dependency-gated, with a guarded bulk run, opt-in auto-refresh, a durable submission log, and provenance/consistency checks. See `docs/pipeline-cockpit.md`. |
 | **1. Project Setup** | First-run wizard — pick the project directory, set SLURM settings and shared container/license locations. Writes shared settings to `~/.config/duckbrain/config.toml` and project settings to `<project>/code/duckbrain.toml`. |
 | **2. Data Ingestion** | Browse LCNI DICOM sessions, auto-assign BIDS subject/session labels by date, symlink or copy into sourcedata, generate participants.tsv. |
 | **3. BIDS Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export a conversion job — or bulk-convert all unconverted sessions at once. |
@@ -133,35 +164,56 @@ duckbrain/
 
 ## Configuration
 
-duckbrain uses a two-file TOML config system:
+duckbrain uses a **layered, project-directory-first** TOML config. Later layers
+deep-merge over earlier ones:
 
-- **`config/base.toml`** — shipped defaults (committed to git)
-- **`config/local.toml`** — your project-specific overrides (gitignored)
+1. **`config/base.toml`** — shipped defaults (committed to git; don't edit).
+2. **User config** — `~/.config/duckbrain/config.toml` (or
+   `$DUCKBRAIN_USER_CONFIG`). Shared machine-level resources reused across every
+   project: `containers_dir`, `fs_license`, `nordic_toolbox_dir`, container
+   version pins, SLURM email.
+3. **`config/local.toml`** — *legacy*, still merged if present but no longer the
+   intended place for settings.
+4. **Project config** — `<project_dir>/code/duckbrain.toml`. Everything specific
+   to one study: name, `dcm_source`, `use_sessions`, SLURM account/partition.
 
-Values in `local.toml` are deep-merged over `base.toml`. The GUI's Project Setup page writes `local.toml` for you, or you can edit it directly:
+The **project directory is the anchor** — `bids_dir`, `sourcedata_dir`,
+`derivatives_dir`, `code_dir`, and `log_dir` are derived from it. Choose it via
+the GUI's Project Setup page, the OnDemand form's "Project directory" field, or
+the `DUCKBRAIN_PROJECT_DIR` environment variable.
+
+The GUI's **Project Setup** page writes both the user and project config for you
+(and validates that the containers and license actually exist), so hand-editing
+is the fallback. Example shapes:
 
 ```toml
+# ~/.config/duckbrain/config.toml  — shared across your projects
+[paths]
+containers_dir = "/projects/mylab/containers"
+fs_license = "/home/me/licenses/fs_license.txt"
+nordic_toolbox_dir = "/home/me/NORDIC_Raw"   # only if using NORDIC
+
+[slurm]
+email = "me@uoregon.edu"
+```
+
+```toml
+# <project_dir>/code/duckbrain.toml  — one study
 [project]
 name = "my_study"
-
-[paths]
-bids_dir = "/projects/mylab/my_study"
-sourcedata_dir = "/projects/mylab/my_study/sourcedata"
-derivatives_dir = "/projects/mylab/my_study/derivatives"
-work_dir = "/gpfs/mylab/work/my_study"
-containers_dir = "/gpfs/mylab/containers"
-fs_license = "/home/me/license.txt"
 
 [dcm_source]
 group = "mylab"
 project = "my_study"
 
 [slurm]
-email = "me@uoregon.edu"
 account = "mylab"
 ```
 
-Per-step SLURM resource overrides are supported under `[slurm.overrides.<step>]` (e.g., `[slurm.overrides.fmriprep]`).
+Per-step SLURM resource overrides are supported under `[slurm.overrides.<step>]`
+(e.g., `[slurm.overrides.fmriprep]`). See `src/duckbrain/config.py` for the
+loader (`load_config`, `save_user_config`, `save_project_config`,
+`scaffold_project`, `derive_paths`).
 
 ## Running Tests
 
