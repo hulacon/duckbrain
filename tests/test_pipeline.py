@@ -18,6 +18,7 @@ from duckbrain.core.pipeline import (
     effective_depends_on,
     read_submissions,
     record_submission,
+    run_provenance,
     stage_runnable,
     survey_live,
     tag_for,
@@ -361,6 +362,61 @@ def test_advance_one_records_submission(monkeypatch, tmp_path):
     r = subs.iloc[0]
     assert (r["stage"], r["subject"], r["session"], r["job_id"]) == ("converted", "008", "01", "JOB123")
     assert r["timestamp"]  # non-empty ISO stamp
+    # Provenance is captured alongside the launch (container from the stubbed
+    # get_container_path; no version key in the test config, so tool_version is "").
+    assert (r["tool"], r["container"]) == ("dcm2bids", "cont.simg")
+
+
+# ---- run provenance ---------------------------------------------------------
+
+def test_run_provenance_reads_version_and_container(monkeypatch, tmp_path):
+    import duckbrain.core.fmriprep as F
+    monkeypatch.setattr(F, "get_container_path", lambda cfg: "/imgs/fmriprep-24.1.1.sif")
+    cfg = _config(tmp_path)
+    cfg["containers"] = {"fmriprep_version": "24.1.1"}
+    prov = run_provenance(cfg, "fmriprep")
+    assert prov["tool"] == "fmriprep"
+    assert prov["tool_version"] == "24.1.1"
+    assert prov["container"] == "fmriprep-24.1.1.sif"  # basename only
+    assert prov["input_variant"] == "raw"
+
+
+def test_run_provenance_fmriprep_input_variant_nordic(monkeypatch, tmp_path):
+    import duckbrain.core.fmriprep as F
+    monkeypatch.setattr(F, "get_container_path", lambda cfg: "fmriprep.sif")
+    cfg = _config(tmp_path)
+    cfg["nordic"] = {"use_nordic": True}
+    assert run_provenance(cfg, "fmriprep")["input_variant"] == "nordic"
+
+
+def test_run_provenance_degrades_when_container_unresolvable(tmp_path):
+    # No containers config and no stubbed resolver — every field falls back to "",
+    # never raising, so provenance can't sink a submission.
+    prov = run_provenance(_config(tmp_path), "mriqc")
+    assert prov["tool"] == "mriqc"
+    assert prov["tool_version"] == ""
+    assert prov["container"] == ""
+    assert prov["input_variant"] == "raw"
+
+
+def test_run_provenance_nordic_has_no_version(tmp_path):
+    prov = run_provenance(_config(tmp_path), "nordic")
+    assert prov["tool"] == "nordic"
+    assert prov["tool_version"] == ""  # MATLAB toolbox stage, no [containers] version
+    assert prov["input_variant"] == "raw"
+
+
+def test_read_submissions_backfills_legacy_columns(tmp_path):
+    # A log written before provenance columns existed still reads back with the
+    # full schema (new columns empty), so consumers can rely on it.
+    cfg = _config(tmp_path)
+    log = tmp_path / "code" / "logs" / "submissions.tsv"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("timestamp\tsubject\tsession\tstage\tjob_id\n2026-01-01\t01\t\tfmriprep\tJ1\n")
+    df = read_submissions(cfg)
+    assert list(df.columns) == list(P._SUBMISSION_COLUMNS)
+    assert df.iloc[0]["tool"] == ""
+    assert df.iloc[0]["job_id"] == "J1"
 
 
 def test_export_only_is_not_recorded(monkeypatch, tmp_path):

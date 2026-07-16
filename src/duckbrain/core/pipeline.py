@@ -308,7 +308,7 @@ def advance_one(
     # and is independent of the ephemeral Job Monitor. Never let logging failure
     # sink an otherwise-successful submission.
     try:
-        record_submission(config, stage, subject, session, job_id)
+        record_submission(config, stage, subject, session, job_id, **run_provenance(config, stage))
     except Exception:
         pass
     return job_id
@@ -317,35 +317,116 @@ def advance_one(
 # ---- durable submission log (cockpit phase 4) -------------------------------
 
 _SUBMISSION_LOG = "submissions.tsv"
-_SUBMISSION_COLUMNS = ["timestamp", "subject", "session", "stage", "job_id"]
+# Provenance columns (tool/tool_version/container/input_variant) sit between the
+# unit and the job id so a run is self-describing: *what* tool at *what* version,
+# from *which* container, over *which* input variant (raw vs NORDIC-denoised).
+# This is duckbrain's own per-run record — the one source that can catch mixed
+# provenance in a single derivative dir (on-disk dataset_description.json is
+# dataset-level and overwritten by the last run). See TODO ★ Phase A.
+_SUBMISSION_COLUMNS = [
+    "timestamp", "subject", "session", "stage",
+    "tool", "tool_version", "container", "input_variant", "job_id",
+]
+
+# Which underlying tool each surveyor stage runs, and the config key holding its
+# pinned version. NORDIC is a MATLAB-toolbox stage with no semantic version key.
+_STAGE_TOOL = {
+    "converted": ("dcm2bids", "dcm2bids_version"),
+    "fmriprep": ("fmriprep", "fmriprep_version"),
+    "mriqc": ("mriqc", "mriqc_version"),
+    "nordic": ("nordic", None),
+}
+
+
+def run_provenance(config: dict, stage: str) -> dict:
+    """Best-effort provenance for a launch: tool, version, container, input variant.
+
+    Reads the pinned version from ``[containers]`` and resolves the container
+    basename via the stage's own ``get_container_path`` (same resolution the
+    builder used). ``input_variant`` is ``nordic`` when fMRIPrep is routed
+    through the denoised tree, else ``raw``. Every field degrades to ``""`` off
+    the resolvable path — provenance should never block a submission.
+    """
+    tool, version_key = _STAGE_TOOL.get(stage, ("", None))
+    containers = config.get("containers", {})
+    tool_version = containers.get(version_key, "") if version_key else ""
+
+    container = ""
+    try:
+        if stage == "converted":
+            from .conversion import get_container_path
+            container = Path(get_container_path(config)).name
+        elif stage == "fmriprep":
+            from .fmriprep import get_container_path
+            container = Path(get_container_path(config)).name
+        elif stage == "mriqc":
+            from .mriqc import get_container_path
+            container = Path(get_container_path(config)).name
+    except Exception:
+        container = ""
+
+    if stage == "fmriprep":
+        input_variant = "nordic" if _use_nordic(config) else "raw"
+    elif stage in ("mriqc", "nordic"):
+        input_variant = "raw"
+    else:
+        input_variant = ""
+
+    return {
+        "tool": tool,
+        "tool_version": tool_version,
+        "container": container,
+        "input_variant": input_variant,
+    }
 
 
 def _submission_log_path(config: dict) -> Path:
     return Path(_resolve_log_dir(config)) / _SUBMISSION_LOG
 
 
-def record_submission(config: dict, stage: str, subject: str, session: str, job_id: str) -> Path:
+def record_submission(
+    config: dict,
+    stage: str,
+    subject: str,
+    session: str,
+    job_id: str,
+    *,
+    tool: str = "",
+    tool_version: str = "",
+    container: str = "",
+    input_variant: str = "",
+) -> Path:
     """Append one launched job to ``<log_dir>/submissions.tsv`` (tab-separated).
 
-    Idempotent header: writes the column row only when creating the file.
+    Provenance fields (``tool``/``tool_version``/``container``/``input_variant``)
+    are keyword-only with empty defaults, so older/hand callers still work; the
+    cockpit passes them via :func:`run_provenance`. Idempotent header: writes the
+    column row only when creating the file.
     """
     path = _submission_log_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists()
     ts = datetime.now().isoformat(timespec="seconds")
+    row = [ts, subject, session, stage, tool, tool_version, container, input_variant, str(job_id)]
     with open(path, "a") as f:
         if write_header:
             f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
-        f.write("\t".join([ts, subject, session, stage, str(job_id)]) + "\n")
+        f.write("\t".join(row) + "\n")
     return path
 
 
 def read_submissions(config: dict, limit: int | None = None) -> pd.DataFrame:
-    """Read the durable submission log (empty frame if none). Oldest-first."""
+    """Read the durable submission log (empty frame if none). Oldest-first.
+
+    Reindexed to the current column set so a legacy log written before the
+    provenance columns existed still reads back with those columns present
+    (empty), and consumers can rely on a stable schema.
+    """
     path = _submission_log_path(config)
     if not path.exists():
         return pd.DataFrame(columns=_SUBMISSION_COLUMNS)
     df = pd.read_csv(path, sep="\t", dtype=str).fillna("")
+    df = df.reindex(columns=_SUBMISSION_COLUMNS, fill_value="")
     return df.tail(limit) if limit else df
 
 
