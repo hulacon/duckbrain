@@ -32,7 +32,8 @@ self-contradictory metadata, and nothing catches it today.
   — externally-produced derivatives are first-class, never flagged for lacking a
   log row. Phase B's `check_consistency` must honor this ordering.
 - Not yet done: emit `GeneratedBy` for the *ingested BIDS root* with the dcm2bids
-  entry (converter provenance); Nipoppy bagel export tie-in.
+  entry (converter provenance). ~~Nipoppy bagel export tie-in~~ — **the bagel
+  export was removed 2026-07-16**, see §6.
 
 **Phase B — consistency / mismatch checker. BUILT 2026-07-16.**
 - ✅ `check_consistency(config)` in `core/consistency.py`; surfaces ⚠️ in the
@@ -48,8 +49,9 @@ self-contradictory metadata, and nothing catches it today.
   (`test_consistency.py` + 2 AppTest panel tests); 168 total pass. Externally-run
   derivatives fold in — never flagged merely for lacking a log row.
 - Remaining polish: per-subject config-vs-provenance (currently dataset-level);
-  add mriqc `DatasetLinks` check if MRIQC starts recording one; wire the two
-  "not yet done" Phase A items (ingested-root dcm2bids `GeneratedBy`, bagel tie-in).
+  add mriqc `DatasetLinks` check if MRIQC starts recording one; wire the remaining
+  Phase A item (ingested-root dcm2bids `GeneratedBy`). The bagel tie-in is moot —
+  the export was removed 2026-07-16 (§6).
 
 **Phase B — VALIDATED LIVE 2026-07-16** against real Talapas data
 (`divatten_gui_beta` + the real containers dir). 183 tests pass. Two bugs found
@@ -530,9 +532,40 @@ borrowing Nipoppy's tracker idea but for duckbrain's flat layout, with the
 sessionless-glob and layout-shim pain points designed out. Surfaced in the new
 `gui/pages/0_Project_Status.py` dashboard (color matrix + rollup). Validated on
 `divatten_gui_beta` (correctly flags mid-run fMRIPrep as partial). 19 new tests.
-Remaining ideas: durable submission log (Job Monitor is still ephemeral); a
-`nipoppy`-compatible `processing_status.tsv` export; port `surveyor.py` back to
-mmmdata. Original rationale below.
+Remaining ideas: durable submission log (Job Monitor is still ephemeral); port
+`surveyor.py` back to mmmdata (note: now blocked on duckbrain's GPLv3 — needs
+dual-licensing, see §5c). Original rationale below.
+
+### Nipoppy bagel export — REMOVED 2026-07-16 (re-add if Nipoppy takes off)
+`to_bagel`/`write_bagel`/`BAGEL_COLUMNS` + the Project Status export expander are
+gone. **The surveyor was always the catalog; the bagel was only ever a derived
+export** — `to_bagel` took the surveyor's matrix as input, nothing ever read the
+TSV back, and `write_bagel()` was never called (the GUI built the frame in memory
+for a download button). Removing it cost no capability.
+Why now:
+- **No consumer, ever.** Speculative interop for an ecosystem duckbrain
+  deliberately declined to adopt (see the nipoppy evaluation).
+- **It was wrong where it mattered most.** `pipeline_version` came from config
+  `[containers]`, not provenance — so bumping a pin relabelled every historical
+  subject with a version that never ran, in the one artifact designed to leave
+  the machine and land with someone who can't check it. A lying export is worse
+  than no export.
+- **Fixing it fought the layering.** `surveyor.py` is the foundation (both
+  `consistency.py` and `pipeline.py` import *from* it; it imports only
+  `ingestion`). Sourcing provenance into `to_bagel` needed either a circular
+  import or provenance assembly pushed into a Streamlit page.
+- **It would rot silently.** Nipoppy is pre-1.0 (0.4.6, ~118 open issues,
+  2-person core) so its schema will churn, and nothing tested our export against
+  a live neurobagel ingest — decay would surface only when a collaborator hit it.
+**The research survives the code**, which is what makes this low-regret: the
+verified spec is preserved in `memory/nipoppy-status-tracking` — exact 8-column
+`ProcessingStatusModel` order, the `{SUCCESS, FAIL, INCOMPLETE, UNAVAILABLE}`
+vocab, our COMPLETE→SUCCESS / PARTIAL→INCOMPLETE / MISSING→UNAVAILABLE mapping,
+and the sessionless `""`-vs-`None` serialization caveat (benign: both serialize to
+an empty TSV cell). Re-adding is a couple of hours against those notes — and it
+should then be fed **from provenance, not config**, which is the bug that made
+removal the right call. Recover the deleted code with
+`git show 9c3ab39:src/duckbrain/core/surveyor.py` if wanted.
 
 duckbrain keeps **no state store** — every page re-derives "what exists" live
 from the filesystem via BIDS naming (ingestion reads `sourcedata/sub-XX/dicom`,

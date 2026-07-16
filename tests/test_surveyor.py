@@ -7,14 +7,11 @@ tracker globs.
 """
 
 from duckbrain.core.surveyor import (
-    BAGEL_COLUMNS,
     STAGES,
     Status,
     discover_units,
     summarize,
     survey_project,
-    to_bagel,
-    write_bagel,
 )
 
 
@@ -232,65 +229,6 @@ def test_survey_columns_and_empty_project(tmp_path):
     df = survey_project(_config(tmp_path))
     assert list(df.columns) == ["subject", "session", *STAGES]
     assert len(df) == 0
-
-
-# ---- Nipoppy bagel export ---------------------------------------------------
-
-def _config_with_versions(root):
-    return {
-        "paths": _paths(root),
-        "containers": {"fmriprep_version": "24.1.1", "mriqc_version": "24.0.2"},
-    }
-
-
-def test_to_bagel_schema_and_status_mapping(tmp_path):
-    # sub-01 fmriprep complete; func present but no report → not complete elsewhere.
-    _bids_anat_func(tmp_path)
-    fp = tmp_path / "derivatives" / "fmriprep"
-    _touch(fp / "sub-01.html")
-    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
-    _touch(fp / "sub-01" / "func" / "sub-01_task-rest_desc-preproc_bold.nii.gz")
-    cfg = _config_with_versions(tmp_path)
-    bagel = to_bagel(survey_project(cfg), cfg)
-    assert list(bagel.columns) == BAGEL_COLUMNS
-    # Two processing pipelines per unit by default (fmriprep, mriqc).
-    assert set(bagel["pipeline_name"]) == {"fmriprep", "mriqc"}
-    fmri = bagel[bagel.pipeline_name == "fmriprep"].iloc[0]
-    assert fmri["status"] == "SUCCESS"
-    assert fmri["pipeline_version"] == "24.1.1"
-    assert fmri["bids_participant_id"] == "sub-01"
-    mriqc = bagel[bagel.pipeline_name == "mriqc"].iloc[0]
-    assert mriqc["status"] == "UNAVAILABLE"  # no mriqc outputs
-
-
-def test_to_bagel_incomplete_status(tmp_path):
-    _bids_anat_func(tmp_path)
-    fp = tmp_path / "derivatives" / "fmriprep"
-    _touch(fp / "sub-01.html")
-    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")  # func missing
-    cfg = _config_with_versions(tmp_path)
-    bagel = to_bagel(survey_project(cfg), cfg)
-    fmri = bagel[bagel.pipeline_name == "fmriprep"].iloc[0]
-    assert fmri["status"] == "INCOMPLETE"
-
-
-def test_to_bagel_session_ids(tmp_path):
-    _bids_anat_func(tmp_path, ses="01")
-    cfg = _config_with_versions(tmp_path)
-    bagel = to_bagel(survey_project(cfg), cfg)
-    row = bagel.iloc[0]
-    assert row["session_id"] == "01"
-    assert row["bids_session_id"] == "ses-01"
-
-
-def test_write_bagel_to_derivatives(tmp_path):
-    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
-    cfg = _config_with_versions(tmp_path)
-    out = write_bagel(cfg)
-    assert out == tmp_path / "derivatives" / "processing_status.tsv"
-    assert out.exists()
-    header = out.read_text().splitlines()[0].split("\t")
-    assert header == BAGEL_COLUMNS
 
 
 def test_summarize_counts(tmp_path):

@@ -42,7 +42,7 @@ if config.get("nordic", {}).get("use_nordic", False):
     st.caption("🧊 **use_nordic** on — fMRIPrep reads NORDIC-denoised input and is "
                "gated on the `nordic` stage.")
 
-from duckbrain.core.surveyor import STAGES, Status, summarize, to_bagel
+from duckbrain.core.surveyor import STAGES, Status, summarize
 from duckbrain.core.pipeline import (
     SLURM_STAGES,
     advance_one,
@@ -285,21 +285,6 @@ def dashboard():
         else:
             st.dataframe(subs.iloc[::-1], width="stretch", hide_index=True)  # newest first
 
-    # ---- Nipoppy interop export ----
-    with st.expander("Export Nipoppy bagel (processing_status.tsv)"):
-        st.caption(
-            "Emit the neurobagel/Nipoppy imaging-bagel TSV — for a neurobagel "
-            "dashboard or consortium sharing. duckbrain stays BIDS-native; this is "
-            "an on-demand view, not a dependency."
-        )
-        bagel = to_bagel(matrix, config)
-        st.dataframe(bagel, width="stretch", hide_index=True)
-        st.download_button(
-            "⬇ Download processing_status.tsv",
-            data=bagel.to_csv(sep="\t", index=False),
-            file_name="processing_status.tsv",
-            mime="text/tab-separated-values",
-        )
 
 
 dashboard()

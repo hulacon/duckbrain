@@ -674,8 +674,8 @@ def survey_live(config: dict):
     COMPLETE is never downgraded by a stale sacct failure; else a recent
     failed-and-not-completed run reads ``failed``.
 
-    The base status columns and the Nipoppy bagel export are left untouched —
-    filesystem truth and scheduler truth stay separate, debuggable facts.
+    The base status columns are left untouched — filesystem truth and scheduler
+    truth stay separate, debuggable facts.
     """
     matrix = survey_project(config)
     active, failed, completed = _job_state_maps()
