@@ -367,6 +367,43 @@ Validated live: `divatten_gui_beta`'s BIDS root is stamped `0.1.0` (the old stat
 is what real projects will hold, and `_release_line` handles pre- and post-describe
 stamps alike. `check_consistency` ~350 ms (a `git describe` per render; fine).
 
+**Per-file provenance in NORDIC sidecars — BUILT 2026-07-16.** Closes the
+dataset-level gap accepted above. `write_nordic_sidecars` (`core/nordic.py`) writes
+a BIDS-derivatives sidecar per denoised BOLD at launch — the same point, and for
+the same reason, duckbrain stamps `dataset_description.json`.
+- **Why per-file at all:** `dataset_description.json` is dataset-level (can't
+  express per-subject mixing) and `submissions.tsv` doesn't travel with the data.
+  Only sidecars keep a *copied or archived* NORDIC output self-describing.
+- **It was also a plain BIDS gap:** NORDIC's MATLAB job emits bare NIfTIs —
+  `derivatives/nordic/sub-04/func` held **13 `.nii.gz` and 0 `.json`**. A
+  derivative BOLD should carry a sidecar with `Sources` regardless of provenance.
+- **Contents:** the raw sidecar copied wholesale (derivatives don't inherit from
+  raw, and denoising changes voxels not acquisition — `RepetitionTime`, `TaskName`,
+  even the raw's own `Dcm2bidsVersion` lineage all stay true), plus `Sources`
+  (`bids:raw:<relpath>`, resolvable via our `DatasetLinks.raw`) and a namespaced
+  `Duckbrain` object (Version/Tool/ToolVersion/Runtime/CodeSource).
+- **⚠️ Do NOT use sidecar `GeneratedBy`.** [BEP028](https://github.com/bids-standard/BEP028_BIDSprov)
+  (BIDS-Prov, still in development) already claims sidecar `GeneratedBy` and
+  `SidecarGeneratedBy` for URI *references* into a prov record
+  (`"bids::prov#conversion-00f3a18f"`) — the **opposite** of what the same key means
+  in `dataset_description.json`, where an inline object is correct. Ours is
+  namespaced under `Duckbrain` to avoid squatting; keeping it one object makes the
+  eventual BEP028 migration a swap, not a rewrite. Precedent for the whole idea is
+  already on disk: dcm2bids writes `Dcm2bidsVersion`/`ConversionSoftware` into every
+  raw sidecar, and fMRIPrep writes `Sources`.
+- **Skip-if-present, mirroring the sbatch.** Only BOLDs whose output doesn't exist
+  get a sidecar — the sbatch skips already-denoised runs, so restamping them would
+  claim the *current* toolbox produced files an older one made.
+- **Checked, not assumed:** rewriting sidecars can't disturb our own checks —
+  `_check_staleness` stats only `.nii.gz`, and the surveyor globs `.json` for
+  presence, not mtime. `_nordic_status` grades on `.nii.gz`, so a sidecar written
+  at launch can't cause a false-green. `build_nordic_bids_input` copies func
+  sidecars from *raw*, so the validated fMRIPrep chaining path is untouched.
+- Validated live: on the real project every sub-04 output exists → **0 written**
+  (skip rule holds, nothing mutated); against a temp derivatives dir off the real
+  raw BIDS → 13 sidecars, 71 keys each (real dcm2bids sidecar + `Sources` +
+  `Duckbrain`), no `GeneratedBy`. 253 tests pass.
+
 **Known remaining wrinkle (minor):** `tool_version` is itself now overloaded — it
 holds a container *tag* for container stages (`24.1.1`) but a `git describe` for
 NORDIC (`v1.0.2-24-g0861968`). Both are "the version we pinned/ran", so it's

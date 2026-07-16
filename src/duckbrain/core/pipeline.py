@@ -172,8 +172,9 @@ def _build_nordic(config, subject, session, log_dir, params):
     # consistency checker reads from tool-written derivatives. Guarded: a
     # provenance write must never block the launch.
     try:
-        from .bids_metadata import write_derivative_description
+        from .bids_metadata import duckbrain_version, write_derivative_description
         from .containers import container_uri
+        from .nordic import write_nordic_sidecars
         from .toolbox import code_url
         prov = run_provenance(config, "nordic")
         image = resolve_container(config, "nordic")
@@ -185,6 +186,20 @@ def _build_nordic(config, subject, session, log_dir, params):
             code_url=code_url(nordic_toolbox_dir(config)),
             runtime=prov["runtime"],
             source_dataset=paths["bids_dir"],
+        )
+        # Per-file sidecars too: dataset_description is dataset-level and the
+        # submission log doesn't travel with the data, so only these keep a
+        # copied/archived NORDIC output self-describing.
+        write_nordic_sidecars(
+            paths["bids_dir"], paths["derivatives_dir"], subject, session,
+            provenance={
+                "Version": duckbrain_version(),
+                "Tool": prov["tool"],
+                "ToolVersion": prov["tool_version"],
+                "Runtime": prov["runtime"],
+                "CodeSource": prov["code_source"],
+                "InputVariant": prov["input_variant"],
+            },
         )
     except Exception:
         pass

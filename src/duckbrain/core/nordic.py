@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -210,6 +211,87 @@ def build_nordic_bids_input(
             shutil.copy2(src, dest)
 
     return out_sub_ses
+
+
+def _derivative_sidecar(bold: Path, bids_dir: Path, provenance: dict) -> dict:
+    """Sidecar contents for the NORDIC output derived from *bold*.
+
+    Starts from the raw sidecar: BIDS derivatives do **not** inherit metadata from
+    the raw dataset, so a derivative sidecar must stand alone. Denoising changes
+    the voxels, not the acquisition — ``RepetitionTime``, ``TaskName``,
+    ``SliceTiming`` and the rest remain true of the output, and the raw file's own
+    conversion provenance (``Dcm2bidsVersion`` &c.) remains true of its lineage.
+
+    Adds ``Sources`` (the BIDS-spec'd per-file provenance link, resolvable via the
+    ``raw`` entry in our ``DatasetLinks``) and a namespaced ``Duckbrain`` object.
+    """
+    raw_json = bold.parent / bold.name.replace(".nii.gz", ".json")
+    content: dict = {}
+    if raw_json.is_file():
+        try:
+            with open(raw_json) as f:
+                content = json.load(f)
+        except (OSError, ValueError):
+            content = {}
+    if not isinstance(content, dict):
+        content = {}
+
+    try:
+        rel = bold.relative_to(bids_dir).as_posix()
+    except ValueError:
+        rel = bold.name
+    content["Sources"] = [f"bids:raw:{rel}"]
+    content["Duckbrain"] = {k: v for k, v in provenance.items() if v}
+    return content
+
+
+def write_nordic_sidecars(
+    bids_dir: str | Path,
+    derivatives_dir: str | Path,
+    subject: str,
+    session: str = "",
+    *,
+    provenance: dict,
+) -> list[Path]:
+    """Write a BIDS-derivatives sidecar for each BOLD this run will denoise.
+
+    NORDIC's MATLAB job emits bare NIfTIs and no sidecar at all, leaving the
+    derivative unable to describe itself. duckbrain writes them at launch — the
+    same point, and for the same reason, it stamps the derivative's
+    ``dataset_description.json``.
+
+    Per-file provenance earns its place over the dataset-level stamp because
+    **sidecars travel with the data**: ``dataset_description.json`` is
+    dataset-level (so it cannot express per-subject mixing) and the submission log
+    doesn't survive the derivative being copied elsewhere. A shared or archived
+    NORDIC output stays self-describing.
+
+    Only BOLDs whose output does **not** already exist get a sidecar, mirroring the
+    sbatch's own skip-if-present rule. Without that, re-launching after a toolbox
+    update would restamp already-denoised files with the new toolbox's provenance
+    and quietly claim it produced them.
+
+    The provenance object is namespaced under ``Duckbrain`` rather than
+    ``GeneratedBy``: BEP028 (BIDS-Prov) already claims sidecar ``GeneratedBy`` and
+    ``SidecarGeneratedBy`` for URI *references* into a provenance record
+    (``"bids::prov#..."``), not inline objects — the opposite of what the same key
+    means in ``dataset_description.json``. Keeping ours in one namespaced object
+    also makes the eventual BEP028 migration a swap rather than a rewrite.
+
+    Returns the sidecars written (empty if every output already exists).
+    """
+    bids_dir = Path(bids_dir)
+    out_dir = nordic_output_dir(derivatives_dir, subject, session)
+    written: list[Path] = []
+    for bold in get_bold_runs(bids_dir, subject, session):
+        if (out_dir / bold.name).exists():
+            continue  # the sbatch will skip it; its sidecar already describes it
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / bold.name.replace(".nii.gz", ".json")
+        with open(path, "w") as f:
+            json.dump(_derivative_sidecar(bold, bids_dir, provenance), f, indent=2)
+        written.append(path)
+    return written
 
 
 def nordic_output_dir(derivatives_dir: str | Path, subject: str, session: str = "") -> Path:
