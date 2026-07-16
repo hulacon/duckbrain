@@ -90,9 +90,28 @@ reading: it is clean single-provenance raw with a correctly-configured container
   NORDIC 7/15 genuinely newer than fMRIPrep 7/10), `presence` (true negative —
   sub-04/sub-015 both have NORDIC output), `_configured_container` (resolves the
   real `fmriprep-24.1.1.simg` / `mriqc-24.0.2.simg`).
-- Data-hygiene note: `mriqc-24.0.2.simg` is genuinely misnamed for its contents (a
-  24.1.0.dev0 build). Renaming would fix that instance, not the class — hence the
-  namespace fix above.
+- **Where container versions come from (checked 2026-07-16).** duckbrain derives the
+  version *purely from the filename*: `get_container_path` builds `<tool>-<pin>.sif`
+  / `.simg` from the `[containers]` pin and returns the first that exists. Nothing
+  reads inside the image. But three independent version facts do exist in each
+  container, and they disagree:
+  - `apptainer inspect` labels — `...deffile.from` records the **Docker source tag**
+    the image was built from (the real build provenance), plus `label-schema.version`
+    and `vcs-ref`.
+  - the tool's own `--version` at runtime.
+  - what the tool writes into `GeneratedBy.Version`.
+  For fMRIPrep all three agree (`24.1.1`). For MRIQC they don't:
+  `deffile.from = nipreps/mriqc:24.0.2` and `vcs-ref = d5b13cb5`, but the tool
+  self-reports `24.1.0.dev0+gd5b13cb5.d20240826` — the same git ref (`g` is git's
+  prefix). So **`mriqc-24.0.2.simg` is correctly named**: it faithfully matches the
+  Docker tag it was built from. The discrepancy is *upstream* — nipreps cut the
+  `24.0.2` image from a commit whose own version metadata said `24.1.0.dev0`.
+  (Corrects an earlier note in this file calling the container misnamed.) This
+  vindicates comparing container identity: the tag is an accurate, stable
+  identifier; the self-reported version is an upstream packaging artifact.
+  - Possible refinement: read `deffile.from` via `apptainer inspect` for a
+    build-provenance-grade container identity. Costs a subprocess per check and only
+    matters if filenames stop tracking Docker tags — not needed today.
 
 Original Phase B design notes (kept for reference):
 - Cross-references config expectation, on-disk provenance, and mtimes.
