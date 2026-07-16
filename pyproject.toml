@@ -7,7 +7,8 @@ name = "duckbrain"
 version = "0.1.0"
 description = "General-purpose neuroimaging toolbox with Streamlit GUI for LCNI/Talapas HPC"
 requires-python = ">=3.10"
-license = "MIT"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "streamlit>=1.48",
     "jinja2>=3.1",

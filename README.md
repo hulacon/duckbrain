@@ -169,6 +169,31 @@ Per-step SLURM resource overrides are supported under `[slurm.overrides.<step>]`
 python -m pytest tests/ -v
 ```
 
+## License
+
+duckbrain is free software, licensed under the **GNU General Public License v3.0
+or later** — see [LICENSE](LICENSE). It comes with no warranty; you are free to
+use, modify, and redistribute it under the terms of that licence.
+
+duckbrain *orchestrates* external tools (fMRIPrep, MRIQC, dcm2bids, the NORDIC
+MATLAB toolbox) by invoking them at arm's length — it neither links nor
+redistributes them, so duckbrain's licence does not extend to them, nor theirs to
+duckbrain. **You obtain and license each tool yourself**, under its own terms.
+Note in particular that [NORDIC](https://github.com/SteenMoeller/NORDIC_Raw) is
+copyright the Regents of the University of Minnesota, is patent-encumbered, is
+licensed for non-profit research and educational use only, and **may not be
+redistributed** — so each user must obtain their own copy from upstream.
+
+## Versioning
+
+duckbrain follows [Semantic Versioning](https://semver.org); releases are git tags
+and are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+Because duckbrain is distributed by `git clone` and served straight from a working
+copy, most users run code *between* releases. Provenance therefore records a `git
+describe` of the actual checkout (e.g. `v0.1.0-3-gabc1234`) rather than the release
+number, so every derivative names the commit that really produced it.
+
 ## Acknowledgments
 
 duckbrain was developed at the [University of Oregon](https://www.uoregon.edu/) for the [Lewis Center for Neuroimaging](https://lcni.uoregon.edu/) community, generalizing the [mmmdata](https://github.com/hulacon/mmmdata) pipeline infrastructure.
