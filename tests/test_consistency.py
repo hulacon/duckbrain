@@ -417,6 +417,95 @@ def test_unknowable_matlab_runtime_is_never_drift(monkeypatch, tmp_path):
     assert "matlab-drift" not in _codes(check_consistency(cfg))
 
 
+# ---- duckbrain drift (note severity, recipe stages only) --------------------
+#
+# duckbrain's version is a different kind of fact from fMRIPrep's: a tool's
+# version IS the computation, duckbrain's is the recipe-writer. So it is flagged
+# only where duckbrain authors the recipe, only on a release-line change, and
+# only as a note.
+
+def _duckbrain(monkeypatch, version):
+    import duckbrain.core.consistency as CO
+    monkeypatch.setattr(CO, "duckbrain_version", lambda: version)
+
+
+def _stamp_duckbrain(root, version):
+    """A dataset root stamped by a given duckbrain, as write_dataset_description does."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "dataset_description.json").write_text(json.dumps({
+        "Name": "x", "BIDSVersion": "1.9.0",
+        "GeneratedBy": [{"Name": "duckbrain", "Version": version}],
+    }))
+
+
+def test_release_line_change_is_noted_for_conversion(monkeypatch, tmp_path):
+    _stamp_duckbrain(tmp_path, "v0.1.0")           # BIDS root: what converted it
+    _duckbrain(monkeypatch, "v0.3.0-2-gabcdef1")   # duckbrain now
+    issues = [i for i in check_consistency(_config(tmp_path)) if i.check == "duckbrain-drift"]
+    assert issues and issues[0].stage == "converted"
+    assert issues[0].severity == "note"            # not a warning
+
+
+def test_development_within_a_release_line_is_silent(monkeypatch, tmp_path):
+    """The whole point: rapid iteration between releases must not flag."""
+    _stamp_duckbrain(tmp_path, "v0.1.0")
+    _duckbrain(monkeypatch, "v0.1.0-47-gabcdef1-dirty")  # 47 commits on, still 0.1.x
+    assert "duckbrain-drift" not in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_patch_releases_do_not_flag(monkeypatch, tmp_path):
+    _stamp_duckbrain(tmp_path, "v0.1.0")
+    _duckbrain(monkeypatch, "v0.1.9")
+    assert "duckbrain-drift" not in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_minor_is_the_release_line_before_1_0(monkeypatch, tmp_path):
+    """Pre-1.0, minor carries the breaking signal (0.1 -> 0.2 may break)."""
+    _stamp_duckbrain(tmp_path, "v0.1.0")
+    _duckbrain(monkeypatch, "v0.2.0")
+    assert "duckbrain-drift" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_minor_is_not_the_release_line_after_1_0(monkeypatch, tmp_path):
+    """Post-1.0 semver: only major breaks, so 1.2 -> 1.7 is not drift."""
+    _stamp_duckbrain(tmp_path, "v1.2.0")
+    _duckbrain(monkeypatch, "v1.7.3")
+    assert "duckbrain-drift" not in _codes(check_consistency(_config(tmp_path)))
+
+    _duckbrain(monkeypatch, "v2.0.0")
+    assert "duckbrain-drift" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_duckbrain_drift_is_noted_for_nordic(monkeypatch, tmp_path):
+    cfg = _nordic_cfg(tmp_path)
+    _stamp_duckbrain(tmp_path / "derivatives" / "nordic", "v0.1.0")
+    _duckbrain(monkeypatch, "v0.4.0")
+    _toolbox(monkeypatch, "")
+    issues = [i for i in check_consistency(cfg) if i.check == "duckbrain-drift"]
+    assert [i.stage for i in issues] == ["nordic"]
+
+
+def test_duckbrain_drift_not_raised_for_launcher_stages(monkeypatch, tmp_path):
+    """fMRIPrep/MRIQC: duckbrain only passes flags to a container, so its own
+    version says nothing about the output — flagging it would be pure noise."""
+    _fmriprep_desc(tmp_path)   # a real fMRIPrep derivative...
+    _fmriprep_unit(tmp_path, "01")
+    _duckbrain(monkeypatch, "v9.0.0")  # ...and a wildly different duckbrain
+    issues = [i for i in check_consistency(_config(tmp_path)) if i.check == "duckbrain-drift"]
+    assert [i.stage for i in issues] == []
+
+
+def test_untagged_duckbrain_checkout_is_never_drift(monkeypatch, tmp_path):
+    """A bare sha (no reachable tag) is unknowable, not a mismatch."""
+    _stamp_duckbrain(tmp_path, "v0.1.0")
+    _duckbrain(monkeypatch, "abc1234")
+    assert "duckbrain-drift" not in _codes(check_consistency(_config(tmp_path)))
+
+    _stamp_duckbrain(tmp_path, "abc1234")  # and the mirror: unknowable recorded
+    _duckbrain(monkeypatch, "v0.1.0")
+    assert "duckbrain-drift" not in _codes(check_consistency(_config(tmp_path)))
+
+
 # ---- mixed provenance / version (log overlay) -------------------------------
 
 def test_mixed_input_variant_across_subjects_flagged(tmp_path):

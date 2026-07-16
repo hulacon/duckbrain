@@ -36,6 +36,11 @@ The checks, and which source each rests on:
 * **MATLAB drift** (on-disk, log fallback) — NORDIC's *second* axis. A container
   stage has one (the image is both runtime and code); NORDIC's runtime (MATLAB)
   and code (the toolbox) move independently, so the runtime needs its own check.
+* **duckbrain drift** (on-disk) — duckbrain's own release line moved. Held to a
+  *lower* standard than the above, deliberately: a tool's version **is** the
+  computation, whereas duckbrain's is the recipe-writer. Raised at ``note``
+  severity, only for the stages where duckbrain authors the recipe, and only on a
+  release-line change so rapid development stays quiet.
 * **Mixed input variant / version / runtime** (log overlay) — some subjects
   launched raw, some NORDIC (or under different tool versions or runtimes) into
   the same derivative.
@@ -50,9 +55,11 @@ than a false alarm.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .bids_metadata import duckbrain_version
 from .containers import container_build_tag
 from .pipeline import (
     matlab_module,
@@ -143,7 +150,16 @@ def read_derivative_provenance(config: dict, pipeline: str) -> DerivativeProvena
     derivative — duckbrain-produced or tool-written — since Phase A unified the
     on-disk format.
     """
-    root = Path(config["paths"]["derivatives_dir"]) / pipeline
+    return read_provenance_at(Path(config["paths"]["derivatives_dir"]) / pipeline)
+
+
+def read_provenance_at(root: str | Path) -> DerivativeProvenance:
+    """Read the ``dataset_description.json`` provenance of any dataset *root*.
+
+    Same reader for a derivative or the raw BIDS root — the latter is where
+    duckbrain stamps itself for the conversion it performed.
+    """
+    root = Path(root)
     desc = _read_json(root / "dataset_description.json")
     if not desc:
         return DerivativeProvenance(exists=root.is_dir(), generated_by=[], raw_link="")
@@ -339,6 +355,84 @@ def _check_toolbox_drift(config: dict) -> list[ConsistencyIssue]:
             "longer reflects the toolbox that would run today. Re-run NORDIC, or "
             "check out the recorded version."),
     )]
+
+
+def _release_line(version: str) -> str:
+    """The part of *version* whose change implies a change in behavior, or "".
+
+    duckbrain is developed in rapid increments and every derivative records the
+    exact commit, so comparing full versions would flag constantly and mean
+    nothing. Semver says only a major bump breaks — and pre-1.0, that role falls
+    to *minor* (``0.1`` → ``0.2`` may break, ``0.1.0`` → ``0.1.4`` may not). So
+    ``v0.1.0``, ``v0.1.0-3-gabc1234`` and ``v0.1.4-dirty`` all reduce to ``0.1``:
+    iteration within a release line is invisible, a new line is not.
+
+    An unparseable version — a bare sha from an untagged checkout — yields "",
+    meaning unknowable. Never a guess.
+    """
+    m = re.match(r"v?(\d+)\.(\d+)", version.strip())
+    if not m:
+        return ""
+    major, minor = int(m.group(1)), int(m.group(2))
+    return f"{major}.{minor}" if major == 0 else str(major)
+
+
+# Stages where duckbrain *authors the recipe*, so its own version bears on the
+# output. Everywhere else it merely launches a container with flags — duckbrain
+# v0.1.0 and v0.9.0 passing identical flags to one fMRIPrep image produce
+# identical results, and flagging that would be noise with no signal under it.
+_DUCKBRAIN_RECIPE_STAGES = {
+    "converted": (
+        "duckbrain generates the dcm2bids config — which series become T1w/bold, "
+        "task names, fieldmap pairing — so a release-line change can alter the "
+        "BIDS layout itself"),
+    "nordic": (
+        "duckbrain supplies NORDIC's MATLAB entrypoint and sbatch recipe, so a "
+        "release-line change can alter what NORDIC actually does"),
+}
+
+
+def _check_duckbrain_drift(config: dict) -> list[ConsistencyIssue]:
+    """duckbrain's own release line has moved since it produced an output.
+
+    Deliberately *not* held to the same standard as fMRIPrep/NORDIC drift, on two
+    counts. First, it is a different kind of fact: a tool's version **is** the
+    computation, whereas duckbrain's is the recipe-writer — so this is raised at
+    ``note`` severity, not ``warning``. Second, it is limited to the stages where
+    duckbrain actually writes the recipe (``_DUCKBRAIN_RECIPE_STAGES``); for
+    fMRIPrep/MRIQC duckbrain is a launcher and its version says nothing about the
+    data.
+
+    Only the *release line* is compared, so rapid development between releases
+    stays silent. Dataset-level by nature: duckbrain stamps the dataset root, not
+    each subject, so mixed duckbrain versions *within* one dataset are invisible
+    here — accepted deliberately rather than add a log column for a question
+    ("which duckbrain converted sub-07") that metadata management doesn't ask.
+    """
+    current = _release_line(duckbrain_version())
+    if not current:
+        return []
+    roots = {
+        "converted": Path(config["paths"]["bids_dir"]),
+        "nordic": Path(config["paths"]["derivatives_dir"]) / "nordic",
+    }
+    issues: list[ConsistencyIssue] = []
+    for stage, why in _DUCKBRAIN_RECIPE_STAGES.items():
+        prov = read_provenance_at(roots[stage])
+        if not prov.exists:
+            continue
+        recorded = _release_line(prov.tool_version("duckbrain"))
+        if not recorded or recorded == current:
+            continue
+        issues.append(ConsistencyIssue(
+            "duckbrain-drift", severity="note", stage=stage,
+            message=(
+                f"This output was produced by duckbrain {recorded}.x; duckbrain is "
+                f"now {current}.x. Not a problem in itself — but {why}. Worth "
+                "noting for provenance; re-run only if you want the current "
+                "behavior."),
+        ))
+    return issues
 
 
 def _check_matlab_drift(config: dict) -> list[ConsistencyIssue]:
@@ -553,6 +647,7 @@ def check_consistency(config: dict) -> list[ConsistencyIssue]:
         _check_container_drift,
         _check_toolbox_drift,
         _check_matlab_drift,
+        _check_duckbrain_drift,
         _check_mixed_provenance,
         _check_staleness,
         _check_presence,

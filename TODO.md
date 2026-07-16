@@ -333,6 +333,40 @@ stages (table above is real output).
   derivative half of whose runs predate a field doesn't read as mixed.
 - 236 tests pass. `check_consistency` on the real project: 0 issues, ~213 ms.
 
+**duckbrain's own version — deliberately flagged to a LOWER standard (2026-07-16).**
+Ben's question: should duckbrain mismatches flag like fMRIPrep/NORDIC, given rapid
+development would mean constant mismatches — but serious differences matter for
+data/metadata management? Answer: **no, and not because of noise — because it's a
+different kind of fact.** A tool's version *is* the computation; duckbrain's is the
+recipe-writer. New `duckbrain-drift` check, scoped three ways:
+- **Only where duckbrain authors the recipe** (`_DUCKBRAIN_RECIPE_STAGES`):
+  `converted` (duckbrain generates the dcm2bids config — which series become
+  T1w/bold, task names, fieldmap pairing) and `nordic` (duckbrain supplies the
+  MATLAB entrypoint + sbatch recipe). **Not** fMRIPrep/MRIQC, where duckbrain only
+  passes flags to a container — v0.1.0 and v0.9.0 with identical flags give
+  identical output, so flagging would be noise with no signal under it.
+  This repo proves the distinction: `eeede67` changed emitted BIDS filenames
+  (collapsed `dir-AP` → `dir-AP_run-1/run-2`), and the NORDIC m-file `DIROUT` fix
+  was the difference between *NORDIC never ran* and *NORDIC ran*.
+- **Only on a release-line change** (`_release_line`): `v0.1.0`,
+  `v0.1.0-47-gabc1234` and `v0.1.9` all reduce to `0.1`, so iteration between
+  releases is invisible. Pre-1.0 the *minor* carries the breaking signal
+  (`0.1`→`0.2`), major once ≥1.0. Unparseable (bare sha, untagged) → silent.
+- **At `note` severity, not `warning`** — which finally wires up the dormant
+  `ConsistencyIssue.severity` field. The cockpit now renders notes via `st.info`
+  and warnings via `st.warning`, so a provenance note can't dilute a real
+  contradiction.
+Dataset-level by nature (duckbrain stamps the dataset root, not each subject), so
+mixed duckbrain versions *within* one dataset are invisible. Accepted deliberately
+rather than add a log column for a question metadata management doesn't ask
+("which duckbrain converted sub-07"). **No new column** — both sides were already
+on disk.
+Validated live: `divatten_gui_beta`'s BIDS root is stamped `0.1.0` (the old static
+`__version__`, no `v` prefix) while duckbrain now describes as
+`v0.1.0-1-gd785993-dirty` — both reduce to line `0.1`, so it stays silent. That mix
+is what real projects will hold, and `_release_line` handles pre- and post-describe
+stamps alike. `check_consistency` ~350 ms (a `git describe` per render; fine).
+
 **Known remaining wrinkle (minor):** `tool_version` is itself now overloaded — it
 holds a container *tag* for container stages (`24.1.1`) but a `git describe` for
 NORDIC (`v1.0.2-24-g0861968`). Both are "the version we pinned/ran", so it's

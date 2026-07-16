@@ -131,14 +131,18 @@ def dashboard():
     # catches cross-subject mixing on-disk can't represent. Silent when clean.
     issues = check_consistency(config)
     if issues:
-        st.subheader("⚠️ Provenance warnings")
+        warnings = [i for i in issues if i.severity != "note"]
+        st.subheader("⚠️ Provenance warnings" if warnings else "Provenance notes")
         st.caption(
             "Self-contradictory pipeline state — config vs. what's on disk, mixed "
             "provenance/versions across subjects, staleness, or a missing input."
         )
         for issue in issues:
             where = f" *(sub-{issue.subject})*" if issue.subject else ""
-            st.warning(f"**{issue.check}** — {issue.message}{where}")
+            text = f"**{issue.check}** — {issue.message}{where}"
+            # A note is provenance worth knowing, not a contradiction to fix —
+            # keep it visually distinct so it can't dilute the real warnings.
+            (st.info if issue.severity == "note" else st.warning)(text)
 
     # ---- Runnable (unit, stage) universe ----
     runnable = []

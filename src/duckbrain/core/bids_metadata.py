@@ -122,6 +122,17 @@ def _duckbrain_repo() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def duckbrain_version() -> str:
+    """duckbrain's own version: a ``git describe`` of its checkout, else ``__version__``.
+
+    See :func:`_duckbrain_generated_by` for why the checkout wins.
+    """
+    from .. import __version__
+    from .toolbox import describe
+
+    return describe(_duckbrain_repo()) or __version__
+
+
 def _duckbrain_generated_by() -> dict:
     """The ``GeneratedBy`` entry for duckbrain itself.
 
@@ -138,10 +149,7 @@ def _duckbrain_generated_by() -> dict:
     Falls back to ``__version__`` when duckbrain is installed from a wheel rather
     than a checkout — there the packaged version *is* the truth.
     """
-    from .. import __version__
-    from .toolbox import describe
-
-    return {"Name": "duckbrain", "Version": describe(_duckbrain_repo()) or __version__}
+    return {"Name": "duckbrain", "Version": duckbrain_version()}
 
 
 def write_dataset_description(
