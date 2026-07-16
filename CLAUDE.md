@@ -48,10 +48,21 @@ copy doesn't fall behind.
   submission log `code/logs/submissions.tsv`, deep-links). Stages tracked:
   `ingested, converted, nordic, fmriprep, mriqc`. Full design + resumable status
   tracker in `docs/pipeline-cockpit.md`.
-- **132 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
+- **237 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
   smoke/interaction tests for GUI pages.
 - **Committed** — latest ~`b364e26` (HEAD drifts; treat as "latest"). **May be
   ahead of `origin`; push before relying on distribution** (see workflow note).
+- **Licensed GPL-3.0-or-later; released + tagged from `v0.1.0` (2026-07-16).**
+  Semver, git tags, `CHANGELOG.md`. Note the copyleft trade-off Ben accepted
+  knowingly: duckbrain code **cannot be upstreamed** into the Apache-2.0 nipreps
+  tools or MIT nipoppy, so the mooted `surveyor.py` → mmmdata port (TODO #6) would
+  need dual-licensing. duckbrain orchestrates external tools at arm's length, so
+  no licence crosses in either direction — users obtain each tool themselves
+  (NORDIC especially: non-redistributable, see TODO §5c). Open: confirm with
+  UO/RACS that Ben can license it (employee-IP policy).
+- **Provenance stamps `git describe` of the checkout, not `__version__`.** duckbrain
+  is served from a working copy, so users sit *between* releases; `__version__`
+  marks the release only. Never treat it as what ran.
 - **DICOM→BIDS validated end-to-end on real data.** Real dcm2bids conversion of
   DIVATTEN subjects produces BIDS whose imaging filename set is **identical** to
   the canonical heudiconv output at `/projects/hulacon/shared/divatten/bids_data`.
