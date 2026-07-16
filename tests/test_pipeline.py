@@ -383,7 +383,7 @@ def test_advance_one_records_submission(monkeypatch, tmp_path):
     assert r["timestamp"]  # non-empty ISO stamp
     # Provenance is captured alongside the launch (container from the stubbed
     # get_container_path; no version key in the test config, so tool_version is "").
-    assert (r["tool"], r["container"]) == ("dcm2bids", "cont.simg")
+    assert (r["tool"], r["runtime"]) == ("dcm2bids", "cont.simg")
 
 
 # ---- run provenance ---------------------------------------------------------
@@ -396,7 +396,7 @@ def test_run_provenance_reads_version_and_container(monkeypatch, tmp_path):
     prov = run_provenance(cfg, "fmriprep")
     assert prov["tool"] == "fmriprep"
     assert prov["tool_version"] == "24.1.1"
-    assert prov["container"] == "fmriprep-24.1.1.sif"  # basename only
+    assert prov["runtime"] == "fmriprep-24.1.1.sif"  # basename only
     assert prov["input_variant"] == "raw"
 
 
@@ -414,7 +414,7 @@ def test_run_provenance_degrades_when_container_unresolvable(tmp_path):
     prov = run_provenance(_config(tmp_path), "mriqc")
     assert prov["tool"] == "mriqc"
     assert prov["tool_version"] == ""
-    assert prov["container"] == ""
+    assert prov["runtime"] == ""
     assert prov["input_variant"] == "raw"
 
 
@@ -422,8 +422,8 @@ def test_run_provenance_nordic_without_a_toolbox_has_no_version(tmp_path):
     prov = run_provenance(_config(tmp_path), "nordic")
     assert prov["tool"] == "nordic"
     assert prov["tool_version"] == ""  # no toolbox configured: unknowable, not guessed
-    assert prov["container"] == ""     # NORDIC runs no container, ever
-    assert prov["container_source"] == ""
+    assert prov["runtime"] == ""     # NORDIC runs no container, ever
+    assert prov["code_source"] == ""
     assert prov["input_variant"] == "raw"
 
 
@@ -436,7 +436,7 @@ def test_unset_toolbox_never_describes_the_current_directory(monkeypatch, tmp_pa
     cfg["paths"]["nordic_toolbox_dir"] = ""
     prov = run_provenance(cfg, "nordic")
     assert prov["tool_version"] == ""
-    assert prov["container_source"] == ""
+    assert prov["code_source"] == ""
 
 
 def test_run_provenance_nordic_reads_the_toolbox_checkout(tmp_path):
@@ -447,8 +447,45 @@ def test_run_provenance_nordic_reads_the_toolbox_checkout(tmp_path):
     sha = _sha(repo)
     assert prov["tool"] == "nordic"
     assert prov["tool_version"] == sha            # no tags yet: --always gives the sha
-    assert prov["container_source"] == f"SteenMoeller/NORDIC_Raw@{sha}"
-    assert prov["container"] == ""
+    assert prov["code_source"] == f"SteenMoeller/NORDIC_Raw@{sha}"
+    assert prov["runtime"] == ""
+
+
+def test_run_provenance_nordic_records_matlab_as_its_runtime(tmp_path):
+    """NORDIC's two axes land in the same pair of slots a container stage uses:
+    the runtime slot is free precisely because NORDIC runs no image."""
+    repo = _git_repo(tmp_path / "NORDIC_Raw", remote="https://github.com/SteenMoeller/NORDIC_Raw.git")
+    cfg = _config(tmp_path)
+    cfg["paths"]["nordic_toolbox_dir"] = str(repo)
+    cfg["nordic"] = {"matlab_module": "matlab/R2024a"}
+    prov = run_provenance(cfg, "nordic")
+    assert prov["runtime"] == "matlab/R2024a"                       # what ran it
+    assert prov["code_source"].startswith("SteenMoeller/NORDIC_Raw@")  # where code came from
+
+
+def test_run_provenance_container_stage_runtime_is_the_image(monkeypatch, tmp_path):
+    """The mirror: for a container the image *is* the runtime."""
+    import duckbrain.core.fmriprep as F
+    monkeypatch.setattr(F, "get_container_path", lambda cfg: tmp_path / "fmriprep-24.1.1.sif")
+    prov = run_provenance(_config(tmp_path), "fmriprep")
+    assert prov["runtime"] == "fmriprep-24.1.1.sif"
+
+
+def test_nordic_stamp_records_matlab_as_its_own_generatedby_entry(monkeypatch, tmp_path):
+    import json
+    import duckbrain.core.nordic as N
+    monkeypatch.setattr(N, "get_bold_runs", lambda bids, sub, ses: [tmp_path / "a_bold.nii.gz"])
+    monkeypatch.setattr(P, "build_context", lambda *a, **k: {})
+    monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: "#script")
+    monkeypatch.setattr(P, "submit_job", lambda script, job_name, scripts_dir=None: "JOBN")
+    cfg = _config(tmp_path)
+    cfg["nordic"] = {"matlab_module": "matlab/R2024a"}
+    advance_one(cfg, "nordic", "008", "")
+    desc = json.loads((tmp_path / "derivatives" / "nordic" / "dataset_description.json").read_text())
+    # GeneratedBy is a list, so MATLAB — a genuine second tool in the chain, with
+    # no dedicated BIDS field — earns its own entry.
+    assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "nordic", "matlab"]
+    assert desc["GeneratedBy"][2]["Version"] == "R2024a"
 
 
 def test_run_provenance_nordic_marks_a_locally_edited_toolbox_dirty(tmp_path):
@@ -541,7 +578,7 @@ def test_appending_to_a_legacy_log_keeps_it_readable(tmp_path):
     cfg = _config(tmp_path)
     _write_legacy_log(cfg)
     record_submission(cfg, "fmriprep", "099", "", "J999",
-                      tool="fmriprep", container="fmriprep-24.1.1.simg",
+                      tool="fmriprep", runtime="fmriprep-24.1.1.simg",
                       input_variant="raw")
     df = read_submissions(cfg)  # must not raise
     assert len(df) == 3
@@ -558,8 +595,8 @@ def test_migration_preserves_legacy_rows_by_column_name(tmp_path):
     assert legacy["subject"] == "008"
     assert legacy["stage"] == "converted"
     assert legacy["job_id"] == "45191143"
-    assert legacy["container"] == ""
-    assert legacy["container_source"] == ""
+    assert legacy["runtime"] == ""
+    assert legacy["code_source"] == ""
 
 
 def test_migration_is_idempotent(tmp_path):
@@ -571,6 +608,52 @@ def test_migration_is_idempotent(tmp_path):
     header_lines = [ln for ln in path.read_text().splitlines() if ln.startswith("timestamp\t")]
     assert len(header_lines) == 1
     assert len(read_submissions(cfg)) == 4
+
+
+_RENAMED_HEADER = ("timestamp\tsubject\tsession\tstage\ttool\ttool_version\t"
+                   "container\tcontainer_source\tinput_variant\tjob_id")
+_RENAMED_ROW = ("2026-07-16T10:00:00\t01\t\tfmriprep\tfmriprep\t24.1.1\t"
+                "fmriprep-24.1.1.simg\tnipreps/fmriprep:24.1.1\traw\tJ1")
+
+
+def test_migration_carries_renamed_columns_rather_than_dropping_them(tmp_path):
+    """container/container_source were renamed to runtime/code_source. The
+    migration maps rows by *name* and rewrites the file in place, so without a
+    rename map those values would be silently and permanently lost."""
+    cfg = _config(tmp_path)
+    path = Path(cfg["paths"]["log_dir"])
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "submissions.tsv").write_text(_RENAMED_HEADER + "\n" + _RENAMED_ROW + "\n")
+
+    record_submission(cfg, "fmriprep", "02", "", "J2", tool="fmriprep")
+    df = read_submissions(cfg)
+    old = df.iloc[0]
+    assert old["runtime"] == "fmriprep-24.1.1.simg"
+    assert old["code_source"] == "nipreps/fmriprep:24.1.1"
+    assert old["tool_version"] == "24.1.1"
+
+
+def test_read_submissions_renames_without_migrating(tmp_path):
+    """Reading alone must not require a write — an old-named log still reads."""
+    cfg = _config(tmp_path)
+    path = Path(cfg["paths"]["log_dir"])
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "submissions.tsv").write_text(_RENAMED_HEADER + "\n" + _RENAMED_ROW + "\n")
+    df = read_submissions(cfg)
+    assert df.iloc[0]["runtime"] == "fmriprep-24.1.1.simg"
+    assert df.iloc[0]["code_source"] == "nipreps/fmriprep:24.1.1"
+
+
+def test_migration_rewrites_a_stale_named_header(tmp_path):
+    """Same width, old names: still needs rewriting, or the header stays wrong
+    on disk forever (the parser renames on read, hiding it)."""
+    cfg = _config(tmp_path)
+    path = Path(cfg["paths"]["log_dir"])
+    path.mkdir(parents=True, exist_ok=True)
+    log = path / "submissions.tsv"
+    log.write_text(_RENAMED_HEADER + "\n" + _RENAMED_ROW + "\n")
+    record_submission(cfg, "fmriprep", "02", "", "J2", tool="fmriprep")
+    assert log.read_text().splitlines()[0].split("\t")[6:8] == ["runtime", "code_source"]
 
 
 def test_read_submissions_tolerates_an_already_ragged_log(tmp_path):

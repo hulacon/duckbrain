@@ -133,7 +133,7 @@ def test_container_drift_flagged_when_pin_bumped_without_rerun(tmp_path):
         containers_dir=_containers(tmp_path, "fmriprep-25.0.0.simg"),
     )
     record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", container="fmriprep-24.1.1.simg")
+                      tool="fmriprep", runtime="fmriprep-24.1.1.simg")
     assert "container-drift" in _codes(check_consistency(cfg))
 
 
@@ -146,7 +146,7 @@ def test_matching_container_is_clean(tmp_path):
         containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
     )
     record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", container="fmriprep-24.1.1.simg")
+                      tool="fmriprep", runtime="fmriprep-24.1.1.simg")
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
@@ -163,7 +163,7 @@ def test_container_tag_differing_from_self_reported_version_is_clean(tmp_path):
         containers_dir=_containers(tmp_path, "fmriprep-24.0.2.simg"),
     )
     record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", container="fmriprep-24.0.2.simg")
+                      tool="fmriprep", runtime="fmriprep-24.0.2.simg")
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
@@ -183,7 +183,7 @@ def test_on_disk_container_tag_beats_log_overlay(tmp_path):
     )
     # Log claims a different container; on-disk agrees with config, so: clean.
     record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", container="fmriprep-99.9.9.simg")
+                      tool="fmriprep", runtime="fmriprep-99.9.9.simg")
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
@@ -206,8 +206,8 @@ def test_same_filename_rebuilt_from_a_different_image_is_drift(monkeypatch, tmp_
     )
     _build_tags(monkeypatch, {"fmriprep-24.1.1.simg": "nipreps/fmriprep:24.1.1"})
     record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
-                      container="fmriprep-24.1.1.simg",
-                      container_source="nipreps/fmriprep:23.0.0")  # what actually ran
+                      runtime="fmriprep-24.1.1.simg",
+                      code_source="nipreps/fmriprep:23.0.0")  # what actually ran
     assert "container-drift" in _codes(check_consistency(cfg))
 
 
@@ -223,8 +223,8 @@ def test_renamed_container_with_same_build_source_is_clean(monkeypatch, tmp_path
     )
     _build_tags(monkeypatch, {"fmriprep-24.1.1.simg": "nipreps/fmriprep:24.1.1"})
     record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
-                      container="fmriprep-24.1.1-copy.simg",
-                      container_source="nipreps/fmriprep:24.1.1")
+                      runtime="fmriprep-24.1.1-copy.simg",
+                      code_source="nipreps/fmriprep:24.1.1")
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
@@ -239,7 +239,7 @@ def test_falls_back_to_filename_when_build_tag_unknown(monkeypatch, tmp_path):
     )
     _build_tags(monkeypatch, {})  # no image records provenance
     record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
-                      container="fmriprep-24.1.1.simg")  # legacy row: no source
+                      runtime="fmriprep-24.1.1.simg")  # legacy row: no source
     assert "container-drift" in _codes(check_consistency(cfg))
 
 
@@ -292,6 +292,16 @@ def _nordic_deriv(root, *, version=""):
 def _toolbox(monkeypatch, current):
     import duckbrain.core.consistency as CO
     monkeypatch.setattr(CO, "describe", lambda repo: current)
+
+
+def _nordic_unit(root, sub):
+    """Make sub-*sub* read as having real NORDIC output on disk."""
+    nd = root / "derivatives" / "nordic" / f"sub-{sub}" / "func"
+    nd.mkdir(parents=True, exist_ok=True)
+    (nd / f"sub-{sub}_task-x_bold.nii.gz").write_text("x")
+    bids = root / f"sub-{sub}" / "func"
+    bids.mkdir(parents=True, exist_ok=True)
+    (bids / f"sub-{sub}_task-x_bold.nii.gz").write_text("x")
 
 
 def test_toolbox_moved_since_the_derivative_was_produced_is_drift(monkeypatch, tmp_path):
@@ -357,6 +367,56 @@ def test_no_nordic_derivative_means_no_toolbox_check(monkeypatch, tmp_path):
     assert "toolbox-drift" not in _codes(check_consistency(cfg))
 
 
+# ---- MATLAB drift (NORDIC's second axis) ------------------------------------
+#
+# A container stage has one version axis — the image is both runtime and code.
+# NORDIC's runtime (MATLAB) and code (the toolbox checkout) move independently,
+# so a matlab_module bump is invisible to toolbox-drift.
+
+def _nordic_cfg(root, matlab="matlab/R2024a"):
+    cfg = _config(root)
+    cfg["paths"]["nordic_toolbox_dir"] = str(root / "NORDIC_Raw")
+    cfg.setdefault("nordic", {})["matlab_module"] = matlab
+    return cfg
+
+
+def test_matlab_module_changed_since_the_run_is_drift(monkeypatch, tmp_path):
+    cfg = _nordic_cfg(tmp_path, matlab="matlab/R2025a")
+    write_derivative_description(tmp_path / "derivatives" / "nordic", "nordic",
+                                 tool="nordic", tool_version="v1.0.2-24-g0861968",
+                                 runtime="matlab/R2024a")
+    _toolbox(monkeypatch, "v1.0.2-24-g0861968")  # toolbox itself unchanged
+    issues = check_consistency(cfg)
+    assert "matlab-drift" in _codes(issues)
+    assert "toolbox-drift" not in _codes(issues)  # the axes are independent
+
+
+def test_unchanged_matlab_module_is_clean(monkeypatch, tmp_path):
+    cfg = _nordic_cfg(tmp_path, matlab="matlab/R2024a")
+    write_derivative_description(tmp_path / "derivatives" / "nordic", "nordic",
+                                 tool="nordic", tool_version="v1.0.2-24-g0861968",
+                                 runtime="matlab/R2024a")
+    _toolbox(monkeypatch, "v1.0.2-24-g0861968")
+    assert "matlab-drift" not in _codes(check_consistency(cfg))
+
+
+def test_matlab_drift_falls_back_to_the_log(monkeypatch, tmp_path):
+    cfg = _nordic_cfg(tmp_path, matlab="matlab/R2025a")
+    _nordic_deriv(tmp_path)  # stamped without a runtime
+    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic",
+                      runtime="matlab/R2024a")
+    _nordic_unit(tmp_path, "01")
+    _toolbox(monkeypatch, "")
+    assert "matlab-drift" in _codes(check_consistency(cfg))
+
+
+def test_unknowable_matlab_runtime_is_never_drift(monkeypatch, tmp_path):
+    cfg = _nordic_cfg(tmp_path, matlab="matlab/R2025a")
+    _nordic_deriv(tmp_path)  # nothing recorded about the runtime
+    _toolbox(monkeypatch, "")
+    assert "matlab-drift" not in _codes(check_consistency(cfg))
+
+
 # ---- mixed provenance / version (log overlay) -------------------------------
 
 def test_mixed_input_variant_across_subjects_flagged(tmp_path):
@@ -387,6 +447,53 @@ def test_mixed_tool_version_across_subjects_flagged(tmp_path):
     record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep", tool_version="24.1.1")
     record_submission(cfg, "fmriprep", "02", "", "J2", tool="fmriprep", tool_version="25.0.0")
     assert "mixed-version" in _codes(check_consistency(cfg))
+
+
+def test_mixed_toolbox_versions_across_nordic_subjects_flagged(tmp_path):
+    """Mixing is not fMRIPrep-only: subjects denoised under different toolbox
+    commits land in one derivatives/nordic, and dataset-level on-disk provenance
+    cannot represent it."""
+    cfg = _nordic_cfg(tmp_path)
+    _nordic_unit(tmp_path, "01")
+    _nordic_unit(tmp_path, "02")
+    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic",
+                      tool_version="v1.0.2-24-g0861968")
+    record_submission(cfg, "nordic", "02", "", "J2", tool="nordic",
+                      tool_version="v1.0.2-31-gabcdef1")
+    issues = check_consistency(cfg)
+    assert "mixed-version" in _codes(issues)
+    assert any(i.stage == "nordic" for i in issues if i.check == "mixed-version")
+
+
+def test_mixed_matlab_runtimes_across_nordic_subjects_flagged(tmp_path):
+    cfg = _nordic_cfg(tmp_path)
+    _nordic_unit(tmp_path, "01")
+    _nordic_unit(tmp_path, "02")
+    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic", runtime="matlab/R2024a")
+    record_submission(cfg, "nordic", "02", "", "J2", tool="nordic", runtime="matlab/R2025a")
+    assert "mixed-runtime" in _codes(check_consistency(cfg))
+
+
+def test_uniform_nordic_provenance_is_clean(tmp_path):
+    cfg = _nordic_cfg(tmp_path)
+    _nordic_unit(tmp_path, "01")
+    _nordic_unit(tmp_path, "02")
+    for sub in ("01", "02"):
+        record_submission(cfg, "nordic", sub, "", f"J{sub}", tool="nordic",
+                          tool_version="v1.0.2-24-g0861968", runtime="matlab/R2024a")
+    codes = _codes(check_consistency(cfg))
+    assert "mixed-version" not in codes and "mixed-runtime" not in codes
+
+
+def test_blank_provenance_is_unknown_not_a_distinct_value(tmp_path):
+    """A derivative half of whose runs predate a provenance field must not read
+    as mixed — blank is unknown, not a value."""
+    cfg = _nordic_cfg(tmp_path)
+    _nordic_unit(tmp_path, "01")
+    _nordic_unit(tmp_path, "02")
+    record_submission(cfg, "nordic", "01", "", "J1", tool="nordic", runtime="")
+    record_submission(cfg, "nordic", "02", "", "J2", tool="nordic", runtime="matlab/R2024a")
+    assert "mixed-runtime" not in _codes(check_consistency(cfg))
 
 
 def test_submission_without_output_on_disk_contributes_no_provenance(tmp_path):

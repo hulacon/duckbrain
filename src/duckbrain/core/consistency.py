@@ -33,8 +33,12 @@ The checks, and which source each rests on:
 * **Toolbox drift** (on-disk, log fallback) — NORDIC's equivalent, against the
   git checkout it runs from rather than an image. Here comparing versions *is*
   sound: both sides are ``git describe`` of the same repo.
-* **Mixed input variant / version** (log overlay) — some subjects launched raw,
-  some NORDIC (or under different tool versions) into the same derivative.
+* **MATLAB drift** (on-disk, log fallback) — NORDIC's *second* axis. A container
+  stage has one (the image is both runtime and code); NORDIC's runtime (MATLAB)
+  and code (the toolbox) move independently, so the runtime needs its own check.
+* **Mixed input variant / version / runtime** (log overlay) — some subjects
+  launched raw, some NORDIC (or under different tool versions or runtimes) into
+  the same derivative.
 * **Staleness** (mtime) — a derivative older than an input it derives from
   (e.g. NORDIC re-run after fMRIPrep) → "stale, re-run".
 * **Presence** (matrix) — fMRIPrep present but NORDIC missing in a NORDIC project.
@@ -50,7 +54,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .containers import container_build_tag
-from .pipeline import nordic_toolbox_dir, read_submissions, resolve_container
+from .pipeline import (
+    matlab_module,
+    nordic_toolbox_dir,
+    read_submissions,
+    resolve_container,
+)
 from .surveyor import survey_project
 from .toolbox import describe
 
@@ -239,7 +248,7 @@ def _recorded_container(config: dict, stage: str, tool: str) -> tuple[str, str]:
         }
         return values.pop() if len(values) == 1 else ""
 
-    return _single("container"), _single("container_source")
+    return _single("runtime"), _single("code_source")
 
 
 def _uri_to_build_tag(uri: str) -> str:
@@ -263,7 +272,7 @@ def _check_container_drift(config: dict) -> list[ConsistencyIssue]:
     from) over the filename when both sides know it: the filename is a
     convention, so it misses an image rebuilt in place and cries wolf over one
     merely renamed. Falls back to the filename when build tags are unavailable
-    (e.g. runs logged before ``container_source`` existed), and stays silent when
+    (e.g. runs logged before ``code_source`` was recorded), and stays silent when
     neither side is knowable.
     """
     issues: list[ConsistencyIssue] = []
@@ -332,6 +341,53 @@ def _check_toolbox_drift(config: dict) -> list[ConsistencyIssue]:
     )]
 
 
+def _check_matlab_drift(config: dict) -> list[ConsistencyIssue]:
+    """The MATLAB module changed since it produced the NORDIC derivative.
+
+    NORDIC's *second* version axis. A container stage has only one — the image is
+    both runtime and code — but NORDIC's runtime (MATLAB) and code (the toolbox
+    checkout) move independently, so a `matlab_module` bump is invisible to
+    ``toolbox-drift`` and needs its own check.
+    """
+    if not read_derivative_provenance(config, "nordic").exists:
+        return []
+    recorded = _recorded_runtime(config, "nordic")
+    current = matlab_module(config)
+    if not recorded or not current or recorded == current:
+        return []
+    return [ConsistencyIssue(
+        "matlab-drift", stage="nordic",
+        message=(
+            f"NORDIC now runs under `{current}`, but the existing derivative was "
+            f"produced under `{recorded}`. The MATLAB module changed without a "
+            "re-run — the derivative reflects a different runtime than the one "
+            "that would run today."),
+    )]
+
+
+def _recorded_runtime(config: dict, stage: str) -> str:
+    """Runtime recorded for *stage*'s derivative, or "" if unknown.
+
+    Log-only: the runtime for a non-container stage has no dedicated BIDS field,
+    so ``_runtime_generated_by`` writes it as its own ``GeneratedBy`` entry —
+    which we read back here by name.
+    """
+    prov = read_derivative_provenance(config, stage)
+    for entry in prov.generated_by:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("Name", ""))
+        if name and name.lower() == "matlab":
+            version = str(entry.get("Version", ""))
+            return f"{name}/{version}" if version else name
+    runtimes = {
+        str(row.get("runtime", "")).strip()
+        for row in _latest_per_subject(config, stage).values()
+        if str(row.get("runtime", "")).strip()
+    }
+    return runtimes.pop() if len(runtimes) == 1 else ""
+
+
 def _recorded_toolbox(config: dict) -> str:
     """``git describe`` recorded for the NORDIC derivative, or "" if unknown.
 
@@ -385,41 +441,62 @@ def _check_mixed_provenance(config: dict) -> list[ConsistencyIssue]:
     On-disk ``dataset_description.json`` is dataset-level, so this mixing is
     invisible there — only duckbrain's own per-run record catches it.
     """
-    latest = _latest_per_subject(config, "fmriprep")
-    if not latest:
-        return []
     issues: list[ConsistencyIssue] = []
+    for stage, label in (("fmriprep", "fMRIPrep"), ("nordic", "NORDIC")):
+        latest = _latest_per_subject(config, stage)
+        if not latest:
+            continue
 
-    variants: dict[str, list[str]] = {}
-    for sub, row in latest.items():
-        v = str(row.get("input_variant", "")).strip()
-        if v:
-            variants.setdefault(v, []).append(sub)
-    if len(variants) > 1:
-        desc = "; ".join(f"{v}: {', '.join(sorted(s))}" for v, s in sorted(variants.items()))
-        issues.append(ConsistencyIssue(
-            "mixed-provenance", stage="fmriprep",
-            message=(
-                "fMRIPrep was run over different input variants across subjects "
-                f"in the same derivative ({desc}). Mixed provenance — re-run so "
-                "all subjects share one variant."),
-        ))
+        # Input variant only varies for fMRIPrep — NORDIC always consumes raw.
+        if stage == "fmriprep":
+            variants = _group_subjects_by(latest, "input_variant")
+            if len(variants) > 1:
+                issues.append(ConsistencyIssue(
+                    "mixed-provenance", stage=stage,
+                    message=(
+                        f"{label} was run over different input variants across "
+                        f"subjects in the same derivative ({_describe_groups(variants)}). "
+                        "Mixed provenance — re-run so all subjects share one variant."),
+                ))
 
-    tool_versions: dict[str, list[str]] = {}
-    for sub, row in latest.items():
-        tv = str(row.get("tool_version", "")).strip()
-        if tv:
-            tool_versions.setdefault(tv, []).append(sub)
-    if len(tool_versions) > 1:
-        desc = "; ".join(f"{v}: {', '.join(sorted(s))}" for v, s in sorted(tool_versions.items()))
-        issues.append(ConsistencyIssue(
-            "mixed-version", stage="fmriprep",
-            message=(
-                "fMRIPrep was run under different tool versions across subjects "
-                f"in the same derivative ({desc}). Re-run so all subjects share "
-                "one version."),
-        ))
+        versions = _group_subjects_by(latest, "tool_version")
+        if len(versions) > 1:
+            issues.append(ConsistencyIssue(
+                "mixed-version", stage=stage,
+                message=(
+                    f"{label} was run under different tool versions across subjects "
+                    f"in the same derivative ({_describe_groups(versions)}). Re-run "
+                    "so all subjects share one version."),
+            ))
+
+        runtimes = _group_subjects_by(latest, "runtime")
+        if len(runtimes) > 1:
+            issues.append(ConsistencyIssue(
+                "mixed-runtime", stage=stage,
+                message=(
+                    f"{label} was run under different runtimes across subjects in "
+                    f"the same derivative ({_describe_groups(runtimes)}). Re-run so "
+                    "all subjects share one runtime."),
+            ))
     return issues
+
+
+def _group_subjects_by(latest: dict[str, dict], column: str) -> dict[str, list[str]]:
+    """Subjects grouped by their recorded *column* value, ignoring blanks.
+
+    Blanks are "unknown", not a distinct value — otherwise a derivative half of
+    whose runs predate a provenance field would read as mixed.
+    """
+    groups: dict[str, list[str]] = {}
+    for subject, row in latest.items():
+        value = str(row.get(column, "")).strip()
+        if value:
+            groups.setdefault(value, []).append(subject)
+    return groups
+
+
+def _describe_groups(groups: dict[str, list[str]]) -> str:
+    return "; ".join(f"{v}: {', '.join(sorted(s))}" for v, s in sorted(groups.items()))
 
 
 def _check_staleness(config: dict) -> list[ConsistencyIssue]:
@@ -475,6 +552,7 @@ def check_consistency(config: dict) -> list[ConsistencyIssue]:
         _check_config_vs_provenance,
         _check_container_drift,
         _check_toolbox_drift,
+        _check_matlab_drift,
         _check_mixed_provenance,
         _check_staleness,
         _check_presence,

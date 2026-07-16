@@ -296,20 +296,48 @@ returns a full record, sourced from the toolbox's git checkout:
   none; `_is_checkout` now guards the empty path. Regression-tested.
 - 222 tests pass (was 200): `test_toolbox.py` (13) + toolbox-drift/provenance tests.
 
-**⚠️ STILL OPEN — the MATLAB runtime axis.** A container is *one* artifact pinning
-tool+runtime together; NORDIC has **two independent axes** and only the toolbox is
-recorded. The MATLAB runtime (`matlab_module = "matlab/R2024a"`, `[nordic]` in
-`config/base.toml`) is unrecorded, so a MATLAB version change is invisible to
-provenance and to `toolbox-drift`. Recording it is nearly free (already in config,
-no probing needed) but doesn't fit the current column shape — it needs either:
-  1. a third log column (`runtime`), or
-  2. renaming `container_*` → artifact-neutral (e.g. `artifact`/`artifact_source`),
-     which is a log migration — now cheap, since `_migrate_log_header` exists.
-Also note `container_source` is a mild misnomer for NORDIC already (it holds
-`Owner/Repo@sha`, not a container) — option 2 would fix both at once. Deferred
-pending that naming call. Related: `_check_mixed_provenance` only inspects
-fMRIPrep; generalizing it to NORDIC (mixed toolbox versions across subjects in one
-derivative) is the same shape of work.
+**MATLAB runtime axis — BUILT 2026-07-16 (option 2: rename, no new column).**
+Ben's call: fewer columns preferred. `container`/`container_source` → **`runtime`/
+`code_source`**, which spans both kinds of stage with *zero* new columns — NORDIC's
+runtime slot was empty precisely because it runs no image, so MATLAB fills existing
+space, and the `container_source` misnomer retires at the same time:
+
+| stage | `runtime` (what executed it) | `code_source` (where the code came from) |
+|---|---|---|
+| fMRIPrep | `fmriprep-24.1.1.simg` | `nipreps/fmriprep:24.1.1` |
+| MRIQC | `mriqc-24.0.2.simg` | `nipreps/mriqc:24.0.2` |
+| dcm2bids | `dcm2bids-3.2.0.sif` | `unfmontreal/dcm2bids:3.2.0` |
+| NORDIC | `matlab/R2024a` | `SteenMoeller/NORDIC_Raw@0861968` |
+
+For a container the image *is* the runtime and its tag names the code inside; for
+NORDIC they are two genuinely independent artifacts. Verified live across all four
+stages (table above is real output).
+- **The cost, and it was real:** `_migrate_log_header` maps rows by *name* and
+  rewrites the file in place, so a rename would have **silently and permanently
+  dropped** legacy `container`/`container_source` values. `_SUBMISSION_RENAMES`
+  now carries them across; `read_submissions` renames on read too (reading must
+  never require a write); and the migration compares the *raw* header, since
+  `_parse_log_rows` renames on the way in and an old-named log would otherwise
+  look current and keep its stale header forever. All three are regression-tested.
+- **On-disk:** BIDS has no runtime field, and MATLAB isn't a container — so it
+  gets its own `GeneratedBy` entry (`{"Name": "matlab", "Version": "R2024a"}`),
+  which is spec-legal since `GeneratedBy` is a list. NORDIC's stamp is now
+  `[duckbrain, nordic, matlab]`.
+- **New `matlab-drift` check** — NORDIC's second axis, independent of
+  `toolbox-drift`: a `matlab_module` bump with an unchanged toolbox fires one and
+  not the other.
+- **`_check_mixed_provenance` generalized** beyond fMRIPrep: now also covers
+  NORDIC (mixed toolbox versions across subjects in one `derivatives/nordic`) and
+  adds **`mixed-runtime`**. Input-variant mixing stays fMRIPrep-only — NORDIC
+  always consumes raw. Blank values count as *unknown*, not a distinct value, so a
+  derivative half of whose runs predate a field doesn't read as mixed.
+- 236 tests pass. `check_consistency` on the real project: 0 issues, ~213 ms.
+
+**Known remaining wrinkle (minor):** `tool_version` is itself now overloaded — it
+holds a container *tag* for container stages (`24.1.1`) but a `git describe` for
+NORDIC (`v1.0.2-24-g0861968`). Both are "the version we pinned/ran", so it's
+defensible, but it is the same class of misnomer the rename just fixed. Not worth
+another migration on its own; fold in if the columns are ever touched again.
 
 **Background — why the SHA is the only honest version.**
 - Upstream's own version markers are **unusable**: the in-file

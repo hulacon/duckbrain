@@ -168,6 +168,24 @@ def write_dataset_description(
     return desc_path
 
 
+def _runtime_generated_by(runtime: str) -> dict:
+    """A ``GeneratedBy`` entry for a non-container runtime, e.g. ``matlab/R2024a``.
+
+    A container image needs none — it *is* the runtime, and ``Container`` already
+    records it. NORDIC runs under a MATLAB module instead, which is a genuine
+    second tool in the chain, so it earns its own entry (``GeneratedBy`` is a
+    list). Splits ``<name>/<version>``; a bare string with no version records the
+    name alone rather than inventing one.
+    """
+    r = (runtime or "").strip()
+    if not r:
+        return {}
+    name, sep, version = r.rpartition("/")
+    if not sep:
+        return {"Name": r}
+    return {"Name": name, "Version": version}
+
+
 def write_derivative_description(
     deriv_dir: str | Path,
     pipeline_name: str,
@@ -177,6 +195,7 @@ def write_derivative_description(
     container: str = "",
     container_uri: str = "",
     code_url: str = "",
+    runtime: str = "",
     source_dataset: str | Path | None = None,
     name: str = "",
 ) -> Path:
@@ -217,6 +236,9 @@ def write_derivative_description(
     generated_by = [_duckbrain_generated_by()]
     if tool_entry:
         generated_by.append(tool_entry)
+    runtime_entry = _runtime_generated_by(runtime)
+    if runtime_entry:
+        generated_by.append(runtime_entry)
 
     description: dict = {
         "Name": name or pipeline_name,

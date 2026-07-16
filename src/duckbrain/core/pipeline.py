@@ -180,9 +180,10 @@ def _build_nordic(config, subject, session, log_dir, params):
         write_derivative_description(
             f"{paths['derivatives_dir']}/nordic", "nordic",
             tool=prov["tool"], tool_version=prov["tool_version"],
-            container=prov["container"],
+            container=image.name if image else "",
             container_uri=container_uri(image) if image else "",
             code_url=code_url(nordic_toolbox_dir(config)),
+            runtime=prov["runtime"],
             source_dataset=paths["bids_dir"],
         )
     except Exception:
@@ -345,10 +346,22 @@ _SUBMISSION_LOG = "submissions.tsv"
 # This is duckbrain's own per-run record — the one source that can catch mixed
 # provenance in a single derivative dir (on-disk dataset_description.json is
 # dataset-level and overwritten by the last run). See TODO ★ Phase A.
+# ``runtime`` is what executed the tool, ``code_source`` where its code came from.
+# For a container stage the image is the runtime and its Docker tag names the code
+# inside; NORDIC has two genuinely distinct artifacts (MATLAB runs it, the toolbox
+# checkout is the code). One pair of columns spans both — see run_provenance.
 _SUBMISSION_COLUMNS = [
     "timestamp", "subject", "session", "stage",
-    "tool", "tool_version", "container", "container_source", "input_variant", "job_id",
+    "tool", "tool_version", "runtime", "code_source", "input_variant", "job_id",
 ]
+
+# Columns renamed since logs were first written. The migration maps rows by *name*,
+# so without this a renamed column's values would be silently dropped — and the log
+# is rewritten in place, making that loss permanent.
+_SUBMISSION_RENAMES = {
+    "container": "runtime",
+    "container_source": "code_source",
+}
 
 # Which underlying tool each surveyor stage runs, and the config key holding its
 # pinned version. NORDIC is a MATLAB-toolbox stage with no semantic version key.
@@ -358,6 +371,15 @@ _STAGE_TOOL = {
     "mriqc": ("mriqc", "mriqc_version"),
     "nordic": ("nordic", None),
 }
+
+
+def matlab_module(config: dict) -> str:
+    """MATLAB module NORDIC runs under, e.g. ``matlab/R2024a``.
+
+    NORDIC's *runtime* — the second of its two version axes, independent of the
+    toolbox checkout that supplies its code.
+    """
+    return str(config.get("nordic", {}).get("matlab_module", "") or "")
 
 
 def nordic_toolbox_dir(config: dict) -> str:
@@ -388,46 +410,54 @@ def resolve_container(config: dict, stage: str) -> Path | None:
 
 
 def run_provenance(config: dict, stage: str) -> dict:
-    """Best-effort provenance for a launch: tool, version, container, input variant.
+    """Best-effort provenance for a launch: tool, version, runtime, code source,
+    input variant.
 
-    Reads the pinned version from ``[containers]`` and resolves the container
-    basename via the stage's own ``get_container_path`` (same resolution the
-    builder used). ``container_source`` is the image's *build provenance* — the
-    Docker tag it was bootstrapped from, read out of the image's own labels — a
-    stronger identity than the filename, which is only a convention (see
-    ``core.containers``). ``input_variant`` is ``nordic`` when fMRIPrep is routed
-    through the denoised tree, else ``raw``. Every field degrades to ``""`` off
-    the resolvable path — provenance should never block a submission.
+    Two slots span both kinds of stage. ``runtime`` is what executed the tool —
+    the container image, or MATLAB for NORDIC. ``code_source`` is where its code
+    came from: for an image, its *build provenance* (the Docker tag it was
+    bootstrapped from, read out of the image's own labels — a stronger identity
+    than the filename, which is only a convention; see ``core.containers``); for
+    NORDIC, the toolbox checkout as ``Owner/Repo@sha`` (``core.toolbox``). A
+    container needs only one artifact because the image is both; NORDIC's two move
+    independently.
+
+    ``input_variant`` is ``nordic`` when fMRIPrep is routed through the denoised
+    tree, else ``raw``. Every field degrades to ``""`` off the resolvable path —
+    provenance should never block a submission.
     """
     tool, version_key = _STAGE_TOOL.get(stage, ("", None))
     containers = config.get("containers", {})
     tool_version = containers.get(version_key, "") if version_key else ""
 
-    container = ""
-    container_source = ""
+    runtime = ""
+    code_source = ""
     try:
         path = resolve_container(config, stage)
         if path:
-            container = Path(path).name
+            # A container image *is* the runtime; its Docker tag names the code.
+            runtime = Path(path).name
             from .containers import container_build_tag
-            container_source = container_build_tag(path)
+            code_source = container_build_tag(path)
     except Exception:
-        container = container or ""
-        container_source = ""
+        runtime = runtime or ""
+        code_source = ""
 
-    # NORDIC runs no container: its artifact is a git checkout of the toolbox, so
-    # its identity comes from the checkout instead (core.toolbox). ``container``
-    # stays empty — there is no image — while ``container_source`` carries the
-    # same *where did this code come from* role it does for an image.
+    # NORDIC's two artifacts are genuinely distinct: MATLAB executes it, and its
+    # code is a git checkout of the toolbox (core.toolbox). They map onto the same
+    # pair of slots a container stage uses — the runtime slot is free precisely
+    # because NORDIC runs no image.
     if stage == "nordic":
         try:
             from .toolbox import describe, source_ref
             repo = nordic_toolbox_dir(config)
             tool_version = describe(repo)
-            container_source = source_ref(repo)
+            code_source = source_ref(repo)
+            runtime = matlab_module(config)
         except Exception:
             tool_version = tool_version or ""
-            container_source = ""
+            code_source = ""
+            runtime = ""
 
     if stage == "fmriprep":
         input_variant = "nordic" if _use_nordic(config) else "raw"
@@ -439,8 +469,8 @@ def run_provenance(config: dict, stage: str) -> dict:
     return {
         "tool": tool,
         "tool_version": tool_version,
-        "container": container,
-        "container_source": container_source,
+        "runtime": runtime,
+        "code_source": code_source,
         "input_variant": input_variant,
     }
 
@@ -459,7 +489,7 @@ def _parse_log_rows(text: str) -> tuple[list[str], list[dict]]:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         return [], []
-    header = lines[0].split("\t")
+    header = [_SUBMISSION_RENAMES.get(c, c) for c in lines[0].split("\t")]
     rows = [dict(zip(header, ln.split("\t"))) for ln in lines[1:]]
     return header, rows
 
@@ -474,9 +504,11 @@ def _migrate_log_header(path: Path) -> None:
     submission log, the Job Monitor, and every log-overlay consistency check down
     with it. So bring the header up to date *before* appending.
 
-    Rows are re-mapped by column *name*, so no data moves columns and new fields
-    fill empty. Rewritten atomically: a crash mid-migration leaves the original
-    log intact, never a half-written one. Idempotent, and a no-op for a current
+    Rows are re-mapped by column *name* (honoring ``_SUBMISSION_RENAMES``, so a
+    renamed column keeps its values rather than being silently dropped into a
+    rewritten file), so no data moves columns and new fields fill empty. Rewritten
+    atomically: a crash mid-migration leaves the original log intact, never a
+    half-written one. Idempotent, and a no-op for a current
     or absent log.
     """
     if not path.exists():
@@ -485,9 +517,13 @@ def _migrate_log_header(path: Path) -> None:
         text = path.read_text()
     except OSError:
         return
-    header, rows = _parse_log_rows(text)
-    if not header or header == _SUBMISSION_COLUMNS:
+    raw_header = text.splitlines()[0].split("\t") if text.strip() else []
+    if not raw_header or raw_header == _SUBMISSION_COLUMNS:
         return
+    # Compare the header *as written*: _parse_log_rows renames on the way in, so a
+    # log using the old column names would otherwise look current and keep its
+    # stale header on disk forever.
+    _, rows = _parse_log_rows(text)
     tmp = path.with_suffix(path.suffix + ".migrating")
     try:
         with open(tmp, "w") as f:
@@ -508,25 +544,24 @@ def record_submission(
     *,
     tool: str = "",
     tool_version: str = "",
-    container: str = "",
-    container_source: str = "",
+    runtime: str = "",
+    code_source: str = "",
     input_variant: str = "",
 ) -> Path:
     """Append one launched job to ``<log_dir>/submissions.tsv`` (tab-separated).
 
-    Provenance fields (``tool``/``tool_version``/``container``/
-    ``container_source``/``input_variant``) are keyword-only with empty defaults,
-    so older/hand callers still work; the cockpit passes them via
-    :func:`run_provenance`. Idempotent header: writes the column row only when
-    creating the file.
+    Provenance fields (``tool``/``tool_version``/``runtime``/``code_source``/
+    ``input_variant``) are keyword-only with empty defaults, so older/hand callers
+    still work; the cockpit passes them via :func:`run_provenance`. Idempotent
+    header: writes the column row only when creating the file.
     """
     path = _submission_log_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     _migrate_log_header(path)
     write_header = not path.exists()
     ts = datetime.now().isoformat(timespec="seconds")
-    row = [ts, subject, session, stage, tool, tool_version, container,
-           container_source, input_variant, str(job_id)]
+    row = [ts, subject, session, stage, tool, tool_version, runtime,
+           code_source, input_variant, str(job_id)]
     with open(path, "a") as f:
         if write_header:
             f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
@@ -551,9 +586,10 @@ def read_submissions(config: dict, limit: int | None = None) -> pd.DataFrame:
         return pd.DataFrame(columns=_SUBMISSION_COLUMNS)
     try:
         df = pd.read_csv(path, sep="\t", dtype=str).fillna("")
+        df = df.rename(columns=_SUBMISSION_RENAMES)
     except (ValueError, OSError, pd.errors.ParserError):
         try:
-            _, rows = _parse_log_rows(path.read_text())
+            _, rows = _parse_log_rows(path.read_text())  # renames on the way in
         except OSError:
             return pd.DataFrame(columns=_SUBMISSION_COLUMNS)
         df = pd.DataFrame(rows, dtype=str).fillna("")
