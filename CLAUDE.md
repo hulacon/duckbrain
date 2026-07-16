@@ -161,17 +161,26 @@ Key behaviors to know when editing the app:
 All core stages are validated live: DICOM→BIDS, fMRIPrep, MRIQC, and NORDIC
 (producer + `use_nordic` fMRIPrep chaining, 2026-07-15). Remaining, roughly in order:
 
-1. **★ TOP PRIORITY — provenance recording + consistency checker (TODO top).**
-   Phase A: record each run's input variant in `code/logs/submissions.tsv` (cheap,
-   makes duckbrain self-authoritative). Phase B: `check_consistency(config)` flags
-   config-vs-provenance / mixed-provenance / staleness / presence mismatches as ⚠️
-   in the cockpit. Motivated by the `use_nordic` mixing foot-gun (see TODO top +
-   `docs/pipeline-extras.md` #5).
+1. **★ Provenance recording + consistency checker — BUILT (Phases A+B), on `main`.**
+   Records each run's tool/version/container/input-variant in
+   `code/logs/submissions.tsv` and writes BIDS `GeneratedBy`; `check_consistency(config)`
+   surfaces config-vs-provenance / mixed-provenance / version-drift / staleness /
+   presence mismatches as ⚠️ in the cockpit. **Next-session (on-cluster) TODO:**
+   live-validate the checker on a real mixed-provenance project (e.g. the
+   `divatten_gui_beta` sub-04/sub-015 raw-fMRIPrep + `use_nordic` mix) and wire the
+   two Phase A leftovers (ingested-root dcm2bids `GeneratedBy`; Nipoppy bagel export).
 2. **Cockpit usability pass** (TODO #0) — unblocked now that behavior is locked.
    Concrete gripe: gated stages vanish from the launch dropdown (per-cell action
-   would fix it).
+   would fix it). Needs a live browser look (feel can't be judged from AppTest).
 3. Onboarding: QUICKSTART + README refresh + the OOD distribution story (TODO #2).
-4. Naming/discovery robustness (TODO #4); config/mapping niceties (TODO #5).
+4. **Naming/discovery robustness (TODO #4) — 3 of 4 items DONE, on `main`.**
+   `G##_S##` sessions, phantom/test-folder filtering, and multiple-fieldmap-pair
+   splitting are built + unit-tested. **Deferred to on-cluster:** mmmdata-style
+   nested multi-session discovery (needs a real source-layout example to implement
+   verifiably). Then config/mapping niceties (TODO #5).
 5. Pipeline-extras backlog (TODO #7, `docs/pipeline-extras.md`): de-identification
    (highest-value), DTI/DWI, physio, scanning-notes, QC dashboard, ReproIn,
    DeepMReye. NORDIC Case 2 (same-project raw-vs-NORDIC compare) when needed.
+
+See **`docs/handoff-cluster-session.md`** for what the next on-cluster session
+should validate live (this was a web session — no Talapas FS/SLURM access).
