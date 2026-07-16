@@ -1,41 +1,54 @@
 # Handoff → next on-cluster session
 
-**Written 2026-07-16 from a web session** (Claude Code on the web: no Talapas
-filesystem, no SLURM, no real DICOM/fMRI data). Everything below was done or
-verified *offline* — unit tests only. The items flagged **VALIDATE LIVE** need a
-real Talapas session because they touch the shared FS, real scanner exports, or
-`dcm2bids`/SLURM behavior that can't be exercised here.
+**Updated 2026-07-16 at the end of an on-cluster session.** The provenance item
+that headed this doc is now closed and validated live; §2 and §3 below were *not*
+reached and are still the live-validation work waiting for a Talapas session
+(shared FS, real scanner exports, `dcm2bids`/SLURM behavior).
 
 ## State of `main`
 
-- HEAD `eeede67`; **179 unit tests pass** (`python -m pytest tests/ -q`).
-- This session's commits (all on `main`, pushed to `origin`):
-  1. Folded the **provenance Phase A+B** work off the stale feature branch
-     `claude/inspiring-mendel-emjayq` into `main` (fast-forward, no conflicts).
-     It had been built but never merged — the exact "stale feature branch" risk
-     `CLAUDE.md` warns about. `main` is now the source of truth again.
-  2. `0384694` — discovery robustness: `G##_S##` sessions + phantom/test folder
-     filtering (TODO #4 items 1–2).
-  3. `eeede67` — fieldmaps: split multiple pairs per session instead of
-     collapsing (TODO #4 item 3).
+- **255 tests pass** (`python -m pytest tests/ -q`); working tree clean, pushed.
+  Don't trust a commit hash quoted in a doc — check `git log --oneline -1`.
+- **Licensed GPL-3.0-or-later; released + tagged `v0.1.0`.** Semver + `CHANGELOG.md`.
+  Note the accepted trade-off: GPL blocks upstreaming duckbrain code into the
+  Apache-2.0 nipreps tools or MIT nipoppy (so the mooted `surveyor.py` → mmmdata
+  port needs dual-licensing). Open: confirm with UO/RACS that Ben can license it.
+- **★ Provenance + consistency: CLOSED.** Provenance per run; BIDS `GeneratedBy` on
+  every duckbrain-produced dataset (incl. the ingested root's dcm2bids converter and
+  per-file NORDIC sidecars); seven checks in the cockpit. **The rule:** provenance
+  for derivatives duckbrain *produces* lives in the data (sidecars → dataset stamp);
+  for tool-produced ones (fMRIPrep/MRIQC) the submission log is the only channel.
+  **Never** compare a config-pinned container *tag* to a tool's *self-reported*
+  version — different namespaces (that bug shipped, see TODO ★).
+- **Nipoppy bagel export removed** (write path with no reader; its version column
+  came from config, not provenance). Verified spec preserved in memory for a re-add.
 
 **First thing on-cluster:** `cd ~/code/duckbrain && git pull origin main`. The
 OnDemand app serves *this checkout*, so the GUI keeps running old code until you
 pull.
 
+## A caution this session earned
+
+The previous version of this doc asserted `divatten_gui_beta` was
+"genuinely mixed" provenance and that the checker just needed confirming. **Both
+were wrong** — the derivative held only sub-04/sub-015, both raw, and the checker
+failed its own "stays silent when clean" criterion on first run. Treat the claims
+below as *hypotheses to check*, not findings. Verify before building on them.
+
 ## VALIDATE LIVE (priority order)
 
-### 1. Provenance consistency checker (Phase B) — ✅ DONE 2026-07-16
-Validated live against `divatten_gui_beta` and the real containers dir. Found and
-fixed two bugs (`version-drift` → `container-drift`; log overlay counting
-cancelled/deleted runs). **Two premises in the original item were wrong:**
-`divatten_gui_beta` is *not* mixed (only sub-04 + sub-015 in `derivatives/fmriprep`,
-both raw — the sub-008 NORDIC run was cancelled and removed), and the "silent on a
-clean project" criterion *failed* on first run — the real MRIQC container exposed a
-namespace bug the fixtures couldn't. Full findings in `TODO.md` (Phase B validated
-section). **Still open:** `mixed-provenance`/`mixed-version` remain unvalidated —
-the real log is all pre-Phase-A rows with empty provenance columns, so the
-log-overlay checks are inert until new runs are launched under two variants.
+### 1. Provenance consistency checker — ✅ CLOSED 2026-07-16. Nothing to do.
+Validated live; the whole ★ item is closed (see `TODO.md`). Five bugs found that
+unit tests could not have caught: the container-tag-vs-self-reported-version false
+positive, a latent submission-log corruption that would have fired on the next
+launch, phantom provenance from cancelled runs, `Path("")` describing duckbrain's
+own repo as the NORDIC toolbox, and NORDIC having no sidecars at all.
+**One accepted residual — do not re-open the item for it:** the mixing check has
+never been driven by two *completed* real fMRIPrep runs (hours of compute, and it
+works by deliberately corrupting a derivative to prove a warning fires). Every
+*input* is live-validated and the grouping logic was driven end-to-end on real
+`run_provenance` values → `mixed-provenance ... (nordic: 015; raw: 04)`. Close it
+for free the next time a project genuinely mixes variants.
 
 ### 2. Discovery fixes against real LCNI export dirs
 Sanity-check `discover_sessions` on actual source dirs — synthetic fixtures can't
@@ -74,10 +87,14 @@ real mmmdata source tree (`ls -R` a subject or two), pin down how func- and
 anat-sessions fold into BIDS sessions, then extend `discover_sessions` +
 `_parse_session_folder` with fixtures modeled on the real layout.
 
-### Provenance Phase A leftovers
-- Emit `GeneratedBy` for the **ingested BIDS root** with the `dcm2bids` entry
-  (converter provenance) — pairs naturally with validating a real conversion.
-- Nipoppy **bagel export** tie-in.
+### ~~Provenance Phase A leftovers~~ — both closed 2026-07-16
+- ✅ Ingested BIDS root now records the `dcm2bids` converter
+  (`converter_generated_by`). Still pairs naturally with §3: a real conversion is
+  the way to eyeball the emitted root description.
+- ~~Nipoppy bagel export tie-in~~ — moot; the bagel export was **removed** (it was
+  a write path with no reader, and its version column came from config rather than
+  provenance). The verified spec is preserved in `memory/nipoppy-status-tracking`
+  if it's ever wanted back.
 
 ## Notes
 - No `MEMORY.md`/`memory/` exists in this checkout (they live on-cluster per

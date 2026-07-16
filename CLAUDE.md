@@ -48,10 +48,11 @@ copy doesn't fall behind.
   submission log `code/logs/submissions.tsv`, deep-links). Stages tracked:
   `ingested, converted, nordic, fmriprep, mriqc`. Full design + resumable status
   tracker in `docs/pipeline-cockpit.md`.
-- **237 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
+- **255 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
   smoke/interaction tests for GUI pages.
-- **Committed** — latest ~`b364e26` (HEAD drifts; treat as "latest"). **May be
-  ahead of `origin`; push before relying on distribution** (see workflow note).
+- **Committed + pushed.** Don't trust a commit hash written here — they go stale
+  within a session (this file has been wrong about it before). Run `git log
+  --oneline -1` and `git status`. Releases are tags: `git tag` (currently `v0.1.0`).
 - **Licensed GPL-3.0-or-later; released + tagged from `v0.1.0` (2026-07-16).**
   Semver, git tags, `CHANGELOG.md`. Note the copyleft trade-off Ben accepted
   knowingly: duckbrain code **cannot be upstreamed** into the Apache-2.0 nipreps
@@ -197,5 +198,10 @@ All core stages are validated live: DICOM→BIDS, fMRIPrep, MRIQC, and NORDIC
    (highest-value), DTI/DWI, physio, scanning-notes, QC dashboard, ReproIn,
    DeepMReye. NORDIC Case 2 (same-project raw-vs-NORDIC compare) when needed.
 
-See **`docs/handoff-cluster-session.md`** for what the next on-cluster session
-should validate live (this was a web session — no Talapas FS/SLURM access).
+**Start here next session:** `docs/handoff-cluster-session.md` — its §2 (discovery
+fixes against a real LCNI export) and §3 (multiple-fieldmap-pair conversion
+end-to-end) are the only items left in it, never reached, and both need real data.
+They pair naturally with eyeballing the new dcm2bids `GeneratedBy` on an ingested
+root. That doc also carries a caution worth heeding: its previous version asserted
+findings that turned out to be **wrong** on inspection, so treat its claims as
+hypotheses to verify, not facts.
