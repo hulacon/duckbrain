@@ -156,7 +156,7 @@ with c1:
 with c2:
     dcm2bids_ver = st.text_input("dcm2bids version", value=_get("containers", "dcm2bids_version") or "3.2.0")
     fmriprep_ver = st.text_input("fMRIPrep version", value=_get("containers", "fmriprep_version") or "24.1.1")
-    mriqc_ver = st.text_input("MRIQC version", value=_get("containers", "mriqc_version") or "24.1.0")
+    mriqc_ver = st.text_input("MRIQC version", value=_get("containers", "mriqc_version") or "24.0.2")
 
 # Validate shared resources
 issues = []

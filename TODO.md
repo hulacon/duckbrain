@@ -287,15 +287,18 @@ OPEN. Do NOT tick this item off.**
      personal-OOD-sandbox registration steps for a *new* user (never written up).
   6. **First-project GUI feel** — the actual friction points in Ingestion
      mapping / Conversion (bullet 2 below) — needs a real browser walkthrough.
-- ❓ **OPEN QUESTION for someone who can run MRIQC: should the shipped default be
-  the validated `24.0.2`?** `config/base.toml` pins `mriqc_version = "24.1.0"`
-  and the README's build command follows it, but the setup validated end-to-end
-  (all 9 test subjects clean) is **`24.0.2`** — what the maintainer's *user*
-  config pins, overriding the untested default. So base.toml's default has never
-  been run. Deciding this needs live MRIQC; not changed here (would be a silent,
-  unverifiable edit). *(Unrelated trap, don't "fix" in docs: that container
-  self-reports `24.1.0.dev0+gd5b13cb5` — a container tag and a tool's
-  self-reported version are different namespaces.)*
+- ✅ **RESOLVED 2026-07-17: shipped default pinned to `24.0.2`.** The question
+  didn't need a live MRIQC run after all — it needed the release landscape.
+  Checked upstream: **`24.0.2` is MRIQC's latest stable release** (25.0.0 never
+  left rc; 25.1/26.0 are dev-only) *and* there is **no `nipreps/mriqc:24.1.0`
+  Docker tag at all** (Docker Hub lists …24.0.1, 24.0.2, 25.0.0rc0 — no 24.1.0).
+  So the old default `24.1.0` pointed the container-build command at a tag that
+  doesn't exist; only the maintainer's user-config override to `24.0.2` hid it.
+  Pinned `config/base.toml` + the README/QUICKSTART build commands to `24.0.2`
+  (the validated *and* latest-stable version). *(The trap still holds: the
+  `24.0.2` container self-reports `24.1.0.dev0+gd5b13cb5` — a tool's
+  self-reported version and its container tag are different namespaces; that's
+  where the phantom `24.1.0` came from.)*
 
 Still OPEN (unchanged — need a cluster/browser, not attempted):
 - **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —

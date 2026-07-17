@@ -68,15 +68,12 @@ singularity build $CONTAINERS_DIR/dcm2bids-3.2.0.sif docker://unfmontreal/dcm2bi
 singularity build $CONTAINERS_DIR/fmriprep-24.1.1.sif docker://nipreps/fmriprep:24.1.1
 
 # MRIQC
-singularity build $CONTAINERS_DIR/mriqc-24.1.0.sif docker://nipreps/mriqc:24.1.0
+singularity build $CONTAINERS_DIR/mriqc-24.0.2.sif docker://nipreps/mriqc:24.0.2
 ```
 
-> **Heads-up on the MRIQC version.** The `24.1.0` above matches the shipped
-> default in `config/base.toml`, but that default is **untested** — the setup
-> actually validated end-to-end used **`24.0.2`** (pinned in the maintainer's
-> user config, which overrides the default). If MRIQC misbehaves, try `24.0.2`.
-> Whether the shipped default should change is an open question — see `TODO.md`
-> §2.
+> **Note on the MRIQC version.** `24.0.2` is both the version validated
+> end-to-end and MRIQC's latest stable release (there is no `24.1.0` release
+> tag — that string is only what the `24.0.2` container self-reports internally).
 
 Users also need a **FreeSurfer license file** for fMRIPrep and MRIQC (free from
 <https://surfer.nmr.mgh.harvard.edu/registration.html>); point config's

@@ -65,18 +65,14 @@ CONTAINERS_DIR=/path/to/your/containers   # e.g. /projects/<pirg>/$USER/containe
 
 singularity build $CONTAINERS_DIR/dcm2bids-3.2.0.sif  docker://unfmontreal/dcm2bids:3.2.0
 singularity build $CONTAINERS_DIR/fmriprep-24.1.1.sif docker://nipreps/fmriprep:24.1.1
-singularity build $CONTAINERS_DIR/mriqc-24.1.0.sif    docker://nipreps/mriqc:24.1.0
+singularity build $CONTAINERS_DIR/mriqc-24.0.2.sif    docker://nipreps/mriqc:24.0.2
 ```
 
-> **`UNVALIDATED` — the MRIQC version.** The shipped default in
-> `config/base.toml` is `mriqc_version = "24.1.0"`, so the command above follows
-> it. But the setup the maintainer actually validated (all test subjects clean)
-> used **`24.0.2`** — pinned in their *user* config, which overrides the shipped
-> default. The shipped `24.1.0` default is therefore **untested**. If you hit
-> trouble with MRIQC, try `24.0.2` (build `mriqc-24.0.2.sif` from
-> `docker://nipreps/mriqc:24.0.2` and set `mriqc_version = "24.0.2"`). Whether
-> the shipped default *should* become `24.0.2` is an open question for the next
-> on-cluster session (see `TODO.md` §2).
+> **Note on the MRIQC version.** `24.0.2` is both the version the maintainer
+> validated end-to-end (all test subjects clean) and MRIQC's latest stable
+> release. There is **no `24.1.0` release** — `docker://nipreps/mriqc:24.1.0`
+> does not exist as a pullable tag; `24.1.0.dev0` is only what the `24.0.2`
+> container self-reports internally (an upstream packaging artifact).
 >
 > On Talapas you may need `module load apptainer` (or `singularity`) and to
 > build somewhere with room — images are multi-GB. `UNVALIDATED` for a new

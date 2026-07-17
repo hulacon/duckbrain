@@ -24,7 +24,7 @@ project = ""               # e.g., "mmmdata"
 [containers]
 dcm2bids_version = "3.2.0"
 fmriprep_version = "24.1.1"
-mriqc_version = "24.1.0"
+mriqc_version = "24.0.2"
 
 [fmriprep]
 output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
