@@ -34,6 +34,7 @@ from .dicom_inspect import (
     SeriesInfo,
     extract_task_label,
     parse_task_run,
+    sanitize_task_label,
 )
 
 
@@ -240,7 +241,10 @@ def generate_config(
     func_series = [s for s in series_list if s.classification == "func"]
     for s in func_series:
         entry = entry_by_series.get(s.series_number)
-        task = entry.task if entry else extract_task_label(s.description)
+        # Sanitize regardless of source: the heuristic already yields a valid
+        # label, but a user-entered mapping edit or project rule (entry.task) can
+        # carry an underscore/space/hyphen that would break the BIDS entity.
+        task = sanitize_task_label(entry.task if entry else extract_task_label(s.description))
         run = entry.run if entry else None
         run_suffix = f"-run{run}" if run is not None else ""
         custom_entities = f"task-{task}" + (f"_run-{run}" if run is not None else "")
@@ -276,7 +280,10 @@ def generate_config(
         if s.classification != "sbref":
             continue
         entry = entry_by_series.get(s.series_number)
-        task = entry.task if entry else extract_task_label(s.description)
+        # Sanitize regardless of source: the heuristic already yields a valid
+        # label, but a user-entered mapping edit or project rule (entry.task) can
+        # carry an underscore/space/hyphen that would break the BIDS entity.
+        task = sanitize_task_label(entry.task if entry else extract_task_label(s.description))
         run = entry.run if entry else None
         run_suffix = f"-run{run}" if run is not None else ""
         custom_entities = f"task-{task}" + (f"_run-{run}" if run is not None else "")

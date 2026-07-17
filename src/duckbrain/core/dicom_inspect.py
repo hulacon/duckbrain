@@ -331,6 +331,19 @@ def _sanitize_task_label(raw: str) -> str:
     return label or "unknown"
 
 
+def sanitize_task_label(raw: str) -> str:
+    """Public wrapper for :func:`_sanitize_task_label`.
+
+    A BIDS entity value must be alphanumeric — an underscore, space, or hyphen in
+    a task label would break the filename (``task-resting_test`` parses as
+    ``task-resting`` plus an orphan ``test`` token). The naming heuristic already
+    routes its output through this, but a *user-entered* task label (a mapping
+    table edit or a hand-written project rule) does not — so consumers that build
+    BIDS entities from any task label (heuristic or human) must sanitize here.
+    """
+    return _sanitize_task_label(raw)
+
+
 def compile_naming_template(template: str) -> re.Pattern:
     """Compile a glob-like naming template into a regex with named groups.
 

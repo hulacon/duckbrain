@@ -227,3 +227,43 @@ def test_save_project_task_map_empty_removes_section(tmp_path):
     data = _load_toml(project_config_path(tmp_path))
     assert "task_mapping" not in data
     assert task_rules_from_config(data) == []
+
+
+# ---- task labels are sanitized to valid BIDS entities (no _, space, hyphen) ----
+
+def test_underscore_task_label_is_sanitized_in_generated_entities():
+    # A user edit / hand-written rule like "resting_test" would otherwise emit
+    # task-resting_test — invalid BIDS (the _ splits the entity). It must be
+    # camelCased to task-restingTest before it reaches custom_entities.
+    series = [_series(33, "resting", "func")]
+    rules = [TaskRule(description="resting", task="resting_test")]
+    mapping = build_task_run_mapping(series, rules=rules)
+    cfg = generate_config(series, FieldmapDetection(strategy="none"), mapping=mapping)
+    ents = [d["custom_entities"] for d in cfg["descriptions"]]
+    assert ents == ["task-restingTest_run-1"]
+    assert not any("_test" in e for e in ents)  # underscore must be gone
+    # sidecar TaskName stays consistent with the entity
+    assert cfg["descriptions"][0]["sidecar_changes"]["TaskName"] == "restingTest"
+
+
+def test_sanitized_label_applies_to_sbref_too():
+    series = [
+        _series(33, "resting", "func"),
+        _series(32, "resting_SBRef", "sbref"),
+    ]
+    rules = [TaskRule(description="resting", task="rest state")]
+    mapping = build_task_run_mapping(series, rules=rules)
+    cfg = generate_config(series, FieldmapDetection(strategy="none"), mapping=mapping)
+    for d in cfg["descriptions"]:
+        assert d["custom_entities"].startswith("task-restState")
+        assert " " not in d["custom_entities"]
+
+
+def test_sanitize_task_label_public_wrapper():
+    from duckbrain.core.dicom_inspect import sanitize_task_label
+
+    assert sanitize_task_label("resting_test") == "restingTest"
+    assert sanitize_task_label("rest state") == "restState"
+    assert sanitize_task_label("faces-run") == "facesRun"
+    assert sanitize_task_label("already") == "already"
+    assert sanitize_task_label("") == "unknown"

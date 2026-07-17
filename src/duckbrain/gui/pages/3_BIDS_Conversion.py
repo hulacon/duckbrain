@@ -240,6 +240,23 @@ if seed_mapping:
         for _, row in mapping_df.iterrows()
     ]
 
+    # A BIDS task entity must be alphanumeric. The config generator sanitizes
+    # anyway (so no invalid filename ever ships), but surface it here so the
+    # rewrite isn't silent — an edit like "resting_test" becomes "restingTest".
+    from duckbrain.core.dicom_inspect import sanitize_task_label
+
+    fixups = {
+        e.task: sanitize_task_label(e.task)
+        for e in edited_mapping
+        if e.task and e.task != sanitize_task_label(e.task)
+    }
+    if fixups:
+        st.warning(
+            "Some task labels aren't valid BIDS entities (must be alphanumeric — "
+            "no `_`, space, or `-`). They'll be written as: "
+            + ", ".join(f"`{k}` → `{v}`" for k, v in fixups.items())
+        )
+
     # Promote this reviewed mapping to the project-wide default so every other
     # subject inherits it (keyed on SeriesDescription; SBRefs inherit their BOLD).
     if st.button(
