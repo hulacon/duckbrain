@@ -12,6 +12,7 @@ not launchable here (synchronous, maps raw folders → units); use Data Ingestio
 
 from collections import defaultdict
 
+import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Project Status — duckbrain", layout="wide")
@@ -71,15 +72,6 @@ _FS_ICON = {
     Status.NA.value: "— n/a",
 }
 _JOB_ICON = {"running": "🔵 running", "queued": "⏳ queued", "failed": "🔴 failed"}
-_STYLE = {
-    "🟢 complete": "background-color: #1b5e2033; color: inherit",
-    "🟡 partial": "background-color: #f9a82533; color: inherit",
-    "🔵 running": "background-color: #1565c033; color: inherit",
-    "⏳ queued": "background-color: #6a1b9a33; color: inherit",
-    "🔴 failed": "background-color: #b71c1c33; color: inherit",
-    "⚪ missing": "color: #888",
-    "— n/a": "color: #888",
-}
 
 
 def _cell(fs_val, job_val):
@@ -89,6 +81,183 @@ def _cell(fs_val, job_val):
 
 def _unit_label(subject, session):
     return f"sub-{subject}" + (f" / ses-{session}" if session else "")
+
+
+def _emoji(icon):
+    """First token of a '<emoji> <word>' status label, for a compact cell trigger."""
+    return icon.split(" ", 1)[0] if icon else "·"
+
+
+def _latest_jobs(config):
+    """Map (subject, session, stage) -> most-recent job id from the durable log.
+
+    The submission log is written in chronological (append) order, so a later row
+    for the same unit/stage wins. This is the durable source for a failed cell's
+    job id — it outlives sacct's window, and the log file it names is still on disk.
+    """
+    subs = read_submissions(config, limit=1_000_000)
+    out = {}
+    if subs.empty:
+        return out
+    for _, r in subs.iterrows():
+        sub = "" if pd.isna(r["subject"]) else str(r["subject"])
+        ses = "" if pd.isna(r["session"]) else str(r["session"])
+        stage = "" if pd.isna(r["stage"]) else str(r["stage"])
+        job = "" if pd.isna(r["job_id"]) else str(r["job_id"])
+        if job:
+            out[(sub, ses, stage)] = job
+    return out
+
+
+def _stage_params(stage, config, key_prefix):
+    """Render (and return) the per-stage launch parameters. Same knobs the old
+    single-launch control exposed, now scoped to one cell's popover via key_prefix."""
+    params = {}
+    if stage == "fmriprep":
+        fp = config.get("fmriprep", {})
+        params["output_spaces"] = st.text_input(
+            "Output spaces",
+            value=" ".join(fp.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"])),
+            key=f"{key_prefix}_spaces")
+        params["nprocs"] = st.number_input(
+            "nprocs", value=fp.get("nprocs", 8), min_value=1, key=f"{key_prefix}_nprocs")
+        params["mem_gb"] = st.number_input(
+            "mem_gb", value=fp.get("mem_gb", 32), min_value=4, key=f"{key_prefix}_mem")
+        params["anat_only"] = st.checkbox("Anat-only", key=f"{key_prefix}_anat")
+        params["use_derivatives"] = st.checkbox("Reuse anat derivatives", key=f"{key_prefix}_deriv")
+        params["extra_flags"] = st.text_input(
+            "Custom fMRIPrep flags", value=fp.get("extra_flags", ""), key=f"{key_prefix}_flags")
+    elif stage == "converted":
+        params["force"] = st.checkbox(
+            "Force re-convert (dcm2bids --force)", key=f"{key_prefix}_force")
+    return params
+
+
+def _launch(stage, sub, ses, config, params, *, verb="Submitted"):
+    """Submit one stage for one unit, toast the result, and rerun the fragment."""
+    try:
+        job_id = advance_one(config, stage, sub, ses, **params)
+        st.toast(f"{verb} {stage} for {_unit_label(sub, ses)} — job {job_id}", icon="✅")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Could not launch: {e}")
+
+
+def _run_popover(row, stage, config):
+    sub, ses = str(row["subject"]), str(row["session"])
+    st.markdown(f"**Run {stage}** — {_unit_label(sub, ses)}")
+    params = _stage_params(stage, config, key_prefix=f"run_{stage}_{sub}_{ses}")
+    if st.button(f"▶ Run {stage}", type="primary", key=f"runbtn_{stage}_{sub}_{ses}"):
+        _launch(stage, sub, ses, config, params)
+
+
+def _failed_popover(row, stage, config, latest_jobs, log_dir, runnable):
+    """Failed cell: show the SLURM log tail for the recorded job, plus a re-run."""
+    from duckbrain.slurm.monitor import find_job_logs, job_log
+
+    sub, ses = str(row["subject"]), str(row["session"])
+    st.markdown(f"**🔴 {stage} failed** — {_unit_label(sub, ses)}")
+    job_id = latest_jobs.get((sub, ses, stage), "")
+    if not job_id:
+        st.caption("No recorded job id for this unit/stage — no log to show.")
+    elif not log_dir:
+        st.caption(f"Job {job_id}, but no log directory is configured.")
+    else:
+        files = find_job_logs(job_id, log_dir)
+        logs = job_log(job_id, log_dir)
+        text = logs["stdout"] or logs["stderr"]
+        names = ", ".join(f"`{p.name}`" for p in files) or "(no file found)"
+        st.caption(f"job {job_id} · {names}")
+        if text:
+            st.code(text[-4000:], language="text")
+            if len(text) > 4000:
+                st.caption(f"(tail — {len(text):,} chars total)")
+            st.download_button(
+                "⬇ Download full log", data=text,
+                file_name=f"{stage}_{job_id}.log", key=f"dl_{stage}_{sub}_{ses}")
+        else:
+            st.caption(f"No log file found in `{log_dir}` for job {job_id}.")
+    if runnable:
+        st.divider()
+        params = _stage_params(stage, config, key_prefix=f"re_{stage}_{sub}_{ses}")
+        if st.button(f"↻ Re-run {stage}", type="primary", key=f"rerun_{stage}_{sub}_{ses}"):
+            _launch(stage, sub, ses, config, params, verb="Re-submitted")
+
+
+def _bulk_popover(stage, units, config):
+    """Column-header bulk: run every currently-runnable unit for one stage (guarded)."""
+    n = len(units)
+    st.markdown(f"**Run all {stage}**")
+    st.caption(f"{n} ready: " + ", ".join(
+        _unit_label(str(r["subject"]), str(r["session"])) for r in units))
+    st.caption("Bulk runs use config-default parameters. For per-unit knobs, open a cell.")
+    # Per-stage confirm key so ticking one column can't arm another.
+    confirm = st.checkbox(f"Yes — submit {n} {stage} job(s)", key=f"bulk_confirm_{stage}")
+    if st.button(f"▶▶ Run all {n} {stage}", type="primary",
+                 disabled=not confirm, key=f"bulk_run_{stage}"):
+        ok, errs = 0, []
+        for r in units:
+            try:
+                advance_one(config, stage, str(r["subject"]), str(r["session"]))
+                ok += 1
+            except Exception as e:
+                errs.append(f"{_unit_label(str(r['subject']), str(r['session']))}: {e}")
+        st.toast(f"Submitted {ok}/{n} {stage} job(s)", icon="✅")
+        for m in errs:
+            st.error(m)
+        if ok:
+            st.rerun()
+
+
+def _render_cell(col, row, stage, config, runnable_map, latest_jobs, log_dir):
+    """One matrix cell: status icon, upgraded to a popover when there's an action.
+
+    - failed  -> 🔴 popover with the SLURM log tail (+ re-run if runnable)
+    - runnable -> ▶ popover with the stage's launch params
+    - otherwise (complete / running / queued / gated) -> static icon, so a gated
+      cell shows its state in place instead of vanishing from a launch dropdown.
+    """
+    fs = row.get(stage, "")
+    job = row.get(f"{stage}_job", "")
+    icon = _cell(fs, job)
+    if stage not in SLURM_STAGES:
+        col.markdown(icon)
+        return
+    sub, ses = str(row["subject"]), str(row["session"])
+    runnable = runnable_map.get((sub, ses, stage), False)
+    if job == "failed":
+        with col.popover(f"🔴 {stage} log", use_container_width=True):
+            _failed_popover(row, stage, config, latest_jobs, log_dir, runnable)
+    elif runnable:
+        with col.popover(f"▶ {_emoji(icon)}", use_container_width=True):
+            _run_popover(row, stage, config)
+    else:
+        col.markdown(icon)
+
+
+def _deep_links():
+    st.caption("Need advanced params or per-session review? Open the full pages:")
+    for path, label, icon in [
+        ("pages/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
+        ("pages/4_Preprocessing.py", "Preprocessing", "🧠"),
+    ]:
+        try:
+            st.page_link(path, label=label, icon=icon)
+        except Exception:
+            pass  # standalone (non-multipage) render — links are best-effort
+
+
+def _submission_log(config):
+    with st.expander("Recent submissions (durable log)"):
+        subs = read_submissions(config, limit=25)
+        if subs.empty:
+            st.caption(
+                "No submissions recorded yet. Jobs launched here (and from the "
+                "stage pages) are appended to `code/logs/submissions.tsv` — a record "
+                "that outlives sacct's ~7-day window and the ephemeral Job Monitor."
+            )
+        else:
+            st.dataframe(subs.iloc[::-1], width="stretch", hide_index=True)  # newest first
 
 
 @st.fragment(run_every="30s" if auto else None)
@@ -144,147 +313,69 @@ def dashboard():
             # keep it visually distinct so it can't dilute the real warnings.
             (st.info if issue.severity == "note" else st.warning)(text)
 
-    # ---- Runnable (unit, stage) universe ----
-    runnable = []
+    # ---- Actionable status board ----
+    # One board instead of three blocks: the matrix cells ARE the launch controls.
+    # A cell upgrades to a popover when it has an action (▶ run / 🔴 log+re-run);
+    # a gated cell keeps its icon in place rather than vanishing from a dropdown.
+    st.subheader("Subjects")
+    only_incomplete = st.checkbox(
+        "Show only units with unfinished stages", value=True,
+        help="Hide subject/sessions where every stage is complete. On by default "
+        "so the board stays focused on what needs action.",
+    )
+
+    # Runnable (unit, stage) universe — computed over the FULL matrix so column
+    # bulk is correct, indexed for O(1) per-cell lookup. stage_runnable enforces
+    # deps + no-double-submit, so a running/queued/complete cell is never offered.
+    runnable_map, runnable_by_stage = {}, defaultdict(list)
     for _, row in matrix.iterrows():
         for stage in SLURM_STAGES:
             if stage in matrix.columns and stage_runnable(row, stage, config):
-                runnable.append({
-                    "subject": row["subject"], "session": row["session"], "stage": stage,
-                    "unit": _unit_label(row["subject"], row["session"]),
-                })
+                runnable_map[(str(row["subject"]), str(row["session"]), stage)] = True
+                runnable_by_stage[stage].append(row)
 
-    # ---- Launch a single step ----
-    st.subheader("Launch a step")
-    if not runnable:
-        st.info(
-            "Nothing is ready to launch — every stage is complete, already "
-            "running/queued, or waiting on a prior stage."
-        )
-    else:
-        labels = [f"{o['unit']}  →  run {o['stage']}" for o in runnable]
-        choice = st.selectbox("Ready to run", labels, key="cockpit_choice")
-        sel = runnable[labels.index(choice)]
-        stage, sub, ses = sel["stage"], sel["subject"], sel["session"]
-
-        params = {}
-        if stage == "fmriprep":
-            fp = config.get("fmriprep", {})
-            c1, c2, c3 = st.columns(3)
-            params["output_spaces"] = c1.text_input(
-                "Output spaces",
-                value=" ".join(fp.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"])),
-                key="ck_fp_spaces")
-            params["nprocs"] = c2.number_input("nprocs", value=fp.get("nprocs", 8), min_value=1, key="ck_fp_nprocs")
-            params["mem_gb"] = c2.number_input("mem_gb", value=fp.get("mem_gb", 32), min_value=4, key="ck_fp_mem")
-            params["anat_only"] = c3.checkbox("Anat-only", key="ck_fp_anat")
-            params["use_derivatives"] = c3.checkbox("Reuse anat derivatives", key="ck_fp_deriv")
-            params["extra_flags"] = st.text_input(
-                "Custom fMRIPrep flags", value=fp.get("extra_flags", ""), key="ck_fp_flags")
-        elif stage == "converted":
-            params["force"] = st.checkbox("Force re-convert (dcm2bids --force)", key="ck_conv_force")
-
-        if st.button(f"▶ Run {stage} for {sel['unit']}", type="primary", key="cockpit_run"):
-            try:
-                job_id = advance_one(config, stage, sub, ses, **params)
-                st.toast(f"Submitted {stage} for {sel['unit']} — job {job_id}", icon="✅")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not launch: {e}")
-
-    # ---- Bulk: run a whole stage (guarded) ----
-    by_stage = defaultdict(list)
-    for o in runnable:
-        by_stage[o["stage"]].append(o)
-    with st.expander("Bulk: run a whole stage"):
-        if not by_stage:
-            st.caption("No stage has units ready to run.")
-        else:
-            bstage = st.selectbox("Stage", sorted(by_stage), key="bulk_stage")
-            units = by_stage[bstage]
-            n = len(units)
-            st.caption(f"{n} ready for **{bstage}**: " + ", ".join(o["unit"] for o in units))
-            st.caption("Bulk runs use config-default parameters. For per-unit knobs, "
-                       "use the single-launch control above or the full page.")
-            # Scope the confirmation to the selected stage. A fixed key would keep
-            # the box checked when the stage selectbox switches (e.g. arming an
-            # fmriprep bulk run off a nordic confirmation) — the guard must be a
-            # deliberate per-stage tick.
-            confirm = st.checkbox(f"Yes — submit {n} {bstage} job(s)",
-                                  key=f"bulk_confirm_{bstage}")
-            if st.button(f"▶▶ Run all {n} {bstage}", type="primary",
-                         disabled=not confirm, key="bulk_run"):
-                ok = 0
-                errs = []
-                for o in units:
-                    try:
-                        advance_one(config, bstage, o["subject"], o["session"])
-                        ok += 1
-                    except Exception as e:
-                        errs.append(f"{o['unit']}: {e}")
-                st.toast(f"Submitted {ok}/{n} {bstage} job(s)", icon="✅")
-                for msg in errs:
-                    st.error(msg)
-                if ok:
-                    st.rerun()
-
-    # ---- Deep links to the full pages (bulk/advanced/per-session review) ----
-    st.caption("Need advanced params or per-session review? Open the full pages:")
-    for path, label, icon in [
-        ("pages/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
-        ("pages/4_Preprocessing.py", "Preprocessing", "🧠"),
-    ]:
-        try:
-            st.page_link(path, label=label, icon=icon)
-        except Exception:
-            pass  # standalone (non-multipage) render — links are best-effort
-
-    # ---- Status matrix ----
-    st.subheader("Subjects")
-    only_incomplete = st.checkbox(
-        "Show only units with unfinished stages", value=False,
-        help="Hide subject/sessions where every stage is complete.",
-    )
-    view = matrix.copy()
-    view["session"] = view["session"].replace("", "—")
+    view = matrix
     if only_incomplete:
         mask = matrix[list(STAGES)].apply(
             lambda r: any(v != Status.COMPLETE.value for v in r), axis=1)
-        view = view[mask.values]
-        if view.empty:
-            st.success("Every subject/session is complete across all stages. 🎉")
-            return
+        view = matrix[mask.values]
 
-    display = view.rename(columns={"subject": "sub", "session": "ses"})
-    for stage in STAGES:
-        job_col = f"{stage}_job"
-        if job_col in view.columns:
-            display[stage] = [_cell(f, j) for f, j in zip(view[stage], view[job_col])]
-        else:
-            display[stage] = view[stage].map(lambda v: _FS_ICON.get(v, v))
-    display = display[["sub", "ses", *STAGES]]
+    if view.empty:
+        st.success("Every subject/session is complete across all stages. 🎉")
+    else:
+        latest_jobs = _latest_jobs(config)
+        log_dir = paths.get("log_dir", "")
+        spec = [1.3, 0.8] + [1.15] * len(STAGES)
 
-    st.dataframe(
-        display.style.map(lambda v: _STYLE.get(v, ""), subset=list(STAGES)),
-        width="stretch", hide_index=True,
-    )
-    st.caption(
-        "🟢 complete · 🟡 partial (crashed/half-done) · 🔵 running · ⏳ queued · "
-        "🔴 failed · ⚪ missing. Stages: ingested → converted → fmriprep → mriqc."
-    )
+        # Header: labels + a per-column bulk popover where the stage has runnable units.
+        head = st.columns(spec)
+        head[0].markdown("**sub**")
+        head[1].markdown("**ses**")
+        for i, stage in enumerate(STAGES):
+            hc = head[2 + i]
+            units = runnable_by_stage.get(stage)
+            if stage in SLURM_STAGES and units:
+                with hc.popover(f"{stage} ▾", use_container_width=True):
+                    _bulk_popover(stage, units, config)
+            else:
+                hc.markdown(f"**{stage}**")
 
-    # ---- Durable submission log ----
-    with st.expander("Recent submissions (durable log)"):
-        subs = read_submissions(config, limit=25)
-        if subs.empty:
-            st.caption(
-                "No submissions recorded yet. Jobs launched here (and from the "
-                "stage pages) are appended to `code/logs/submissions.tsv` — a record "
-                "that outlives sacct's ~7-day window and the ephemeral Job Monitor."
-            )
-        else:
-            st.dataframe(subs.iloc[::-1], width="stretch", hide_index=True)  # newest first
+        # One row per unit; each SLURM cell becomes a popover when it has an action.
+        for _, row in view.iterrows():
+            rc = st.columns(spec)
+            rc[0].markdown(f"sub-{row['subject']}")
+            rc[1].markdown(row["session"] or "—")
+            for i, stage in enumerate(STAGES):
+                _render_cell(rc[2 + i], row, stage, config, runnable_map, latest_jobs, log_dir)
 
+        st.caption(
+            "🟢 complete · 🟡 partial (crashed/half-done) · 🔵 running · ⏳ queued · "
+            "🔴 failed · ⚪ missing.  ▶ = launch (opens params) · 🔴 = view SLURM log "
+            "+ re-run · column ▾ = run the whole stage.  Ingested is read-only here."
+        )
+
+    _deep_links()
+    _submission_log(config)
 
 
 dashboard()

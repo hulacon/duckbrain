@@ -189,40 +189,51 @@ def job_history(user: str | None = None, days: int = 7) -> list[JobInfo]:
     return jobs
 
 
+def find_job_logs(job_id: str, log_dir: str) -> list["Path"]:
+    """Resolve the on-disk log files for a job id, sorted by name.
+
+    Matches the sbatch ``--output`` conventions duckbrain emits:
+    - ``<tool>_<job_id>.out`` — the plain per-job stages (dcm2bids/fmriprep/mriqc)
+    - ``<tool>_<job_id>_<task>.out`` — **array** jobs (NORDIC denoise writes one
+      file per subject/task as ``nordic_%A_%a.out``); the plain ``*_<job_id>.out``
+      glob misses these because of the trailing ``_<task>``.
+    - ``slurm-<job_id>.out`` — SLURM's default fallback name
+    plus the ``.err``/``.log`` counterparts. Deduped by filename.
+    """
+    from pathlib import Path
+
+    log_dir = Path(log_dir)
+    if not log_dir.is_dir():
+        return []
+
+    found: dict[str, "Path"] = {}
+    for ext in ("out", "err", "log"):
+        for pattern in (
+            f"*_{job_id}.{ext}",      # plain per-job
+            f"*_{job_id}_*.{ext}",    # array task (nordic_<A>_<a>.out)
+            f"slurm-{job_id}.{ext}",  # SLURM default
+        ):
+            for match in log_dir.glob(pattern):
+                found[match.name] = match
+    return [found[name] for name in sorted(found)]
+
+
 def job_log(job_id: str, log_dir: str) -> dict[str, str]:
     """Read stdout/stderr log files for a job.
 
-    Looks for files matching common SLURM log patterns:
-    - <log_dir>/*_<job_id>.out
-    - <log_dir>/slurm-<job_id>.out
+    Resolves files via :func:`find_job_logs` (so array-job / NORDIC logs are
+    included), routing ``.err`` to stderr and everything else to stdout.
 
     Returns
     -------
     dict
         {"stdout": content, "stderr": content}
     """
-    from pathlib import Path
-
-    log_dir = Path(log_dir)
     result = {"stdout": "", "stderr": ""}
-
-    if not log_dir.is_dir():
-        return result
-
-    # Find log files
-    for pattern in [f"*_{job_id}.out", f"slurm-{job_id}.out", f"*_{job_id}.log"]:
-        matches = list(log_dir.glob(pattern))
-        for match in matches:
-            content = match.read_text(errors="replace")
-            if match.suffix == ".err":
-                result["stderr"] += content
-            else:
-                result["stdout"] += content
-
-    # Also check for .err counterparts
-    for pattern in [f"*_{job_id}.err", f"slurm-{job_id}.err"]:
-        matches = list(log_dir.glob(pattern))
-        for match in matches:
-            result["stderr"] += match.read_text(errors="replace")
-
+    for match in find_job_logs(job_id, log_dir):
+        content = match.read_text(errors="replace")
+        if match.suffix == ".err":
+            result["stderr"] += content
+        else:
+            result["stdout"] += content
     return result
