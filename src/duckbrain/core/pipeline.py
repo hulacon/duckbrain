@@ -644,8 +644,11 @@ def _norm_state(state: str) -> str:
 def _job_state_maps():
     """Build name→state lookups from squeue (active) and sacct (recent history).
 
-    Degrades to empty maps when SLURM isn't reachable (e.g. off-cluster), so
-    survey_live() then just returns the filesystem matrix.
+    Returns ``(active, failed, completed, active_jobs, hist)`` — the first three
+    are the name-keyed maps survey_live overlays; the last two are the raw
+    :class:`JobInfo` lists (so a single squeue/sacct pull can also feed the
+    cockpit's per-cell job detail + the all-jobs panel without querying twice).
+    Degrades to empty maps/lists when SLURM isn't reachable (e.g. off-cluster).
     """
     try:
         active_jobs = list_jobs()
@@ -669,10 +672,10 @@ def _job_state_maps():
             failed.add(j.name)
         elif st == "COMPLETED":
             completed.add(j.name)
-    return active, failed, completed
+    return active, failed, completed, active_jobs, hist
 
 
-def survey_live(config: dict):
+def survey_live(config: dict, with_jobs: bool = False):
     """:func:`~duckbrain.core.surveyor.survey_project` overlaid with SLURM state.
 
     For each surveyor stage that is SLURM-launchable (converted/fmriprep/mriqc),
@@ -683,9 +686,14 @@ def survey_live(config: dict):
 
     The base status columns are left untouched — filesystem truth and scheduler
     truth stay separate, debuggable facts.
+
+    With ``with_jobs=True`` returns ``(matrix, jobs)`` where ``jobs`` is
+    ``{"by_id": {job_id: JobInfo}, "active": [...], "history": [...]}`` from the
+    *same* squeue/sacct pull — so the cockpit can show per-cell job detail and an
+    all-jobs panel without querying SLURM again. Default returns just the matrix.
     """
     matrix = survey_project(config)
-    active, failed, completed = _job_state_maps()
+    active, failed, completed, active_jobs, hist = _job_state_maps()
 
     overlay_stages = [s for s in STAGES if STAGE_SPECS.get(s) and STAGE_SPECS[s].is_slurm]
     for stage in overlay_stages:
@@ -704,6 +712,14 @@ def survey_live(config: dict):
             else:
                 vals.append("")
         matrix[f"{stage}_job"] = vals
+
+    if with_jobs:
+        by_id: dict[str, object] = {}
+        for j in hist:          # active overrides history for the same id
+            by_id[str(j.job_id)] = j
+        for j in active_jobs:
+            by_id[str(j.job_id)] = j
+        return matrix, {"by_id": by_id, "active": list(active_jobs), "history": list(hist)}
     return matrix
 
 

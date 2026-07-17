@@ -170,17 +170,38 @@ def test_no_consistency_warning_when_clean(project):
     assert not any("provenance" in w.value.lower() for w in at.warning)
 
 
-def test_running_job_shows_badge_and_blocks_rerun(project, monkeypatch):
+def test_running_cell_links_to_job_with_detail(project, monkeypatch):
+    # A running job, recorded in the durable log so the cell can reference its id.
+    from duckbrain.core.pipeline import record_submission
+    from duckbrain.config import load_config
+    cfg = load_config(project_dir=str(project))
+    record_submission(cfg, "fmriprep", "01", "", "55123")
     monkeypatch.setattr(
         P, "list_jobs",
-        lambda: [JobInfo(job_id="1", name="fmriprep_01", state="RUNNING", partition="c")],
+        lambda: [JobInfo(job_id="55123", name="fmriprep_01", state="RUNNING",
+                         partition="c", nodes="n0042", time_used="00:12:03")],
     )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
-    # The cell shows the live running badge in place…
-    assert any("running" in m for m in _markdowns(at))
+    # The cell popover references the exact job with live detail…
+    caps = [c.value for c in at.caption]
+    assert any("55123" in c for c in caps)
+    assert any("n0042" in c for c in caps)  # live node from squeue
     # …and there is no launch action for sub-01 fmriprep (no double-submit).
     assert "runbtn_fmriprep_01_" not in _btn_keys(at)
+
+
+def test_all_jobs_panel_lists_orphan_jobs(project, monkeypatch):
+    # A job whose name maps to no board cell must still appear in the all-jobs panel.
+    monkeypatch.setattr(
+        P, "list_jobs",
+        lambda: [JobInfo(job_id="80001", name="some_manual_job", state="RUNNING",
+                         partition="c")],
+    )
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert any((df.value.astype(str) == "80001").any().any() for df in at.dataframe)
+    assert any((df.value.astype(str) == "some_manual_job").any().any() for df in at.dataframe)
 
 
 def test_failed_cell_exposes_log_and_rerun(project, monkeypatch):

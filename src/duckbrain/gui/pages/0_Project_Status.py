@@ -8,6 +8,12 @@ Two truths are fused (see ``core.pipeline.survey_live``): filesystem completion
 SLURM state (so a job running *right now* reads *running*, never re-runnable).
 Run controls are dependency-gated by ``stage_runnable``. Ingestion is intentionally
 not launchable here (synchronous, maps raw folders → units); use Data Ingestion.
+
+The board *is* the launch surface: each SLURM cell is a status icon that opens a
+popover — ▶ to launch (params inline), or, when a job exists, a reference to that
+exact job (id + live squeue/sacct detail + log tail, and re-run when failed).
+The former separate Job Monitor is folded in as the "All SLURM jobs" panel (the
+catch-all for jobs not tied to a board cell) fed from the same single SLURM pull.
 """
 
 from collections import defaultdict
@@ -151,33 +157,47 @@ def _run_popover(row, stage, config):
         _launch(stage, sub, ses, config, params)
 
 
-def _failed_popover(row, stage, config, latest_jobs, log_dir, runnable):
-    """Failed cell: show the SLURM log tail for the recorded job, plus a re-run."""
+def _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable, job_state):
+    """A cell with a SLURM job (running / queued / failed) — a reference to the
+    exact job: its id + live squeue/sacct detail (state, node, elapsed, reason,
+    exit) + the log tail, and a re-run for a failed stage. Running/queued show the
+    *live* partial log, so a "pending"/"running" cell answers "what is it doing?"."""
     from duckbrain.slurm.monitor import find_job_logs, job_log
 
     sub, ses = str(row["subject"]), str(row["session"])
-    st.markdown(f"**🔴 {stage} failed** — {_unit_label(sub, ses)}")
+    st.markdown(f"**{_JOB_ICON.get(job_state, job_state)}** — {stage} · {_unit_label(sub, ses)}")
+
     job_id = latest_jobs.get((sub, ses, stage), "")
+    info = jobs_by_id.get(job_id) if job_id else None
     if not job_id:
-        st.caption("No recorded job id for this unit/stage — no log to show.")
-    elif not log_dir:
-        st.caption(f"Job {job_id}, but no log directory is configured.")
+        st.caption("No job id recorded for this unit/stage.")
     else:
-        files = find_job_logs(job_id, log_dir)
-        logs = job_log(job_id, log_dir)
-        text = logs["stdout"] or logs["stderr"]
-        names = ", ".join(f"`{p.name}`" for p in files) or "(no file found)"
-        st.caption(f"job {job_id} · {names}")
-        if text:
-            st.code(text[-4000:], language="text")
-            if len(text) > 4000:
-                st.caption(f"(tail — {len(text):,} chars total)")
-            st.download_button(
-                "⬇ Download full log", data=text,
-                file_name=f"{stage}_{job_id}.log", key=f"dl_{stage}_{sub}_{ses}")
+        bits = [f"job `{job_id}`"]
+        if info is not None:
+            for label, val in (("state", info.state), ("node", info.nodes),
+                               ("elapsed", info.time_used), ("reason", info.reason),
+                               ("exit", info.exit_code)):
+                if val and str(val) not in ("None", ""):
+                    bits.append(f"{label} {val}")
+        st.caption(" · ".join(bits))
+        if not log_dir:
+            st.caption("No log directory configured.")
         else:
-            st.caption(f"No log file found in `{log_dir}` for job {job_id}.")
-    if runnable:
+            files = find_job_logs(job_id, log_dir)
+            logs = job_log(job_id, log_dir)
+            text = logs["stdout"] or logs["stderr"]
+            if files:
+                st.caption("log: " + ", ".join(f"`{p.name}`" for p in files))
+            if text:
+                st.code(text[-4000:], language="text")
+                if len(text) > 4000:
+                    st.caption(f"(tail — {len(text):,} chars total)")
+                st.download_button(
+                    "⬇ Download full log", data=text,
+                    file_name=f"{stage}_{job_id}.log", key=f"dl_{stage}_{sub}_{ses}")
+            else:
+                st.caption(f"No log file yet in `{log_dir}` for job {job_id}.")
+    if runnable:  # a failed stage is re-runnable; running/queued are gated
         st.divider()
         params = _stage_params(stage, config, key_prefix=f"re_{stage}_{sub}_{ses}")
         if st.button(f"↻ Re-run {stage}", type="primary", key=f"rerun_{stage}_{sub}_{ses}"):
@@ -209,13 +229,14 @@ def _bulk_popover(stage, units, config):
             st.rerun()
 
 
-def _render_cell(col, row, stage, config, runnable_map, latest_jobs, log_dir):
+def _render_cell(col, row, stage, config, runnable_map, latest_jobs, log_dir, jobs_by_id):
     """One matrix cell: status icon, upgraded to a popover when there's an action.
 
-    - failed  -> 🔴 popover with the SLURM log tail (+ re-run if runnable)
-    - runnable -> ▶ popover with the stage's launch params
-    - otherwise (complete / running / queued / gated) -> static icon, so a gated
-      cell shows its state in place instead of vanishing from a launch dropdown.
+    - running / queued / failed -> job-reference popover (id + live detail + log;
+      re-run when the stage is failed/runnable). A "pending" cell thus links to
+      the exact SLURM job instead of being a dead badge.
+    - runnable (missing, deps met) -> ▶ popover with the stage's launch params
+    - otherwise (complete / gated) -> static icon, in place (never vanishes).
     """
     fs = row.get(stage, "")
     job = row.get(f"{stage}_job", "")
@@ -225,9 +246,9 @@ def _render_cell(col, row, stage, config, runnable_map, latest_jobs, log_dir):
         return
     sub, ses = str(row["subject"]), str(row["session"])
     runnable = runnable_map.get((sub, ses, stage), False)
-    if job == "failed":
-        with col.popover(f"🔴 {stage} log", use_container_width=True):
-            _failed_popover(row, stage, config, latest_jobs, log_dir, runnable)
+    if job in ("running", "queued", "failed"):
+        with col.popover(_emoji(icon), use_container_width=True):
+            _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable, job)
     elif runnable:
         with col.popover(f"▶ {_emoji(icon)}", use_container_width=True):
             _run_popover(row, stage, config)
@@ -254,16 +275,65 @@ def _submission_log(config):
             st.caption(
                 "No submissions recorded yet. Jobs launched here (and from the "
                 "stage pages) are appended to `code/logs/submissions.tsv` — a record "
-                "that outlives sacct's ~7-day window and the ephemeral Job Monitor."
+                "that outlives sacct's ~7-day window."
             )
         else:
             st.dataframe(subs.iloc[::-1], width="stretch", hide_index=True)  # newest first
 
 
+def _all_jobs_section(jobs, config):
+    """The folded-in Job Monitor: every SLURM job (active + 7-day history) — the
+    catch-all the unit×stage board can't hold (orphan/manual/other-tool jobs) —
+    plus an arbitrary-job-id log viewer. Fed from survey_live's single pull."""
+    active, history = jobs["active"], jobs["history"]
+    with st.expander(f"🖥 All SLURM jobs — {len(active)} active · {len(history)} recent (+ log lookup)"):
+        st.caption(
+            "The board is organized by unit × stage; this catches every job — "
+            "including ones not tied to a cell — and looks up any job's log."
+        )
+        st.markdown("**Active** (squeue)")
+        if active:
+            st.dataframe(pd.DataFrame([
+                {"Job ID": j.job_id, "Name": j.name, "State": j.state,
+                 "Partition": j.partition, "Time": j.time_used, "Limit": j.time_limit,
+                 "Nodes": j.nodes, "Reason": j.reason} for j in active]),
+                width="stretch", hide_index=True)
+        else:
+            st.caption("No active jobs.")
+
+        st.markdown("**Recent history** (sacct, 7 days)")
+        if history:
+            hist_df = pd.DataFrame([
+                {"Job ID": j.job_id, "Name": j.name, "State": j.state,
+                 "Elapsed": j.time_used, "Start": j.start_time, "End": j.end_time,
+                 "Exit": j.exit_code} for j in history])
+            states = sorted(hist_df["State"].unique())
+            sel = st.multiselect("Filter by state", states, default=states, key="jm_states")
+            st.dataframe(hist_df[hist_df["State"].isin(sel)], width="stretch", hide_index=True)
+        else:
+            st.caption("No job history in the last 7 days.")
+
+        st.markdown("**Log viewer** — any job id")
+        c1, c2 = st.columns(2)
+        jid = c1.text_input("Job ID", key="jm_jobid", placeholder="e.g. 45452962")
+        ld = c2.text_input(
+            "Log directory", value=config.get("paths", {}).get("log_dir", ""), key="jm_logdir")
+        if jid and ld:
+            from duckbrain.slurm.monitor import job_log
+            logs = job_log(jid, ld)
+            if logs["stdout"]:
+                st.code(logs["stdout"][-5000:], language="text")
+            if logs["stderr"]:
+                st.caption("stderr:")
+                st.code(logs["stderr"][-5000:], language="text")
+            if not logs["stdout"] and not logs["stderr"]:
+                st.info(f"No log found for job `{jid}` in `{ld}`.")
+
+
 @st.fragment(run_every="30s" if auto else None)
 def dashboard():
     with st.spinner("Surveying project & querying SLURM…"):
-        matrix = survey_live(config)
+        matrix, jobs = survey_live(config, with_jobs=True)
 
     if matrix.empty:
         st.info(
@@ -366,14 +436,16 @@ def dashboard():
             rc[0].markdown(f"sub-{row['subject']}")
             rc[1].markdown(row["session"] or "—")
             for i, stage in enumerate(STAGES):
-                _render_cell(rc[2 + i], row, stage, config, runnable_map, latest_jobs, log_dir)
+                _render_cell(rc[2 + i], row, stage, config, runnable_map,
+                             latest_jobs, log_dir, jobs["by_id"])
 
         st.caption(
             "🟢 complete · 🟡 partial (crashed/half-done) · 🔵 running · ⏳ queued · "
-            "🔴 failed · ⚪ missing.  ▶ = launch (opens params) · 🔴 = view SLURM log "
-            "+ re-run · column ▾ = run the whole stage.  Ingested is read-only here."
+            "🔴 failed · ⚪ missing.  ▶ = launch (opens params) · 🔵/⏳/🔴 = open the "
+            "SLURM job (id, live detail, log) · column ▾ = run the whole stage."
         )
 
+    _all_jobs_section(jobs, config)
     _deep_links()
     _submission_log(config)
 

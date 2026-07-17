@@ -35,13 +35,13 @@ def main():
         LCNI/Talapas HPC users at UO.
 
         ### Pipeline Steps
-        - **Project Status** — See at a glance what's done, half-done, or left per subject
+        - **Project Status** — What's done, half-done, or left per subject; launch
+          the next step and track/inspect SLURM jobs (id, live state, logs) in place
         1. **Project Setup** — Configure paths, SLURM settings, containers
         2. **Data Ingestion** — Import DICOMs from LCNI export
         3. **BIDS Conversion** — Convert DICOMs to BIDS format via dcm2bids
         4. **Preprocessing** — fMRIPrep, NORDIC denoising, MRIQC
         5. **QC Dashboard** — Review quality metrics, make keep/exclude decisions
-        6. **Job Monitor** — Track SLURM job status
 
         Use the sidebar to navigate between pages.
         """

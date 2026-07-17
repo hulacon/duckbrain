@@ -259,6 +259,34 @@ def test_survey_live_failed_but_later_completed_is_not_failed(monkeypatch):
     assert row["converted_job"] == ""  # a later COMPLETED clears the earlier FAILED
 
 
+def test_survey_live_with_jobs_returns_single_pull_index(monkeypatch):
+    active = [JobInfo(job_id="1", name="fmriprep_04", state="RUNNING", partition="c")]
+    hist = [JobInfo(job_id="9", name="mriqc_04", state="COMPLETED", partition="c")]
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "complete", "fmriprep": "partial", "mriqc": "complete"},
+        active=active, hist=hist,
+    )
+    matrix, jobs = survey_live({}, with_jobs=True)
+    assert matrix.iloc[0]["fmriprep_job"] == "running"
+    # the raw JobInfo lists and an id-index come from the SAME pull
+    assert {j.job_id for j in jobs["active"]} == {"1"}
+    assert {j.job_id for j in jobs["history"]} == {"9"}
+    assert jobs["by_id"]["1"].name == "fmriprep_04"
+    assert jobs["by_id"]["9"].state == "COMPLETED"
+
+
+def test_survey_live_default_return_is_matrix_only(monkeypatch):
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+    )
+    out = survey_live({})  # no with_jobs → bare DataFrame, back-compat
+    assert isinstance(out, pd.DataFrame)
+
+
 def test_stage_runnable_dependency_gating(monkeypatch):
     _patch_survey(
         monkeypatch,
