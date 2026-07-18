@@ -139,7 +139,7 @@ duckbrain/
 │   └── gui/
 │       ├── app.py                  # Streamlit main entrypoint
 │       ├── components.py           # Shared widgets
-│       └── pages/                  # 7 GUI pages (see below)
+│       └── pages/                  # 6 GUI pages (see below)
 ├── templates/sbatch/               # Jinja2 sbatch templates
 ├── scripts/
 │   ├── launch.sh                   # Start Streamlit on a compute node
@@ -151,13 +151,16 @@ duckbrain/
 
 | Page | Purpose |
 |------|---------|
-| **0. Project Status** | Pipeline cockpit. Per-`(subject, session)` × stage matrix (ingested → converted → nordic → fmriprep → mriqc) grading completion by **expected outputs** (a crashed run reads *partial*, not done) fused with **live SLURM state** (a running job reads *running*, never re-runnable). Launch the next step per unit — dependency-gated, with a guarded bulk run, opt-in auto-refresh, a durable submission log, and provenance/consistency checks. See `docs/pipeline-cockpit.md`. |
+| **0. Project Status** | Pipeline cockpit — one actionable board. A per-`(subject, session)` × stage grid (ingested → converted → nordic → fmriprep → mriqc) grading completion by **expected outputs** (a crashed run reads *partial*, not done) fused with **live SLURM state**. Each cell *is* the control: **▶** launches the next step (params inline, dependency-gated, no double-submit); a running/queued/failed cell opens a reference to the **exact SLURM job** — id, live squeue/sacct detail, and log tail — with **cancel** for in-flight jobs and **re-run** for failed ones. Column headers run a whole stage (guarded). Job tracking (the former Job Monitor) is folded in as an **All SLURM jobs** panel — active + recent history + arbitrary-job-id log lookup — the catch-all for jobs not tied to a cell. Plus a durable submission log and provenance/consistency checks. See `docs/pipeline-cockpit.md`. |
 | **1. Project Setup** | First-run wizard — pick the project directory, set SLURM settings and shared container/license locations. Writes shared settings to `~/.config/duckbrain/config.toml` and project settings to `<project>/code/duckbrain.toml`. |
 | **2. Data Ingestion** | Browse LCNI DICOM sessions, auto-assign BIDS subject/session labels by date, symlink or copy into sourcedata, generate participants.tsv. |
 | **3. BIDS Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export a conversion job — or bulk-convert all unconverted sessions at once. |
 | **4. Preprocessing** | Tabbed interface for fMRIPrep, NORDIC, and MRIQC — select subjects/sessions, configure options, submit SLURM jobs or export scripts. |
 | **5. QC Dashboard** | MRIQC metrics table with IQR outlier highlighting, Plotly distribution plots, motion summary, per-run keep/exclude/investigate decisions. |
-| **6. Job Monitor** | Live squeue table, sacct job history, log viewer with stdout/stderr. |
+
+*(Live job tracking is no longer a separate page — squeue/sacct tables and the log
+viewer are folded into Project Status as its "All SLURM jobs" panel, and jobs are
+inspectable per cell.)*
 
 ## Configuration
 

@@ -28,6 +28,7 @@ Owner: Ben Hutchinson. Started 2026-07-10. Extends the project surveyor
 | 2. Live-state fusion (`survey_live`) | ✅ done | (see git log) | `survey_live` + `stage_runnable` in `core/pipeline.py`; `<stage>_job` overlay (running/queued/failed). 8 tests; 117 suite. Validated live: the 2 running fMRIPrep jobs now read `running` + are correctly NOT runnable (double-submit closed). |
 | 3. Cockpit UI (rework `0_Project_Status.py`) | ✅ done | (see git log) | Job-aware matrix (🔵running/⏳queued/🔴failed overlay) + "Launch a step" strip: dependency-gated selectbox of runnable (unit,stage) → params (fmriprep knobs / dcm2bids force) → Run via `advance_one`. 6 AppTests; 120 suite. Live-rendered vs real project: running fMRIPrep shows 🔵 + is NOT offered for re-run (double-submit closed). **Still wants a human eyeball in a real browser** (AppTest can't judge feel). |
 | 4. Polish (bulk/guards/durable log) | ✅ done | (see git log) | All four shipped: guarded bulk "run whole stage" (confirm checkbox gates the button); opt-in auto-refresh via `st.fragment(run_every="30s")` (off by default — avoids squeue hammering); durable submission log `code/logs/submissions.tsv` written by `advance_one` (`record_submission`/`read_submissions`), surfaced in a cockpit panel; `st.page_link` deep-links to the full Conversion/Preprocessing pages. 126 suite. **Still wants the live-browser eyeball.** |
+| 5. Actionable board + Job Monitor merge | ✅ done (2026-07-17) | (see git log) | **The usability pass.** Replaced the three stacked blocks (read-only table + "Launch a step" selectbox + bulk expander) with ONE grid whose cells *are* the controls: `▶` popover to launch (params inline), and — the fix for the "gated stage vanishes from the dropdown" gripe — a running/queued/failed cell opens a popover referencing the **exact SLURM job** (id + live squeue/sacct detail + log tail) with **cancel** (in-flight) / **re-run** (failed). Column headers carry per-stage bulk (guarded). **The standalone Job Monitor page (`6_Job_Monitor.py`) is retired** — folded in as the "All SLURM jobs" catch-all panel (active + 7-day history + arbitrary-id log lookup), fed from `survey_live(config, with_jobs=True)` (single squeue/sacct pull). New: `cancel_job()` (scancel), `find_job_logs()` (resolves NORDIC array logs). Live-rendered vs real project (sub-008's failed fmriprep shows job id+node+log; 154 recent jobs in panel). ~288 suite. **Still wants the human eyeball for column-width/feel at project scale.** |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ done. When resuming, read this row,
 then the matching phase section, then `git log --oneline` to confirm what landed.
@@ -220,9 +221,10 @@ Rework `gui/pages/0_Project_Status.py` to drive `survey_live` + `advance_one`.
 
 **Per-cell behavior (dependency- and job-state-gated):**
 - `complete` → 🟢, no action (optional: "re-run" under an "advanced" toggle).
-- `running`/`queued` → 🔵/⏳ badge, **no run button** (prevents double-submit),
-  optional link to Job Monitor / log.
-- `failed` → 🔴, offer "retry" (same as run).
+- `running`/`queued` → 🔵/⏳, **no run button** (prevents double-submit); the cell
+  opens a popover referencing the exact job (id + live squeue/sacct detail + log
+  tail) with a **cancel** (scancel, confirm-guarded). *(Shipped in phase 5.)*
+- `failed` → 🔴, popover with the SLURM log + a **re-run**. *(Shipped in phase 5.)*
 - `missing` **and** `depends_on` is `complete` → ▶ **run** affordance.
 - `missing` **and** dependency not met → ⚪ inert (greyed; tooltip "needs
   {dependency} first").

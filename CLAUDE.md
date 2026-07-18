@@ -42,14 +42,19 @@ copy doesn't fall behind.
   fuses filesystem completion (`core/surveyor.py`, graded by expected-output
   globs) with live SLURM state (`core/pipeline.py` `survey_live`) and lets you
   **launch the next step per unit** — dependency-gated, no double-submit on a
-  running job. Built in 4 phases: controller extraction (`advance_one` +
-  `STAGE_SPECS`, which the stage pages now also call), live-state fusion,
-  cockpit UI, and polish (guarded bulk run, opt-in 30s auto-refresh, durable
-  submission log `code/logs/submissions.tsv`, deep-links). Stages tracked:
+  running job. **As of 2026-07-17 it is ONE actionable board** (usability pass,
+  phase 5): the matrix cells *are* the controls — `▶` popover to launch (params
+  inline), and a running/queued/failed cell opens a popover referencing the exact
+  SLURM job (id + live squeue/sacct detail + log tail) with **cancel** (in-flight)
+  / **re-run** (failed); column headers run a whole stage (guarded). **The
+  standalone Job Monitor page is retired** — its squeue/sacct tables + log viewer
+  are folded in as the "All SLURM jobs" panel, fed from
+  `survey_live(config, with_jobs=True)` (one pull). Helpers: `cancel_job()`
+  (scancel), `find_job_logs()` (resolves NORDIC array logs). Stages tracked:
   `ingested, converted, nordic, fmriprep, mriqc`. Full design + resumable status
-  tracker in `docs/pipeline-cockpit.md`.
-- **255 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
-  smoke/interaction tests for GUI pages.
+  tracker in `docs/pipeline-cockpit.md` (phase 5 row).
+- **288 unit tests pass** (`python -m pytest tests/ -v`), including AppTest-level
+  smoke/interaction tests for GUI pages (the cockpit board, task-mapping wiring).
 - **Committed + pushed.** Don't trust a commit hash written here — they go stale
   within a session (this file has been wrong about it before). Run `git log
   --oneline -1` and `git status`. Releases are tags: `git tag` (currently `v0.1.0`).
@@ -140,7 +145,8 @@ copy doesn't fall behind.
   or a failed job's log is stranded on the compute node and unreadable from the
   login node / GUI. Those go to the derived `log_dir` (`<project>/code/logs`,
   kept under the BIDS-reserved `code/` so no `.bidsignore` entry is needed); all
-  sbatch templates' `--output` and the Job Monitor's log viewer point there.
+  sbatch templates' `--output` and the cockpit's log viewers (per-cell + the
+  "All SLURM jobs" panel) point there.
 
 ## Open OnDemand app (primary way to launch on Talapas)
 
@@ -185,10 +191,17 @@ All core stages are validated live: DICOM→BIDS, fMRIPrep, MRIQC, and NORDIC
    never been driven by two *completed* real fMRIPrep runs (hours of compute, and
    it works by corrupting a derivative) — accepted, close it free when a project
    genuinely mixes variants.
-2. **Cockpit usability pass** (TODO #0) — unblocked now that behavior is locked.
-   Concrete gripe: gated stages vanish from the launch dropdown (per-cell action
-   would fix it). Needs a live browser look (feel can't be judged from AppTest).
-3. Onboarding: QUICKSTART + README refresh + the OOD distribution story (TODO #2).
+2. ~~**Cockpit usability pass**~~ — **✅ DONE 2026-07-17 (TODO #0, phase 5).** The
+   three stacked blocks are now one actionable board; the "gated stage vanishes
+   from the dropdown" gripe is fixed (action lives on the cell). Job Monitor page
+   folded in (per-cell job reference + "All SLURM jobs" panel); per-cell
+   cancel/re-run + failed-cell log. Residual: a human eyeball for column-width/feel
+   at ~37-subject scale (AppTest can't judge it).
+3. **Onboarding (TODO #2)** — QUICKSTART + README written (2026-07-16, refreshed
+   2026-07-17); **MRIQC default pinned to `24.0.2`** (the validated *and*
+   latest-stable version — there is no `24.1.0` release tag). Still open: the
+   new-user path (`UNVALIDATED` install/container-build/launch on a clean account)
+   and the OOD distribution story.
 4. **Naming/discovery robustness (TODO #4) — 3 of 4 items DONE, on `main`.**
    `G##_S##` sessions, phantom/test-folder filtering, and multiple-fieldmap-pair
    splitting are built + unit-tested. **Deferred to on-cluster:** mmmdata-style

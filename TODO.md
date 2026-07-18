@@ -205,33 +205,38 @@ Original Phase B design notes (kept for reference):
 - **Not viable:** detecting denoising from pixel data (fMRIPrep resamples to float32;
   only heuristic). Provenance metadata is the only reliable basis.
 
-## 0. Pipeline cockpit — actionable Project Status board — BUILT 2026-07-10 (phases 1–4)
+## 0. Pipeline cockpit — actionable Project Status board — BUILT 2026-07-10; USABILITY PASS + JOB-MONITOR MERGE 2026-07-17
 The Project Status matrix is actionable: each `(subject, session) × stage` cell
 shows filesystem status fused with live SLURM state (🔵 running / ⏳ queued /
-🔴 failed), and a dependency-gated "Launch a step" strip runs the next stage per
-unit via `core.pipeline.advance_one`. A running/queued job is never offered for
-re-run (no double-submit); ingestion is read-only here by design (Ben agreed).
-Built in four committed phases — controller extraction (`core/pipeline.py`),
-live-state fusion (`survey_live`/`stage_runnable`), cockpit UI, and polish
-(guarded bulk "run whole stage", opt-in 30s auto-refresh, durable submission log
-`code/logs/submissions.tsv`, deep-links to full pages). 126 tests pass. Full plan
-+ status tracker: **`docs/pipeline-cockpit.md`**.
-Dogfooded 2026-07-10: **functionally working** end-to-end. Remaining:
-- **Usability pass (deferred until functionality stable).** Ben's dogfood read:
-  the interface is "a little clunky." Do this once behavior is locked; collect
-  specific pain points before starting. Likely targets: the stacked
-  selectbox → params → button launch flow (lots of vertical scanning); single
-  launch vs. bulk vs. matrix reading as three separate blocks rather than one
-  board; per-cell action being indirect (choose from a dropdown vs. acting on the
-  cell you're looking at). Candidate directions: clickable/actionable matrix
-  cells, per-cell popover for the run controls, tighter layout density.
-  - **Concrete confusion caught 2026-07-10:** the "Ready to run" dropdown only
-    lists *currently-runnable* (unit, stage) pairs, so a stage that's supported
-    but momentarily gated disappears entirely — e.g. with MRIQC running on every
-    subject, the dropdown showed only fMRIPrep and it read as "you can't run
-    MRIQC from here." The matrix still shows 🔵 running for it, but the *launch*
-    control hides it. A per-cell action (button on the cell you see, disabled +
-    labelled "running"/"needs converted") would remove this ambiguity.
+🔴 failed), and the next stage launches per unit via `core.pipeline.advance_one`.
+A running/queued job is never offered for re-run (no double-submit); ingestion is
+read-only here by design (Ben agreed). Built in four committed phases — controller
+extraction (`core/pipeline.py`), live-state fusion (`survey_live`/`stage_runnable`),
+cockpit UI, and polish (guarded bulk, opt-in 30s auto-refresh, durable submission
+log `code/logs/submissions.tsv`, deep-links). Full plan + status tracker:
+**`docs/pipeline-cockpit.md`** (phase 5 row covers the below).
+
+- ✅ **Usability pass — DONE 2026-07-17 (phase 5).** The three stacked blocks
+  (read-only table + "Launch a step" selectbox + bulk expander) are now ONE grid
+  whose cells *are* the controls: `▶` popover to launch (params inline), and a
+  running/queued/failed cell opens a popover referencing the **exact SLURM job**
+  (id + live squeue/sacct detail + log tail) with **cancel** (in-flight) /
+  **re-run** (failed). Column headers carry per-stage bulk (guarded).
+  - ✅ **The concrete confusion is fixed.** The old "Ready to run" dropdown hid a
+    momentarily-gated stage (e.g. MRIQC running on all subjects → dropdown showed
+    only fMRIPrep, reading as "can't run MRIQC here"). The action now lives on the
+    cell you're looking at — a gated cell keeps its icon in place, never vanishes.
+- ✅ **Job Monitor page retired, folded into the cockpit (2026-07-17).** The
+  standalone `6_Job_Monitor.py` is gone; its squeue/sacct tables + log viewer are
+  the "All SLURM jobs" panel (the catch-all for jobs not tied to a board cell),
+  fed from `survey_live(config, with_jobs=True)` (single pull). New helpers:
+  `cancel_job()` (scancel), `find_job_logs()` (resolves NORDIC array logs).
+- ⏳ **Still open (needs a real browser, not AppTest):** eyeball column-width/feel
+  at project scale — a 7-column grid (sub, ses, + 5 stages) over ~37 subjects; if
+  cramped, drop `ingested` to a compact check or narrow the label columns.
+- ⏳ **Deferred follow-up (noted, not built):** none blocking. Cancel/re-run/log
+  all shipped; a future idea is a re-run of a *complete* stage behind an advanced
+  toggle (deliberately excluded from `stage_runnable` today).
 
 ## 1. Folder picker UX — reworked 2026-07-09, needs live look
 
@@ -370,12 +375,19 @@ Still OPEN (unchanged — need a cluster/browser, not attempted):
     `_build_dcm2bids` so **bulk/cockpit conversion inherits the rules too**. GUI:
     the Conversion page seeds from project rules and has a "⭑ Save this mapping as
     the project default" button. 18 new tests; 273 pass.
-  - ⚠️ **`UNVALIDATED` (no browser here):** the Conversion-page wiring — the
-    "applied N rules" caption, the save button writing `[task_mapping]`, and a
-    second subject visibly seeding from it — has only been exercised via the core
-    API + an in-process end-to-end script, **not** in a real Streamlit session.
-    Next on-cluster session: review two subjects through the page, save subject
-    1's mapping as default, confirm subject 2's table shows the inherited tasks.
+  - ✅ **GUI wiring VALIDATED 2026-07-17** (AppTest driving the real Conversion
+    page against real DICOMs, writes isolated to a temp project): the "applied N
+    rules" caption renders, the save button writes `[task_mapping]` (preserving
+    other keys), and a second subject seeds from the saved rules — including an
+    injected override task appearing in that subject's generated dcm2bids config.
+    Still worth a human eyeball for *feel* (is the caption noticeable), but the
+    wiring is confirmed.
+  - ✅ **FIXED 2026-07-17: task labels sanitized to valid BIDS.** Caught while
+    dogfooding — a user-entered label like `resting_test` was emitted verbatim as
+    the invalid `task-resting_test` (the `_` splits the entity). `generate_config`
+    now routes every task label through `sanitize_task_label` at the entity
+    boundary (all paths), and the Conversion page warns showing the rewrite
+    (`resting_test → restingTest`). Tests in `test_task_mapping.py`.
   - Deferred (fine as-is): no per-rule temporal-proximity for fmap linking (same
     known limitation as multi-fieldmap conversion); rules are dataset-wide, no
     per-subject *rule* scoping (per-subject *edits* cover the exception case).
