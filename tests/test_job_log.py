@@ -44,3 +44,34 @@ def test_job_id_is_not_a_prefix_false_match(tmp_path):
     (tmp_path / "fmriprep_454.out").write_text("mine\n")
     files = find_job_logs("454", str(tmp_path))
     assert [p.name for p in files] == ["fmriprep_454.out"]
+
+
+def test_cancel_job_invokes_scancel(monkeypatch):
+    import duckbrain.slurm.monitor as M
+
+    calls = {}
+
+    class R:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        calls["cmd"] = cmd
+        return R()
+
+    monkeypatch.setattr(M.subprocess, "run", fake_run)
+    M.cancel_job("12345")
+    assert calls["cmd"] == ["scancel", "12345"]
+
+
+def test_cancel_job_raises_on_failure(monkeypatch):
+    import duckbrain.slurm.monitor as M
+    import pytest
+
+    class R:
+        returncode = 1
+        stderr = "Invalid job id"
+
+    monkeypatch.setattr(M.subprocess, "run", lambda cmd, **kw: R())
+    with pytest.raises(RuntimeError, match="scancel failed"):
+        M.cancel_job("999")

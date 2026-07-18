@@ -202,6 +202,19 @@ def _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable,
         params = _stage_params(stage, config, key_prefix=f"re_{stage}_{sub}_{ses}")
         if st.button(f"↻ Re-run {stage}", type="primary", key=f"rerun_{stage}_{sub}_{ses}"):
             _launch(stage, sub, ses, config, params, verb="Re-submitted")
+    elif job_state in ("running", "queued") and job_id:
+        # An in-flight job can be cancelled here (scancel), behind a confirm tick.
+        st.divider()
+        confirm = st.checkbox("Confirm cancel", key=f"cancelchk_{stage}_{sub}_{ses}")
+        if st.button(f"✖ Cancel job {job_id}", disabled=not confirm,
+                     key=f"cancel_{stage}_{sub}_{ses}"):
+            from duckbrain.slurm.monitor import cancel_job
+            try:
+                cancel_job(job_id)
+                st.toast(f"Cancelled job {job_id} — {stage} {_unit_label(sub, ses)}", icon="🛑")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not cancel: {e}")
 
 
 def _bulk_popover(stage, units, config):
@@ -442,7 +455,8 @@ def dashboard():
         st.caption(
             "🟢 complete · 🟡 partial (crashed/half-done) · 🔵 running · ⏳ queued · "
             "🔴 failed · ⚪ missing.  ▶ = launch (opens params) · 🔵/⏳/🔴 = open the "
-            "SLURM job (id, live detail, log) · column ▾ = run the whole stage."
+            "SLURM job (id, live detail, log; cancel in-flight / re-run failed) · "
+            "column ▾ = run the whole stage."
         )
 
     _all_jobs_section(jobs, config)

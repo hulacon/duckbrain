@@ -25,6 +25,22 @@ class JobInfo:
     exit_code: str = ""
 
 
+def cancel_job(job_id: str) -> None:
+    """Cancel a SLURM job by id (``scancel``).
+
+    scancel exits 0 and prints nothing on success (including for an already-gone
+    job). Raises :class:`RuntimeError` with stderr on a non-zero exit so the GUI
+    can surface why a cancel didn't take.
+    """
+    result = subprocess.run(
+        ["scancel", str(job_id)], capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"scancel failed (exit {result.returncode}): {result.stderr.strip()}"
+        )
+
+
 def list_jobs(user: str | None = None) -> list[JobInfo]:
     """List pending/running jobs from squeue.
 

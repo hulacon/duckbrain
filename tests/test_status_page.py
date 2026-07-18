@@ -191,6 +191,30 @@ def test_running_cell_links_to_job_with_detail(project, monkeypatch):
     assert "runbtn_fmriprep_01_" not in _btn_keys(at)
 
 
+def test_running_cell_cancel_gated_and_invokes_scancel(project, monkeypatch):
+    from duckbrain.core.pipeline import record_submission
+    from duckbrain.config import load_config
+    import duckbrain.slurm.monitor as M
+    cfg = load_config(project_dir=str(project))
+    record_submission(cfg, "fmriprep", "01", "", "55123")
+    monkeypatch.setattr(
+        P, "list_jobs",
+        lambda: [JobInfo(job_id="55123", name="fmriprep_01", state="RUNNING", partition="c")],
+    )
+    cancelled = {}
+    monkeypatch.setattr(M, "cancel_job", lambda jid: cancelled.setdefault("id", jid))
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    # Cancel is gated until the confirm box is ticked…
+    assert at.button(key="cancel_fmriprep_01_").disabled
+    at.checkbox(key="cancelchk_fmriprep_01_").set_value(True).run()
+    assert not at.button(key="cancel_fmriprep_01_").disabled
+    at.button(key="cancel_fmriprep_01_").click().run()
+    assert not at.exception
+    assert cancelled.get("id") == "55123"
+
+
 def test_all_jobs_panel_lists_orphan_jobs(project, monkeypatch):
     # A job whose name maps to no board cell must still appear in the all-jobs panel.
     monkeypatch.setattr(
