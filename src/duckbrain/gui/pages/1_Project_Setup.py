@@ -13,8 +13,11 @@ import streamlit as st
 
 from duckbrain.config import (
     PROJECT_ENV,
+    forget_project,
     load_config,
     project_config_path,
+    recent_projects,
+    remember_project,
     save_project_config,
     save_user_config,
     scaffold_project,
@@ -46,6 +49,34 @@ st.markdown(
 )
 
 current_project = st.session_state.get("project_dir") or os.environ.get(PROJECT_ENV, "")
+
+
+def _open_project(path: str) -> None:
+    """Make *path* active for this session and record it as most-recently-used."""
+    scaffold_project(path)  # idempotent: makes sourcedata/derivatives/code
+    st.session_state["project_dir"] = path
+    os.environ[PROJECT_ENV] = path  # visible to other pages this session
+    remember_project(path)
+
+
+# Re-picking the same directory every session was the main friction with the
+# picker, so recent projects are one click. Entries that no longer resolve are
+# hidden by recent_projects(), and ✕ drops one for good.
+_recents = [p for p in recent_projects() if p != current_project]
+if _recents:
+    st.caption("Recent projects")
+    for _path in _recents:
+        _open_col, _drop_col = st.columns([12, 1], vertical_alignment="center")
+        with _open_col:
+            if st.button(_path, key=f"open_recent_{_path}", width="stretch"):
+                _open_project(_path)
+                st.rerun()
+        with _drop_col:
+            if st.button("✕", key=f"drop_recent_{_path}", help="Forget this project"):
+                forget_project(_path)
+                st.rerun()
+    st.divider()
+
 project_dir = directory_picker(
     "Project directory",
     key="project_dir_pick",
@@ -58,9 +89,7 @@ project_dir = directory_picker(
 col_open, col_info = st.columns([1, 2])
 with col_open:
     if st.button("Open / Create Project", type="primary", disabled=not project_dir):
-        scaffold_project(project_dir)  # idempotent: makes sourcedata/derivatives/code
-        st.session_state["project_dir"] = project_dir
-        os.environ[PROJECT_ENV] = project_dir  # visible to other pages this session
+        _open_project(project_dir)
         st.success(f"Active project: `{project_dir}`")
 
 active_project = st.session_state.get("project_dir")

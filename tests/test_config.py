@@ -188,3 +188,114 @@ def test_write_bidsignore_idempotent_and_preserves_user_lines(tmp_path):
     lines = [l for l in (tmp_path / ".bidsignore").read_text().splitlines() if l.strip()]
     assert "my_custom_scratch/" in lines
     assert lines.count("work/") == 1
+
+
+# ---- recent-projects MRU -----------------------------------------------------
+#
+# Lives in the USER config: "which projects do I work on" is a property of the
+# person at this machine, and a project cannot sensibly list itself.
+
+import pytest
+
+
+@pytest.fixture
+def user_cfg(tmp_path, monkeypatch):
+    path = tmp_path / "user.toml"
+    monkeypatch.setenv("DUCKBRAIN_USER_CONFIG", str(path))
+    return path
+
+
+def _mkproj(tmp_path, name):
+    p = tmp_path / name
+    p.mkdir()
+    return str(p)
+
+
+def test_remember_project_is_mru_newest_first(user_cfg, tmp_path):
+    from duckbrain.config import recent_projects, remember_project
+
+    a, b = _mkproj(tmp_path, "a"), _mkproj(tmp_path, "b")
+    remember_project(a)
+    remember_project(b)
+    assert recent_projects() == [b, a]
+    remember_project(a)  # re-opening moves it to the front, never duplicates
+    assert recent_projects() == [a, b]
+
+
+def test_remember_project_caps_the_list(user_cfg, tmp_path):
+    from duckbrain.config import recent_projects, remember_project
+
+    for i in range(12):
+        remember_project(_mkproj(tmp_path, f"p{i}"))
+    got = recent_projects()
+    assert len(got) == 8  # _MAX_RECENT_PROJECTS
+    assert got[0].endswith("p11")  # newest kept, oldest dropped
+
+
+def test_remember_project_preserves_other_user_settings(user_cfg, tmp_path):
+    """Read-modify-write: the MRU must not clobber shared machine resources."""
+    from duckbrain.config import _load_toml, remember_project, save_user_config
+
+    save_user_config({"paths": {"fs_license": "/l/lic.txt"}, "containers": {"x": "y"}})
+    remember_project(_mkproj(tmp_path, "a"))
+    data = _load_toml(user_cfg)
+    assert data["paths"]["fs_license"] == "/l/lic.txt"
+    assert data["containers"] == {"x": "y"}
+    assert len(data["recent"]["projects"]) == 1
+
+
+def test_recent_projects_hides_but_does_not_erase_missing_dirs(user_cfg, tmp_path):
+    """A deleted/unmounted project stops being offered but stays in the file.
+
+    An unmounted filesystem is a temporary condition; erasing history over it
+    would be destructive.
+    """
+    from duckbrain.config import _load_toml, recent_projects, remember_project
+
+    gone = _mkproj(tmp_path, "gone")
+    kept = _mkproj(tmp_path, "kept")
+    remember_project(gone)
+    remember_project(kept)
+    Path(gone).rmdir()
+
+    assert recent_projects() == [kept]
+    assert recent_projects(existing_only=False) == [kept, gone]
+    assert len(_load_toml(user_cfg)["recent"]["projects"]) == 2
+
+
+def test_forget_project_removes_one_entry(user_cfg, tmp_path):
+    from duckbrain.config import forget_project, recent_projects, remember_project
+
+    a, b = _mkproj(tmp_path, "a"), _mkproj(tmp_path, "b")
+    remember_project(a)
+    remember_project(b)
+    forget_project(a)
+    assert recent_projects() == [b]
+
+
+def test_recent_projects_tolerates_a_junk_section(user_cfg):
+    """A hand-edited config must never take the GUI down."""
+    from duckbrain.config import recent_projects, remember_project, save_user_config
+
+    save_user_config({"recent": "not-a-table"})
+    assert recent_projects() == []
+    remember_project("/tmp")  # repairs the section rather than raising
+    assert recent_projects(existing_only=False) == ["/tmp"]
+
+
+def test_recent_projects_normalizes_without_resolving_symlinks(user_cfg, tmp_path):
+    """Trailing slashes collapse, but a symlinked path is NOT rewritten.
+
+    On GPFS the user-facing /projects/... is a symlink to /gpfs/projects/...;
+    rewriting the path the user chose would be a surprise, not a normalization.
+    """
+    from duckbrain.config import recent_projects, remember_project
+
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+
+    remember_project(f"{link}/")
+    remember_project(str(link))  # same entry once slashes collapse
+    assert recent_projects() == [str(link)]

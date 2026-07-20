@@ -216,6 +216,86 @@ def save_project_config(project_dir: str | Path, data: dict) -> Path:
     return _dump_toml(project_config_path(project_dir), data)
 
 
+# Recently-opened projects live in the USER config, not a project's own: "which
+# projects do I work on" is a property of the person at this machine, and a
+# project can't sensibly list itself. Capped so the list stays a shortcut rather
+# than a history.
+_MAX_RECENT_PROJECTS = 8
+
+
+def _normalized_project(project_dir: str | Path) -> str:
+    """Collapse trailing slashes and redundant separators, WITHOUT resolving.
+
+    Deliberately not ``resolve()``: on GPFS the user-facing ``/projects/...`` is a
+    symlink to ``/gpfs/projects/...``, and rewriting a path the user chose (and
+    that their config records) would be a surprise, not a normalization.
+    """
+    return str(Path(project_dir))
+
+
+def recent_projects(existing_only: bool = True) -> list[str]:
+    """Recently-opened project directories, most recent first.
+
+    ``existing_only`` drops entries that no longer resolve to a directory, so a
+    deleted or unmounted project quietly falls off the list instead of offering a
+    dead shortcut. The stored list is left alone — an unmounted filesystem should
+    not erase history.
+    """
+    stored = _load_toml(user_config_path()).get("recent", {})
+    if not isinstance(stored, dict):
+        return []
+    out: list[str] = []
+    for entry in stored.get("projects", []) or []:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        entry = _normalized_project(entry)
+        if entry in out:
+            continue
+        if existing_only and not Path(entry).is_dir():
+            continue
+        out.append(entry)
+    return out
+
+
+def remember_project(
+    project_dir: str | Path, limit: int = _MAX_RECENT_PROJECTS
+) -> Path:
+    """Push *project_dir* to the front of the recent-projects list (MRU).
+
+    Read-modify-write so it only touches ``[recent]`` and preserves every other
+    shared setting — same contract as :func:`save_project_task_map`.
+    """
+    entry = _normalized_project(project_dir)
+    path = user_config_path()
+    data = _load_toml(path)
+    section = data.get("recent")
+    if not isinstance(section, dict):
+        section = {}
+    previous = [
+        p for p in (section.get("projects") or [])
+        if isinstance(p, str) and _normalized_project(p) != entry
+    ]
+    section["projects"] = [entry, *previous][:limit]
+    data["recent"] = section
+    return _dump_toml(path, data)
+
+
+def forget_project(project_dir: str | Path) -> Path:
+    """Drop *project_dir* from the recent list (for a moved/retired project)."""
+    entry = _normalized_project(project_dir)
+    path = user_config_path()
+    data = _load_toml(path)
+    section = data.get("recent")
+    if not isinstance(section, dict):
+        return path
+    section["projects"] = [
+        p for p in (section.get("projects") or [])
+        if isinstance(p, str) and _normalized_project(p) != entry
+    ]
+    data["recent"] = section
+    return _dump_toml(path, data)
+
+
 def save_project_task_map(project_dir: str | Path, rules: list) -> Path:
     """Persist project-wide task/run rules into the project config.
 

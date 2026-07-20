@@ -63,13 +63,15 @@ Ben's vetting pass. The #0/#1 browser eyeball is **done** by the same pass — t
 dashboard table width reads well and the folder picker is fine as-is — so what's
 left is these four, none blocking.
 
-1. **Recent / favourites project list.** Re-picking the same project directory
-   every session is the main friction with the picker. The project dir is the
-   anchor for every derived path, so a fast switcher is high-value and cheap:
-   keep an MRU list in the **user** config (`~/.config/duckbrain/config.toml` —
-   it's machine-scoped, which is the right scope for "projects I work on"), show
-   it on Project Setup and ideally as a switcher in the nav. Watch the OOD form's
-   "Project directory" field — it sets `DUCKBRAIN_PROJECT_DIR` and should agree.
+1. ✅ **Recent projects (MRU) — DONE 2026-07-20.** `recent_projects()` /
+   `remember_project()` / `forget_project()` in `config.py`, stored in the **user**
+   config (machine-scoped, the right scope for "projects I work on"), capped at 8,
+   read-modify-write so it can't clobber shared resources. Surfaced twice: a
+   one-click list on Setup (with ✕ to forget) and a **Switch** popover in the
+   project bar, available from every page. Missing directories are hidden from the
+   list but *not* erased from the file — an unmounted filesystem is temporary.
+   Paths are normalized but deliberately **not** `resolve()`d, so the GPFS
+   `/projects/…` → `/gpfs/projects/…` symlink isn't rewritten under the user.
 
 2. **One place to launch; everywhere else prepares.** Ben's question: should the
    non-dashboard pages be config-only, with all running via the cockpit? *Mostly
@@ -97,13 +99,23 @@ left is these four, none blocking.
      per-cell params are per-cell. Either move both into the cockpit first or
      keep a home for them.
 
-3. **Sidebar nav → top nav.** Supported: this pins Streamlit ≥1.48 already and
-   1.59 is installed, where `st.navigation(position="top")` exists. The cost is
-   switching `gui/app.py` from the filesystem `pages/` convention to declarative
-   `st.Page` nav. Note the sidebar also carries the project-name indicator
-   (`st.sidebar.success(f"Project: …")`), which needs a new home — pairs naturally
-   with the project switcher in item 1. Alternatively `client.showSidebarNavigation
-   = false` hides just the nav and keeps the sidebar for project context.
+3. ✅ **Top nav — DONE 2026-07-20.** `gui/app.py` moved from the filesystem
+   `pages/` convention to declarative `st.navigation(position="top")`. Nothing
+   writes to `st.sidebar` any more, so the left side is genuinely free. The old
+   welcome screen became the **Guide** page and **Status is the landing page** (it
+   degrades gracefully with no project, pointing at Setup, which is what makes it
+   safe as a default). Verified against the installed Streamlit rather than
+   assumed: calling `st.navigation` sets `PagesManager.uses_pages_directory =
+   False`, so `pages/` cannot register a competing nav, and a page keeping its own
+   `st.set_page_config` is tolerated (which is what lets each page still be run
+   standalone under AppTest).
+   - Fixed in passing: `app.py` used `from ..config import …`, which raises
+     ImportError when Streamlit execs it as a script — the old code hid that in a
+     bare `except Exception`, so the sidebar project indicator had **never**
+     worked under `streamlit run`, always reading "Config not found". Now an
+     absolute import, like the pages use.
+   - Also made the page paths absolute; `__file__` was only relative-safe while
+     the cwd happened to be the repo root, which is not a given under OnDemand.
 
 4. **The "athletics" in-progress icon is Streamlit's, not ours** — every icon
    duckbrain draws is in the 🟢🟡🔵⏳🔴⚪ set, none athletic. It's app chrome, so
@@ -218,6 +230,7 @@ the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule in
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-20 | #9 | **Top nav + recent-projects MRU** — declarative `st.navigation(position="top")`, sidebar freed, project bar with a Switch popover; fixed a relative import that had silently broken the project indicator under `streamlit run` |
 | 2026-07-20 | #0 #1 | **Browser eyeball pass** — dashboard table width reads well at project scale; folder picker fine as-is. Generated `#9` above |
 | 2026-07-20 | — | **fMRIPrep anat-reuse gated + self-overlapping bind dropped** — reuse was a silent no-op when there was nothing to reuse; `has_anat_derivatives()` now gates it in `_build_fmriprep` (API *and* GUI) |
 | 2026-07-17 | #0 | **Cockpit usability pass** — three stacked blocks became one actionable board; cells *are* the controls, per-cell job reference + cancel/re-run |
