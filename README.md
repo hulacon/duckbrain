@@ -108,8 +108,12 @@ The GUI will walk you through project setup on first launch.
 > **How to launch is not yet a settled, one-click story for new users.** The
 > OnDemand app under `ondemand/` is currently registered as one user's *personal
 > sandbox*, so a new user today needs either their own OnDemand sandbox or the
-> `scripts/launch.sh` + SSH-tunnel path shown above. A shared, RACS-published
-> OnDemand app is the intended long-term answer but does not exist yet. The
+> `scripts/launch.sh` + SSH-tunnel path shown above. **Registering a sandbox is
+> not self-service** — on current OnDemand an administrator must enable app
+> development for your account before the **Develop** menu appears, so plan on
+> asking RACS. That cost-per-user is itself an argument for the shared,
+> RACS-published OnDemand app, which is the intended long-term answer but does
+> not exist yet. The
 > [Quickstart](QUICKSTART.md#the-distribution-question) lays out the options.
 
 ## Project Structure

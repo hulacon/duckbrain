@@ -25,8 +25,16 @@ path; the [README](README.md) has the fuller reference.
    under your PIRG's project space (e.g. `/projects/<pirg>/$USER/<study>`).
 4. **The external tools**, which duckbrain runs but does **not** ship — see
    [Acquire the containers and NORDIC](#2-acquire-the-containers-and-nordic).
+   Budget **~8.6 GB** of space and a chunk of time for the container builds; this
+   is the slowest part of setting up, so start it early.
+5. **A way to launch the GUI.** Both routes have a prerequisite that is not
+   yours to grant — see [Launch the GUI](#4-launch-the-gui). If you intend to use
+   the Open OnDemand app, **ask RACS about sandbox app development before you
+   plan around it**: on current OnDemand an administrator has to enable it for
+   your account.
 
-duckbrain itself needs **Python 3.10+**.
+duckbrain itself needs **Python 3.10+**. Getting the *code* needs nothing —
+the repository is public.
 
 ---
 
@@ -74,10 +82,19 @@ singularity build $CONTAINERS_DIR/mriqc-24.0.2.sif    docker://nipreps/mriqc:24.
 > does not exist as a pullable tag; `24.1.0.dev0` is only what the `24.0.2`
 > container self-reports internally (an upstream packaging artifact).
 >
-> On Talapas you may need `module load apptainer` (or `singularity`) and to
-> build somewhere with room — images are multi-GB. `UNVALIDATED` for a new
+> On Talapas you may need `module load apptainer` (or `singularity`). The three
+> images total **~8.6 GB**, so build somewhere with room. `UNVALIDATED` for a new
 > account: the exact module name and any build-node requirements aren't
 > confirmed here.
+
+> **Put them where your lab can actually reach them.** Containers are the one
+> expensive, *shareable* prerequisite — nothing about them is per-user, so a lab
+> should build once, not once per person. A home directory is the wrong place:
+> if `~` is mode `0700` (the default on Talapas) nobody can traverse into it, so
+> `~/containers` is unreachable **even if that directory is itself
+> world-readable**. Prefer group-readable PIRG space, e.g.
+> `/projects/<pirg>/shared/containers`, and check that a colleague can actually
+> `ls` it before assuming they can.
 
 duckbrain finds a container by **filename**, assembling `<tool>-<pin>.sif` (or
 `.simg`) from the `[containers]` version pins in config. So the filenames above
@@ -195,12 +212,35 @@ The `ondemand/` directory is a complete OnDemand Batch Connect app. **Today it
 is registered as one user's personal sandbox** (a symlink from
 `~/ondemand/dev/duckbrain` into that user's checkout), so it is not yet
 something a new user can simply click. To use it now you would register your own
-sandbox app pointing at your own checkout.
+sandbox app pointing at your own checkout:
 
-> `UNVALIDATED`: the personal-sandbox registration steps for a *new* user
-> aren't written up here and haven't been walked through. The form defaults the
-> install directory to `/gpfs/home/$USER/code/duckbrain` — i.e. it assumes you
-> cloned there.
+```bash
+mkdir -p ~/ondemand/dev
+ln -s ~/code/duckbrain/ondemand ~/ondemand/dev/duckbrain
+```
+
+Then reload the OnDemand dashboard; the app appears under **Develop → My Sandbox
+Apps** (Interactive Apps → Neuroimaging).
+
+> ⚠️ **This is not self-service, and that is the part to check first.** On
+> OnDemand 1.6 and later, creating `~/ondemand/dev` is *not* enough — an
+> administrator must also create a symlink under `/var/www/ood/apps/dev/<user>/`
+> before the **Develop** menu appears for you at all. (Sites can opt back into
+> "everyone a developer" via `nginx_stage.yml`, and can separately restrict the
+> menu to a group in the dashboard initializer.) Whether Talapas has done either
+> is **not verifiable from a login node** — `/var/www/ood` lives on the OnDemand
+> web hosts. **Ask RACS.** If the answer is "we enable it per user on request",
+> then Option B costs a ticket per person, which is a strong argument for the
+> shared published app in
+> [The distribution question](#the-distribution-question) instead.
+>
+> See [Enabling App Development](https://osc.github.io/ood-documentation/latest/how-tos/app-development/enabling-development-mode.html)
+> in the OnDemand docs.
+
+> `UNVALIDATED`: the steps above are the shape the maintainer's working setup
+> takes, but have not been walked through on a *fresh* account. The form defaults
+> the install directory to `/gpfs/home/$USER/code/duckbrain` — i.e. it assumes
+> you cloned there.
 
 ---
 
@@ -217,10 +257,14 @@ Once the GUI is open, the intended flow is:
    fieldmap pairing, then submit a dcm2bids job (or bulk-convert everything).
 4. **Preprocessing** — run fMRIPrep, NORDIC, and/or MRIQC.
 5. **QC Dashboard** — review MRIQC metrics and record keep/exclude decisions.
-6. **Project Status** — the cockpit: a per-`(subject, session) × stage` matrix
-   that grades completion from real outputs and fuses in live SLURM state, with
-   a dependency-gated "launch the next step" control per unit.
-7. **Job Monitor** — live `squeue`/`sacct` and a log viewer.
+…but **Project Status** is where you land and where you will spend most of your
+time. It is the cockpit: a per-`(subject, session) × stage` matrix that grades
+completion from real outputs and fuses in live SLURM state. The cells *are* the
+controls — launch the next step, or open a running/failed cell to see the exact
+SLURM job (id, live state, log tail) and cancel or re-run it. Live
+`squeue`/`sacct` for everything else is the "All SLURM jobs" panel on the same
+page. The pages above are for the work Status can't do for you: choosing a
+project, mapping DICOMs, and recording QC decisions.
 
 > `UNVALIDATED` — the new-user *feel* of this flow (where the friction points
 > are, whether the ingestion mapping and conversion steps are self-explanatory)

@@ -83,9 +83,19 @@ turned out not to exist, and the real cost is elsewhere.
   home traversable).
 - **FreeSurfer license** — free, but per-user registration; not shareable.
 - **SLURM account** — theirs, not Ben's. Feeds the OOD form's `bc_account`.
-- **OOD sandbox is per-user** (`~/ondemand/dev/<name>` → their own checkout). The
-  form already has a `duckbrain_dir` field, so this is setup, not a code change —
-  but it is the piece "never written up" above.
+- 🔴 **OOD sandbox is NOT self-service — this likely needs RACS per user.** On
+  OnDemand ≥1.6 creating `~/ondemand/dev` is not enough: an admin must also
+  create a symlink under `/var/www/ood/apps/dev/<user>/` before the **Develop**
+  menu appears at all. Sites can opt back into "everyone a developer"
+  (`nginx_stage.yml`) or restrict it to a group (dashboard initializer), and
+  **which Talapas does is not checkable from a login node** — `/var/www/ood`
+  lives on the OnDemand web hosts. The maintainer's own sandbox working proves
+  nothing either way (he is a PIRG admin). **Ask RACS.**
+  - **If it is per-user-on-request, that settles the distribution question**: if
+    RACS has to touch every user anyway, publishing one shared app is strictly
+    cheaper than N tickets. Take that argument to the meeting.
+  - Written up in `QUICKSTART.md` §4 Option B now (with the `mkdir`/`ln -s`
+    steps), so the "never written up" gap above is closed *pending* that answer.
 - **What already works in a second user's favour:** the config layering was built
   for exactly this — machine resources in the user config, study specifics in the
   project config, project dir as the anchor. A second user mostly needs their own
