@@ -23,6 +23,10 @@ export SINGULARITY_TMPDIR=$WORK_DIR/tmp
 mkdir -p $WORK_DIR $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
 
 # Output dir is bind-mounted below; Singularity requires the source to pre-exist.
+# When --derivatives points at the output dir itself (the anat-reuse case) it is
+# NOT bound a second time read-only: that self-overlap makes Singularity drop one
+# of the two binds, and if it ever dropped the read-write one fMRIPrep could not
+# write its outputs.
 mkdir -p {{ output_dir }}
 
 singularity run --cleanenv \
@@ -30,7 +34,7 @@ singularity run --cleanenv \
   -B {{ output_dir }}:{{ output_dir }} \
   -B $WORK_DIR:$WORK_DIR \
   -B {{ fs_license_dir }}:{{ fs_license_dir }}:ro \
-{% if derivatives %}  -B {{ derivatives }}:{{ derivatives }}:ro \
+{% if derivatives and derivatives != output_dir %}  -B {{ derivatives }}:{{ derivatives }}:ro \
 {% endif %}  {{ container_path }} \
   {{ bids_dir }} {{ output_dir }} participant \
   --participant-label {{ subject }} \

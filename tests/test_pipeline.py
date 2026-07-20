@@ -152,6 +152,75 @@ def test_nordic_launch_stamps_derivative_provenance(monkeypatch, tmp_path):
     assert desc["DatasetLinks"]["raw"] == cfg["paths"]["bids_dir"]
 
 
+# ---- anat-derivatives reuse gating ------------------------------------------
+#
+# fMRIPrep accepts --derivatives pointing at a tree holding no anat for the
+# subject: it rebuilds the anat workflow and logs nothing about the reuse it
+# could not do. Requesting reuse must therefore fail loudly at submit time
+# rather than burn hours pretending to have saved them.
+
+def _write_anat_deriv(root, subject, session=""):
+    """Lay down the marker a finished fMRIPrep anat leaves behind."""
+    ss = f"sub-{subject}" + (f"/ses-{session}" if session else "")
+    anat = Path(root) / "derivatives" / "fmriprep" / ss / "anat"
+    anat.mkdir(parents=True, exist_ok=True)
+    f = anat / f"sub-{subject}_desc-preproc_T1w.nii.gz"
+    f.write_text("x")
+    return f
+
+
+def _patch_fmriprep(monkeypatch, tmp_path, cap):
+    import duckbrain.core.fmriprep as F
+    lic = tmp_path / "license.txt"
+    lic.write_text("x")
+    monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
+    monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
+    monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
+    monkeypatch.setattr(
+        P, "render_sbatch", lambda template, ctx: cap.update(ctx=ctx) or "s")
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
+
+
+def test_has_anat_derivatives_detects_finished_anat(tmp_path):
+    from duckbrain.core.fmriprep import has_anat_derivatives
+    deriv = str(tmp_path / "derivatives")
+    assert has_anat_derivatives(deriv, "008") is False  # no tree at all
+    _write_anat_deriv(tmp_path, "008")
+    assert has_anat_derivatives(deriv, "008") is True
+    assert has_anat_derivatives(deriv, "014") is False  # other subject's anat
+
+
+def test_has_anat_derivatives_is_per_session(tmp_path):
+    from duckbrain.core.fmriprep import has_anat_derivatives
+    deriv = str(tmp_path / "derivatives")
+    _write_anat_deriv(tmp_path, "008", "01")
+    assert has_anat_derivatives(deriv, "008", "01") is True
+    assert has_anat_derivatives(deriv, "008", "02") is False
+
+
+def test_has_anat_derivatives_ignores_empty_file(tmp_path):
+    from duckbrain.core.fmriprep import has_anat_derivatives
+    f = _write_anat_deriv(tmp_path, "008")
+    f.write_text("")  # a crashed run can leave a zero-byte stub
+    assert has_anat_derivatives(str(tmp_path / "derivatives"), "008") is False
+
+
+def test_fmriprep_reuse_without_prior_anat_raises(monkeypatch, tmp_path):
+    cap = {}
+    _patch_fmriprep(monkeypatch, tmp_path, cap)
+    with pytest.raises(PipelineError, match="no preprocessed anatomicals"):
+        advance_one(_config(tmp_path), "fmriprep", "014", "", use_derivatives=True)
+    assert not cap  # nothing rendered or submitted
+
+
+def test_fmriprep_reuse_with_prior_anat_passes_derivatives_path(monkeypatch, tmp_path):
+    cap = {}
+    _patch_fmriprep(monkeypatch, tmp_path, cap)
+    _write_anat_deriv(tmp_path, "008")
+    advance_one(_config(tmp_path), "fmriprep", "008", "", use_derivatives=True)
+    assert cap["ctx"]["derivatives"] == str(tmp_path / "derivatives" / "fmriprep")
+
+
 # ---- params flow through to the rendered context ----------------------------
 
 def test_fmriprep_params_reach_context(monkeypatch, tmp_path):

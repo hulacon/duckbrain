@@ -67,14 +67,14 @@ def test_logs_go_to_shared_log_dir_not_tmp(step, ctx_extra):
 
 
 def _fmriprep(**extra):
-    ctx = build_context(
-        _cfg(), "fmriprep", subject="04", session="",
+    kwargs = dict(
+        subject="04", session="",
         bids_dir="/b", output_dir="/projects/study/derivatives/fmriprep",
         container_path="/x", fs_license="/l", fs_license_dir="/",
         output_spaces=["func"], filter_file="", anat_only=False, derivatives="",
-        **extra,
     )
-    return render_sbatch("fmriprep", ctx)
+    kwargs.update(extra)
+    return render_sbatch("fmriprep", build_context(_cfg(), "fmriprep", **kwargs))
 
 
 def test_fmriprep_creates_output_dir_before_bind():
@@ -105,3 +105,27 @@ def test_fmriprep_no_custom_flags_when_absent():
     # StrictUndefined must not trip when extra_flags is omitted entirely.
     script = _fmriprep()
     assert "--skip-bids-validation --notrack" in script
+
+
+def _binds(script, path):
+    return [l for l in script.splitlines() if l.strip().startswith(f"-B {path}:")]
+
+
+def test_fmriprep_anat_reuse_does_not_rebind_output_dir():
+    # Regression: --derivatives points at the output dir itself, which line 30
+    # already binds read-write. Binding it again read-only made Singularity warn
+    # ("destination is already in the mount point list") and drop one of the two;
+    # had it dropped the read-write bind, fMRIPrep could not write its outputs.
+    out = "/projects/study/derivatives/fmriprep"
+    script = _fmriprep(derivatives=out)
+    assert len(_binds(script, out)) == 1
+    assert ":ro" not in _binds(script, out)[0]
+    assert f"--derivatives {out}" in script  # the flag itself still goes out
+
+
+def test_fmriprep_binds_derivatives_when_distinct_from_output():
+    # A genuinely separate derivatives tree still needs its own read-only bind.
+    script = _fmriprep(derivatives="/projects/study/derivatives/anat_only")
+    binds = _binds(script, "/projects/study/derivatives/anat_only")
+    assert len(binds) == 1
+    assert binds[0].endswith(":ro \\")

@@ -31,6 +31,32 @@ def write_session_filter(path: str | Path, session: str) -> Path:
     return path
 
 
+def has_anat_derivatives(
+    derivatives_dir: str | Path, subject: str, session: str = ""
+) -> bool:
+    """True if a prior fMRIPrep run left reusable preprocessed anatomicals for this unit.
+
+    Gates the "reuse anat derivatives" option. Pointing ``--derivatives`` at a tree
+    that holds no anat for *subject* is a silent no-op: fMRIPrep rebuilds the whole
+    anat workflow and logs nothing about the reuse it could not do, so the user
+    believes they saved hours that were in fact spent. Pattern matches the
+    surveyor's ``_fmriprep_status`` so both agree on what a finished anat looks like.
+    """
+    from .ingestion import sub_ses_relpath
+
+    root = Path(derivatives_dir) / "fmriprep"
+    if not root.is_dir():
+        return False
+    ss = sub_ses_relpath(subject, session)
+    try:
+        return any(
+            p.is_file() and p.stat().st_size > 0
+            for p in root.glob(f"{ss}/**/anat/sub-{subject}*_desc-preproc_T1w.nii.gz")
+        )
+    except (OSError, ValueError):
+        return False
+
+
 def build_fmriprep_command(
     bids_dir: str | Path,
     output_dir: str | Path,

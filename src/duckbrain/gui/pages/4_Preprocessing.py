@@ -111,7 +111,12 @@ with tab_fmriprep:
         fp_mem = st.number_input("mem_gb", value=config.get("fmriprep", {}).get("mem_gb", 32), min_value=4)
     with col3:
         fp_anat_only = st.checkbox("Anat-only mode", value=False)
-        fp_use_derivatives = st.checkbox("Reuse anat derivatives", value=False)
+        fp_use_derivatives = st.checkbox(
+            "Reuse anat derivatives", value=False,
+            help="Reuses preprocessed anatomicals instead of rebuilding them. "
+            "Requires a prior Anat-only run: any selected subject without one is "
+            "reported as an error below rather than submitted. If you are "
+            "re-running because the anat went wrong, leave this off.")
 
     fp_extra_flags = st.text_input(
         "Custom fMRIPrep flags",

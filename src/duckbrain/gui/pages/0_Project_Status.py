@@ -115,9 +115,12 @@ def _latest_jobs(config):
     return out
 
 
-def _stage_params(stage, config, key_prefix):
+def _stage_params(stage, config, key_prefix, subject="", session=""):
     """Render (and return) the per-stage launch parameters. Same knobs the old
-    single-launch control exposed, now scoped to one cell's popover via key_prefix."""
+    single-launch control exposed, now scoped to one cell's popover via key_prefix.
+
+    subject/session gate options that only make sense given what is already on
+    disk for that unit (currently anat reuse)."""
     params = {}
     if stage == "fmriprep":
         fp = config.get("fmriprep", {})
@@ -130,7 +133,20 @@ def _stage_params(stage, config, key_prefix):
         params["mem_gb"] = st.number_input(
             "mem_gb", value=fp.get("mem_gb", 32), min_value=4, key=f"{key_prefix}_mem")
         params["anat_only"] = st.checkbox("Anat-only", key=f"{key_prefix}_anat")
-        params["use_derivatives"] = st.checkbox("Reuse anat derivatives", key=f"{key_prefix}_deriv")
+        # Reuse needs preprocessed anatomicals already on disk for this unit;
+        # offering it otherwise submits a job that silently rebuilds the anat.
+        from duckbrain.core.fmriprep import has_anat_derivatives
+
+        reusable = has_anat_derivatives(
+            config["paths"]["derivatives_dir"], subject, session) if subject else False
+        params["use_derivatives"] = st.checkbox(
+            "Reuse anat derivatives", key=f"{key_prefix}_deriv", disabled=not reusable,
+            help="Skips anat preprocessing and reuses what is already on disk. If "
+            "you are re-running because the anat stage itself went wrong, leave "
+            "this off — it would reuse the bad anat."
+            if reusable else
+            "No preprocessed anatomicals for this unit yet — run fMRIPrep with "
+            "Anat-only first.")
         params["extra_flags"] = st.text_input(
             "Custom fMRIPrep flags", value=fp.get("extra_flags", ""), key=f"{key_prefix}_flags")
     elif stage == "converted":
@@ -152,7 +168,8 @@ def _launch(stage, sub, ses, config, params, *, verb="Submitted"):
 def _run_popover(row, stage, config):
     sub, ses = str(row["subject"]), str(row["session"])
     st.markdown(f"**Run {stage}** — {_unit_label(sub, ses)}")
-    params = _stage_params(stage, config, key_prefix=f"run_{stage}_{sub}_{ses}")
+    params = _stage_params(
+        stage, config, key_prefix=f"run_{stage}_{sub}_{ses}", subject=sub, session=ses)
     if st.button(f"▶ Run {stage}", type="primary", key=f"runbtn_{stage}_{sub}_{ses}"):
         _launch(stage, sub, ses, config, params)
 
@@ -199,7 +216,8 @@ def _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable,
                 st.caption(f"No log file yet in `{log_dir}` for job {job_id}.")
     if runnable:  # a failed stage is re-runnable; running/queued are gated
         st.divider()
-        params = _stage_params(stage, config, key_prefix=f"re_{stage}_{sub}_{ses}")
+        params = _stage_params(
+            stage, config, key_prefix=f"re_{stage}_{sub}_{ses}", subject=sub, session=ses)
         if st.button(f"↻ Re-run {stage}", type="primary", key=f"rerun_{stage}_{sub}_{ses}"):
             _launch(stage, sub, ses, config, params, verb="Re-submitted")
     elif job_state in ("running", "queued") and job_id:

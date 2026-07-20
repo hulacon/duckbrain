@@ -100,7 +100,9 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
 
 
 def _build_fmriprep(config, subject, session, log_dir, params):
-    from .fmriprep import find_fs_license, get_container_path, write_session_filter
+    from .fmriprep import (
+        find_fs_license, get_container_path, has_anat_derivatives, write_session_filter,
+    )
 
     paths = config["paths"]
     derivatives_dir = paths["derivatives_dir"]
@@ -149,6 +151,16 @@ def _build_fmriprep(config, subject, session, log_dir, params):
         spaces = spaces.split()
     anat_only = bool(params.get("anat_only", False))
     use_derivatives = bool(params.get("use_derivatives", False))
+    # Reuse is only meaningful when this unit already has preprocessed anatomicals.
+    # Without the check fMRIPrep accepts --derivatives pointing at a tree with no
+    # anat for the subject, rebuilds the anat workflow, and reports nothing —
+    # the option looks honoured but did nothing.
+    if use_derivatives and not has_anat_derivatives(derivatives_dir, subject, session):
+        raise PipelineError(
+            "Reuse anat derivatives is on, but no preprocessed anatomicals exist for "
+            f"sub-{subject}{('/ses-' + session) if session else ''}. Run fMRIPrep once "
+            "with Anat-only first, or clear the reuse option."
+        )
     extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", ""))).strip()
     nprocs = int(params.get("nprocs", fp_cfg.get("nprocs", 8)))
     mem_gb = int(params.get("mem_gb", fp_cfg.get("mem_gb", 32)))
