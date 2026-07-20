@@ -1,786 +1,198 @@
 # duckbrain — TODO
 
-Prioritized backlog. Newest priorities at the top. See `PLAN.md` for the
-original design and `CLAUDE.md` for current status.
+**Open work only.** Closed items are a one-line ledger at the bottom — the detail
+lives in `git log`, `CHANGELOG.md`, `docs/`, and `memory/`, and every design rule
+that still constrains new code is a comment on the code that enforces it. See
+`PLAN.md` for the original design and `CLAUDE.md` for current status.
 
-## ✅ CLOSED 2026-07-16 — Provenance recording + consistency checker
-Made duckbrain provenance-aware, auto-flagging inconsistencies in the cockpit.
-Combined the provenance/metadata backlog item (was `docs/pipeline-extras.md` #5)
-with a consistency checker — provenance the foundation, the checker the payoff.
-Motivated by the NORDIC `use_nordic` coexistence problem: flipping the toggle on a
-project that already had raw-provenance fMRIPrep produces self-contradictory
-metadata and nothing caught it.
+**Item ids (`#4`, `#5b`, …) are stable names, not positions.** They're referenced
+from CLAUDE.md, `docs/`, and source comments, so they never get renumbered — the
+list is ordered by priority and the ids stay put. Closed items keep their id in
+the ledger so an old reference still resolves.
 
-**Closed. What ships:** provenance recorded per run (tool, version, runtime, code
-source, input variant) in `code/logs/submissions.tsv`; BIDS `GeneratedBy` on every
-duckbrain-produced dataset — including the **ingested root's dcm2bids converter**
-and per-file **NORDIC sidecars**; and `check_consistency()` surfacing seven checks
-in the cockpit (config-vs-provenance, container-drift, toolbox-drift, matlab-drift,
-duckbrain-drift, mixed-provenance/version/runtime, staleness, presence). Every
-stage now reports honest provenance by one rule — containers by build tag, NORDIC
-by toolbox commit, duckbrain by its own checkout. **255 tests.**
+---
 
-**The motivating foot-gun is validated.** `mixed-provenance` fires on real
-`run_provenance` values: two fMRIPrep subjects recorded under different variants in
-one derivative →
-`fMRIPrep was run under different input variants across subjects (nordic: 015; raw: 04)`.
+## #4 — Live-validate discovery + fieldmap handling (needs real data)
 
-**Residual (accepted, not forgotten):** the mixing check has never been driven by
-two *completed* real fMRIPrep runs — that costs hours of compute and works by
-deliberately corrupting a derivative to prove a warning fires. Judged a bad trade:
-every *input* to the check is live-validated (real config layering, real
-`run_provenance`, real log format+migration, real `dataset_description` shapes), so
-the unproven residue is grouping logic over real values — which the exercise above
-drives end-to-end into a temp project. Close it for free the next time a project
-genuinely mixes variants.
+The only items left in `docs/handoff-cluster-session.md` (§2, §3) — built and
+unit-tested offline, never run against a real LCNI export. That doc's *previous*
+version asserted findings that turned out to be wrong on inspection, so treat its
+claims as hypotheses to verify.
 
-**Remaining polish (minor, non-blocking):** per-subject config-vs-provenance
-(currently dataset-level); an mriqc `DatasetLinks` check if MRIQC ever records one;
-`tool_version` is overloaded (container *tag* for container stages vs `git describe`
-for NORDIC — defensible, same class of misnomer the `runtime`/`code_source` rename
-fixed, not worth its own migration); NORDIC log rows carry provenance columns
-nothing reads now that sidecars are the source (the row still earns its place via
-`job_id`).
+- **Session/subject discovery against a real export.** `G##_S##` session parsing
+  and phantom/test-folder filtering. The thing to confirm is the dangerous
+  direction: **no real subject is silently dropped** by the exclusion rules.
+- **Multiple fieldmap pairs, end to end.** Two AP/PA pairs must convert to
+  `dir-AP_run-1` / `dir-AP_run-2`, not one overwritten `dir-AP`.
+- **Eyeball the dcm2bids `GeneratedBy`** on an ingested root while you're there.
+- *Known limitation, deliberate:* with ≥2 fieldmap pairs, bold→fmap linking sends
+  every task to the first group (`_assign_fmap_group` has no temporal-proximity
+  logic). Fine for conversion; a candidate refinement, not a bug.
+- **DEFERRED — mmmdata-style nested multi-session** (`func_session_*/anat_session/`
+  under the source) breaks `discover_sessions`, which expects session folders
+  directly under the source dir. The real nesting isn't documented in this repo;
+  implementing against a guess is unverifiable and risks the working LCNI path.
+  Needs a real example tree. (This is the "#4 item 4" the handoff doc refers to.)
 
-Original plan and the full build/validation record below.
+## #2 — Onboarding for external users
 
-**Phase A — record provenance (do first; cheap, high-leverage). BUILT 2026-07-16.**
-- ✅ Durable submission log (`code/logs/submissions.tsv`) now records per run:
-  `tool`, `tool_version`, `container`, and *input variant* (`raw` vs `nordic`),
-  via `run_provenance(config, stage)` threaded through `advance_one`
-  (`core/pipeline.py`). Every field degrades to `""` off the resolvable path so
-  provenance can never sink a submission; `read_submissions` backfills the new
-  columns for legacy logs.
-- ✅ BIDS-Derivatives `GeneratedBy` written for duckbrain-produced derivatives:
-  `write_dataset_description` versions duckbrain from the package + accepts a
-  custom `generated_by`; new `write_derivative_description` emits
-  `DatasetType=derivative` + `GeneratedBy` (duckbrain + tool, version + container
-  Tag) + `SourceDatasets`/`DatasetLinks.raw`. NORDIC (a MATLAB job that writes no
-  provenance of its own) is stamped at launch. This puts duckbrain-produced and
-  tool-written derivatives in the **same on-disk format** the checker reads.
-- **Design decision (2026-07-16):** on-disk provenance is the *authoritative*
-  substrate; the submission log is an *overlay* that only adds what on-disk can't
-  represent (per-subject mixing within one dataset-level `dataset_description`).
-  This keeps duckbrain's "no state store, fold in external data" principle intact
-  — externally-produced derivatives are first-class, never flagged for lacking a
-  log row. Phase B's `check_consistency` must honor this ordering.
-- ✅ **Ingested BIDS root now names its converter (2026-07-16).**
-  `converter_generated_by(config)` assembles duckbrain + dcm2bids entries and the
-  Ingestion page passes them to `write_dataset_description`. The root previously
-  recorded duckbrain but not the tool that actually did the conversion — the more
-  decision-relevant of the two, since dcm2bids' version determines the BIDS emitted.
-  Complements rather than duplicates dcm2bids' per-file `Dcm2bidsVersion` sidecar
-  fields (those describe each file, this describes the dataset). Verified on real
-  config: `[{duckbrain v0.1.0-5-g986f8cc}, {dcm2bids 3.2.0, Container{Tag:
-  dcm2bids-3.2.0.sif, URI: docker://unfmontreal/dcm2bids:3.2.0}}]`. Best-effort —
-  degrades to duckbrain's entry alone rather than blocking the write.
-  ~~Nipoppy bagel export tie-in~~ — **the bagel export was removed 2026-07-16**, see §6.
+**The writing is done; the dogfooding and the distribution story are open. Do not
+tick this off.** `QUICKSTART.md` and `README.md` are written and current.
 
-**Phase B — consistency / mismatch checker. BUILT 2026-07-16.**
-- ✅ `check_consistency(config)` in `core/consistency.py`; surfaces ⚠️ in the
-  Project Status cockpit (panel after the Overview rollup, silent when clean).
-  On-disk provenance is authoritative (`read_derivative_provenance` reads any
-  derivative's `dataset_description.json` → `GeneratedBy`/`DatasetLinks`), the
-  submission log is the overlay for cross-subject mixing. Each check is guarded so
-  one blowing up can't sink the panel. Checks implemented: **config-vs-provenance**
-  (fMRIPrep `DatasetLinks.raw` vs `use_nordic`), **container-drift** (config-resolved
-  container vs the one that produced the derivative), **mixed-provenance** + **mixed-version**
-  (latest-per-subject from the log), **staleness** (NORDIC newer than fMRIPrep,
-  mtime), **presence** (fMRIPrep present but NORDIC input missing). 17 new tests
-  (`test_consistency.py` + 2 AppTest panel tests); 168 total pass. Externally-run
-  derivatives fold in — never flagged merely for lacking a log row.
-- Remaining polish: per-subject config-vs-provenance (currently dataset-level);
-  add mriqc `DatasetLinks` check if MRIQC starts recording one. Both Phase A
-  leftovers are now closed (ingested-root dcm2bids `GeneratedBy` built; the bagel
-  tie-in is moot — that export was removed, §6).
-
-**Phase B — VALIDATED LIVE 2026-07-16** against real Talapas data
-(`divatten_gui_beta` + the real containers dir). 183 tests pass. Two bugs found
-and fixed. The checker is now silent on that project, which is the *correct*
-reading: it is clean single-provenance raw with a correctly-configured container.
-- **Fixed: `version-drift` was a guaranteed false positive → replaced by
-  `container-drift`.** It compared the config-pinned `*_version` (a container
-  *tag*, used to build `<tool>-<tag>.simg`) against the tool's self-reported
-  `GeneratedBy.Version`. Different namespaces. Proven on real data: the container
-  `mriqc-24.0.2.simg` self-reports `MRIQC v24.1.0.dev0+gd5b13cb5.d20240826`, so the
-  panel warned about a correctly-configured project. fMRIPrep escaped only by
-  coincidence (`fmriprep-24.1.1.simg` reports `24.1.1`) — which is why the fixtures
-  missed it: they used matched clean semver, encoding the bad assumption. The check
-  now compares **container identity**: `_configured_container` (same resolution the
-  builder uses) vs `_recorded_container` (on-disk `GeneratedBy[].Container.Tag`,
-  authoritative; submission-log `container` column as fallback, since fMRIPrep/MRIQC
-  overwrite the description and omit the container). Unknowable → silent. A bumped
-  pin still fires, since it resolves a different container file. Version strings are
-  informational only now.
-- **Fixed: the log overlay counted runs that produced nothing.** The log records
-  *submissions* (job tracking, incl. in-flight/cancelled/deleted); the filesystem
-  records what was *produced*. For provenance the files arbitrate, so
-  `_latest_per_subject` now drops rows with no output on disk
-  (`_subjects_with_output`, via the surveyor). Real case: `divatten_gui_beta`'s only
-  fMRIPrep log row is sub-008 — a NORDIC-chained run that was cancelled and its
-  output removed — which would have claimed phantom provenance for a subject the
-  derivative doesn't contain, once Phase A starts populating `input_variant`.
-- **Still unvalidated on real data: `mixed-provenance` / `mixed-version`.** Phase A
-  records provenance only for *future* runs, and all 35 rows in the real log are the
-  legacy 5-column schema (`tool`/`tool_version`/`container`/`input_variant` all
-  empty — backfill works, no crash). So every log-overlay check is inert on existing
-  projects. The handoff's premise was stale: `divatten_gui_beta` is **not** mixed —
-  `derivatives/fmriprep` holds only sub-04 + sub-015, both raw (the sub-008 NORDIC
-  run was cancelled and removed). Validating mixing needs new post-Phase-A runs
-  under two variants.
-- Verified live-correct against real trees: `config-vs-provenance` (silent when
-  config agrees, fires when `use_nordic` flipped in-memory), `staleness` (real
-  NORDIC 7/15 genuinely newer than fMRIPrep 7/10), `presence` (true negative —
-  sub-04/sub-015 both have NORDIC output), `_configured_container` (resolves the
-  real `fmriprep-24.1.1.simg` / `mriqc-24.0.2.simg`).
-- **Where container versions come from (checked 2026-07-16).** duckbrain derives the
-  version *purely from the filename*: `get_container_path` builds `<tool>-<pin>.sif`
-  / `.simg` from the `[containers]` pin and returns the first that exists. Nothing
-  reads inside the image. But three independent version facts do exist in each
-  container, and they disagree:
-  - `apptainer inspect` labels — `...deffile.from` records the **Docker source tag**
-    the image was built from (the real build provenance), plus `label-schema.version`
-    and `vcs-ref`.
-  - the tool's own `--version` at runtime.
-  - what the tool writes into `GeneratedBy.Version`.
-  For fMRIPrep all three agree (`24.1.1`). For MRIQC they don't:
-  `deffile.from = nipreps/mriqc:24.0.2` and `vcs-ref = d5b13cb5`, but the tool
-  self-reports `24.1.0.dev0+gd5b13cb5.d20240826` — the same git ref (`g` is git's
-  prefix). So **`mriqc-24.0.2.simg` is correctly named**: it faithfully matches the
-  Docker tag it was built from. The discrepancy is *upstream* — nipreps cut the
-  `24.0.2` image from a commit whose own version metadata said `24.1.0.dev0`.
-  (Corrects an earlier note in this file calling the container misnamed.) This
-  vindicates comparing container identity: the tag is an accurate, stable
-  identifier; the self-reported version is an upstream packaging artifact.
-- **✅ BUILT 2026-07-16: build provenance as container identity.** New
-  `core/containers.py` reads `deffile.from` out of the image (`inspect_labels`,
-  `container_build_tag`, `container_uri`), cached per (path, mtime, size) so an
-  in-place rebuild re-inspects. Measured on Talapas: **~20–50 ms** even for a 5 GB
-  image (`apptainer inspect` reads the SIF header, not the payload); full
-  `check_consistency` on the real project is ~130 ms, dominated by the surveyor's
-  filesystem walk — fine for a page render.
-  - `run_provenance` now records `container_source` (new submission-log column);
-    `write_derivative_description` records it as BIDS `Container.URI` alongside the
-    filename in `Container.Tag`. Verified live: `fmriprep-24.1.1.simg` →
-    `nipreps/fmriprep:24.1.1`, `mriqc-24.0.2.simg` → `nipreps/mriqc:24.0.2`,
-    `dcm2bids-3.2.0.sif` → `unfmontreal/dcm2bids:3.2.0`.
-  - `container-drift` now **prefers build tags** over filenames when both sides know
-    them, falling back to the filename otherwise (legacy rows) and staying silent
-    when neither is knowable. This catches an image **rebuilt in place** (same
-    filename, different image — invisible to a filename check) and stops it crying
-    wolf over a container merely **renamed**. `resolve_container(config, stage)` in
-    `core/pipeline.py` is now the single source of truth for "which image does config
-    point at", shared by the builder, provenance recording, and the checker.
-
-- **✅ FIXED 2026-07-16 (latent, pre-existing, would have bitten on the next launch):
-  appending a provenance row to a legacy submission log corrupted it.** Phase A added
-  columns but never migrated existing logs, and `divatten_gui_beta`'s real log still
-  had the original **5-column** header (`timestamp/subject/session/stage/job_id`).
-  Appending a wider row under it produces a ragged file that `pd.read_csv` refuses
-  outright (`Expected 5 fields, saw 10`) — which would have taken the submission log,
-  the Job Monitor, and *every* log-overlay consistency check down on the first launch
-  (silently, for the checks: the per-check guard swallows it). It had never fired only
-  because all 35 real rows predate Phase A, so nothing had appended yet.
-  `_migrate_log_header` now rewrites the header before appending — atomically
-  (`os.replace`), remapping rows by column *name* so no data shifts and new fields
-  fill empty — and `read_submissions` falls back to a tolerant hand parse so an
-  already-ragged log still reads. Validated on a copy of the real 35-row log.
-
-Original Phase B design notes (kept for reference):
-- Cross-references config expectation, on-disk provenance, and mtimes.
-- **Provenance signal (found 2026-07-15):** fMRIPrep records its input in
-  `derivatives/fmriprep/dataset_description.json` → `DatasetLinks.raw` (a NORDIC run
-  points it at `derivatives/nordic/bids_format`; a raw run at the project root), but
-  it's a *single dataset-level* field overwritten by whichever run finished last —
-  so it can't represent mixed provenance. Hence Phase A: duckbrain's own per-run
-  record is what catches mixing.
-- **Checks to flag:**
-  - **Config vs provenance** — `use_nordic` on but a derivative's `DatasetLinks.raw`
-    isn't the nordic tree (or vice-versa).
-  - **Mixed provenance** — some subjects launched raw, some NORDIC, into the same
-    `derivatives/fmriprep/` (only duckbrain's own record catches this).
-  - **Staleness** — a derivative older than the input it derives from (e.g. NORDIC
-    re-run after fMRIPrep) → "stale, re-run" (mtime check).
-  - **Presence consistency** — fMRIPrep exists but NORDIC missing in a NORDIC project.
-- **Not viable:** detecting denoising from pixel data (fMRIPrep resamples to float32;
-  only heuristic). Provenance metadata is the only reliable basis.
-
-## 0. Pipeline cockpit — actionable Project Status board — BUILT 2026-07-10; USABILITY PASS + JOB-MONITOR MERGE 2026-07-17
-The Project Status matrix is actionable: each `(subject, session) × stage` cell
-shows filesystem status fused with live SLURM state (🔵 running / ⏳ queued /
-🔴 failed), and the next stage launches per unit via `core.pipeline.advance_one`.
-A running/queued job is never offered for re-run (no double-submit); ingestion is
-read-only here by design (Ben agreed). Built in four committed phases — controller
-extraction (`core/pipeline.py`), live-state fusion (`survey_live`/`stage_runnable`),
-cockpit UI, and polish (guarded bulk, opt-in 30s auto-refresh, durable submission
-log `code/logs/submissions.tsv`, deep-links). Full plan + status tracker:
-**`docs/pipeline-cockpit.md`** (phase 5 row covers the below).
-
-- ✅ **Usability pass — DONE 2026-07-17 (phase 5).** The three stacked blocks
-  (read-only table + "Launch a step" selectbox + bulk expander) are now ONE grid
-  whose cells *are* the controls: `▶` popover to launch (params inline), and a
-  running/queued/failed cell opens a popover referencing the **exact SLURM job**
-  (id + live squeue/sacct detail + log tail) with **cancel** (in-flight) /
-  **re-run** (failed). Column headers carry per-stage bulk (guarded).
-  - ✅ **The concrete confusion is fixed.** The old "Ready to run" dropdown hid a
-    momentarily-gated stage (e.g. MRIQC running on all subjects → dropdown showed
-    only fMRIPrep, reading as "can't run MRIQC here"). The action now lives on the
-    cell you're looking at — a gated cell keeps its icon in place, never vanishes.
-- ✅ **Job Monitor page retired, folded into the cockpit (2026-07-17).** The
-  standalone `6_Job_Monitor.py` is gone; its squeue/sacct tables + log viewer are
-  the "All SLURM jobs" panel (the catch-all for jobs not tied to a board cell),
-  fed from `survey_live(config, with_jobs=True)` (single pull). New helpers:
-  `cancel_job()` (scancel), `find_job_logs()` (resolves NORDIC array logs).
-- ⏳ **Still open (needs a real browser, not AppTest):** eyeball column-width/feel
-  at project scale — a 7-column grid (sub, ses, + 5 stages) over ~37 subjects; if
-  cramped, drop `ingested` to a compact check or narrow the label columns.
-- ⏳ **Deferred follow-up (noted, not built):** none blocking. Cancel/re-run/log
-  all shipped; a future idea is a re-run of a *complete* stage behind an advanced
-  toggle (deliberately excluded from `stage_runnable` today).
-
-## 1. Folder picker UX — reworked 2026-07-09, needs live look
-
-`components.directory_picker` was rebuilt (still in-house: `streamlit-explorer`'s
-`DirPicker` was evaluated — it IS lazy/HPC-safe, but v0.1.0 with 2 commits and
-no `must_exist`/create-folder/default-path support; we adopted its good ideas
-instead of the dependency). Still lazy, one `iterdir` per level. New model:
-
-- Text field = **committed** selection; browsing lives in a collapsed
-  "📂 Browse" expander whose body is an `st.fragment` — folder clicks rerun
-  only the fragment, not the page (fixes sluggishness/scroll loss).
-- Clickable **breadcrumb** jumps up any number of levels; single-column list of
-  tertiary `📁` buttons in a scrollable container (lighter than the old grid).
-- Explicit **"✓ Use this folder"** commits (via `on_click` callback +
-  `st.rerun(scope="app")`); typing/pasting a path still commits directly.
-- Requires Streamlit ≥ 1.48 (horizontal containers) — pyproject bumped.
-- Covered by `tests/test_gui_components.py` (AppTest: navigate/commit/
-  breadcrumb/filter/create/must_exist).
-
-Remaining: eyeball it in a real browser session (AppTest can't judge feel);
-file-mode for fs_license deliberately deferred — dirs-only is all we need for
-now, fs_license stays a text field.
-
-## 2. Onboarding for external users
-**Status: the *writing* is done; the dogfooding and the distribution story stay
-OPEN. Do NOT tick this item off.**
-
-- ✅ **Docs written (2026-07-16, web session).** New `QUICKSTART.md` (access →
-  containers/NORDIC → layered config → launch → first project) and a refreshed
-  `README.md`. What the refresh corrected while it was there:
-  - Broken NORDIC URL (`SteenMoworCortx` → `SteenMoeller/NORDIC_Raw`).
-  - Config section rewritten from the stale "two-file base + local.toml" model to
-    the real layered, project-dir-first one (base → user → project; local.toml
-    marked legacy).
-  - Removed dead **Nipoppy bagel** references (surveyor comment, Project Status
-    page description) — that export was removed (§6).
-  - NORDIC's non-redistributable status stated plainly; every user clones their
-    own copy. FreeSurfer license called out as a prerequisite.
-- ⚠️ **`UNVALIDATED` — what the next on-cluster session must actually walk through.**
-  The writer had no Talapas FS, no SLURM, no containers, no browser, so none of
-  the *new-user path* is confirmed. Each is flagged inline in the docs too:
-  1. **Fresh install** — `git clone` → venv → `pip install -e ".[dev]"` → tests
-     pass on a clean account. (The offline test run *was* confirmed here: 255
-     pass. The cluster-side install was not.)
-  2. **Container builds** — the three `singularity build` refs actually build on
-     Talapas; correct `module load` name (apptainer vs singularity); build-node
-     requirements.
-  3. **MRIQC version** — see the open question just below.
-  4. **Config** — confirm the exact key set the Setup page emits matches the
-     hand-written shapes shown in QUICKSTART/README (`src/duckbrain/config.py`).
-  5. **Launch** — the `srun` flags for `scripts/launch.sh` (partition,
-     `--account` requirement) on a current-policy fresh account; and the
-     personal-OOD-sandbox registration steps for a *new* user (never written up).
-  6. **First-project GUI feel** — the actual friction points in Ingestion
-     mapping / Conversion (bullet 2 below) — needs a real browser walkthrough.
-- ✅ **RESOLVED 2026-07-17: shipped default pinned to `24.0.2`.** The question
-  didn't need a live MRIQC run after all — it needed the release landscape.
-  Checked upstream: **`24.0.2` is MRIQC's latest stable release** (25.0.0 never
-  left rc; 25.1/26.0 are dev-only) *and* there is **no `nipreps/mriqc:24.1.0`
-  Docker tag at all** (Docker Hub lists …24.0.1, 24.0.2, 25.0.0rc0 — no 24.1.0).
-  So the old default `24.1.0` pointed the container-build command at a tag that
-  doesn't exist; only the maintainer's user-config override to `24.0.2` hid it.
-  Pinned `config/base.toml` + the README/QUICKSTART build commands to `24.0.2`
-  (the validated *and* latest-stable version). *(The trap still holds: the
-  `24.0.2` container self-reports `24.1.0.dev0+gd5b13cb5` — a tool's
-  self-reported version and its container tag are different namespaces; that's
-  where the phantom `24.1.0` came from.)*
-
-Still OPEN (unchanged — need a cluster/browser, not attempted):
+- **`UNVALIDATED` — the new-user path on a clean account.** Flagged inline in the
+  docs too. Nobody has walked: fresh `git clone` → venv → `pip install -e ".[dev]"`
+  → tests pass; the three `singularity build` commands actually building on Talapas
+  (and whether it's `apptainer` or `singularity` under current module policy); the
+  exact config key set the Setup page emits matching the hand-written shapes in the
+  docs; `scripts/launch.sh` srun flags under current partition/account policy; and
+  personal-OOD-sandbox registration for a *new* user (never written up).
 - **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —
-  needs a real walkthrough to know where the friction is.
-- **Launch/distribution story** — OOD app is currently a personal sandbox; a new
-  user needs their own OOD sandbox or `launch.sh` + tunnel. Three candidate
-  answers laid out (not picked) in `QUICKSTART.md#the-distribution-question`:
-  personal sandbox / `launch.sh`+tunnel / a shared RACS-published app. Resolving
-  it needs RACS.
+  needs a real walkthrough to know where the friction actually is.
+- **Distribution story — needs RACS.** The OOD app is a personal sandbox today.
+  Three candidates laid out but not picked in
+  `QUICKSTART.md#the-distribution-question`: personal sandbox / `launch.sh`+tunnel
+  / a shared RACS-published app.
+- **NORDIC constraint that shapes this:** the licence forbids redistribution and
+  the PIRG root is `0770` (no world access), so every user must fetch their own
+  toolbox copy and each will sit at a different SHA. Already the config shape. See
+  `memory/nordic-versioning-and-licence`.
 
-## 3. fMRIPrep step — run live (last unrun core stage)
-- Command validated against mmmdata's `run_fmriprep.py` (every substantive flag
-  matches); container `fmriprep-24.1.1.simg` present; FS license now in user
-  config (`/home/bhutch/licenses/fs_license.txt`). Blocker is just the live run:
-  submit one DIVATTEN subject (single-session, anat+func) via SLURM and monitor
-  via the Jobs page. Runs via SLURM, not inline.
+## #0 / #1 — Browser eyeball pass (AppTest can't judge feel)
 
-## 4. Naming / discovery robustness (from the LCNI survey)
-- ✅ **`G##_S##` session style recognized (2026-07-16).** `_parse_session_folder`
-  now reads the trailing `S##` token as the session when the preceding token is a
-  `G##` subject (`_GS_SUBJECT_RE`/`_GS_SESSION_RE` in `core/ingestion.py`).
-  Requiring the paired G-token keeps a bare `s01`/`S01` subject id from being
-  misread as a session — the same safeguard the "ses"-prefix rule provides.
-- ✅ **Phantom/test-folder filtering (2026-07-16).** `discover_sessions` skips
-  non-subject folders via `_is_excluded_folder`: names containing whitespace, or a
-  whole-token marker (`test`/`phantom`/`demo`/`qa`) paired with a *non-numeric*
-  identity. A study that legitimately uses a marker as its project prefix
-  (`TEST_01`) resolves to a numeric subject and is kept; `include_excluded=True`
-  opts out of filtering. Whole-token match avoids substring false-positives
-  ("Detest"). 5 new tests in `test_ingestion.py`.
-- ✅ **Multiple fieldmap pairs no longer collapse (2026-07-16).** `detect_fieldmaps`
-  now groups *unnamed* AP/PA fieldmaps by acquisition order (`_pair_by_acquisition`),
-  so a reacquired plain pair (e.g. topup before/after the functionals) yields two
-  distinct pairs instead of a spurious "Duplicate AP". `generate_config` gives each
-  pair a distinguishing BIDS entity so their `dir-<X>_epi` files don't collide —
-  `run-N` for order-numbered pairs, `acq-<name>` for named pairs (which also fixes
-  the latent encoding/retrieval `dir-AP` collision) — placed in BIDS entity order
-  and folded into the dcm2bids `id`. Lone-pair output is unchanged. New field
-  `FieldmapDetection.group_entities`; 6 new tests. **Note:** with ≥2 pairs, bold→fmap
-  linking still defaults every task to the first group (`_assign_fmap_group` has no
-  temporal-proximity logic) — fine for conversion, a candidate refinement later.
-- **DEFERRED (needs cluster/real data): mmmdata-style nested multi-session org.**
-  `func_session_*/anat_session/` under the source breaks `discover_sessions`, which
-  expects session folders directly under the source dir. The exact nesting (per
-  subject? how func/anat sessions fold into one BIDS session?) isn't documented in
-  this repo — the mmmdata reference lives on Talapas. Implementing discovery against
-  a guessed structure is unverifiable offline and risks the working LCNI path; do
-  this with a real example dir or on-cluster.
+The cockpit (#0) and folder picker (#1) are built, tested, and unlooked-at in a
+real browser. These are the only residuals of either item.
 
-## 5. Config / mapping niceties
-- ✅ **Project-wide task mapping — BUILT 2026-07-16 (web session).** Define the
-  task label once, inherit it across every subject, override per-session for
-  exceptions. Keyed on **SeriesDescription** (the stable identity across subjects
-  — series *numbers* vary, the scanner protocol's descriptions recur). Seeding
-  now layers three sources, each overriding the prior: heuristic/template →
-  **project-wide rules** → per-session manual edits.
-  - **Rules fix the task ONLY, never the run.** This was a real design bug caught
-    in an end-to-end check before it shipped: an early version let a rule pin the
-    run, which collided every repeat of a task onto the same `run-` across
-    subjects (a subject with two `MB4_rest` acquisitions got `run-2, run-2`). Run
-    numbers are positional — name token else per-session acquisition-order count —
-    so they stay a per-session concern. Regression test locks this
-    (`test_repeated_task_never_collides_on_run_across_subjects`).
-  - **Where:** `TaskRule` + `build_task_run_mapping(..., rules=)` +
-    `task_rules_from_mapping/_from_config/_to_config_section` in
-    `core/dcm2bids_config.py`; persisted read-modify-write into the project
-    config's `[task_mapping]` by `save_project_task_map` (`config.py`, preserves
-    other keys); threaded through `generate_session_config` and the cockpit's
-    `_build_dcm2bids` so **bulk/cockpit conversion inherits the rules too**. GUI:
-    the Conversion page seeds from project rules and has a "⭑ Save this mapping as
-    the project default" button. 18 new tests; 273 pass.
-  - ✅ **GUI wiring VALIDATED 2026-07-17** (AppTest driving the real Conversion
-    page against real DICOMs, writes isolated to a temp project): the "applied N
-    rules" caption renders, the save button writes `[task_mapping]` (preserving
-    other keys), and a second subject seeds from the saved rules — including an
-    injected override task appearing in that subject's generated dcm2bids config.
-    Still worth a human eyeball for *feel* (is the caption noticeable), but the
-    wiring is confirmed.
-  - ✅ **FIXED 2026-07-17: task labels sanitized to valid BIDS.** Caught while
-    dogfooding — a user-entered label like `resting_test` was emitted verbatim as
-    the invalid `task-resting_test` (the `_` splits the entity). `generate_config`
-    now routes every task label through `sanitize_task_label` at the entity
-    boundary (all paths), and the Conversion page warns showing the rewrite
-    (`resting_test → restingTest`). Tests in `test_task_mapping.py`.
-  - Deferred (fine as-is): no per-rule temporal-proximity for fmap linking (same
-    known limitation as multi-fieldmap conversion); rules are dataset-wide, no
-    per-subject *rule* scoping (per-subject *edits* cover the exception case).
-- MRIQC now runnable — `mriqc-24.0.2.simg` present, user config aligned to
-  `mriqc_version = "24.0.2"`. Still needs a live end-to-end run + QC-dashboard
-  validation.
+- **Cockpit at project scale** — a 7-column grid (subject, session, + 5 stages)
+  over ~37 subjects. If cramped, drop `ingested` to a compact check or narrow the
+  label columns.
+- **Folder picker** — `components.directory_picker` was reworked 2026-07-09 and
+  has only ever been driven by AppTest.
+- Minor, while you're in there: is the Conversion page's "applied N rules" caption
+  actually noticeable?
 
-## 5c. NORDIC versioning + distribution — toolbox axis BUILT 2026-07-16
-NORDIC *was* the only stage with zero version provenance (the container work
-routes around it — it has no container). Now `run_provenance(cfg, "nordic")`
-returns a full record, sourced from the toolbox's git checkout:
-```
-{'tool': 'nordic', 'tool_version': 'v1.0.2-24-g0861968', 'container': '',
- 'container_source': 'SteenMoeller/NORDIC_Raw@0861968', 'input_variant': 'raw'}
-```
-- **`core/toolbox.py`** — `describe` (`git describe --tags --always --dirty`),
-  `source_ref` (`Owner/Repo@sha`, the git analogue of a container's `deffile.from`),
-  `code_url` (browsable commit URL; declines to guess for non-GitHub hosts).
-  Uncached on purpose: these are fast local git reads (~60 ms for all three on the
-  real toolbox) and a cache could serve a stale `-dirty` after an edit.
-- **On-disk stamp** — NORDIC's `GeneratedBy` now carries
-  `{"Name": "nordic", "Version": "v1.0.2-24-g0861968", "CodeURL": ".../tree/<sha>"}`
-  (new `code_url=` on `write_derivative_description`); `container_source` records
-  `Owner/Repo@sha` in the log.
-- **`toolbox-drift` check** (`core/consistency.py`) — NORDIC's analogue of
-  `container-drift`, deliberately a *separate* check since its artifact is a
-  checkout, not an image. Comparing *versions* is sound here (unlike the container
-  case): both sides are `git describe` of the same repo — one namespace. Reads
-  on-disk first, log overlay as fallback; unknowable → silent. Validated live
-  against the real toolbox (fires on a moved checkout, silent when unchanged).
-  `check_consistency` on the real project: 0 issues, ~186 ms.
-- **Caught during the build:** `Path("")` is `.`, so an unset `nordic_toolbox_dir`
-  described the **current directory** — recording *duckbrain's own* git version
-  (`a0b0763-dirty`) as the toolbox's. Silently wrong provenance is worse than
-  none; `_is_checkout` now guards the empty path. Regression-tested.
-- 222 tests pass (was 200): `test_toolbox.py` (13) + toolbox-drift/provenance tests.
+## #5 — Config / mapping niceties
 
-**MATLAB runtime axis — BUILT 2026-07-16 (option 2: rename, no new column).**
-Ben's call: fewer columns preferred. `container`/`container_source` → **`runtime`/
-`code_source`**, which spans both kinds of stage with *zero* new columns — NORDIC's
-runtime slot was empty precisely because it runs no image, so MATLAB fills existing
-space, and the `container_source` misnomer retires at the same time:
+Deliberate deferrals, each fine as-is — listed so they aren't rediscovered as bugs.
 
-| stage | `runtime` (what executed it) | `code_source` (where the code came from) |
-|---|---|---|
-| fMRIPrep | `fmriprep-24.1.1.simg` | `nipreps/fmriprep:24.1.1` |
-| MRIQC | `mriqc-24.0.2.simg` | `nipreps/mriqc:24.0.2` |
-| dcm2bids | `dcm2bids-3.2.0.sif` | `unfmontreal/dcm2bids:3.2.0` |
-| NORDIC | `matlab/R2024a` | `SteenMoeller/NORDIC_Raw@0861968` |
+- No per-rule temporal-proximity for fieldmap linking (same limitation as #4).
+- Task rules are dataset-wide; there's no per-subject *rule* scoping. Per-subject
+  *edits* already cover the exception case.
+- `directory_picker` is dirs-only; `fs_license` stays a text field. File-mode
+  deferred until something needs it.
 
-For a container the image *is* the runtime and its tag names the code inside; for
-NORDIC they are two genuinely independent artifacts. Verified live across all four
-stages (table above is real output).
-- **The cost, and it was real:** `_migrate_log_header` maps rows by *name* and
-  rewrites the file in place, so a rename would have **silently and permanently
-  dropped** legacy `container`/`container_source` values. `_SUBMISSION_RENAMES`
-  now carries them across; `read_submissions` renames on read too (reading must
-  never require a write); and the migration compares the *raw* header, since
-  `_parse_log_rows` renames on the way in and an old-named log would otherwise
-  look current and keep its stale header forever. All three are regression-tested.
-- **On-disk:** BIDS has no runtime field, and MATLAB isn't a container — so it
-  gets its own `GeneratedBy` entry (`{"Name": "matlab", "Version": "R2024a"}`),
-  which is spec-legal since `GeneratedBy` is a list. NORDIC's stamp is now
-  `[duckbrain, nordic, matlab]`.
-- **New `matlab-drift` check** — NORDIC's second axis, independent of
-  `toolbox-drift`: a `matlab_module` bump with an unchanged toolbox fires one and
-  not the other.
-- **`_check_mixed_provenance` generalized** beyond fMRIPrep: now also covers
-  NORDIC (mixed toolbox versions across subjects in one `derivatives/nordic`) and
-  adds **`mixed-runtime`**. Input-variant mixing stays fMRIPrep-only — NORDIC
-  always consumes raw. Blank values count as *unknown*, not a distinct value, so a
-  derivative half of whose runs predate a field doesn't read as mixed.
-- 236 tests pass. `check_consistency` on the real project: 0 issues, ~213 ms.
+## Provenance / consistency residuals
 
-**duckbrain's own version — deliberately flagged to a LOWER standard (2026-07-16).**
-Ben's question: should duckbrain mismatches flag like fMRIPrep/NORDIC, given rapid
-development would mean constant mismatches — but serious differences matter for
-data/metadata management? Answer: **no, and not because of noise — because it's a
-different kind of fact.** A tool's version *is* the computation; duckbrain's is the
-recipe-writer. New `duckbrain-drift` check, scoped three ways:
-- **Only where duckbrain authors the recipe** (`_DUCKBRAIN_RECIPE_STAGES`):
-  `converted` (duckbrain generates the dcm2bids config — which series become
-  T1w/bold, task names, fieldmap pairing) and `nordic` (duckbrain supplies the
-  MATLAB entrypoint + sbatch recipe). **Not** fMRIPrep/MRIQC, where duckbrain only
-  passes flags to a container — v0.1.0 and v0.9.0 with identical flags give
-  identical output, so flagging would be noise with no signal under it.
-  This repo proves the distinction: `eeede67` changed emitted BIDS filenames
-  (collapsed `dir-AP` → `dir-AP_run-1/run-2`), and the NORDIC m-file `DIROUT` fix
-  was the difference between *NORDIC never ran* and *NORDIC ran*.
-- **Only on a release-line change** (`_release_line`): `v0.1.0`,
-  `v0.1.0-47-gabc1234` and `v0.1.9` all reduce to `0.1`, so iteration between
-  releases is invisible. Pre-1.0 the *minor* carries the breaking signal
-  (`0.1`→`0.2`), major once ≥1.0. Unparseable (bare sha, untagged) → silent.
-- **At `note` severity, not `warning`** — which finally wires up the dormant
-  `ConsistencyIssue.severity` field. The cockpit now renders notes via `st.info`
-  and warnings via `st.warning`, so a provenance note can't dilute a real
-  contradiction.
-Dataset-level by nature (duckbrain stamps the dataset root, not each subject), so
-mixed duckbrain versions *within* one dataset are invisible. Accepted deliberately
-rather than add a log column for a question metadata management doesn't ask
-("which duckbrain converted sub-07"). **No new column** — both sides were already
-on disk.
-Validated live: `divatten_gui_beta`'s BIDS root is stamped `0.1.0` (the old static
-`__version__`, no `v` prefix) while duckbrain now describes as
-`v0.1.0-1-gd785993-dirty` — both reduce to line `0.1`, so it stays silent. That mix
-is what real projects will hold, and `_release_line` handles pre- and post-describe
-stamps alike. `check_consistency` ~350 ms (a `git describe` per render; fine).
+The item is closed and shipping; these are the accepted edges.
 
-**Per-file provenance in NORDIC sidecars — BUILT 2026-07-16.** Closes the
-dataset-level gap accepted above. `write_nordic_sidecars` (`core/nordic.py`) writes
-a BIDS-derivatives sidecar per denoised BOLD at launch — the same point, and for
-the same reason, duckbrain stamps `dataset_description.json`.
-- **Why per-file at all:** `dataset_description.json` is dataset-level (can't
-  express per-subject mixing) and `submissions.tsv` doesn't travel with the data.
-  Only sidecars keep a *copied or archived* NORDIC output self-describing.
-- **It was also a plain BIDS gap:** NORDIC's MATLAB job emits bare NIfTIs —
-  `derivatives/nordic/sub-04/func` held **13 `.nii.gz` and 0 `.json`**. A
-  derivative BOLD should carry a sidecar with `Sources` regardless of provenance.
-- **Contents:** the raw sidecar copied wholesale (derivatives don't inherit from
-  raw, and denoising changes voxels not acquisition — `RepetitionTime`, `TaskName`,
-  even the raw's own `Dcm2bidsVersion` lineage all stay true), plus `Sources`
-  (`bids:raw:<relpath>`, resolvable via our `DatasetLinks.raw`) and a namespaced
-  `Duckbrain` object (Version/Tool/ToolVersion/Runtime/CodeSource).
-- **⚠️ Do NOT use sidecar `GeneratedBy`.** [BEP028](https://github.com/bids-standard/BEP028_BIDSprov)
-  (BIDS-Prov, still in development) already claims sidecar `GeneratedBy` and
-  `SidecarGeneratedBy` for URI *references* into a prov record
-  (`"bids::prov#conversion-00f3a18f"`) — the **opposite** of what the same key means
-  in `dataset_description.json`, where an inline object is correct. Ours is
-  namespaced under `Duckbrain` to avoid squatting; keeping it one object makes the
-  eventual BEP028 migration a swap, not a rewrite. Precedent for the whole idea is
-  already on disk: dcm2bids writes `Dcm2bidsVersion`/`ConversionSoftware` into every
-  raw sidecar, and fMRIPrep writes `Sources`.
-- **Skip-if-present, mirroring the sbatch.** Only BOLDs whose output doesn't exist
-  get a sidecar — the sbatch skips already-denoised runs, so restamping them would
-  claim the *current* toolbox produced files an older one made.
-- **Checked, not assumed:** rewriting sidecars can't disturb our own checks —
-  `_check_staleness` stats only `.nii.gz`, and the surveyor globs `.json` for
-  presence, not mtime. `_nordic_status` grades on `.nii.gz`, so a sidecar written
-  at launch can't cause a false-green. `build_nordic_bids_input` copies func
-  sidecars from *raw*, so the validated fMRIPrep chaining path is untouched.
-- Validated live: on the real project every sub-04 output exists → **0 written**
-  (skip rule holds, nothing mutated); against a temp derivatives dir off the real
-  raw BIDS → 13 sidecars, 71 keys each (real dcm2bids sidecar + `Sources` +
-  `Duckbrain`), no `GeneratedBy`.
+- **The mixing check has never been driven by two *completed* real fMRIPrep runs.**
+  It costs hours of compute and works by deliberately corrupting a derivative.
+  Every *input* to the check is live-validated, so what's unproven is grouping
+  logic over real values. **Close it for free** the next time a project genuinely
+  mixes variants.
+- Config-vs-provenance is dataset-level; per-subject would be finer.
+- An mriqc `DatasetLinks` check, if MRIQC ever records one.
+- `tool_version` is overloaded — a container *tag* for container stages, a
+  `git describe` for NORDIC. Defensible (both are "what we pinned"), not worth its
+  own migration. Fold in if those columns are ever touched again.
+- NORDIC log rows still write `tool_version`/`runtime`/`code_source` that nothing
+  reads now that sidecars are the source. The row still earns its place via `job_id`.
 
-**Sidecar *reading* — BUILT 2026-07-16 (a swap, not a new tier).** The sidecars
-were briefly a write path with no reader. Now the checker reads them for NORDIC
-*instead of* the log — same number of code paths, better granularity. The rule
-this makes explicit (now in `consistency.py`'s module docstring):
-```
-derivatives duckbrain produces (nordic)    -> provenance lives IN the data
-derivatives tools produce (fmriprep/mriqc) -> the log, the only channel we have
-```
-- `_recorded_toolbox` / `_recorded_runtime` now read **sidecars first** (per-file =
-  most specific), then the dataset-level stamp — which whichever run finished last
-  overwrites, so it can't represent a part-re-run derivative. The log tier is gone
-  for NORDIC. `_check_mixed_provenance` reads sidecars for NORDIC, the log for
-  fMRIPrep.
-- **The case that justifies it:** the sbatch skips already-denoised runs, so a
-  partial array failure re-launched after a toolbox bump leaves survivors on the
-  old toolbox — one subject's 13 files genuinely differ. The log's
-  latest-per-subject row would report the new toolbox for all of them (a **false
-  negative**). Validated: a synthetic sub-04 with run-3 re-denoised yields
-  `mixed-version ... (v1.0.2-24-g0861968: 04; v1.0.2-31-gNEWER: 04)` — the same
-  subject under both values *is* the signal.
-- Safe to drop the log tier: the real project's log carries **zero** provenance
-  (all 35 rows predate Phase A — verified), so no history was lost. Disagreeing
-  sidecars return `""` from `_sidecar_consensus`, so mixing reads as *unknown* to
-  drift rather than firing both checks; sidecars with no `Duckbrain` object are
-  ignored (unknowable, not evidence).
-- Live: real project has 0 sidecars (pre-sidecar outputs) → `_recorded_toolbox` is
-  `""` → correctly silent, 0 issues, ~420 ms. 252 tests pass.
-- **Honest scope:** this did *not* reduce redundancy — all three layers are still
-  written. It removed the write-path-with-no-reader and fixed a real false
-  negative. The `tool_version`/`runtime`/`code_source` columns on NORDIC log rows
-  are now written but unread (the row still earns its place via `job_id`).
+## #5b — NORDIC Case 2: same-project raw-vs-NORDIC comparison
 
-**Known remaining wrinkle (minor):** `tool_version` is itself now overloaded — it
-holds a container *tag* for container stages (`24.1.1`) but a `git describe` for
-NORDIC (`v1.0.2-24-g0861968`). Both are "the version we pinned/ran", so it's
-defensible, but it is the same class of misnomer the rename just fixed. Not worth
-another migration on its own; fold in if the columns are ever touched again.
+Deferred until actually needed. Case 1 (the `use_nordic` toggle) is validated live.
 
-**Background — why the SHA is the only honest version.**
-- Upstream's own version markers are **unusable**: the in-file
-  `% VERSION 4/22/2021` comment is 4 years stale, and the newest release tag
-  `v1.1` is from 2021-07-29 while HEAD is 24 commits past it (2025-05-28).
-  Upstream commits to `main` without cutting releases — the SHA is the only
-  honest identity.
+- **Try the zero-code fallback first:** two project dirs over the same BIDS, one
+  with `use_nordic` on.
+- If it needs building: **do not branch the pipeline.** Use distinct derivative
+  names (`derivatives/fmriprep/` vs `derivatives/fmriprep-nordic/`) and
+  parameterize the hardcoded derivative dir in `_fmriprep_status` and the builder,
+  so a variant appears as an *additive extra column* only when the project opts in.
+  Matches BIDS-derivatives norms.
+- **Case 3, full named-pipeline DAG: PARKED.** Only if branch counts grow (multiple
+  denoisers / fMRIPrep configs routinely). This is the complexity to avoid.
+- **Candidate affordance** (ties to #2): the Setup page validates containers exist;
+  give NORDIC the same treatment — "toolbox not found → fetch pinned version",
+  cloning upstream at a duckbrain-pinned SHA into the user's own space. Not
+  redistribution (the user pulls from UMN) and it gives version uniformity.
 
-**Fork / rewrite: decided against (2026-07-16).**
-- **Forking solves nothing.** Upstream is dormant — commits/year: 28 (2021), 6,
-  3, 1, 1. There is no churn to insulate from, and we have **never needed to
-  patch upstream**: all three NORDIC bugs fixed on 2026-07-15 were in duckbrain's
-  own wrapper, not `NIFTI_NORDIC.m`.
-- **⚠️ Forking may not even be permitted.** `LICENCE.md`: © 2021 Regents of the
-  University of Minnesota, covered by **US patent 10,768,260**, licensed "solely
-  for educational and research purposes by non-profit institutions and US
-  government agencies only", and **"may not be sold or redistributed without
-  prior approval"** — while "one may make copies of the software for their use".
-  So a public fork is a redistribution, and duckbrain **cannot vendor the source**.
-  Confirm with UMN (`umotc@umn.edu`) before acting on this reading.
-- **Python rewrite: cheap to write, expensive to own.** Only 2363 LOC and the math
-  is unexotic (`svd` ×3, fft/ifft/fftshift; no `parfor`, no `gpuArray`, no
-  license-gated toolboxes; `nibabel` replaces `niftiread`/`niftiwrite`). The cost
-  is *validating it forever*: NORDIC's value is being the published, cited
-  implementation, and the subtle parts (g-factor/noise-level estimation, threshold
-  selection, patch geometry) are exactly where a reimplementation silently
-  diverges — a scientific liability, not a fixable bug. The patent covers the
-  *method*, so a rewrite doesn't route around the licence either.
-- **A Python port already exists** — [patch-denoise](https://github.com/paquiteau/patch-denoising)
-  (MIT, PyPI, ISBI 2023 paper; NORDIC + MP-PCA + optimal thresholding) — but makes
-  **no published equivalence claim vs. the MATLAB reference**, is single-maintainer,
-  and last released 2023-09. Adopting it *inherits* the validation burden from
-  someone else's reimplementation. Interesting later as an **optional second engine**
-  for comparison, not a replacement.
+## #7 — Pipeline extras: candidate stages (backlog, none started)
 
-**Distribution to users beyond the hulacon PIRG (ties to TODO #2).**
-- **Hard blocker:** the PIRG root is `drwxrws---` (0770, no world access), so
-  non-hulacon users cannot traverse into the shared toolbox at all. They cannot
-  share our copy, and permissions-hardening is a hulacon-only answer.
-- Combined with the no-redistribution licence, **each user must obtain their own
-  copy from upstream**, with `nordic_toolbox_dir` pointing at it — which is already
-  the config shape, so we're accidentally right.
-- **Consequence: every user drifts to a different SHA.** Version provenance stops
-  being hygiene and becomes the only way to know what ran. This is the strongest
-  argument for building the design above.
-- **Suggested affordance:** the Setup page already validates containers exist; give
-  NORDIC the same treatment ("toolbox not found → fetch pinned version"), cloning
-  upstream at a duckbrain-pinned SHA into the user's own space. Not redistribution
-  (the user pulls from UMN), and it gives version uniformity across users.
-- **Same shape as containers**, which retroactively justifies `container_source`:
-  across a heterogeneous user base filenames are *local convention* (two labs can
-  name one image differently, or different images identically), whereas
-  `nipreps/mriqc:24.0.2` is simultaneously what you tell a user to pull and what
-  makes their provenance comparable to ours. Filename comparison would have quietly
-  produced nonsense the moment duckbrain left this PIRG.
+Each is its own focused effort. Full annotated backlog — candidate tools, ties to
+existing duckbrain/mmmdata work, open questions per item — in
+**`docs/pipeline-extras.md`**.
 
-## 5b. NORDIC — producer + fMRIPrep chaining (Case 1) VALIDATED LIVE 2026-07-15
-`nordic` is a surveyor stage (STAGES column, live-state overlay, cockpit
-launch + bulk) — completion = denoised BOLDs under
-`derivatives/nordic/sub-XX[/ses-YY]/func/*_bold.nii.gz`. The **producer is now
-validated end-to-end** on real data: sub-04 in `divatten_gui_beta` (sessionless,
-13 BOLD runs) denoised clean via the GUI/`advance_one` path (array job 45428802,
-all tasks COMPLETED, ~2–3 min & ~5.8 GB peak each), every output dim matching its
-raw input, and the surveyor flips the cell 🟢. Getting there fixed three latent
-bugs (all in this commit):
-- **m-file output path** — `scripts/nordic_denoise.m` set `ARG.DIROUT = out_dir`
-  *and* `fn_out = fullfile(out_dir, fname)`; `NIFTI_NORDIC` concatenates
-  `DIROUT + fn_out`, so it would have written `out_dir/out_dir/…`. Aligned to
-  mmmdata's validated form (`ARG.DIROUT = [out_dir '/']`, `fn_out = basename`).
-- **template render** — `nordic_denoise.sbatch.j2` used a bash array-length
-  expansion whose `{#` collided with Jinja's comment-open, so the template never
-  rendered. Replaced with a `wc -l` count. (Proof it had never been run.)
-- **sessionless paths** — `nordic_output_dir` / `build_nordic_bids_input` (and
-  the latter's default `bids_input` location) hardcoded `ses-{session}`; now
-  derived from `sub_ses_relpath`, so sessionless data writes `sub-XX/func` not
-  `ses-/func`.
-- **Config (done):** `nordic_toolbox_dir =
-  /gpfs/projects/hulacon/shared/mmmdata/code/NORDIC_Raw` in user config; MATLAB
-  module default `matlab/R2024a` is the cluster default — no change needed.
-- **Chaining — Case 1 BUILT + VALIDATED LIVE 2026-07-15.** fMRIPrep now reads the
-  NORDIC-denoised input when a project sets `[nordic] use_nordic = true`. Principle
-  held: **NORDIC stays a pure independent producer** and **fMRIPrep's input source
-  is the only variable.** Implementation (`core/pipeline.py`, `core/nordic.py`):
-  `effective_depends_on()` swings fMRIPrep's dependency `converted → nordic` when
-  the toggle is on; `stage_runnable(row, stage, config)` gates the cockpit
-  accordingly; `_build_fmriprep()` assembles the unit's `bids_format` tree and
-  points fMRIPrep at `derivatives/nordic/bids_format` (raises if no denoised BOLDs
-  yet). `build_nordic_bids_input()` builds a **self-contained** tree (folder
-  renamed `bids_input → bids_format`): denoised BOLDs hardlinked, anat included
-  (nifti hardlinked, sidecars copied), fmap + func sidecars copied, dataset root
-  files copied once. Same `fmriprep.sbatch.j2` — no `fmriprep_nordic.sbatch.j2`
-  needed. **Validated:** sub-008 in `divatten_gui_beta` — tree assembled (13
-  hardlinked denoised BOLDs + anat + fmap + `dataset_description.json`), cockpit
-  gated fMRIPrep on `nordic`, and the live run (job 45452962) indexed the tree and
-  built the full 2426-node anat+func workflow ("fMRIPrep started!", no BIDS
-  errors) — confirming fMRIPrep consumes the denoised input. 141 tests pass.
-  **Coexistence caveat:** flipping `use_nordic` on makes the *whole* project
-  NORDIC; sub-04/sub-015 keep their old non-NORDIC `derivatives/fmriprep` (mixed
-  provenance — a dogfooding artifact, not a real project). Remaining tiers:
-  2. **Case 2 — same-project comparison (opt-in, defer until actually needed).**
-     Needs two fMRIPrep results per subject, which breaks one-cell-per-stage. Do
-     NOT branch the pipeline; instead use **distinct derivative names**
-     (`derivatives/fmriprep/` vs `derivatives/fmriprep-nordic/`) — parameterize
-     the hardcoded derivative dir in `_fmriprep_status` (and the builder) so a
-     variant shows up as an **additive extra column**, only when the project opts
-     in. Matches BIDS-derivatives provenance norms. **Zero-code fallback to try
-     first:** two project dirs over the same BIDS, one with `use_nordic` on.
-  3. **Full named-pipeline DAG — PARKED.** Only if branch count grows (multiple
-     denoisers / fMRIPrep configs routinely). Cases 1+2 don't need it; this is
-     the complexity to avoid for now.
-- Optional: NORDIC column is always-on; for non-NORDIC projects it's a column of
-  ⚪. Fine for LCNI/mmmdata (NORDIC-common), revisit if noisy elsewhere.
-
-## 6. Per-subject pipeline status matrix (state awareness) — IMPLEMENTED 2026-07-10
-**Done:** `core/surveyor.py` (`survey_project` → matrix, `summarize`) grades each
-`(subject, session)` × stage (ingested/converted/fmriprep/mriqc) as
-complete/partial/missing by **expected-output globs**, not folder presence —
-borrowing Nipoppy's tracker idea but for duckbrain's flat layout, with the
-sessionless-glob and layout-shim pain points designed out. Surfaced in the new
-`gui/pages/0_Project_Status.py` dashboard (color matrix + rollup). Validated on
-`divatten_gui_beta` (correctly flags mid-run fMRIPrep as partial). 19 new tests.
-Remaining ideas: durable submission log (Job Monitor is still ephemeral); port
-`surveyor.py` back to mmmdata (note: now blocked on duckbrain's GPLv3 — needs
-dual-licensing, see §5c). Original rationale below.
-
-### Nipoppy bagel export — REMOVED 2026-07-16 (re-add if Nipoppy takes off)
-`to_bagel`/`write_bagel`/`BAGEL_COLUMNS` + the Project Status export expander are
-gone. **The surveyor was always the catalog; the bagel was only ever a derived
-export** — `to_bagel` took the surveyor's matrix as input, nothing ever read the
-TSV back, and `write_bagel()` was never called (the GUI built the frame in memory
-for a download button). Removing it cost no capability.
-Why now:
-- **No consumer, ever.** Speculative interop for an ecosystem duckbrain
-  deliberately declined to adopt (see the nipoppy evaluation).
-- **It was wrong where it mattered most.** `pipeline_version` came from config
-  `[containers]`, not provenance — so bumping a pin relabelled every historical
-  subject with a version that never ran, in the one artifact designed to leave
-  the machine and land with someone who can't check it. A lying export is worse
-  than no export.
-- **Fixing it fought the layering.** `surveyor.py` is the foundation (both
-  `consistency.py` and `pipeline.py` import *from* it; it imports only
-  `ingestion`). Sourcing provenance into `to_bagel` needed either a circular
-  import or provenance assembly pushed into a Streamlit page.
-- **It would rot silently.** Nipoppy is pre-1.0 (0.4.6, ~118 open issues,
-  2-person core) so its schema will churn, and nothing tested our export against
-  a live neurobagel ingest — decay would surface only when a collaborator hit it.
-**The research survives the code**, which is what makes this low-regret: the
-verified spec is preserved in `memory/nipoppy-status-tracking` — exact 8-column
-`ProcessingStatusModel` order, the `{SUCCESS, FAIL, INCOMPLETE, UNAVAILABLE}`
-vocab, our COMPLETE→SUCCESS / PARTIAL→INCOMPLETE / MISSING→UNAVAILABLE mapping,
-and the sessionless `""`-vs-`None` serialization caveat (benign: both serialize to
-an empty TSV cell). Re-adding is a couple of hours against those notes — and it
-should then be fed **from provenance, not config**, which is the bug that made
-removal the right call. Recover the deleted code with
-`git show 9c3ab39:src/duckbrain/core/surveyor.py` if wanted.
-
-duckbrain keeps **no state store** — every page re-derives "what exists" live
-from the filesystem via BIDS naming (ingestion reads `sourcedata/sub-XX/dicom`,
-preprocessing globs `bids_dir/sub-*`, QC reads `derivatives/{fmriprep,mriqc}`).
-This is nicely tool-agnostic (external heudiconv/fMRIPrep output is picked up so
-long as it lands in the standard paths), but it has real gaps:
-- **Presence ≠ completion.** A crashed/half-finished fMRIPrep leaves a
-  `derivatives/fmriprep/sub-XX` dir that looks identical to a complete one.
-  Nothing checks a success/completion marker.
-- **No done-vs-todo view.** Pages list all candidates; they don't tell you which
-  subjects still need conversion / fMRIPrep / MRIQC. User has to eyeball it.
-- **Job Monitor is ephemeral** — only what SLURM still remembers, no durable
-  record of what duckbrain submitted.
-
-Proposal: a dashboard status matrix (rows = subjects, cols = ingested /
-converted / fMRIPrep / MRIQC) computed from **completion markers**, not mere
-folder presence — e.g. dcm2bids success, fMRIPrep's `.html` report or
-`dataset_description.json` in the derivative, MRIQC group TSV. Distinguish
-complete / partial-or-failed / missing. This is the concrete form of the
-long-mooted "pipeline DAG/dependency tracking" idea.
-
-## 7. Pipeline extras — candidate stages & integrations (backlog)
-A set of odds-and-ends a typical pipeline involves, several with unknown fMRIPrep
-interactions / pipeline placement. Captured 2026-07-15 with the NORDIC-work lens
-(producer vs consumer vs orthogonal; placement vs fMRIPrep's resampling; does
-fMRIPrep already do it / fight it). Full annotated backlog — candidate tools, ties
-to existing duckbrain/mmmdata work, and open questions per item — in
-**`docs/pipeline-extras.md`**. Each is its own focused effort; none started.
-1. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
-2. **De-identification for sharing** (decided) — image defacing **+** metadata/header
+1. **De-identification for sharing — highest value.** Defacing **+** metadata/header
    PII scrubbing (DICOM headers *and* BIDS sidecars), "derive-then-torch" policy
-   (age ok, name/DOB auto-removed). Candidate combined tool: `bidsonym`. Precomputed
-   -mask fast-track (2b) is a *different* feature, deferred.
-3. **Eye-movement reconstruction from BOLD** (decided: DeepMReye-style) — orthogonal
-   branch fMRIPrep *fights* (brain extraction removes the eyes); opt-in "preserve
-   eyes" path off raw/minimal data. Low demand, unique requirements.
-4. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS
-   → confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
-5. **Version/provenance documentation & metadata** — **promoted to the ★ TOP
-   PRIORITY item** (paired with the consistency checker); see top of file.
-6. **Scanning-notes/metadata integration** — input-shaping producer (exclude bad
-   runs via bids-filter/scans.tsv); reuse mmmdata build_manifest/sessions.tsv.
-7. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC (mmmdata
-   open item); layer norms on the existing surveyor/QC pages.
-8. **ReproIn evaluation** — upstream naming convention (ties to #4); adopt
+   (age ok, name/DOB auto-removed). Candidate: `bidsonym`. *(The precomputed-mask
+   fast-track is a different feature, deliberately deferred — see the doc.)*
+2. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
+3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
+   bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
+4. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC; layer norms
+   on the existing surveyor/QC pages.
+5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
+   confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
+6. **ReproIn evaluation** — upstream naming convention (ties to #4); adopt
    internally vs. recommend to LCNI users.
+7. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
+   actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
+   path off raw/minimal data. Low demand, unique requirements.
 
-## 8. Visual identity & branding (someday — polish, low priority)
-duckbrain will eventually want a real visual identity, not just functional UI.
-Gated behind functionality + onboarding (#2); capture now so it isn't forgotten.
-- **Logo / wordmark** — lean into the "duck brain" concept; needs a mark that
-  works small (favicon / browser tab) and as a header banner.
-- **GUI theming** — a considered Streamlit theme (palette, accent, fonts) instead
-  of defaults; consistent iconography across pages.
-- **Favicon** for the GUI browser tab + the OnDemand app tile.
-- **README banner / docs polish** — a header image and consistent styling once the
-  QUICKSTART/README refresh (#2) happens.
-- Design flourishes generally (empty-state art, page headers) — tasteful, not
-  over-designed; do after the product behavior is locked.
+## Licensing follow-ups
+
+- **Open question: confirm with UO/RACS that Ben can license duckbrain** under
+  GPL-3.0-or-later (employee-IP policy).
+- The `surveyor.py` → mmmdata port (the old #6 follow-on) is **blocked on the
+  copyleft choice** — it would need dual-licensing to land in Apache-2.0 nipreps /
+  MIT nipoppy territory. See `memory/licensing-and-versioning`.
+
+## #8 — Visual identity & branding (someday)
+
+Gated behind functionality + onboarding (#2); captured so it isn't forgotten.
+Logo/wordmark that works small (favicon) and as a banner; a considered Streamlit
+theme instead of defaults; favicon for the GUI tab and the OOD tile; README banner.
+Tasteful, not over-designed, and after the product behavior is locked.
+
+## Loose ideas (not scheduled)
+
+- Cockpit: re-run of an already-*complete* stage behind an advanced toggle
+  (deliberately excluded from `stage_runnable` today).
+- The NORDIC column is always-on; for non-NORDIC projects it's a column of ⚪.
+  Fine for LCNI/mmmdata, revisit if it reads as noise elsewhere.
+- **Re-add the Nipoppy bagel export** if Nipoppy takes off — but feed it from
+  *provenance, not config*, which is the bug that made removal right. Verified spec
+  preserved in `memory/nipoppy-status-tracking`; recover the code with
+  `git show 9c3ab39:src/duckbrain/core/surveyor.py`.
+
+---
+
+# Closed
+
+One line each. Detail is in `git log` (the commit message is the record),
+`CHANGELOG.md` for anything user-facing, `docs/` for design, and `memory/` for
+validation findings. Design rules that still bind live as comments on the code that
+enforces them — the provenance source rule in `consistency.py`'s module docstring,
+the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule in
+`core/dcm2bids_config.py`.
+
+| Done | Id | Item |
+|---|---|---|
+| 2026-07-20 | — | **fMRIPrep anat-reuse gated + self-overlapping bind dropped** — reuse was a silent no-op when there was nothing to reuse; `has_anat_derivatives()` now gates it in `_build_fmriprep` (API *and* GUI) |
+| 2026-07-17 | #0 | **Cockpit usability pass** — three stacked blocks became one actionable board; cells *are* the controls, per-cell job reference + cancel/re-run |
+| 2026-07-17 | #0 | **Job Monitor page retired**, folded into the cockpit as the "All SLURM jobs" panel; new `cancel_job()` / `find_job_logs()` |
+| 2026-07-17 | #2 | **MRIQC default pinned `24.0.2`** — the old `24.1.0` default was never a real Docker tag, only the container's self-report |
+| 2026-07-17 | #5 | **BIDS task-label sanitizing** — `resting_test` → `restingTest` at the entity boundary, GUI warns on rewrite |
+| 2026-07-16 | ★ | **Provenance recording + consistency checker** — per-run provenance, `GeneratedBy` on every duckbrain-produced dataset, seven checks in the cockpit |
+| 2026-07-16 | #5c | **NORDIC versioning** — toolbox git provenance, MATLAB runtime axis (`container`/`container_source` → `runtime`/`code_source`), `toolbox-drift` / `matlab-drift` / `duckbrain-drift` checks, per-file NORDIC sidecars |
+| 2026-07-16 | #5c | **NORDIC fork/rewrite: decided against** — upstream dormant, licence likely forbids it, a rewrite inherits a permanent validation burden |
+| 2026-07-16 | #4 | **Naming/discovery** — `G##_S##` sessions, phantom/test-folder filtering, multiple-fieldmap-pair splitting (3 of 4; item 4 still open above) |
+| 2026-07-16 | #5 | **Project-wide task mapping** — define once, inherit, override per-session; rules fix the *task* only, never the run |
+| 2026-07-16 | #2 | **QUICKSTART + README written**; licensed GPL-3.0-or-later, tagged `v0.1.0` |
+| 2026-07-16 | #6 | **Nipoppy bagel export REMOVED** — a write path with no reader whose version column came from config, not provenance |
+| 2026-07-15 | #5b | **NORDIC producer + `use_nordic` → fMRIPrep chaining (Case 1)** validated live; fixed three latent bugs (m-file double path, Jinja `{#` collision, sessionless path) |
+| 2026-07-15 | — | **MRIQC validated live** — fixed an OOM (`--mem-gb` decoupled from the cgroup alloc) and a surveyor false-green (func IQMs now required) |
+| 2026-07-10 | #3 | **fMRIPrep validated live**; command matches mmmdata's `run_fmriprep.py` |
+| 2026-07-10 | #6 | **Per-subject status matrix** (`core/surveyor.py`) — completion by expected-output globs, not folder presence |
+| 2026-07-10 | #0 | **Pipeline cockpit built** — controller extraction, live-state fusion, cockpit UI, durable submission log |
+| 2026-07-09 | #1 | **Folder picker reworked** — fragment-based, lazy, breadcrumb navigation |
+| — | — | **DICOM→BIDS validated end-to-end** against canonical heudiconv output |
