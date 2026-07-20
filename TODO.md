@@ -57,18 +57,59 @@ tick this off.** `QUICKSTART.md` and `README.md` are written and current.
   toolbox copy and each will sit at a different SHA. Already the config shape. See
   `memory/nordic-versioning-and-licence`.
 
-## #0 / #1 — Browser eyeball pass (AppTest can't judge feel)
+## #9 — GUI interface pass (from dogfooding, 2026-07-20)
 
-The cockpit (#0) and folder picker (#1) are built, tested, and unlooked-at in a
-real browser. These are the only residuals of either item.
+Ben's vetting pass. The #0/#1 browser eyeball is **done** by the same pass — the
+dashboard table width reads well and the folder picker is fine as-is — so what's
+left is these four, none blocking.
 
-- **Cockpit at project scale** — a 7-column grid (subject, session, + 5 stages)
-  over ~37 subjects. If cramped, drop `ingested` to a compact check or narrow the
-  label columns.
-- **Folder picker** — `components.directory_picker` was reworked 2026-07-09 and
-  has only ever been driven by AppTest.
-- Minor, while you're in there: is the Conversion page's "applied N rules" caption
-  actually noticeable?
+1. **Recent / favourites project list.** Re-picking the same project directory
+   every session is the main friction with the picker. The project dir is the
+   anchor for every derived path, so a fast switcher is high-value and cheap:
+   keep an MRU list in the **user** config (`~/.config/duckbrain/config.toml` —
+   it's machine-scoped, which is the right scope for "projects I work on"), show
+   it on Project Setup and ideally as a switcher in the nav. Watch the OOD form's
+   "Project directory" field — it sets `DUCKBRAIN_PROJECT_DIR` and should agree.
+
+2. **One place to launch; everywhere else prepares.** Ben's question: should the
+   non-dashboard pages be config-only, with all running via the cockpit? *Mostly
+   yes, but not uniformly* — the redundancy isn't evenly spread:
+   - **#4 Preprocessing is almost pure duplication** of the cockpit and the best
+     candidate. Rather than just deleting its Submit buttons (which leaves the
+     page purposeless), turn it into where you set **per-stage defaults persisted
+     to the project config** — then the cockpit's one-click launch inherits them.
+     That converts a redundant launcher into the thing that makes one-click correct.
+   - **#3 BIDS Conversion is a mix.** The per-session mapping surface (series
+     inspection, fieldmap detection, task/run mapping) is a work surface, not
+     settings, and must stay. Its *bulk* submit duplicates the cockpit and can go;
+     the *single-session* submit is arguably worth keeping — you've just fixed
+     that subject's mapping, which is the moment of highest intent.
+   - **#2 Data Ingestion must keep its actions.** Ingestion is deliberately
+     read-only in the cockpit (Ben agreed), and the page also does local work that
+     isn't a SLURM stage at all (`participants.tsv`, `dataset_description.json`,
+     DICOM sorting).
+   - **#5 QC Dashboard isn't duplication** — keep/exclude decisions are their own
+     job.
+   - **Two capabilities exist only on the pages — don't lose them.** "Export
+     Scripts" (write the sbatch without submitting) has no cockpit equivalent and
+     is genuinely useful on HPC; and bulk-with-shared-non-default-params, since
+     the cockpit's column-header bulk runs a stage with *defaults* and its
+     per-cell params are per-cell. Either move both into the cockpit first or
+     keep a home for them.
+
+3. **Sidebar nav → top nav.** Supported: this pins Streamlit ≥1.48 already and
+   1.59 is installed, where `st.navigation(position="top")` exists. The cost is
+   switching `gui/app.py` from the filesystem `pages/` convention to declarative
+   `st.Page` nav. Note the sidebar also carries the project-name indicator
+   (`st.sidebar.success(f"Project: …")`), which needs a new home — pairs naturally
+   with the project switcher in item 1. Alternatively `client.showSidebarNavigation
+   = false` hides just the nav and keeps the sidebar for project context.
+
+4. **The "athletics" in-progress icon is Streamlit's, not ours** — every icon
+   duckbrain draws is in the 🟢🟡🔵⏳🔴⚪ set, none athletic. It's app chrome, so
+   the levers are `ui.hideTopBar` / `client.toolbarMode` in Streamlit config.
+   **Unconfirmed which glyph it actually is** — needs a screenshot; don't "fix" it
+   blind.
 
 ## #5 — Config / mapping niceties
 
@@ -177,6 +218,7 @@ the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule in
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-20 | #0 #1 | **Browser eyeball pass** — dashboard table width reads well at project scale; folder picker fine as-is. Generated `#9` above |
 | 2026-07-20 | — | **fMRIPrep anat-reuse gated + self-overlapping bind dropped** — reuse was a silent no-op when there was nothing to reuse; `has_anat_derivatives()` now gates it in `_build_fmriprep` (API *and* GUI) |
 | 2026-07-17 | #0 | **Cockpit usability pass** — three stacked blocks became one actionable board; cells *are* the controls, per-cell job reference + cancel/re-run |
 | 2026-07-17 | #0 | **Job Monitor page retired**, folded into the cockpit as the "All SLURM jobs" panel; new `cancel_job()` / `find_job_logs()` |
