@@ -34,6 +34,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   default pointed the build command at a nonexistent tag.
 
 ### Fixed
+- **"Reuse anat derivatives" silently did nothing** when there were no anat
+  derivatives to reuse. fMRIPrep accepts `--derivatives` pointing at a tree with no
+  anat for the subject, rebuilds the whole anat workflow, and logs nothing about
+  the reuse it could not do — so the option looked honoured while costing the hours
+  it claimed to save. Requesting reuse without a prior anat-only run now fails at
+  submit time; the cockpit disables the option per unit and says why.
+- **fMRIPrep bind-mounted its output directory twice** (read-write, then read-only
+  for `--derivatives`) whenever anat reuse was on. Singularity resolved the overlap
+  by dropping one of the two; had it dropped the read-write bind, fMRIPrep could
+  not have written its outputs.
 - **Invalid BIDS task labels** — a user-entered task label (mapping-table edit or
   hand-written rule) was emitted verbatim, so `resting_test` produced the invalid
   `task-resting_test`. Labels are now sanitized to alphanumeric at the entity
