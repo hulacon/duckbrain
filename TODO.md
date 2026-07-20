@@ -57,6 +57,44 @@ tick this off.** `QUICKSTART.md` and `README.md` are written and current.
   toolbox copy and each will sit at a different SHA. Already the config shape. See
   `memory/nordic-versioning-and-licence`.
 
+### Second-user blockers, actually checked (2026-07-20)
+
+Prompted by wanting an LCNI colleague hands-on. Checked on-cluster rather than
+inferred, and it is **less blocked than this item implied** — one assumed gate
+turned out not to exist, and the real cost is elsewhere.
+
+- ✅ **Getting the code is not a gate. The GitHub repo is PUBLIC** (verified
+  against the API; GPL-3.0 detected). Notes previously said "private" — wrong.
+  `git clone https://github.com/hulacon/duckbrain.git` → venv → `pip install -e`
+  needs no permission from anyone.
+- ⚠️ **…which makes the licensing question urgent, not academic.** The code is
+  *already published* under GPL-3.0 while "confirm UO/RACS lets Ben license it"
+  is still open (see Licensing). Publication is what that question was about, and
+  it has already happened. Flipping the repo private later does not un-publish
+  clones or forks. Resolve it.
+- 🔴 **Containers are the real blocker — ~8.6 GB and unshareable as things
+  stand.** `/home/bhutch` is `drwx------`, so nobody can traverse to
+  `~/containers` even though that directory is itself world-readable. And there
+  is **no mutually-writable space** to stage copies into: `/gpfs/projects/hulacon`
+  is `0770` (invisible to a non-hulacon user) and `/projects/lcni` is not
+  writable by Ben (he is in `hulacon`/`psy607`, not `lcni`). So a second user
+  either builds their own (needs a build node and time — the long-lead item) or
+  Ben opens home traversal (`chmod o+x ~`, reversible, minimal, but it does make
+  home traversable).
+- **FreeSurfer license** — free, but per-user registration; not shareable.
+- **SLURM account** — theirs, not Ben's. Feeds the OOD form's `bc_account`.
+- **OOD sandbox is per-user** (`~/ondemand/dev/<name>` → their own checkout). The
+  form already has a `duckbrain_dir` field, so this is setup, not a code change —
+  but it is the piece "never written up" above.
+- **What already works in a second user's favour:** the config layering was built
+  for exactly this — machine resources in the user config, study specifics in the
+  project config, project dir as the anchor. A second user mostly needs their own
+  `~/.config/duckbrain/config.toml`.
+- **For a first meeting, don't do any of this.** Driving it yourself costs zero
+  setup and answers "is this worth doing / what scope should it cover". Do the
+  container prep only if hands-on-their-account is the actual goal, and do it
+  *before* the meeting rather than during.
+
 ## #9 — Launch surface: one place to run, everywhere else prepares
 
 **PUNTED 2026-07-20** pending more discussion + hands-on time in the GUI. Ben's
@@ -245,8 +283,11 @@ existing duckbrain/mmmdata work, open questions per item — in
 
 ## Licensing follow-ups
 
-- **Open question: confirm with UO/RACS that Ben can license duckbrain** under
-  GPL-3.0-or-later (employee-IP policy).
+- ⚠️ **Open question: confirm with UO/RACS that Ben can license duckbrain** under
+  GPL-3.0-or-later (employee-IP policy). **This is now overdue, not pending:** the
+  repo is public (verified 2026-07-20), so the publication the question was about
+  has already happened, and making it private again would not un-publish existing
+  clones or forks.
 - The `surveyor.py` → mmmdata port (the old #6 follow-on) is **blocked on the
   copyleft choice** — it would need dual-licensing to land in Apache-2.0 nipreps /
   MIT nipoppy territory. See `memory/licensing-and-versioning`.
