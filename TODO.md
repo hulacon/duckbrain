@@ -57,71 +57,39 @@ tick this off.** `QUICKSTART.md` and `README.md` are written and current.
   toolbox copy and each will sit at a different SHA. Already the config shape. See
   `memory/nordic-versioning-and-licence`.
 
-## #9 — GUI interface pass (from dogfooding, 2026-07-20)
+## #9 — Launch surface: one place to run, everywhere else prepares
 
-Ben's vetting pass. The #0/#1 browser eyeball is **done** by the same pass — the
-dashboard table width reads well and the folder picker is fine as-is — so what's
-left is these four, none blocking.
+**PUNTED 2026-07-20** pending more discussion + hands-on time in the GUI. Ben's
+question was whether the non-dashboard pages should be config-only, with all
+running done from the cockpit. The rest of the interface pass is settled: recent
+projects and top nav shipped, the browser eyeball closed, and the icon question
+was dropped (it is Streamlit's own chrome, not worth the time).
 
-1. ✅ **Recent projects (MRU) — DONE 2026-07-20.** `recent_projects()` /
-   `remember_project()` / `forget_project()` in `config.py`, stored in the **user**
-   config (machine-scoped, the right scope for "projects I work on"), capped at 8,
-   read-modify-write so it can't clobber shared resources. Surfaced twice: a
-   one-click list on Setup (with ✕ to forget) and a **Switch** popover in the
-   project bar, available from every page. Missing directories are hidden from the
-   list but *not* erased from the file — an unmounted filesystem is temporary.
-   Paths are normalized but deliberately **not** `resolve()`d, so the GPFS
-   `/projects/…` → `/gpfs/projects/…` symlink isn't rewritten under the user.
+Assessment so far, to pick up from — the answer is *mostly yes, but not
+uniformly*, because the redundancy is not evenly spread:
 
-2. **One place to launch; everywhere else prepares.** Ben's question: should the
-   non-dashboard pages be config-only, with all running via the cockpit? *Mostly
-   yes, but not uniformly* — the redundancy isn't evenly spread:
-   - **#4 Preprocessing is almost pure duplication** of the cockpit and the best
-     candidate. Rather than just deleting its Submit buttons (which leaves the
-     page purposeless), turn it into where you set **per-stage defaults persisted
-     to the project config** — then the cockpit's one-click launch inherits them.
-     That converts a redundant launcher into the thing that makes one-click correct.
-   - **#3 BIDS Conversion is a mix.** The per-session mapping surface (series
-     inspection, fieldmap detection, task/run mapping) is a work surface, not
-     settings, and must stay. Its *bulk* submit duplicates the cockpit and can go;
-     the *single-session* submit is arguably worth keeping — you've just fixed
-     that subject's mapping, which is the moment of highest intent.
-   - **#2 Data Ingestion must keep its actions.** Ingestion is deliberately
-     read-only in the cockpit (Ben agreed), and the page also does local work that
-     isn't a SLURM stage at all (`participants.tsv`, `dataset_description.json`,
-     DICOM sorting).
-   - **#5 QC Dashboard isn't duplication** — keep/exclude decisions are their own
-     job.
-   - **Two capabilities exist only on the pages — don't lose them.** "Export
-     Scripts" (write the sbatch without submitting) has no cockpit equivalent and
-     is genuinely useful on HPC; and bulk-with-shared-non-default-params, since
-     the cockpit's column-header bulk runs a stage with *defaults* and its
-     per-cell params are per-cell. Either move both into the cockpit first or
-     keep a home for them.
-
-3. ✅ **Top nav — DONE 2026-07-20.** `gui/app.py` moved from the filesystem
-   `pages/` convention to declarative `st.navigation(position="top")`. Nothing
-   writes to `st.sidebar` any more, so the left side is genuinely free. The old
-   welcome screen became the **Guide** page and **Status is the landing page** (it
-   degrades gracefully with no project, pointing at Setup, which is what makes it
-   safe as a default). Verified against the installed Streamlit rather than
-   assumed: calling `st.navigation` sets `PagesManager.uses_pages_directory =
-   False`, so `pages/` cannot register a competing nav, and a page keeping its own
-   `st.set_page_config` is tolerated (which is what lets each page still be run
-   standalone under AppTest).
-   - Fixed in passing: `app.py` used `from ..config import …`, which raises
-     ImportError when Streamlit execs it as a script — the old code hid that in a
-     bare `except Exception`, so the sidebar project indicator had **never**
-     worked under `streamlit run`, always reading "Config not found". Now an
-     absolute import, like the pages use.
-   - Also made the page paths absolute; `__file__` was only relative-safe while
-     the cwd happened to be the repo root, which is not a given under OnDemand.
-
-4. **The "athletics" in-progress icon is Streamlit's, not ours** — every icon
-   duckbrain draws is in the 🟢🟡🔵⏳🔴⚪ set, none athletic. It's app chrome, so
-   the levers are `ui.hideTopBar` / `client.toolbarMode` in Streamlit config.
-   **Unconfirmed which glyph it actually is** — needs a screenshot; don't "fix" it
-   blind.
+- **Preprocessing is almost pure duplication** of the cockpit and the best
+  candidate. But deleting its Submit buttons leaves the page purposeless; the
+  better move is to turn it into where you set **per-stage defaults persisted to
+  the project config**, so the cockpit's one-click launch inherits them. That
+  converts a redundant launcher into the thing that makes one-click *correct*.
+  Note this overlaps with `#10` — per-session template groups would want the same
+  persistence mechanism, so design them together rather than twice.
+- **BIDS Conversion is a mix.** The per-session mapping surface (series
+  inspection, fieldmap detection, task/run mapping) is a work surface, not
+  settings, and must stay. Its *bulk* submit duplicates the cockpit and can go;
+  the *single-session* submit is worth keeping — you have just fixed that
+  subject's mapping, which is the moment of highest intent.
+- **Data Ingestion must keep its actions.** Ingestion is deliberately read-only
+  in the cockpit (Ben agreed), and the page also does local work that is not a
+  SLURM stage at all (`participants.tsv`, `dataset_description.json`, DICOM
+  sorting).
+- **QC Dashboard is not duplication** — keep/exclude decisions are their own job.
+- **Two capabilities exist only on the pages — do not lose them.** "Export
+  Scripts" (write the sbatch without submitting) has no cockpit equivalent and is
+  genuinely useful on HPC; and bulk-with-shared-non-default-params, since the
+  cockpit's column-header bulk runs a stage with *defaults* and its per-cell
+  params are per-cell. Either move both into the cockpit first, or keep them a home.
 
 ## #5 — Config / mapping niceties
 
@@ -132,6 +100,90 @@ Deliberate deferrals, each fine as-is — listed so they aren't rediscovered as 
   *edits* already cover the exception case.
 - `directory_picker` is dirs-only; `fs_license` stays a text field. File-mode
   deferred until something needs it.
+
+## #10 — Template groups: config defaults that vary within a project
+
+**Captured 2026-07-20.** Today the config layers are base → user → project, and
+the project layer is flat: one set of defaults for the whole study. That breaks
+when sessions genuinely differ — session 1 on a different protocol from session 2
+wants different dcm2bids expectations, task mapping, maybe different fMRIPrep
+params or SLURM resources.
+
+- **Prefer named groups over keying on the session label.** `ses-01` / `ses-02` is
+  the obvious key but the wrong one: the real distinction is usually *protocol*
+  ("pilot" vs "main", "7T" vs "3T"), several sessions can share one, and a
+  sessionless project can still want two groups. So: define named template groups,
+  assign units to a group, fall back to the project defaults when unassigned.
+- **There is already a pattern to follow, not invent.** Project-wide task mapping
+  does exactly this shape one layer down — project-wide rules, per-session
+  overrides, persisted read-modify-write into a `[task_mapping]` section
+  (`save_project_task_map`). Template groups generalize it from "task labels" to
+  "any default". Reuse the mechanism; don't grow a second one.
+- **Open questions to settle first:** does a group override the *whole* section or
+  merge key-by-key (merge, presumably — same deep-merge the config layers already
+  use)? Where does assignment live, the project config or per-unit? And does the
+  surveyor need to know about groups, or is this purely a launch-time concern
+  (probably the latter — completion is still completion).
+- **Design with `#9` together.** That item wants per-stage defaults persisted to
+  the project config; this wants those defaults to vary by group. Same persistence
+  mechanism, so designing them separately would build it twice.
+
+## #11 — Automated pipeline: DICOMs in, derivatives out (exploratory)
+
+**Captured 2026-07-20, Ben's idea.** Given source DICOMs, run every step
+unattended — either by periodically checking in, or by chaining dependencies.
+
+- **duckbrain already has both ingredients.** `survey_live` + `stage_runnable`
+  answer "what could run right now" for every unit, and `advance_one` launches
+  exactly one stage for one unit. An unattended driver is close to a loop over
+  those two — most of the work is deciding the *policy*, not the mechanism.
+- **Two mechanisms, and they are not equivalent:**
+  - **SLURM dependency chaining** (`--dependency=afterok:<jobid>`) submits the
+    whole chain up front. No polling, and the scheduler enforces order. But a
+    failed stage strands its dependents in a held state, and re-planning after a
+    partial failure is awkward.
+  - **A periodic reconciler** (cron/timer: wake, survey, launch whatever is
+    runnable) is **the better fit for this codebase.** duckbrain keeps no state
+    store — every page re-derives what exists from the filesystem — which is
+    exactly what a reconciler needs, and it self-heals after partial failures
+    instead of stranding them.
+- **The failure mode to design against is a resubmission loop.** A stage that
+  always fails would be relaunched forever. Needs a retry cap and backoff, and a
+  durable record of attempts per unit/stage — `submissions.tsv` is already that
+  record. The no-double-submit guard exists (`stage_runnable` refuses a
+  running/queued unit); the missing piece is "stop retrying a *failing* one".
+- **Unresolved, and it gates the whole thing:** where does the driver actually
+  run? Cron on a Talapas login node may be discouraged or disallowed — that is a
+  RACS question, and the answer may push this toward a long-lived SLURM job or an
+  OOD-launched daemon instead.
+- Related but distinct from `#12`: a deterministic reconciler and an agent that
+  decides what to run next are alternative drivers over the same core API.
+
+## #12 — Merge with mmmdata-agents (exploratory)
+
+**Captured 2026-07-20, Ben's idea.** `/gpfs/projects/hulacon/shared/mmmdata/code/mmmdata-agents`
+is a Claude-powered agent repo over the mmmdata dataset: a data agent (natural
+language BIDS queries), a QC agent (MRIQC outliers), an orchestrator, and a tool
+registry under `src/tools/` — `bids_tools`, `conversion_tools`, `manifest_tools`,
+`qc_tools`, `slurm_tools`, `sourcedata_tools`.
+
+- **The overlap is close to one-to-one**, which is the argument for merging rather
+  than a second implementation: those tool modules map onto duckbrain's
+  `core/surveyor.py` (inventory/status), `core/consistency.py`, `slurm/monitor.py`
+  + `core/pipeline.py`, and the `core/` BIDS modules. mmmdata-agents even carries
+  its own `pipeline_status_*.tsv` — the thing the surveyor exists to produce.
+- **duckbrain is already shaped for this.** The core/GUI split means the useful
+  surface is plain Python with no Streamlit in it (`survey_project`, `survey_live`,
+  `stage_runnable`, `advance_one`, `check_consistency`). Backing agent tools with
+  that core is mostly wiring, not redesign.
+- **⚠️ Check the licence before any code moves.** duckbrain is GPL-3.0-or-later and
+  **mmmdata-agents has no LICENSE file at all**. If it imports duckbrain, the
+  copyleft reaches it. Same trap that blocks the `surveyor.py` → mmmdata port. Settle
+  the licensing question (see the Licensing section) *before* writing integration
+  code, not after.
+- **Cheapest first step, if this proceeds:** point one existing agent tool at
+  duckbrain's surveyor instead of its own status code, and see whether the
+  abstraction actually fits before committing to a merge.
 
 ## Provenance / consistency residuals
 
@@ -198,6 +250,11 @@ existing duckbrain/mmmdata work, open questions per item — in
 - The `surveyor.py` → mmmdata port (the old #6 follow-on) is **blocked on the
   copyleft choice** — it would need dual-licensing to land in Apache-2.0 nipreps /
   MIT nipoppy territory. See `memory/licensing-and-versioning`.
+- **`#12` (mmmdata-agents) hits the same wall and is the more likely one to be
+  tried first.** That repo has no LICENSE file, so today there is nothing to
+  reconcile duckbrain's GPL *against*. Give it a licence before, not after, any
+  code moves between them — retrofitting one over code that already imports GPL
+  work is a much worse conversation.
 
 ## #8 — Visual identity & branding (someday)
 
