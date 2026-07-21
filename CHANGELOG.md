@@ -11,6 +11,26 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **The Conversion page is one table.** DICOM Series, Task/Run Mapping and
+  Fieldmap Binding were three surfaces that shared a grain but not a table, so
+  reviewing a session meant joining series numbers, task labels and group names by
+  eye. They are now a single editor — one row per DICOM series, carrying every
+  decision that shapes the output (`task`, `run`, `fieldmap`) next to the output
+  itself (`becomes`). Fieldmap rows show the pair they belong to, so the
+  run↔pair relation reads off a single row in both directions, and a **Preflight**
+  panel sits above it.
+- **Fieldmap bindings now attach per run, not per task.** A pair re-shot *within*
+  one task — where the runs before and after it want different pairs — could not
+  be expressed at all before. `FmapRule` takes an optional `run`, and a run-level
+  rule beats a task-wide one. Every existing `[fmap_mapping]` keeps working
+  unchanged: a rule with no `run` still means every run of that task. Saved
+  project defaults collapse back to task-wide rows wherever all runs agree, so the
+  config stays readable.
+- **Load a hand-edited config JSON back into the table** — explicit and one-shot,
+  and it *reports what it couldn't represent* (criteria beyond `SeriesNumber`,
+  arbitrary `sidecar_changes`, custom ids, dcm2bids options) rather than dropping
+  them. Continuous two-way sync was considered and rejected for exactly that
+  reason; see `docs/conversion-legibility.md`.
 - **Conversion Plan — the Conversion page now shows what it will produce.** It
   asked you to approve a transformation while showing only its *inputs*; the
   predicted BIDS filenames existed nowhere except as `custom_entities` fragments

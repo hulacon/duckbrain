@@ -219,3 +219,61 @@ def test_by_series_keeps_every_planned_file():
 
     assert set(plan.by_series) == {8, 9}
     assert all(len(v) == 1 for v in plan.by_series.values())
+
+
+# ---- reading a hand-edited config back into the table ----
+
+
+def test_read_config_into_table_recovers_task_run_and_group():
+    series = [
+        _series(3, "se_epi_ap"),
+        _series(4, "se_epi_pa"),
+        _bold(9, "perFace", 1),
+    ]
+    classify_series(series)
+    fieldmaps = detect_fieldmaps(series)
+    config = generate_config(
+        series, fieldmaps, subject="001", session="01",
+        mapping=build_task_run_mapping(series),
+    )
+
+    from duckbrain.core.conversion_plan import read_config_into_table
+
+    got = read_config_into_table(config, series)
+    assert got.task_by_series[9] == "perFace"
+    assert got.run_by_series[9] == 1
+    assert got.group_by_series[9] == ""  # the lone unnamed pair
+    assert got.unrepresentable == []
+
+
+def test_read_config_into_table_reports_what_it_cannot_represent():
+    """The point of the import: loss is reported, never silent."""
+    series = [_bold(9, "perFace", 1)]
+    classify_series(series)
+    config = {
+        "dupMethod": "dup",  # a dcm2bids option with no column
+        "descriptions": [
+            {
+                "id": "func-bold-perFace",
+                "datatype": "func",
+                "suffix": "bold",
+                "criteria": {"SeriesNumber": 9, "EchoTime": 0.03},
+                "custom_entities": "task-perFace_run-1",
+                "sidecar_changes": {"TaskName": "perFace", "EchoTime": 0.03},
+                "IntendedFor": ["x"],
+            },
+            {"id": "orphan", "datatype": "anat", "suffix": "T1w", "criteria": {"SeriesDescription": "*"}},
+        ],
+    }
+
+    from duckbrain.core.conversion_plan import read_config_into_table
+
+    got = read_config_into_table(config, series)
+    joined = " | ".join(got.unrepresentable)
+    assert "dupMethod" in joined
+    assert "EchoTime" in joined
+    assert "IntendedFor" in joined
+    assert "does not match on SeriesNumber" in joined
+    # …and the parts it *can* represent still come through.
+    assert got.task_by_series[9] == "perFace"
+    assert got.run_by_series[9] == 1

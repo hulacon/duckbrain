@@ -131,7 +131,6 @@ if not dicom_dir.exists():
         st.error(f"DICOM directory not found: `{dicom_dir}`")
         st.stop()
 
-st.subheader("DICOM Series")
 from duckbrain.core.dicom_inspect import (
     list_series,
     classify_series,
@@ -145,19 +144,6 @@ if not series_list:
     st.stop()
 
 classify_series(series_list)
-
-series_df = pd.DataFrame(
-    [
-        {
-            "Series #": s.series_number,
-            "Description": s.description,
-            "Classification": s.classification,
-            "# Files": s.file_count,
-        }
-        for s in series_list
-    ]
-)
-st.dataframe(series_df, width="stretch", hide_index=True)
 
 # ReproIn-named sequences carry their BIDS entities explicitly, so duckbrain uses
 # those instead of inferring them. Worth saying out loud: it tells the user the
@@ -211,15 +197,15 @@ if fieldmaps.warnings:
         for w in fieldmaps.warnings:
             st.warning(w)
 
-# ---- Task / Run mapping (source of truth for func naming) ----
-st.subheader("Task / Run Mapping")
-st.markdown(
-    "Auto-detected task labels and run numbers for functional runs. **This table "
-    "is the source of truth** — edit any row and the dcm2bids config below "
-    "regenerates from it. SBRefs inherit their run's task/run."
-)
+# ---- The single conversion table ----
+# One row per DICOM series, carrying every decision that shapes the output *and*
+# the output itself. This replaces three separate tables (DICOM Series, Task/Run
+# Mapping, Fieldmap Binding) that shared a grain but not a surface, so the user
+# had to join series numbers, task labels and group names by eye. See TODO #13 /
+# docs/conversion-legibility.md.
 from duckbrain.core.dcm2bids_config import (
     build_task_run_mapping,
+    collapse_fmap_rules,
     generate_config,
     config_to_json,
     FmapRule,
@@ -229,210 +215,214 @@ from duckbrain.core.dcm2bids_config import (
     task_rules_from_config,
     task_rules_from_mapping,
 )
+from duckbrain.core.conversion_plan import (
+    plan_conversion,
+    plan_warnings,
+    read_config_into_table,
+)
 from duckbrain.core.dicom_inspect import sanitize_task_label
+
+# The editor's pending edits live in session_state *before* it renders, which is
+# what lets `becomes` be computed from this run's edits rather than lagging a
+# rerun behind them. Keyed per subject/session so switching units can't apply one
+# unit's edits to another's rows.
+EDITOR_KEY = f"conversion_editor_{subject}_{session}"
+IMPORT_KEY = f"conversion_import_{subject}_{session}"
+
+st.subheader("Conversion Plan")
+st.markdown(
+    "One row per DICOM series. **This table is the source of truth** — edit "
+    "`task`, `run` or `fieldmap` and everything downstream regenerates from it. "
+    "`becomes` is the BIDS file that will actually be written."
+)
 
 template = st.text_input(
     "Naming template (optional)",
     value="",
     placeholder="e.g. {task}_r{run}",
     help="Glob-like seed for parsing: {task} and {run} placeholders. Leave blank "
-    "to use the built-in heuristic. Editing the table below always wins.",
+    "to use the built-in heuristic. Editing the table always wins.",
 )
 
-# Project-wide task rules (defined once, inherited by every subject) seed the
-# mapping's task labels over the heuristic; this session's edits below still win
-# as exceptions, and run numbers stay per-session.
 project_rules = task_rules_from_config(config)
-if project_rules:
+project_fmap_rules = fmap_rules_from_config(config)
+if project_rules or project_fmap_rules:
     st.caption(
-        f"↪ {len(project_rules)} project-wide task rule(s) applied as defaults. "
-        "Edit any row below to override them for this session only."
+        f"↪ {len(project_rules)} project-wide task rule(s) and "
+        f"{len(project_fmap_rules)} fieldmap binding(s) applied as defaults. "
+        "Edit any row to override them for this session only."
     )
 
 seed_mapping = build_task_run_mapping(
     series_list, template=template or None, rules=project_rules
 )
+seed_by_series = {e.series_number: e for e in seed_mapping}
 
-if seed_mapping:
-    mapping_df = st.data_editor(
-        pd.DataFrame(
-            [
-                {
-                    "Series #": e.series_number,
-                    "Description": e.description,
-                    "Role": e.role,
-                    "task": e.task,
-                    "run": e.run,
-                }
-                for e in seed_mapping
-            ]
-        ),
-        width="stretch",
-        hide_index=True,
-        disabled=["Series #", "Description", "Role"],
-        key="task_run_mapping_editor",
-    )
-    edited_mapping = [
-        TaskRunEntry(
-            series_number=int(row["Series #"]),
-            description=row["Description"],
-            role=row["Role"],
-            task=str(row["task"]),
-            run=int(row["run"]) if pd.notna(row["run"]) else None,
-        )
-        for _, row in mapping_df.iterrows()
-    ]
+# Which pair each fieldmap series belongs to, so an fmap row shows its own group
+# and the relation reads off a single row in both directions.
+fmap_group_by_series = {
+    num: group
+    for group, dirs in fieldmaps.groups.items()
+    for num in dirs.values()
+}
 
-    # A BIDS task entity must be alphanumeric. The config generator sanitizes
-    # anyway (so no invalid filename ever ships), but surface it here so the
-    # rewrite isn't silent — an edit like "resting_test" becomes "restingTest".
-    fixups = {
-        e.task: sanitize_task_label(e.task)
-        for e in edited_mapping
-        if e.task and e.task != sanitize_task_label(e.task)
-    }
-    if fixups:
-        st.warning(
-            "Some task labels aren't valid BIDS entities (must be alphanumeric — "
-            "no `_`, space, or `-`). They'll be written as: "
-            + ", ".join(f"`{k}` → `{v}`" for k, v in fixups.items())
-        )
-
-    # Promote this reviewed mapping to the project-wide default so every other
-    # subject inherits it (keyed on SeriesDescription; SBRefs inherit their BOLD).
-    if st.button(
-        "⭑ Save this mapping as the project default",
-        key="save_project_task_map",
-        help="Writes the BOLD task/run rows to the project config's "
-        "[task_mapping]. Other subjects then seed from these instead of the "
-        "heuristic. Per-session edits still override.",
-    ):
-        from duckbrain.config import resolve_project_dir, save_project_task_map
-
-        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
-        if not project_dir:
-            st.error("No project directory resolved — can't save the default.")
-        else:
-            rules = task_rules_from_mapping(edited_mapping)
-            save_project_task_map(project_dir, rules)
-            st.success(
-                f"Saved {len(rules)} task rule(s) as the project default in "
-                f"`{project_dir}/code/duckbrain.toml`."
-            )
-else:
-    st.info("No functional runs detected in this session.")
-    edited_mapping = []
-
-# ---- Fieldmap binding (which pair each run's B0FieldIdentifier points at) ----
-# The automatic rule sends every task whose name doesn't match a group to the
-# *first* complete pair — there is no temporal-proximity logic — so this is where
-# a session with a re-shot fieldmap gets corrected. "none" opts a run out of
-# distortion correction entirely.
-project_fmap_rules = fmap_rules_from_config(config)
 complete_groups = [g for g, d in fieldmaps.groups.items() if "ap" in d and "pa" in d]
-session_fmap_rules = project_fmap_rules
+_NO_FMAP_TOKEN = fmap_token(None, fmap_colors)
+_group_token = {g: fmap_token(g, fmap_colors) for g in fieldmaps.groups}
+_token_group = {tok: g for g, tok in _group_token.items()}
 
-# Every task, not just the ones with a binding: a project rule this session can't
-# honor must be fixable *here*, and it wouldn't be if the row were missing.
-bold_tasks = list(
-    dict.fromkeys(sanitize_task_label(e.task) for e in edited_mapping if e.role == "bold")
-)
+# The automatic binding, used only to seed the column.
+try:
+    seed_binding = resolve_fmap_assignments(seed_mapping, fieldmaps, project_fmap_rules)
+except ValueError as exc:
+    # A project rule this session can't honor. Show it, then seed from the
+    # automatic binding so the page stays usable and the row can be corrected
+    # here rather than locking the user out.
+    st.error(f"{exc}")
+    seed_binding = resolve_fmap_assignments(seed_mapping, fieldmaps, None)
 
-if bold_tasks and (complete_groups or project_fmap_rules):
-    st.subheader("Fieldmap Binding")
-    if len(complete_groups) > 1:
-        st.markdown(
-            "This session has **more than one usable fieldmap pair**, so which "
-            "pair corrects which run is a real choice — and unless a task's name "
-            "matches a group's, it defaults to the first pair. Set it below."
-        )
-    elif complete_groups:
-        st.markdown(
-            "One usable fieldmap pair, so every run gets it. Set a run to "
-            "**none** to leave it without distortion correction."
-        )
-    else:
-        st.markdown(
-            "**No usable fieldmap pair in this session.** A project binding that "
-            "names a group can't be honored here — set those runs to **none** to "
-            "convert them without distortion correction."
-        )
 
+def _seed_fieldmap(series):
+    """Seed value for the fieldmap cell of one series row."""
+    if series.series_number in fmap_group_by_series:
+        return _group_token[fmap_group_by_series[series.series_number]]
+    entry = seed_by_series.get(series.series_number)
+    if entry is None or entry.role != "bold":
+        return ""
+    group = seed_binding.get((sanitize_task_label(entry.task), entry.run))
+    if group is None or group == "none":
+        return _NO_FMAP_TOKEN if fieldmaps.groups else ""
+    return _group_token.get(group, "")
+
+
+# ---- Consume a pending "load the JSON back into the table" request ----
+# One-shot and explicit; see the Advanced expander below for why this is not
+# continuous two-way sync.
+_pending_import = st.session_state.pop("_pending_json_import", None)
+if _pending_import is not None:
     try:
-        resolved = resolve_fmap_assignments(edited_mapping, fieldmaps, project_fmap_rules)
-    except ValueError as exc:
-        # A project rule naming a group this session lacks. Show it, then fall
-        # back to the automatic binding so the page stays usable and the user can
-        # correct the row rather than being locked out.
-        st.error(f"{exc}")
-        resolved = resolve_fmap_assignments(edited_mapping, fieldmaps, None)
+        _imported_config = json.loads(_pending_import)
+    except json.JSONDecodeError as exc:
+        st.error(f"Can't import — that JSON is invalid: {exc}")
+    else:
+        st.session_state[IMPORT_KEY] = read_config_into_table(
+            _imported_config, series_list
+        )
+        # Stale row deltas would fight the imported values, and leaving the
+        # override on would mean the import had no visible effect.
+        st.session_state.pop(EDITOR_KEY, None)
+        st.session_state.pop("dcm2bids_config_editor", None)
+        st.session_state["dcm2bids_json_override"] = False
 
-    bound = {sanitize_task_label(r.task) for r in project_fmap_rules}
-    binding_df = st.data_editor(
-        pd.DataFrame(
-            [
-                {
-                    "task": task,
-                    # A task with nothing to bind to reads as "none" — which is
-                    # exactly what gets written for it either way.
-                    "fieldmap group": resolved.get(task, "none"),
-                    "source": "project rule" if task in bound else "automatic",
-                }
-                for task in bold_tasks
-            ]
-        ),
-        width="stretch",
-        hide_index=True,
-        disabled=["task", "source"],
-        column_config={
-            "fieldmap group": st.column_config.SelectboxColumn(
-                "fieldmap group",
-                options=[*complete_groups, "none"],
-                required=True,
-                help="Only pairs holding both AP and PA are offered — a half pair "
-                "would give fMRIPrep a correction it cannot run. 'none' writes no "
-                "B0FieldIdentifier, so the run is preprocessed uncorrected.",
-            )
-        },
-        key="fmap_binding_editor",
+imported = st.session_state.get(IMPORT_KEY)
+if imported is not None:
+    st.info(
+        "Values below were loaded from the hand-edited JSON. Edit any row to "
+        "carry on from here."
     )
-    # Said out loud because the plan below lists individual runs under each pair,
-    # which could read as a per-run choice. It isn't: the binding is keyed on the
-    # task label, so every run of a task gets the same pair. Settling that
-    # granularity is TODO #13's blocker (it changes the [fmap_mapping] schema).
-    st.caption(
-        "Binding is per **task**, so every run of a task gets the same pair. A "
-        "session where a pair was re-shot midway — later runs wanting the second "
-        "pair — can't be expressed here yet; see TODO #13."
+    if imported.unrepresentable:
+        st.warning(
+            "**The table can't represent everything that JSON contained.** These "
+            "were left behind rather than dropped silently — turn the override "
+            "back on if you need them:\n"
+            + "\n".join(f"- {item}" for item in imported.unrepresentable)
+        )
+
+seed_rows = []
+for s in series_list:
+    entry = seed_by_series.get(s.series_number)
+    task = entry.task if entry else ""
+    run = entry.run if entry else None
+    fieldmap = _seed_fieldmap(s)
+    if imported is not None:
+        task = imported.task_by_series.get(s.series_number, task)
+        run = imported.run_by_series.get(s.series_number, run)
+        group = imported.group_by_series.get(s.series_number)
+        if group is not None:
+            fieldmap = _group_token.get(group, fieldmap)
+        elif s.series_number in imported.group_by_series and entry and entry.role == "bold":
+            fieldmap = _NO_FMAP_TOKEN if fieldmaps.groups else ""
+    seed_rows.append(
+        {
+            "Series #": s.series_number,
+            "Description": s.description,
+            "Type": s.classification,
+            "# Files": s.file_count,
+            "task": task,
+            "run": run,
+            "fieldmap": fieldmap,
+            "becomes": "",
+        }
     )
-    session_fmap_rules = [
-        FmapRule(task=str(row["task"]), group=str(row["fieldmap group"]))
-        for _, row in binding_df.iterrows()
-    ]
+seed_df = pd.DataFrame(seed_rows)
 
-    if st.button(
-        "⭑ Save this binding as the project default",
-        key="save_project_fmap_map",
-        help="Writes these task → fieldmap group rows to the project config's "
-        "[fmap_mapping]. Every other subject and any bulk convert then uses "
-        "them instead of the automatic rule.",
-    ):
-        from duckbrain.config import resolve_project_dir, save_project_fmap_map
+def _apply_pending_edits(df, key):
+    state = st.session_state.get(key)
+    if not state:
+        return df
+    df = df.copy()
+    for row_idx, changes in (state.get("edited_rows") or {}).items():
+        idx = int(row_idx)
+        if idx >= len(df):
+            continue
+        for col, value in changes.items():
+            if col in df.columns:
+                df.iat[idx, df.columns.get_loc(col)] = value
+    return df
 
-        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
-        if not project_dir:
-            st.error("No project directory resolved — can't save the default.")
-        else:
-            save_project_fmap_map(project_dir, session_fmap_rules)
-            st.success(
-                f"Saved {len(session_fmap_rules)} fieldmap binding(s) as the "
-                f"project default in `{project_dir}/code/duckbrain.toml`. A group "
-                "named here must exist in every session — one that's missing it "
-                "fails loudly rather than silently using a different pair. Use "
-                "`none` for a task that shouldn't be distortion-corrected."
-            )
 
-# ---- Auto-generate dcm2bids config ----
+effective_df = _apply_pending_edits(seed_df, EDITOR_KEY)
+
+
+def _row_run(value):
+    return int(value) if pd.notna(value) else None
+
+
+edited_mapping = [
+    TaskRunEntry(
+        series_number=int(row["Series #"]),
+        description=row["Description"],
+        role="bold" if row["Type"] == "func" else "sbref",
+        task=str(row["task"]),
+        run=_row_run(row["run"]),
+    )
+    for _, row in effective_df.iterrows()
+    if row["Type"] in ("func", "sbref")
+]
+
+# Bindings come off the bold rows, one per run — the grain the table edits at.
+# Non-func rows carry a fieldmap value too (an fmap row shows its own pair), but
+# only a bold's is a *binding*, so the rest are read past rather than prevented:
+# st.data_editor disables columns, not cells.
+session_fmap_rules = []
+for _, row in effective_df.iterrows():
+    if row["Type"] != "func":
+        continue
+    token = str(row["fieldmap"] or "")
+    if not token:
+        continue
+    group = "none" if token == _NO_FMAP_TOKEN else _token_group.get(token)
+    if group is None:
+        continue
+    session_fmap_rules.append(
+        FmapRule(task=str(row["task"]), group=group, run=_row_run(row["run"]))
+    )
+
+# A bold pointed at a half pair would hand fMRIPrep a correction it cannot run.
+# generate_config raises on it; catching it here first gives the row and a fix
+# rather than a stack of config-speak.
+_half_bound = sorted(
+    {r.group for r in session_fmap_rules if r.group not in complete_groups and r.group != "none"}
+)
+if _half_bound:
+    st.error(
+        "These runs are bound to a fieldmap pair that holds only one "
+        f"phase-encoding direction: {', '.join(f'`{g}`' for g in _half_bound)}. "
+        "A half pair can't correct anything — pick a complete pair or "
+        f"`{_NO_FMAP_TOKEN}`."
+    )
+    st.stop()
+
 try:
     auto_config = generate_config(
         series_list,
@@ -449,140 +439,152 @@ except ValueError as exc:
     st.stop()
 auto_json = config_to_json(auto_config)
 
-# ---- Advanced: hand-edit the JSON ----
-# Behind an explicit opt-in, because the text area keeps its *own* widget state:
-# left always-on, it silently stopped tracking the tables above the moment anyone
-# typed in it, and nothing on the page said which of the two would be submitted.
-# That is the silently-degrading behavior CLAUDE.md forbids, so the override is
-# now stated, visible, and revertible.
-with st.expander("⚙️ Advanced — edit the dcm2bids config JSON by hand"):
-    override_json = st.checkbox(
-        "Edit the JSON directly instead of using the tables above",
-        value=False,
-        key="dcm2bids_json_override",
-        help="While this is off, the config is regenerated from the Task/Run "
-        "Mapping and Fieldmap Binding tables on every change. Turn it on to "
-        "hand-edit; the tables then stop driving the config until you turn it "
-        "back off or revert.",
-    )
-    if override_json:
-        st.warning(
-            "**The tables above no longer drive the config.** Your edits below "
-            "are what gets submitted."
-        )
-        edited_json = st.text_area(
-            "dcm2bids config JSON", value=auto_json, height=400,
-            key="dcm2bids_config_editor",
-        )
-        if edited_json.strip() != auto_json.strip():
-            st.caption("✏️ Edited — this differs from what the tables would generate.")
-            if st.button("↺ Revert to the generated config", key="revert_json"):
-                st.session_state.pop("dcm2bids_config_editor", None)
-                st.rerun()
-    else:
-        edited_json = auto_json
-        st.caption(
-            "Generated from the tables above. Read-only while the override is off."
-        )
-        st.code(auto_json, language="json")
+# The hand-edited JSON override (in the Advanced expander below) is read out of
+# widget state *before* that widget renders, so `becomes`, the preflight and the
+# relation view all describe what will actually be submitted rather than what the
+# table alone would produce. Same trick as the editor's pending edits above.
+_override_on = bool(st.session_state.get("dcm2bids_json_override"))
+_override_text = st.session_state.get("dcm2bids_config_editor") or ""
+effective_config = auto_config
+_override_error = None
+if _override_on and _override_text.strip():
+    try:
+        effective_config = json.loads(_override_text)
+    except json.JSONDecodeError as exc:
+        _override_error = str(exc)
 
-# Validate JSON
-try:
-    parsed_config = json.loads(edited_json)
-except json.JSONDecodeError as e:
-    st.error(f"Invalid JSON: {e}")
-    parsed_config = None
+# `becomes` is filled from the plan, which reads the config dict dcm2bids will
+# consume — so the column cannot promise a filename the tool won't write.
+plan = plan_conversion(
+    effective_config, series_list, subject=subject, session=session
+)
+_planned = plan.by_series
+effective_df["becomes"] = [
+    " + ".join(f.filename for f in _planned[num]) if num in _planned else "— not converted"
+    for num in effective_df["Series #"]
+]
 
-# ---- Conversion Plan: what this config will actually produce ----
-# The page used to show only the *inputs* and ask the user to approve a
-# transformation, leaving them to simulate generate_config() in their head. This
-# renders the other half. It is derived from parsed_config — the same dict
-# dcm2bids consumes — so it cannot drift from what actually runs, and it reflects
-# a hand-edited override too. See docs/conversion-legibility.md (TODO #13).
-if parsed_config is not None:
-    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+# ---- Preflight ----
+# Above the table on purpose: this is the part that helps a user who doesn't yet
+# know what to scan for, which is most of them.
+findings = plan_warnings(plan, fieldmaps)
+_blocking = [w for w in findings if w.severity == "error"]
+_suspect = [w for w in findings if w.severity == "warning"]
+_notes = [w for w in findings if w.severity == "info"]
 
-    st.subheader("Conversion Plan")
-
-    plan = plan_conversion(
-        parsed_config, series_list, subject=subject, session=session
-    )
-    findings = plan_warnings(plan, fieldmaps)
-    blocking = [w for w in findings if w.severity == "error"]
-    suspect = [w for w in findings if w.severity == "warning"]
-    notes = [w for w in findings if w.severity == "info"]
-
-    # --- Preflight. Deliberately above the tables: this is the part that helps a
-    # user who doesn't yet know what to scan for, which is most of them.
-    for w in blocking:
+with st.container(border=True):
+    st.markdown("**Preflight**")
+    if _override_error:
+        st.error(f"The hand-edited JSON is invalid, so the table below still "
+                 f"reflects the generated config: {_override_error}")
+    for w in _blocking:
         st.error(w.message)
-    for w in suspect:
+    for w in _suspect:
         st.warning(w.message)
-    if not blocking and not suspect:
+    if not _blocking and not _suspect and not _override_error:
         st.success(
             f"{len(plan.files)} file(s) will be written, nothing collides, and "
             "every series is accounted for."
         )
-    for w in notes:
+    for w in _notes:
         st.caption(f"ℹ️ {w.message}")
 
-    # --- Per-series outcome. Every series appears, including the ones nothing
-    # claims — a dropped series is invisible in a table built from the plan alone.
-    planned_by_series = plan.by_series
-    plan_rows = []
-    for s in series_list:
-        produced = planned_by_series.get(s.series_number, [])
-        if not produced:
-            plan_rows.append(
-                {
-                    "Series #": s.series_number,
-                    "Description": s.description,
-                    "Type": s.classification,
-                    "becomes": "— not converted",
-                    "fieldmap": "",
-                }
-            )
-            continue
-        for f in produced:
-            if f.fmap_group is not None:
-                token = fmap_token(f.fmap_group, fmap_colors)
-            elif f.is_bold:
-                token = fmap_token(None, fmap_colors)
-            else:
-                token = ""
-            plan_rows.append(
-                {
-                    "Series #": s.series_number,
-                    "Description": s.description,
-                    "Type": f.datatype,
-                    "becomes": f.filename,
-                    "fieldmap": token,
-                }
-            )
+st.data_editor(
+    effective_df,
+    width="stretch",
+    hide_index=True,
+    disabled=["Series #", "Description", "Type", "# Files", "becomes"],
+    column_config={
+        "run": st.column_config.NumberColumn("run", min_value=1, step=1, format="%d"),
+        "fieldmap": st.column_config.SelectboxColumn(
+            "fieldmap",
+            options=["", *_group_token.values(), _NO_FMAP_TOKEN],
+            help="For a functional run: which pair corrects it. Bindings are "
+            "per-run, so two runs of one task may differ — the case a fieldmap "
+            "re-shot mid-task creates. Fieldmap rows show the pair they belong "
+            "to. Everything else leaves this blank.",
+        ),
+        "becomes": st.column_config.TextColumn(
+            "becomes",
+            help="The BIDS file dcm2bids will write for this series.",
+            width="large",
+        ),
+    },
+    key=EDITOR_KEY,
+)
 
-    st.dataframe(
-        pd.DataFrame(plan_rows),
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "becomes": st.column_config.TextColumn(
-                "becomes",
-                help="The BIDS file dcm2bids will write for this series.",
-                width="large",
-            ),
-            "fieldmap": st.column_config.TextColumn(
-                "fieldmap",
-                help="The pair that will correct this run (bolds), or the pair "
-                "this file belongs to (fieldmaps).",
-            ),
-        },
+# A BIDS task entity must be alphanumeric. The config generator sanitizes anyway
+# (so no invalid filename ever ships), but surface it so the rewrite isn't silent.
+fixups = {
+    e.task: sanitize_task_label(e.task)
+    for e in edited_mapping
+    if e.task and e.task != sanitize_task_label(e.task)
+}
+if fixups:
+    st.warning(
+        "Some task labels aren't valid BIDS entities (must be alphanumeric — no "
+        "`_`, space, or `-`). They'll be written as: "
+        + ", ".join(f"`{k}` → `{v}`" for k, v in fixups.items())
     )
 
-    # --- The relation, read the other way round: pair → the runs it corrects.
-    # A table can only show one direction of an edge; this is the direction the
-    # user actually asks about, and it was previously nowhere on the page.
-    if fieldmaps.groups:
-        st.markdown("**Which pair corrects which run**")
+# ---- Promote this session's review to project-wide defaults ----
+_save_task_col, _save_fmap_col = st.columns(2)
+
+with _save_task_col:
+    if st.button(
+        "⭑ Save task/run mapping as project default",
+        key="save_project_task_map",
+        width="stretch",
+        help="Writes the BOLD task rows to the project config's [task_mapping]. "
+        "Other subjects then seed from these instead of the heuristic. "
+        "Per-session edits still override.",
+    ):
+        from duckbrain.config import resolve_project_dir, save_project_task_map
+
+        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
+        if not project_dir:
+            st.error("No project directory resolved — can't save the default.")
+        else:
+            rules = task_rules_from_mapping(edited_mapping)
+            save_project_task_map(project_dir, rules)
+            st.success(
+                f"Saved {len(rules)} task rule(s) to "
+                f"`{project_dir}/code/duckbrain.toml`."
+            )
+
+with _save_fmap_col:
+    if st.button(
+        "⭑ Save fieldmap bindings as project default",
+        key="save_project_fmap_map",
+        width="stretch",
+        disabled=not session_fmap_rules,
+        help="Writes these bindings to the project config's [fmap_mapping]. A "
+        "task whose runs all use the same pair is saved as one task-wide rule; "
+        "only a task that genuinely differs run to run keeps per-run rows.",
+    ):
+        from duckbrain.config import resolve_project_dir, save_project_fmap_map
+
+        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
+        if not project_dir:
+            st.error("No project directory resolved — can't save the default.")
+        else:
+            collapsed = collapse_fmap_rules(session_fmap_rules)
+            save_project_fmap_map(project_dir, collapsed)
+            _per_run = sum(1 for r in collapsed if r.run is not None)
+            st.success(
+                f"Saved {len(collapsed)} binding(s) to "
+                f"`{project_dir}/code/duckbrain.toml`"
+                + (f", {_per_run} of them run-specific." if _per_run else ".")
+                + " A group named here must exist in every session — one that's "
+                "missing it fails loudly rather than silently using a different "
+                "pair."
+            )
+
+# ---- The relation, read the other way round: pair -> the runs it corrects ----
+# A table can only show one direction of an edge. This is the direction the user
+# actually asks about, and it was previously nowhere on the page.
+if fieldmaps.groups:
+    with st.expander("🔗 Which pair corrects which run", expanded=len(complete_groups) > 1):
         for group_name, dirs in fieldmaps.groups.items():
             bound = plan.bolds_for_group(group_name)
             ap, pa = dirs.get("ap"), dirs.get("pa")
@@ -603,9 +605,69 @@ if parsed_config is not None:
         unbound = [f for f in plan.files if f.is_bold and f.fmap_group is None]
         if unbound:
             with st.container(border=True):
-                st.markdown(f"{fmap_badge(None, fmap_colors)} &nbsp; no distortion correction")
+                st.markdown(
+                    f"{fmap_badge(None, fmap_colors)} &nbsp; no distortion correction"
+                )
                 for f in unbound:
                     st.markdown(f"&nbsp;&nbsp;↳ `{f.filename}`")
+
+# ---- Advanced: hand-edit the JSON ----
+# Behind an explicit opt-in, because the text area keeps its *own* widget state:
+# left always-on, it silently stopped tracking the table above the moment anyone
+# typed in it, and nothing on the page said which of the two would be submitted.
+# That is the silently-degrading behavior CLAUDE.md forbids, so the override is
+# stated, visible, and revertible.
+#
+# Deliberately NOT two-way-synced with the table. Two editable representations of
+# one thing means something has to lose when both change, and the table is *lossy*
+# relative to the JSON — criteria beyond SeriesNumber, arbitrary sidecar_changes,
+# custom ids and dcm2bids options have no column. A continuous round trip would
+# drop them silently. The back-import below is the honest version: explicit,
+# one-shot, and it reports what it could not represent.
+with st.expander("⚙️ Advanced — edit the dcm2bids config JSON by hand"):
+    override_json = st.checkbox(
+        "Edit the JSON directly instead of using the table above",
+        value=False,
+        key="dcm2bids_json_override",
+        help="While this is off, the config is regenerated from the Conversion "
+        "Plan table on every change. Turn it on to hand-edit; the table then "
+        "stops driving the config until you turn it back off or revert.",
+    )
+    if override_json:
+        st.warning(
+            "**The table above no longer drives the config.** Your edits below "
+            "are what gets submitted."
+        )
+        edited_json = st.text_area(
+            "dcm2bids config JSON", value=auto_json, height=400,
+            key="dcm2bids_config_editor",
+        )
+        if edited_json.strip() != auto_json.strip():
+            st.caption("✏️ Edited — this differs from what the table would generate.")
+            c_revert, c_import = st.columns(2)
+            with c_revert:
+                if st.button("↺ Revert to the generated config", key="revert_json",
+                             width="stretch"):
+                    st.session_state.pop("dcm2bids_config_editor", None)
+                    st.rerun()
+            with c_import:
+                if st.button("⇧ Load these edits back into the table",
+                             key="import_json", width="stretch",
+                             help="Reads task, run and fieldmap group back out of "
+                             "the JSON and applies them to the table, then turns "
+                             "the override off. Anything the table has no column "
+                             "for is reported rather than dropped silently."):
+                    st.session_state["_pending_json_import"] = edited_json
+                    st.rerun()
+    else:
+        edited_json = auto_json
+        st.caption(
+            "Generated from the table above. Read-only while the override is off."
+        )
+        st.code(auto_json, language="json")
+
+# The config that actually gets saved and submitted.
+parsed_config = None if _override_error else effective_config
 
 # ---- Save config / Convert / Export ----
 st.divider()

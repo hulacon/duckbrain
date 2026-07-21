@@ -28,6 +28,7 @@ See ``docs/conversion-legibility.md`` (TODO ``#13``) for the design.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .dicom_inspect import FieldmapDetection, SeriesInfo
@@ -356,6 +357,106 @@ def plan_warnings(
                 ),
                 series=sorted(d.series_number for d in expected),
             )
+        )
+
+    return out
+
+
+# --- Reading a hand-edited config back into the table -----------------------
+# The table is *lossy* relative to the config: criteria beyond SeriesNumber,
+# arbitrary sidecar_changes, custom description ids and dcm2bids' own options
+# have no column. That is exactly why this is an explicit, one-shot import rather
+# than continuous two-way sync — a round trip that ran on every keystroke would
+# drop those silently, which is the failure mode this codebase keeps refusing.
+# Here the loss is *reported*, and the user decides.
+
+_ENTITY_RE = re.compile(r"(?:^|_)(task|run)-([A-Za-z0-9]+)")
+
+# Everything the table can express. Anything else in a description is loss.
+_KNOWN_DESC_KEYS = frozenset(
+    {"id", "datatype", "suffix", "criteria", "custom_entities", "sidecar_changes"}
+)
+_KNOWN_SIDECAR_KEYS = frozenset(
+    {"TaskName", "B0FieldIdentifier", "B0FieldSource", "PhaseEncodingDirection"}
+)
+
+
+@dataclass
+class ConfigImport:
+    """A hand-edited config expressed in the conversion table's terms.
+
+    ``unrepresentable`` lists, in plain sentences, everything the table has no
+    column for. It is the point of the whole exercise: an import that quietly
+    discarded a custom ``criteria`` would be worse than refusing to import.
+    """
+
+    task_by_series: dict[int, str] = field(default_factory=dict)
+    run_by_series: dict[int, int | None] = field(default_factory=dict)
+    group_by_series: dict[int, str | None] = field(default_factory=dict)
+    unrepresentable: list[str] = field(default_factory=list)
+
+
+def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> ConfigImport:
+    """Parse a dcm2bids config back into per-series task / run / fieldmap values.
+
+    The inverse of what the Conversion Plan table generates, as far as the table
+    can go. Entities are read from ``custom_entities`` (the same string
+    :func:`plan_conversion` renders into a filename) and the fieldmap group from
+    the composed ``B0map_…`` identifier, so both stay consistent with the plan.
+    """
+    out = ConfigImport()
+    descriptions = config.get("descriptions") or []
+    group_by_id = _group_by_identifier(descriptions)
+
+    for key in sorted(set(config) - {"descriptions"}):
+        out.unrepresentable.append(
+            f"top-level `{key}` is kept in the JSON but has no column in the table"
+        )
+
+    for d in descriptions:
+        criteria = d.get("criteria") or {}
+        series_number = criteria.get("SeriesNumber")
+        label = d.get("id") or "(unnamed description)"
+        if series_number is None:
+            out.unrepresentable.append(
+                f"`{label}` does not match on SeriesNumber, so it has no table row"
+            )
+            continue
+        series_number = int(series_number)
+
+        extra_criteria = sorted(set(criteria) - {"SeriesNumber"})
+        if extra_criteria:
+            out.unrepresentable.append(
+                f"`{label}` also matches on {', '.join(extra_criteria)}"
+            )
+        extra_keys = sorted(set(d) - _KNOWN_DESC_KEYS)
+        if extra_keys:
+            out.unrepresentable.append(f"`{label}` sets {', '.join(extra_keys)}")
+
+        sidecar = d.get("sidecar_changes") or {}
+        extra_sidecar = sorted(set(sidecar) - _KNOWN_SIDECAR_KEYS)
+        if extra_sidecar:
+            out.unrepresentable.append(
+                f"`{label}` sets sidecar_changes {', '.join(extra_sidecar)}"
+            )
+
+        entities = dict(_ENTITY_RE.findall(str(d.get("custom_entities", ""))))
+        if "task" in entities:
+            out.task_by_series[series_number] = entities["task"]
+        run = entities.get("run")
+        out.run_by_series[series_number] = (
+            int(run) if run is not None and run.isdigit() else None
+        )
+
+        identifier = sidecar.get("B0FieldIdentifier") or sidecar.get("B0FieldSource")
+        out.group_by_series[series_number] = (
+            group_by_id.get(identifier) if identifier else None
+        )
+
+    known = {s.series_number for s in series_list}
+    for series_number in sorted(set(out.task_by_series) - known):
+        out.unrepresentable.append(
+            f"series {series_number} is named in the config but not in this session"
         )
 
     return out

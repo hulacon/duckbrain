@@ -133,24 +133,80 @@ not reconcile and which one gets submitted is not visible. That is the
 silently-degrading pattern `CLAUDE.md` forbids, so: keep the JSON an explicit
 opt-in override, show plainly which source is live, and offer a revert.
 
-## Deferred, and why — binding granularity
+## Phase 6 — one table (the point of all of the above)
 
-**`FmapRule` is keyed on task label, not on run.** `bold_tasks` is built by
-deduplicating sanitized task labels, so a session with two runs of one task cannot
-bind them to different fieldmaps.
+**Decided 2026-07-21.** Phases 1–5 made each surface more legible but left the
+page with *four* tables plus a JSON box — the count went the wrong way. The
+per-session review collapses to a single editor, one row per series:
 
-That is the `mmm_fmap_check` case exactly: a pair reshot mid-session, where runs
-acquired afterwards should use pair 2. `#5` records that the automatic rule has no
-temporal-proximity logic and that the explicit binding is the escape hatch — but
-the escape hatch cannot express this particular escape.
+```
+Series #  Description           Type   task       run  fieldmap   becomes
+2         t1w_mprage            anat   —          —    —          sub-003_ses-02_T1w.nii.gz
+3         se_epi_ap             fmap   —          —    🔵 1       sub-003_ses-02_acq-…_dir-AP_epi.nii.gz
+9         localizerAuditory_r1  func   localizer  1    🔵 1       sub-003_ses-02_task-localizer_run-1_bold.nii.gz
+```
 
-It is deferred rather than folded in because it **changes a persisted config
-schema** (`[fmap_mapping]` rows would need an optional `run`, and every existing
-project config has to keep loading), and because there is a real design choice
-underneath: per-run binding, or infer from acquisition time, or both. Presentation
-work does not depend on the answer — a plan-derived view renders whatever the
-binding says — so it is genuinely separable. **Settle it before Phase 4 ships a
-view that implies a granularity the model doesn't have.**
+Editable `task` / `run` / `fieldmap`; `becomes` computed from the plan. What
+merges is the three surfaces that already share a grain (DICOM Series, Task/Run
+Mapping, Conversion Plan). What blocked it was the fourth, which is keyed on
+*task* — hence the granularity work below being a **precondition**, not a
+nice-to-have.
+
+Notes for whoever builds on this:
+
+- **`st.data_editor` disables columns, not cells.** An anat row's `task` cell
+  will look editable even though it means nothing. Validate on read and warn;
+  don't try to prevent it.
+- **The fieldmap token appears on the fmap rows too**, not just the bolds, so the
+  pair↔run link is readable from one row in either direction. It lives in the
+  `fieldmap` column rather than being prefixed onto `becomes`, so `becomes` stays
+  a real filename you can copy.
+
+## Phase 7 — JSON back-import, explicitly and once
+
+**Bidirectional sync was considered and rejected.** Two editable representations
+of one thing means that when both change something has to lose, and Streamlit's
+per-key widget state is precisely where that goes wrong — it is the mechanism
+behind the Phase 5 bug. More fundamentally **the table is lossy relative to the
+JSON**: the JSON can carry criteria beyond `SeriesNumber`, arbitrary
+`sidecar_changes`, custom description ids, dcm2bids options. A continuous round
+trip would silently drop whatever the table can't represent, which is data loss
+dressed as convenience.
+
+Instead: one direction (table → JSON) plus an explicit, user-initiated **"load
+this JSON back into the table"** that *reports what it could not represent*. The
+reading half already exists — `plan_conversion` parses task, run and group back
+out of the descriptions today.
+
+## The granularity decision — settled 2026-07-21
+
+**Bindings attach at series/run level.** Ben's call, on the case of a fieldmap
+re-shot *within* one task ("rare, not impossible"), which a task-keyed rule
+cannot express at all.
+
+Shape:
+
+- `FmapRule` gains an optional `run`. `run = None` keeps its current meaning —
+  *every* run of the task — so every existing `[fmap_mapping]` section keeps
+  loading and meaning what it meant.
+- A rule naming a run wins over one that doesn't; specific beats general, the
+  same precedence explicit-beats-inferred already has.
+- Assignment is keyed on `(task, run)` rather than task, which is also what lets
+  the unified table put an editable fieldmap cell on a *series* row honestly.
+
+Keying the persisted rule on task+run rather than series number is deliberate:
+series numbers are per-session, so a series-keyed rule could not generalize
+across subjects, and `[fmap_mapping]` is a project-level statement like
+`[task_mapping]` beside it.
+
+## Still open — temporal proximity
+
+Even with run-level bindings, `_assign_fmap_group`'s *automatic* path never
+reasons about acquisition time: an unbound task still goes to the first complete
+pair. The explicit binding now covers every case that limitation produces, at the
+cost of saying so once per study. Inferring it from timestamps stays a candidate
+refinement, and the explicit binding is the thing to measure it against. See
+`TODO.md` `#5`.
 
 ## Not doing
 

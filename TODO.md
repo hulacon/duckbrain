@@ -14,7 +14,7 @@ the ledger so an old reference still resolves.
 
 ## #13 — Conversion legibility: show the outcome, not just the input
 
-**Phases 1–5 SHIPPED 2026-07-21; the granularity blocker below is what's left.**
+**Phases 1–7 SHIPPED 2026-07-21, granularity settled. Open: browser validation.**
 Full design in **`docs/conversion-legibility.md`**.
 
 The Conversion page asks the user to approve a transformation but shows only its
@@ -43,15 +43,21 @@ that never reference each other.
   it isn't re-proposed. Short version: bindings must persist across 37 subjects,
   which is what `[fmap_mapping]` already is; a gesture is per-session and would
   have to be re-expressed as that rule anyway.
-- 🔴 **Blocking Phase 4 — binding granularity is a real modeling gap, not
-  presentation.** `FmapRule` is keyed on task label, so two runs of one task
-  cannot bind to different fieldmaps — which is the `mmm_fmap_check` case (pair
-  reshot mid-session). Deferred here because it changes a **persisted config
-  schema** (`[fmap_mapping]` would need an optional `run`, and existing project
-  configs must keep loading) and because there's an open choice: per-run binding,
-  infer from acquisition time, or both. Ties directly to `#5`'s "no
-  temporal-proximity logic" edge — that entry says the explicit binding covers the
-  case, and this is the case it *can't* express.
+- ✅ **Phase 6 — one table.** The three per-series surfaces (DICOM Series,
+  Task/Run Mapping, Fieldmap Binding) are now a single editor, one row per series,
+  with `becomes` computed from the plan. Fieldmap rows carry their own pair token,
+  so the relation reads off one row in both directions.
+- ✅ **Phase 7 — JSON back-import, and bidirectional sync rejected.** Reasoning in
+  the doc: the table is *lossy* relative to the config (criteria beyond
+  `SeriesNumber`, arbitrary `sidecar_changes`, custom ids, dcm2bids options), so a
+  continuous round trip would drop them silently. The import is explicit,
+  one-shot, and **reports what it couldn't represent**.
+- ✅ **Granularity settled 2026-07-21 (Ben): bindings attach at series/run level.**
+  `FmapRule` gained an optional `run`; `run=None` keeps its old meaning (every run
+  of the task), so existing `[fmap_mapping]` sections load unchanged. A run rule
+  beats a task-wide one. Saved project defaults collapse back to task-wide rows
+  wherever every run agrees, so the config stays readable.
+- **UNVALIDATED in the browser** — see below; this is the whole open part.
 
 ## #2 — Onboarding for external users
 

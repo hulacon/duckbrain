@@ -123,10 +123,26 @@ class FmapRule:
     the one group value that is always satisfiable, so it is also how a project
     keeps a binding honest for sessions that legitimately lack fieldmaps rather
     than deleting the rule.
+
+    ``run`` narrows the binding to a single run of that task. ``None`` — the
+    default, and what every rule written before this existed means — binds *every*
+    run, so existing ``[fmap_mapping]`` sections keep loading and keep meaning
+    what they meant. A rule naming a run wins over one that doesn't: specific
+    beats general, the same precedence explicit-beats-inferred already has.
+
+    Run-level bindings exist for the case a task-level one cannot express at all:
+    a fieldmap re-shot *within* a single task, where the runs before and after it
+    want different pairs. Rare, but the task-keyed form has no way to say it.
+
+    The rule is keyed on task+run rather than on series number deliberately.
+    Series numbers are per-session, so a series-keyed rule could not generalize
+    across subjects, and ``[fmap_mapping]`` is a project-level statement like
+    ``[task_mapping]`` beside it.
     """
 
     task: str
     group: str
+    run: int | None = None
 
 
 def _rule_lookup(rules: list[TaskRule] | None) -> dict[str, TaskRule]:
@@ -257,25 +273,97 @@ def fmap_rules_from_config(config: dict) -> list[FmapRule]:
         group = str(row.get("group", "")).strip()
         if not task or not group:
             continue
-        out.append(FmapRule(task, group))
+        # A missing or unparseable run means "every run of this task" — which is
+        # what every rule written before run-level bindings existed meant, so an
+        # older [fmap_mapping] keeps working untouched.
+        raw_run = row.get("run")
+        try:
+            run = int(raw_run) if raw_run not in (None, "") else None
+        except (TypeError, ValueError):
+            run = None
+        out.append(FmapRule(task, group, run))
+    return out
+
+
+def collapse_fmap_rules(rules: list[FmapRule]) -> list[FmapRule]:
+    """Reduce per-run bindings to task-wide ones wherever every run agrees.
+
+    The Conversion page produces one binding per *run*, because that is the grain
+    its table edits at. Writing those straight into ``[fmap_mapping]`` would spell
+    out a rule per run for every study — including the overwhelming majority whose
+    runs all use the same pair — and a project file nobody can read is one nobody
+    will correct. So a task whose runs agree collapses to the single task-wide
+    rule it always was, and only a task that genuinely differs run to run keeps
+    per-run rows.
+
+    Order is preserved by first appearance of the task, and a run of ``None`` on
+    input is treated as already task-wide.
+    """
+    by_task: dict[str, list[FmapRule]] = {}
+    for r in rules:
+        by_task.setdefault(sanitize_task_label(r.task), []).append(r)
+
+    out: list[FmapRule] = []
+    for task, group_rules in by_task.items():
+        groups = {r.group for r in group_rules}
+        if len(groups) == 1:
+            out.append(FmapRule(task, group_rules[0].group))
+        else:
+            out.extend(FmapRule(task, r.group, r.run) for r in group_rules)
     return out
 
 
 def fmap_rules_to_config_section(rules: list[FmapRule]) -> dict:
-    """Serialize fieldmap bindings into a TOML-friendly ``[fmap_mapping]`` section."""
-    return {"rule": [{"task": r.task, "group": r.group} for r in rules]}
+    """Serialize fieldmap bindings into a TOML-friendly ``[fmap_mapping]`` section.
+
+    ``run`` is written only when the rule names one, so a project that binds
+    per-task keeps the same two-key rows it has always had.
+    """
+    return {
+        "rule": [
+            {"task": r.task, "group": r.group}
+            if r.run is None
+            else {"task": r.task, "group": r.group, "run": r.run}
+            for r in rules
+        ]
+    }
 
 
-def _fmap_rule_lookup(rules: list[FmapRule] | None) -> dict[str, str]:
-    """Index fieldmap bindings by sanitized, lowercased task label; last wins.
+def _fmap_rule_lookup(
+    rules: list[FmapRule] | None,
+) -> dict[tuple[str, int | None], str]:
+    """Index fieldmap bindings by ``(sanitized lowercased task, run)``; last wins.
 
     Sanitizing the rule's task mirrors what :func:`generate_config` does to the
     mapping's task before it reaches assignment, so the two always meet in the
-    same namespace.
+    same namespace. A rule with no ``run`` is stored under ``None``, which
+    :func:`_lookup_fmap_rule` treats as the fallback for every run of the task.
     """
     if not rules:
         return {}
-    return {sanitize_task_label(r.task).lower(): r.group for r in rules if r.task}
+    return {
+        (sanitize_task_label(r.task).lower(), r.run): r.group
+        for r in rules
+        if r.task
+    }
+
+
+def _lookup_fmap_rule(
+    rules: dict[tuple[str, int | None], str] | None,
+    task: str,
+    run: int | None,
+) -> str | None:
+    """Find the binding for one run: the run-specific rule, else the task-wide one.
+
+    Specific beats general. Without this precedence a study could not say "this
+    task uses pair 1, except run 3" — it would have to enumerate every run.
+    """
+    if not rules:
+        return None
+    key = task.lower()
+    if run is not None and (key, run) in rules:
+        return rules[(key, run)]
+    return rules.get((key, None))
 
 
 def generate_config(
@@ -327,8 +415,8 @@ def generate_config(
         mapping = build_task_run_mapping(series_list, template)
     entry_by_series = {e.series_number: e for e in mapping}
 
-    # Track which fieldmap groups are used by which tasks
-    fmap_group_assignments: dict[str, str] = {}
+    # Track which fieldmap group each (task, run) is bound to
+    fmap_group_assignments: dict[tuple[str, int | None], str] = {}
     fmap_rule_lookup = _fmap_rule_lookup(fmap_rules)
 
     # --- Anatomicals ---
@@ -374,7 +462,7 @@ def generate_config(
         # group still gets to fail instead of being skipped along with everything
         # else. That guard is what let an unhonorable rule pass silently.
         fmap_group = _assign_fmap_group(
-            task, fieldmaps, fmap_group_assignments, fmap_rule_lookup
+            task, run, fieldmaps, fmap_group_assignments, fmap_rule_lookup
         )
         if fmap_group is not None:
             group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
@@ -432,8 +520,12 @@ def resolve_fmap_assignments(
     mapping: list[TaskRunEntry],
     fieldmaps: FieldmapDetection,
     fmap_rules: list[FmapRule] | None = None,
-) -> dict[str, str]:
-    """Report ``task -> fieldmap group`` exactly as :func:`generate_config` binds it.
+) -> dict[tuple[str, int | None], str]:
+    """Report ``(task, run) -> fieldmap group`` exactly as :func:`generate_config` binds it.
+
+    Keyed on the pair rather than the task because a binding is per-run: two runs
+    of one task can legitimately point at different pairs (a fieldmap re-shot
+    mid-task), and a task-keyed report could not show that.
 
     The binding is otherwise only visible as ``B0FieldIdentifier`` strings buried
     in the generated JSON, which is a poor way to check that a rule did what was
@@ -445,13 +537,13 @@ def resolve_fmap_assignments(
     run out of distortion correction is a decision worth seeing in the table, not
     an absence. Tasks with no binding and no fieldmaps to assign are absent.
     """
-    assignments: dict[str, str] = {}
+    assignments: dict[tuple[str, int | None], str] = {}
     lookup = _fmap_rule_lookup(fmap_rules)
     for entry in mapping:
         if entry.role != "bold":
             continue
         _assign_fmap_group(
-            sanitize_task_label(entry.task), fieldmaps, assignments, lookup
+            sanitize_task_label(entry.task), entry.run, fieldmaps, assignments, lookup
         )
     return assignments
 
@@ -553,11 +645,12 @@ def _fmap_description(
 
 def _assign_fmap_group(
     task: str,
+    run: int | None,
     fieldmaps: FieldmapDetection,
-    assignments: dict[str, str],
-    rules: dict[str, str] | None = None,
+    assignments: dict[tuple[str, int | None], str],
+    rules: dict[tuple[str, int | None], str] | None = None,
 ) -> str | None:
-    """Assign a fieldmap group to a task.
+    """Assign a fieldmap group to one run of a task.
 
     Three sources, each overriding the one after it:
 
@@ -576,8 +669,9 @@ def _assign_fmap_group(
     fieldmap than the project asked for — the one outcome an explicit binding
     exists to prevent.
     """
-    if task in assignments:
-        group = assignments[task]
+    cache_key = (task, run)
+    if cache_key in assignments:
+        group = assignments[cache_key]
         return None if group == _NO_FMAP else group
 
     complete = [g for g, dirs in fieldmaps.groups.items() if "ap" in dirs and "pa" in dirs]
@@ -588,13 +682,13 @@ def _assign_fmap_group(
     # fieldmaps at all must still fail a binding it cannot honor, exactly as a
     # session that collected the wrong ones does. Skipping it there was a silent
     # degradation — the project said which pair to use and got none, quietly.
-    wanted = (rules or {}).get(task.lower())
+    wanted = _lookup_fmap_rule(rules, task, run)
     if wanted is not None:
         # ``none`` opts a task out of distortion correction entirely. A real
         # group could in principle be keyed "none" (from a series named
         # ``se_epi_ap_none``); if one is, the actual data wins over the sentinel.
         if wanted.lower() == _NO_FMAP and _NO_FMAP not in fieldmaps.groups:
-            assignments[task] = _NO_FMAP
+            assignments[cache_key] = _NO_FMAP
             return None
         if wanted not in complete:
             # Not the bare word "none" — that is the opt-out sentinel, and
@@ -606,14 +700,15 @@ def _assign_fmap_group(
                 if wanted in fieldmaps.groups
                 else "does not exist in this session"
             )
+            subject = f"task '{task}' run {run}" if run is not None else f"task '{task}'"
             raise ValueError(
-                f"[fmap_mapping] binds task '{task}' to fieldmap group "
+                f"[fmap_mapping] binds {subject} to fieldmap group "
                 f"'{wanted}', but that group {reason}. Groups detected here: "
                 f"{known}. Fix the rule in the project config, set the group to "
                 f"'{_NO_FMAP}' if this task shouldn't be distortion-corrected, or "
                 f"drop the rule to fall back to automatic assignment."
             )
-        assignments[task] = wanted
+        assignments[cache_key] = wanted
         return wanted
 
     groups = complete or list(fieldmaps.groups.keys())
@@ -627,11 +722,11 @@ def _assign_fmap_group(
     for g in groups:
         base = re.sub(r"-\d+$", "", g)
         if base and task.lower().startswith(base.lower()):
-            assignments[task] = g
+            assignments[cache_key] = g
             return g
 
     # Default to first group
-    assignments[task] = groups[0]
+    assignments[cache_key] = groups[0]
     return groups[0]
 
 

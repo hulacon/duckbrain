@@ -380,9 +380,11 @@ def test_resolve_fmap_assignments_matches_what_is_written():
     series, fmaps, mapping = _two_pair_session()
     rules = [FmapRule("test", "encoding-2")]
     resolved = resolve_fmap_assignments(mapping, fmaps, rules)
-    assert resolved == {"study": "encoding", "test": "encoding-2"}
+    # Keyed on (task, run): a binding is per-run, so two runs of one task can
+    # legitimately differ and a task-keyed report could not show it.
+    assert resolved == {("study", 1): "encoding", ("test", 1): "encoding-2"}
     written = _b0_by_task(generate_config(series, fmaps, mapping=mapping, fmap_rules=rules))
-    assert {t: f"B0map_{g}" for t, g in resolved.items()} == written
+    assert {t: f"B0map_{g}" for (t, _run), g in resolved.items()} == written
 
 
 def test_resolve_fmap_assignments_empty_without_fieldmaps():
@@ -474,7 +476,7 @@ def test_resolve_reports_none_rather_than_omitting_the_task():
     """Opting out is a decision worth seeing in the GUI table, not an absence."""
     series, fmaps, mapping = _two_pair_session()
     resolved = resolve_fmap_assignments(mapping, fmaps, [FmapRule("test", "none")])
-    assert resolved == {"study": "encoding", "test": "none"}
+    assert resolved == {("study", 1): "encoding", ("test", 1): "none"}
 
 
 def test_resolve_is_empty_for_an_unbound_session_without_fieldmaps():
