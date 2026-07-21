@@ -206,7 +206,7 @@ def test_generate_config_bold_skips_incomplete_fmap_group():
     )
     cfg = generate_config(series, fmaps)
     bold = [d for d in cfg["descriptions"] if d["suffix"] == "bold"][0]
-    assert bold["sidecar_changes"]["B0FieldIdentifier"] == "B0map_2"
+    assert bold["sidecar_changes"]["B0FieldSource"] == "B0map_2"
 
 
 def test_generate_config_reproin_anat_label_sets_the_suffix():
@@ -287,7 +287,7 @@ def _two_pair_session():
 
 def _b0_by_task(cfg):
     return {
-        d["sidecar_changes"]["TaskName"]: d["sidecar_changes"].get("B0FieldIdentifier")
+        d["sidecar_changes"]["TaskName"]: d["sidecar_changes"].get("B0FieldSource")
         for d in cfg["descriptions"]
         if d["suffix"] == "bold"
     }

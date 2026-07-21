@@ -73,6 +73,13 @@ the next one.
   version.** Different namespaces — that bug shipped once. (The MRIQC `24.0.2`
   container self-reports `24.1.0.dev0+…`; a phantom `24.1.0` default came from
   exactly this confusion.)
+- **BIDS fieldmap intent: the *fieldmap* carries `B0FieldIdentifier`, the *bold
+  and sbref* carry `B0FieldSource`.** The field is estimated from scans sharing an
+  identifier and applied to scans sharing a source. duckbrain shipped these
+  inverted, and nothing complained — the dataset validates, dcm2bids is happy, and
+  fMRIPrep just reports "Susceptibility distortion correction: None" and
+  preprocesses uncorrected. Found 2026-07-21 by asking what happens to SBRefs.
+  Pinned by tests in `tests/test_conversion_plan.py`; never swap them.
 - **Provenance source rule:** for derivatives duckbrain *produces*, provenance
   lives in the data (sidecars → dataset stamp); for tool-produced derivatives
   (fMRIPrep/MRIQC) the submission log is the only channel. Enforced and explained
@@ -171,8 +178,8 @@ Key behaviors to know when editing the app:
 ## Start here next session
 
 **Read `TODO.md`** — it's ordered by priority and its top item is the next thing
-to do (currently `#13`, conversion legibility — design in
-`docs/conversion-legibility.md`). Item ids there (`#2`, `#5b`, …) are stable
+to do (currently `#14`, re-converting datasets written with inverted fieldmap
+intent — the code is fixed, the data is not). Item ids there (`#2`, `#5b`, …) are stable
 names referenced from this file, `docs/`, and source comments, so they never get
 renumbered; a closed id keeps its line in the ledger so old references resolve.
 

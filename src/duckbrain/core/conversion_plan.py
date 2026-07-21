@@ -130,7 +130,7 @@ def _group_by_identifier(descriptions: list[dict]) -> dict[str, str]:
     for d in descriptions:
         if d.get("datatype") != "fmap":
             continue
-        identifier = (d.get("sidecar_changes") or {}).get("B0FieldSource")
+        identifier = (d.get("sidecar_changes") or {}).get("B0FieldIdentifier")
         if not identifier:
             continue
         desc_id = str(d.get("id", ""))

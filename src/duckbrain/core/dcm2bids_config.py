@@ -23,7 +23,17 @@ that repeats a task never collides on run-. :func:`task_rules_from_mapping`
 collapses a reviewed session back into rules, so a user reviews one subject and
 saves that as the project default for the rest.
 
-**Fieldmap binding.** Which fieldmap pair a bold's ``B0FieldIdentifier`` points
+**Fieldmap binding.** BIDS expresses fieldmap intent with two keys pointing in
+opposite directions, and getting them the wrong way round fails *silently*: the
+fieldmap is estimated from every scan sharing a ``B0FieldIdentifier`` and applied
+to every scan sharing a ``B0FieldSource``. So a **fieldmap** carries
+``B0FieldIdentifier`` (it is an input to the estimation) and a **bold or sbref**
+carries ``B0FieldSource`` (it consumes the estimate). Inverting them produces a
+valid-looking dataset that no tool complains about and on which fMRIPrep quietly
+reports "Susceptibility distortion correction: None" — which duckbrain shipped
+and real runs confirmed. Never swap these.
+
+Which fieldmap pair a bold's ``B0FieldSource`` points
 at is decided by :func:`_assign_fmap_group`, whose heuristic (prefix-match the
 task label against the group name, else take the first complete pair) cannot
 express "this task used the *second* ``encoding`` pair". A :class:`FmapRule`
@@ -38,7 +48,7 @@ all, which is the case a "were any detected" guard would quietly skip.
 The reserved group ``"none"`` binds a task to no fieldmap, so a run that
 shouldn't be distortion-corrected — or a session whose fieldmaps weren't
 collected — is stated rather than inferred from an absence. Sessions with no
-fieldmaps and no binding are unaffected: no ``B0FieldIdentifier`` is written, no
+fieldmaps and no binding are unaffected: no ``B0FieldSource`` is written, no
 ``fmap`` descriptions are emitted, and fMRIPrep simply runs without SDC.
 """
 
@@ -118,7 +128,7 @@ class FmapRule:
     SeriesDescriptions the keys derive from, repeat across subjects.
 
     The reserved value ``"none"`` means *this task gets no distortion
-    correction* — no ``B0FieldIdentifier`` is written, which is the right answer
+    correction* — no ``B0FieldSource`` is written, which is the right answer
     for a run whose fieldmaps weren't collected or shouldn't be applied. It is
     the one group value that is always satisfiable, so it is also how a project
     keeps a binding honest for sessions that legitimately lack fieldmaps rather
@@ -384,9 +394,9 @@ def generate_config(
     fieldmaps : FieldmapDetection
         Fieldmap detection results.
     subject : str
-        Subject label (for B0FieldIdentifier naming).
+        Subject label (for B0 field identifier naming).
     session : str
-        Session label (for B0FieldIdentifier naming).
+        Session label (for B0 field identifier naming).
     mapping : list[TaskRunEntry], optional
         The task/run mapping to use as the source of truth for func/sbref
         naming. If omitted, one is seeded with :func:`build_task_run_mapping`
@@ -456,7 +466,7 @@ def generate_config(
             },
         }
 
-        # Assign B0FieldIdentifier. Called unconditionally rather than behind a
+        # Assign the B0FieldSource. Called unconditionally rather than behind a
         # "were any fieldmaps detected" guard: with none detected it returns None
         # and nothing is written (unchanged), but a project binding that names a
         # group still gets to fail instead of being skipped along with everything
@@ -466,7 +476,7 @@ def generate_config(
         )
         if fmap_group is not None:
             group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
-            desc["sidecar_changes"]["B0FieldIdentifier"] = group_id
+            desc["sidecar_changes"]["B0FieldSource"] = group_id
 
         descriptions.append(desc)
 
@@ -491,6 +501,21 @@ def generate_config(
             },
             "custom_entities": custom_entities,
         }
+
+        # An SBRef is acquired with the same readout as its BOLD, so it carries
+        # the same distortions and needs the same correction. It also matters
+        # more than it looks: fMRIPrep uses an SBRef, when present, to build the
+        # BOLD reference that coregistration and SDC operate on — so leaving it
+        # unassociated makes the reference the one image in the chain nothing
+        # corrects. This runs after the BOLD loop, so the (task, run) assignment
+        # is already cached and the pair is guaranteed to match the BOLD's.
+        fmap_group = _assign_fmap_group(
+            task, run, fieldmaps, fmap_group_assignments, fmap_rule_lookup
+        )
+        if fmap_group is not None:
+            group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
+            desc["sidecar_changes"] = {"B0FieldSource": group_id}
+
         descriptions.append(desc)
 
     # --- Fieldmaps ---
@@ -527,7 +552,7 @@ def resolve_fmap_assignments(
     of one task can legitimately point at different pairs (a fieldmap re-shot
     mid-task), and a task-keyed report could not show that.
 
-    The binding is otherwise only visible as ``B0FieldIdentifier`` strings buried
+    The binding is otherwise only visible as ``B0FieldSource`` strings buried
     in the generated JSON, which is a poor way to check that a rule did what was
     intended. Runs the same bold-only, sanitized-label loop against the same
     assignment function, so it cannot drift from what is actually written — and
@@ -636,7 +661,7 @@ def _fmap_description(
             "SeriesNumber": series_number,
         },
         "sidecar_changes": {
-            "B0FieldSource": b0_field_id,
+            "B0FieldIdentifier": b0_field_id,
             "PhaseEncodingDirection": "j-" if direction == "AP" else "j",
         },
         "custom_entities": custom_entities,
@@ -661,7 +686,7 @@ def _assign_fmap_group(
     Only groups holding *both* directions are candidates. An aborted fieldmap
     leaves a lone AP that pairs with nothing, and it sorts first — real sessions
     do this (MMM_003_sess18 opens with two APs before the PA). Pointing a bold's
-    ``B0FieldIdentifier`` at a half-group would give fMRIPrep a distortion
+    ``B0FieldSource`` at a half-group would give fMRIPrep a distortion
     correction it cannot run.
 
     Raises ``ValueError`` when a rule names a group this session lacks or one

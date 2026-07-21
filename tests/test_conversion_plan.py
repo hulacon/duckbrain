@@ -277,3 +277,76 @@ def test_read_config_into_table_reports_what_it_cannot_represent():
     # …and the parts it *can* represent still come through.
     assert got.task_by_series[9] == "perFace"
     assert got.run_by_series[9] == 1
+
+
+# ---- BIDS fieldmap intent: which side carries which key ----
+# These pin a direction that was inverted in shipped code and produced no error
+# anywhere — fMRIPrep simply reported "Susceptibility distortion correction:
+# None" and preprocessed uncorrected. Per BIDS: the fieldmap is computed from
+# scans sharing a B0FieldIdentifier and applied to scans sharing a B0FieldSource.
+
+
+def _sidecars(series, subject="001", session="01"):
+    classify_series(series)
+    fieldmaps = detect_fieldmaps(series)
+    cfg = generate_config(
+        series, fieldmaps, subject=subject, session=session,
+        mapping=build_task_run_mapping(series),
+    )
+    return {d["id"]: d.get("sidecar_changes") or {} for d in cfg["descriptions"]}
+
+
+def test_fieldmap_declares_the_identifier_and_the_bold_declares_the_source():
+    series = [
+        _series(3, "se_epi_ap"),
+        _series(4, "se_epi_pa"),
+        _bold(9, "perFace", 1),
+    ]
+    cars = _sidecars(series)
+
+    fmap_ap = cars["fmap-epi-ap"]
+    bold = cars["func-bold-perFace-run1"]
+
+    # The fieldmap is an *input to* the estimation: it identifies the B0 field.
+    assert fmap_ap["B0FieldIdentifier"] == "B0map__sub001ses01"
+    assert "B0FieldSource" not in fmap_ap
+    # The BOLD is a *consumer of* that estimation: it points at the source.
+    assert bold["B0FieldSource"] == "B0map__sub001ses01"
+    assert "B0FieldIdentifier" not in bold
+
+
+def test_sbref_is_corrected_by_the_same_pair_as_its_bold():
+    """fMRIPrep builds the BOLD reference from the SBRef when one exists, so an
+    unassociated SBRef leaves that reference uncorrected."""
+    series = [
+        _series(3, "se_epi_ap"),
+        _series(4, "se_epi_pa"),
+        _series(8, "div_perFace_r1_SBRef", n=1),
+        _series(9, "div_perFace_r1"),
+    ]
+    cars = _sidecars(series)
+
+    bold = cars["func-bold-divPerFace-run1"]
+    sbref = cars["func-sbref-divPerFace-run1"]
+    assert sbref["B0FieldSource"] == bold["B0FieldSource"]
+
+
+def test_sbref_carries_no_binding_when_the_session_has_no_fieldmaps():
+    series = [
+        _series(8, "div_perFace_r1_SBRef", n=1),
+        _series(9, "div_perFace_r1"),
+    ]
+    cars = _sidecars(series)
+    assert "B0FieldSource" not in cars["func-sbref-divPerFace-run1"]
+
+
+def test_plan_reads_the_sbref_binding_back():
+    series = [
+        _series(3, "se_epi_ap"),
+        _series(4, "se_epi_pa"),
+        _series(8, "div_perFace_r1_SBRef", n=1),
+        _series(9, "div_perFace_r1"),
+    ]
+    plan, _ = _plan(series)
+    by_series = {num: files[0] for num, files in plan.by_series.items()}
+    assert by_series[8].fmap_group == by_series[9].fmap_group == ""

@@ -60,7 +60,7 @@ def _reshot_mid_task():
 
 def _b0_by_entities(cfg):
     return {
-        d["custom_entities"]: d["sidecar_changes"].get("B0FieldIdentifier")
+        d["custom_entities"]: d["sidecar_changes"].get("B0FieldSource")
         for d in cfg["descriptions"]
         if d["suffix"] == "bold"
     }

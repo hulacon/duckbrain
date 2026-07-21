@@ -52,6 +52,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   Colour is always paired with the group's label — never the only channel.
 
 ### Fixed
+- 🔴 **Fieldmap intent was inverted, so susceptibility distortion correction never
+  ran.** BIDS estimates the field from scans sharing a `B0FieldIdentifier` and
+  applies it to scans sharing a `B0FieldSource`; duckbrain wrote the identifier on
+  the **bold** and the source on the **fieldmap** — exactly backwards. Nothing
+  errored: the dataset validates, dcm2bids is happy, and fMRIPrep simply reports
+  *"Susceptibility distortion correction: None"* and preprocesses uncorrected.
+  Confirmed on the real `divatten_gui_beta` runs, which have complete AP/PA pairs
+  and no `--ignore` flags. **Datasets converted before this fix have unusable
+  fieldmap metadata and their fMRIPrep derivatives ran without SDC** — re-convert
+  (or patch the sidecars) and re-run fMRIPrep.
+- **SBRefs are now bound to the same fieldmap pair as their BOLD.** They were
+  written with no fieldmap association at all. This matters more than it looks:
+  fMRIPrep uses an SBRef, when present, to build the BOLD reference that
+  coregistration and SDC operate on, so an unassociated SBRef made that reference
+  the one image in the chain nothing corrected.
 - **`use_sessions` accepts both a TOML boolean and the GUI's string form.** A
   project config carrying `use_sessions = true` (which is what a hand-written one
   naturally has) crashed the whole Project Setup page with

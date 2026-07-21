@@ -12,6 +12,35 @@ the ledger so an old reference still resolves.
 
 ---
 
+## #14 — Re-convert everything written with inverted fieldmap intent
+
+**Opened 2026-07-21, and it is the highest-priority item.** The code bug is fixed
+(see `CHANGELOG.md`); this is the data cleanup it implies, which is *not* done.
+
+duckbrain wrote `B0FieldIdentifier` on bolds and `B0FieldSource` on fieldmaps —
+backwards. BIDS estimates the field from scans sharing an **identifier** and
+applies it to scans sharing a **source**, so every dataset duckbrain has ever
+converted has fieldmap metadata no tool can act on, and every fMRIPrep
+derivative built from one ran **without susceptibility distortion correction**.
+
+- **Confirmed, not inferred.** `divatten_gui_beta`'s fMRIPrep reports say
+  "Susceptibility distortion correction: None" for sub-04 and sub-015, with
+  complete AP/PA pairs present in the BIDS tree and no `--ignore` passed anywhere.
+- **Known affected:** `/projects/hulacon/bhutch/divatten`,
+  `divatten_gui_beta` (has fMRIPrep + MRIQC derivatives — those are the ones that
+  actually need re-running), `mmm_fmap_check`. Any external clone too.
+- **Two routes, and the cheap one is probably right.** Re-converting is clean but
+  costs a dcm2bids run per session; patching is a small script that swaps the two
+  keys in the existing sidecars and leaves the images untouched. The sidecars are
+  the only thing wrong, so patching is defensible — but it must also *add* the
+  `B0FieldSource` the SBRefs never had.
+- **Then re-run fMRIPrep** on anything whose derivatives you intend to use. That's
+  the expensive half and the reason this is worth doing deliberately rather than
+  in a rush.
+- **Worth a consistency check** (`core/consistency.py`): a fieldmap with no
+  `B0FieldIdentifier`, or a bold with a `B0FieldIdentifier`, is now a detectable
+  error. The whole point of that module is catching what runs silently.
+
 ## #13 — Conversion legibility: show the outcome, not just the input
 
 **Phases 1–7 SHIPPED 2026-07-21, granularity settled. Open: browser validation.**
