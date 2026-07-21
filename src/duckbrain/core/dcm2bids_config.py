@@ -26,6 +26,7 @@ saves that as the project default for the rest.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .dicom_inspect import (
@@ -366,11 +367,12 @@ def _fmap_description(
             series_desc = s.description
             break
 
-    custom_entities = f"dir-{direction}"
-    if extra_entity.startswith("acq-"):
-        custom_entities = f"{extra_entity}_dir-{direction}"
-    elif extra_entity:
-        custom_entities = f"dir-{direction}_{extra_entity}"
+    # BIDS entity order is acq- before dir-, run- after; extra_entity may carry
+    # either or both (a named group reacquired in one session gets both).
+    parts = [p for p in extra_entity.split("_") if p]
+    acq = next((p for p in parts if p.startswith("acq-")), "")
+    run = next((p for p in parts if p.startswith("run-")), "")
+    custom_entities = "_".join(p for p in (acq, f"dir-{direction}", run) if p)
 
     id_suffix = f"-{group_name}" if group_name else ""
 
@@ -398,17 +400,27 @@ def _assign_fmap_group(
 
     If there are named groups, tries to match task → group name.
     Otherwise assigns the first (or only) group.
+
+    Only groups holding *both* directions are candidates. An aborted fieldmap
+    leaves a lone AP that pairs with nothing, and it sorts first — real sessions
+    do this (MMM_003_sess18 opens with two APs before the PA). Pointing a bold's
+    ``B0FieldIdentifier`` at a half-group would give fMRIPrep a distortion
+    correction it cannot run.
     """
     if task in assignments:
         return assignments[task]
 
-    groups = list(fieldmaps.groups.keys())
+    complete = [g for g, dirs in fieldmaps.groups.items() if "ap" in dirs and "pa" in dirs]
+    groups = complete or list(fieldmaps.groups.keys())
     if not groups:
         return None
 
-    # Try matching by name
+    # Try matching by name. A group reacquired within one session is keyed
+    # "<name>-2", "<name>-3", … so match on the base name; the first pair wins,
+    # which is the documented no-temporal-proximity limitation (TODO #4).
     for g in groups:
-        if g and task.lower().startswith(g.lower()):
+        base = re.sub(r"-\d+$", "", g)
+        if base and task.lower().startswith(base.lower()):
             assignments[task] = g
             return g
 

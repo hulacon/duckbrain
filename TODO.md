@@ -12,27 +12,24 @@ the ledger so an old reference still resolves.
 
 ---
 
-## #4 — Live-validate discovery + fieldmap handling (needs real data)
+## #4 residuals — one unverifiable path, one deliberate limitation
 
-The only items left in `docs/handoff-cluster-session.md` (§2, §3) — built and
-unit-tested offline, never run against a real LCNI export. That doc's *previous*
-version asserted findings that turned out to be wrong on inspection, so treat its
-claims as hypotheses to verify.
+**The item is CLOSED (2026-07-21)** — validated on real LCNI exports, five bugs
+fixed, `docs/handoff-cluster-session.md` §2/§3 discharged, and the deferred nested
+multi-session sub-item built and validated. Findings in
+`memory/validation-discovery-and-fieldmaps`. These are the accepted edges.
 
-- **Session/subject discovery against a real export.** `G##_S##` session parsing
-  and phantom/test-folder filtering. The thing to confirm is the dangerous
-  direction: **no real subject is silently dropped** by the exclusion rules.
-- **Multiple fieldmap pairs, end to end.** Two AP/PA pairs must convert to
-  `dir-AP_run-1` / `dir-AP_run-2`, not one overwritten `dir-AP`.
-- **Eyeball the dcm2bids `GeneratedBy`** on an ingested root while you're there.
-- *Known limitation, deliberate:* with ≥2 fieldmap pairs, bold→fmap linking sends
-  every task to the first group (`_assign_fmap_group` has no temporal-proximity
-  logic). Fine for conversion; a candidate refinement, not a bug.
-- **DEFERRED — mmmdata-style nested multi-session** (`func_session_*/anat_session/`
-  under the source) breaks `discover_sessions`, which expects session folders
-  directly under the source dir. The real nesting isn't documented in this repo;
-  implementing against a guess is unverifiable and risks the working LCNI path.
-  Needs a real example tree. (This is the "#4 item 4" the handoff doc refers to.)
+- **`G##_S##` parsing has no real example to test against.** No export on this
+  filesystem uses it — mmmdata is `MMM_003_sess04`. `_GS_SUBJECT_RE`/
+  `_GS_SESSION_RE` stay unit-tested only; **don't record them as live-validated.**
+  Close it for free if an export in that style ever appears.
+- **bold→fmap linking still sends every task to the first *complete* group**
+  (`_assign_fmap_group` has no temporal-proximity logic). Fine for conversion; a
+  candidate refinement, not a bug. Now at least it can't pick a half-group.
+- **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
+  becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
+  alone on purpose: renaming it would change the `B0FieldIdentifier` of
+  already-converted data for no functional gain.
 
 ## #2 — Onboarding for external users
 
@@ -338,6 +335,8 @@ the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule in
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-21 | #4 | **Discovery + fieldmaps live-validated** on real LCNI exports; five bugs real data found — reacquired *named* fmap pairs silently discarded, qualified session labels adopted as the subject, `PermissionError` on an unreadable folder, bolds linking to a half fmap group, nested sources finding nothing. Two-pair conversion verified end to end |
+| 2026-07-21 | #4 | **Nested multi-session sources** (mmmdata's `func_session_*/` protocol folders) — one-level descent, fallback-only so the flat path is untouched; duplicate sub/ses labels flagged. Closes the deferred "#4 item 4" |
 | 2026-07-20 | #9 | **Top nav + recent-projects MRU** — declarative `st.navigation(position="top")`, sidebar freed, project bar with a Switch popover; fixed a relative import that had silently broken the project indicator under `streamlit run` |
 | 2026-07-20 | #0 #1 | **Browser eyeball pass** — dashboard table width reads well at project scale; folder picker fine as-is. Generated `#9` above |
 | 2026-07-20 | — | **fMRIPrep anat-reuse gated + self-overlapping bind dropped** — reuse was a silent no-op when there was nothing to reuse; `has_anat_derivatives()` now gates it in `_build_fmriprep` (API *and* GUI) |

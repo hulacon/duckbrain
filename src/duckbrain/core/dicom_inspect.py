@@ -162,14 +162,17 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
     if not fmap_series:
         return FieldmapDetection(strategy="none")
 
-    # Two grouping bases coexist. Fieldmaps whose description carries a group name
-    # (``se_epi_ap_encoding`` → "encoding") are grouped by that name. Fieldmaps
-    # with no name (plain ``se_epi_ap``/``se_epi_pa``) are grouped by *acquisition
-    # order*: a session that reacquires a plain AP/PA pair (e.g. a topup pair
-    # before and after the functionals) yields two distinct pairs, not one
-    # collapsed group that spuriously reads as a "Duplicate AP".
-    named_groups: dict[str, dict[str, int]] = {}
-    unnamed: list[tuple[int, str]] = []  # (series_number, direction), acquisition order
+    # Fieldmaps are bucketed by group name — the label a description carries
+    # (``se_epi_ap_encoding`` → "encoding"), or "" for a plain
+    # ``se_epi_ap``/``se_epi_pa`` — and then paired by *acquisition order* within
+    # each bucket. Reacquisition is the norm in both buckets: a session may shoot
+    # a topup pair before and after the functionals (unnamed), or reshoot
+    # ``se_epi_ap_encoding`` between task blocks (named). Either way each
+    # AP-then-PA sweep is its own pair, never a collapsed group that reads as a
+    # spurious "Duplicate AP" while quietly discarding all but the last pair.
+    # (That discard was real: MMM_005_sess19 in /projects/lcni/dcm/hulacon/mmmdata
+    # has three ``encoding`` pairs and kept one.)
+    by_name: dict[str, list[tuple[int, str]]] = {}
     warnings: list[str] = []
     strategy = "series_number"
 
@@ -190,37 +193,35 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
         group_name = _extract_fmap_group(desc_lower)
         if group_name:
             strategy = "series_description"
-            slot = named_groups.setdefault(group_name, {})
-            if direction in slot:
-                # A named group naming the same direction twice is a genuine
-                # config smell (unlike the unnamed reacquire case below).
-                warnings.append(
-                    f"Duplicate {direction.upper()} in group '{group_name}': "
-                    f"Series {slot[direction]} and {s.series_number}"
-                )
-            slot[direction] = s.series_number
-        else:
-            unnamed.append((s.series_number, direction))
+        by_name.setdefault(group_name, []).append((s.series_number, direction))
 
-    groups: dict[str, dict[str, int]] = dict(named_groups)
+    paired = {name: _pair_by_acquisition(items) for name, items in by_name.items()}
+    total_pairs = sum(len(p) for p in paired.values())
+
+    groups: dict[str, dict[str, int]] = {}
     group_entities: dict[str, str] = {}
 
-    unnamed_pairs = _pair_by_acquisition(unnamed)
-    if len(unnamed_pairs) == 1 and not named_groups:
-        # Sole unnamed pair keeps the historical empty-name group (no extra entity).
-        groups[""] = unnamed_pairs[0]
-    else:
-        for i, pair in enumerate(unnamed_pairs, start=1):
-            groups[str(i)] = pair
-            group_entities[str(i)] = f"run-{i}"
-
-    # When two or more pairs coexist they'd otherwise write the same
-    # ``dir-<X>_epi`` filename; give each named pair an ``acq-`` label so the
-    # converted fieldmaps stay distinct (unnamed pairs already carry ``run-``).
-    if len(groups) >= 2:
-        for name in groups:
-            if name and name not in group_entities:
-                group_entities[name] = f"acq-{_sanitize_task_label(name)}"
+    for name, pairs in paired.items():
+        for i, pair in enumerate(pairs, start=1):
+            # Keys stay unique across repeats of one name: "encoding",
+            # "encoding-2", … The base name is what task→group matching reads
+            # back (see _assign_fmap_group), so the suffix must be strippable.
+            key = name if i == 1 else f"{name}-{i}"
+            if not name:
+                # Unnamed pairs are keyed by acquisition index, except a sole
+                # pair, which keeps the historical empty-name group.
+                key = "" if total_pairs == 1 else str(i)
+            groups[key] = pair
+            if total_pairs == 1:
+                # Sole pair keeps the historical bare ``dir-<X>_epi`` filename.
+                continue
+            # Two or more pairs would otherwise write the same ``dir-<X>_epi``
+            # name, so each gets a distinguishing entity: ``acq-`` from the group
+            # label, ``run-`` for the repeat index.
+            entity = f"acq-{_sanitize_task_label(name)}" if name else ""
+            if len(pairs) > 1 or not name:
+                entity = f"{entity}_run-{i}" if entity else f"run-{i}"
+            group_entities[key] = entity
 
     # Validate groups have both AP and PA
     for gname, dirs in groups.items():

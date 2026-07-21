@@ -75,6 +75,7 @@ if st.session_state.get("_ingest_folders") != folder_key:
                 "parsed_session": s.parsed_session,
                 "date": s.date,
                 "series_count": s.series_count,
+                "notes": s.notes,
                 "bids_subject": "",
                 "bids_session": "",
             }
@@ -117,6 +118,12 @@ edited_df = st.data_editor(
         "parsed_session": st.column_config.TextColumn("Parsed Session", disabled=True),
         "date": st.column_config.TextColumn("Date", disabled=True),
         "series_count": st.column_config.NumberColumn("# Series", disabled=True),
+        "notes": st.column_config.TextColumn(
+            "Notes",
+            disabled=True,
+            help="Why this row may need attention — an unreadable folder, or a "
+            "subject/session guess the heuristics don't trust.",
+        ),
         "bids_subject": st.column_config.TextColumn("BIDS Subject", help="e.g., 01"),
         "bids_session": st.column_config.TextColumn("BIDS Session", help="e.g., 01"),
     },

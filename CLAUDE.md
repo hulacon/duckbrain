@@ -86,9 +86,17 @@ dogfooding. See `TODO.md` for what's open.
 
 - **Source DICOMs:** `/projects/lcni/dcm/hulacon/Hutchinson/divatten` — 37
   subjects, single-session, **read-only**.
-- **BIDS projects:** `/projects/hulacon/bhutch/divatten` (sub-001 done) and
+- **More real exports, all read-only and all useful as fixtures:**
+  `/projects/lcni/dcm/hulacon/Hutchinson/` also holds `PSY607`, `AttTime`,
+  `New Program`, `RTPILOT`, `realtime` — the small ones are mostly genuine
+  phantom/test folders, which is what makes them worth keeping. And
+  `/projects/lcni/dcm/hulacon/mmmdata/` is the **nested** layout: one level of
+  protocol folders (`anat_session/`, `func_session_*/`), 104 sessions, several
+  with two or three fieldmap pairs.
+- **BIDS projects:** `/projects/hulacon/bhutch/divatten` (sub-001 done),
   `/projects/hulacon/bhutch/divatten_gui_beta` (GUI dogfooding; `use_nordic` is
-  currently **false** here).
+  currently **false** here), and `/projects/hulacon/bhutch/mmm_fmap_check`
+  (multi-fieldmap-pair conversion, TODO `#4`).
 
 ## Environment / setup
 
@@ -162,8 +170,8 @@ Key behaviors to know when editing the app:
 to do. Item ids there (`#4`, `#5b`, …) are stable names referenced from this file,
 `docs/`, and source comments, so they never get renumbered.
 
-The top item needs the cluster and real data: validating session/subject discovery
-and multiple-fieldmap-pair conversion against a real LCNI export, per
-`docs/handoff-cluster-session.md` §2–§3. **That doc carries a caution worth
-heeding** — its previous version asserted findings that turned out to be wrong on
-inspection, so treat its claims as hypotheses to verify, not facts.
+`docs/handoff-cluster-session.md` is **fully discharged** as of 2026-07-21 — keep
+it as the record of what was asked and how each hypothesis resolved, but don't
+start from it. Its caution earned itself twice over: both the mmmdata nesting it
+described and a code comment about "duplicate" fieldmaps turned out to be wrong
+when checked against real data. Treat any claim in `docs/` as a hypothesis.

@@ -33,7 +33,36 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   tag (that string is only the `24.0.2` container's internal self-report). The old
   default pointed the build command at a nonexistent tag.
 
+- **Sources that group sessions by protocol** — a DICOM source whose session
+  folders sit one level down (mmmdata's `anat_session/`, `func_session_*/`) is now
+  discovered; previously it produced an empty list. Descent only happens when the
+  top level yields nothing parseable, so the flat LCNI layout is untouched, and the
+  grouping folder is recorded as a protocol label, not part of the subject/session
+  identity.
+- **A Notes column on the ingestion table** — flags rows needing attention rather
+  than accepting a guess silently: an unreadable folder, a subject that still reads
+  as a session label or a date, and two folders claiming the same `sub-XX/ses-YY`
+  (real in mmmdata, and ingestion is idempotent, so the second would have quietly
+  resolved to the first).
+
 ### Fixed
+- **Reacquired *named* fieldmap pairs were silently discarded.** A session that
+  reshoots `se_epi_ap_encoding` between task blocks kept only the last pair — one
+  real session shoots three and converted one. Named groups now pair by
+  acquisition order exactly as unnamed pairs already did, emitting
+  `acq-encoding_run-1` / `_run-2` / … instead of one overwritten `dir-AP`.
+- **A bold could be linked to a fieldmap group with only one direction.** An
+  aborted opening AP sorts first, and the first group won by default — giving
+  fMRIPrep a distortion correction it cannot run. Only groups holding both AP and
+  PA are candidates now.
+- **A session label with a qualifier was adopted as the subject.** `sess04CR` (a
+  condition tag) and `sess3.2` (a rescan) did not match the session pattern, so
+  `MMM03_sess04CR` parsed as subject `sess04CR`: the real subject disappeared and
+  its sessions became phantom subjects.
+- **Discovery crashed on a session folder the user cannot read.** Shared LCNI
+  exports hold other people's sessions with no group read bit, and one
+  `PermissionError` took down the whole ingestion page. Such folders are now kept
+  and annotated — dropping them would hide a real subject.
 - **"Reuse anat derivatives" silently did nothing** when there were no anat
   derivatives to reuse. fMRIPrep accepts `--derivatives` pointing at a tree with no
   anat for the subject, rebuilds the whole anat workflow, and logs nothing about

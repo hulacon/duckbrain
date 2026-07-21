@@ -244,6 +244,61 @@ def test_detect_fieldmaps_named_pairs_get_acq_entities():
     assert fmaps.group_entities == {"encoding": "acq-encoding", "retrieval": "acq-retrieval"}
 
 
+def test_detect_fieldmaps_reacquired_named_pair_is_kept():
+    """A named group reshot mid-session yields one pair per acquisition.
+
+    Modeled on MMM_005_sess19 in /projects/lcni/dcm/hulacon/mmmdata, which shoots
+    se_epi_*_encoding three times and retrieval once. This used to warn
+    "Duplicate AP in group 'encoding'" and keep only the last pair — two thirds
+    of the fieldmaps were silently discarded.
+    """
+    series = _fmap_series(
+        [
+            (5, "se_epi_ap_encoding"),
+            (7, "se_epi_pa_encoding"),
+            (21, "se_epi_ap_encoding"),
+            (23, "se_epi_pa_encoding"),
+            (33, "se_epi_ap_encoding"),
+            (35, "se_epi_pa_encoding"),
+            (45, "se_epi_ap_retrieval"),
+            (47, "se_epi_pa_retrieval"),
+        ]
+    )
+    fmaps = detect_fieldmaps(series)
+    assert fmaps.groups == {
+        "encoding": {"ap": 5, "pa": 7},
+        "encoding-2": {"ap": 21, "pa": 23},
+        "encoding-3": {"ap": 33, "pa": 35},
+        "retrieval": {"ap": 45, "pa": 47},
+    }
+    assert fmaps.group_entities == {
+        "encoding": "acq-encoding_run-1",
+        "encoding-2": "acq-encoding_run-2",
+        "encoding-3": "acq-encoding_run-3",
+        "retrieval": "acq-retrieval",
+    }
+    assert not any("Duplicate" in w for w in fmaps.warnings)
+
+
+def test_detect_fieldmaps_aborted_ap_leaves_an_incomplete_group():
+    """A repeated opening AP (an aborted scan) is reported, not folded away.
+
+    Modeled on MMM_003_sess18: se_epi_ap, se_epi_ap, se_epi_pa, then a later pair.
+    """
+    series = _fmap_series(
+        [
+            (5, "se_epi_ap"),
+            (6, "se_epi_ap"),
+            (7, "se_epi_pa"),
+            (12, "se_epi_ap"),
+            (14, "se_epi_pa"),
+        ]
+    )
+    fmaps = detect_fieldmaps(series)
+    assert fmaps.groups == {"1": {"ap": 5}, "2": {"ap": 6, "pa": 7}, "3": {"ap": 12, "pa": 14}}
+    assert any("missing PA" in w for w in fmaps.warnings)
+
+
 def test_detect_fieldmaps_none(tmp_path):
     session_dir = tmp_path / "no_fmaps"
     session_dir.mkdir()

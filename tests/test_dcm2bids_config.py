@@ -152,6 +152,57 @@ def test_generate_config_named_fmap_pairs_use_acq_entities():
     ]
 
 
+def test_generate_config_reacquired_named_pair_orders_acq_dir_run():
+    """A named group reshot in one session carries both acq- and run-, in BIDS
+    entity order: acq- before dir-, run- after."""
+    series = [
+        _series(9, "se_epi_ap_encoding", "fmap", n=3),
+        _series(11, "se_epi_pa_encoding", "fmap", n=3),
+        _series(48, "se_epi_ap_encoding", "fmap", n=3),
+        _series(50, "se_epi_pa_encoding", "fmap", n=3),
+    ]
+    fmaps = FieldmapDetection(
+        strategy="series_description",
+        groups={"encoding": {"ap": 9, "pa": 11}, "encoding-2": {"ap": 48, "pa": 50}},
+        group_entities={
+            "encoding": "acq-encoding_run-1",
+            "encoding-2": "acq-encoding_run-2",
+        },
+    )
+    cfg = generate_config(series, fmaps)
+    fmap_desc = [d for d in cfg["descriptions"] if d["datatype"] == "fmap"]
+    assert sorted(d["custom_entities"] for d in fmap_desc) == [
+        "acq-encoding_dir-AP_run-1",
+        "acq-encoding_dir-AP_run-2",
+        "acq-encoding_dir-PA_run-1",
+        "acq-encoding_dir-PA_run-2",
+    ]
+    ids = [d["id"] for d in fmap_desc]
+    assert len(ids) == len(set(ids))
+
+
+def test_generate_config_bold_skips_incomplete_fmap_group():
+    """A bold links to a group holding both directions, never to a lone aborted AP.
+
+    The half-group sorts first, so the naive "first group" default would hand
+    fMRIPrep a distortion correction it cannot run.
+    """
+    series = [
+        _series(5, "se_epi_ap", "fmap", n=3),
+        _series(6, "se_epi_ap", "fmap", n=3),
+        _series(7, "se_epi_pa", "fmap", n=3),
+        _series(9, "cued_recall_encoding_run1", "func", n=200),
+    ]
+    fmaps = FieldmapDetection(
+        strategy="series_number",
+        groups={"1": {"ap": 5}, "2": {"ap": 6, "pa": 7}},
+        group_entities={"1": "run-1", "2": "run-2"},
+    )
+    cfg = generate_config(series, fmaps)
+    bold = [d for d in cfg["descriptions"] if d["suffix"] == "bold"][0]
+    assert bold["sidecar_changes"]["B0FieldIdentifier"] == "B0map_2"
+
+
 def test_generate_config_single_fmap_pair_unchanged():
     """A lone pair keeps the bare dir- entity (no acq-/run-), preserving prior output."""
     series = [

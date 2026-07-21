@@ -114,6 +114,121 @@ def test_bare_s_token_not_treated_as_session(tmp_path):
     assert sessions[0].parsed_session == ""
 
 
+def test_qualified_session_token_does_not_become_the_subject(tmp_path):
+    """A session label with a qualifier after the number is still a session.
+
+    Real folders in /projects/lcni/dcm/hulacon/mmmdata carry a condition tag
+    ('sess04CR') or a rescan decimal ('sess3.2'). Neither matched the session
+    pattern, so each was adopted as the *subject*: MMM03 and MMM_15 disappeared
+    and their sessions became phantom subjects named after the label.
+    """
+    dcm_dir = tmp_path / "dcm"
+    dcm_dir.mkdir()
+    for name in [
+        "MMM03_sess04CR_20241107_121725",
+        "MMM04_Sess06CR_20241108_140007",
+        "MMM_15_sess3.2_20250317_141709",
+    ]:
+        (dcm_dir / name).mkdir()
+
+    parsed = {
+        s.folder_name: (s.parsed_subject, s.parsed_session) for s in discover_sessions(dcm_dir)
+    }
+    assert parsed["MMM03_sess04CR_20241107_121725"] == ("MMM03", "sess04CR")
+    assert parsed["MMM04_Sess06CR_20241108_140007"] == ("MMM04", "Sess06CR")
+    assert parsed["MMM_15_sess3.2_20250317_141709"] == ("15", "sess32")
+
+
+def test_unreadable_session_folder_is_kept_with_a_note(tmp_path):
+    """A session folder the user cannot list stays in the table, annotated.
+
+    Shared LCNI exports hold other people's sessions with no group read bit
+    (e.g. AttTime/Att01_...). Listing one raised PermissionError and took down
+    the whole ingestion page; dropping it instead would hide a real subject.
+    """
+    import os
+
+    dcm_dir = tmp_path / "dcm"
+    dcm_dir.mkdir()
+    locked = dcm_dir / "STUDY_001_20250301_120000"
+    locked.mkdir()
+    (locked / "Series_01_mprage").mkdir()
+    os.chmod(locked, 0o000)
+    try:
+        sessions = discover_sessions(dcm_dir)
+    finally:
+        os.chmod(locked, 0o755)
+
+    assert len(sessions) == 1
+    assert sessions[0].parsed_subject == "001"
+    assert sessions[0].series_count == 0
+    assert "unreadable" in sessions[0].notes
+
+
+def test_discover_sessions_descends_into_protocol_folders(tmp_path):
+    """A source that groups sessions by protocol one level down is discovered.
+
+    mmmdata's export has anat_session/, func_session_localizers/, … each holding
+    that study's MMM_003_sessNN_<date> folders. discover_sessions previously
+    found nothing at all there, because none of the grouping folder names parse
+    as a session.
+    """
+    dcm_dir = tmp_path / "mmmdata"
+    layout = {
+        "anat_session": ["MMM_003_sess01_20240227_104031"],
+        "func_session_localizers": ["MMM_003_sess02_20240311_132343"],
+        "func_session_cued_recall": ["MMM_004_sess05_20240725_095503"],
+    }
+    for group, folders in layout.items():
+        for name in folders:
+            (dcm_dir / group / name / "Series_01_mprage").mkdir(parents=True)
+
+    sessions = discover_sessions(dcm_dir)
+    assert len(sessions) == 3
+    found = {(s.parsed_subject, s.parsed_session, s.source_group) for s in sessions}
+    assert found == {
+        ("003", "sess01", "anat_session"),
+        ("003", "sess02", "func_session_localizers"),
+        ("004", "sess05", "func_session_cued_recall"),
+    }
+
+
+def test_flat_layout_does_not_descend(tmp_path):
+    """Descent is a fallback, so a flat export never picks up a deeper level.
+
+    The flat LCNI path is the working one; a source folder that happens to hold
+    a stray nested tree must not start reporting its contents as sessions.
+    """
+    dcm_dir = tmp_path / "dcm"
+    (dcm_dir / "DIVATTEN_001_20220408_100353" / "Series_01_mprage").mkdir(parents=True)
+    (dcm_dir / "notes" / "DIVATTEN_999_20990101_000000").mkdir(parents=True)
+
+    sessions = discover_sessions(dcm_dir)
+    assert [s.folder_name for s in sessions] == ["DIVATTEN_001_20220408_100353"]
+    assert sessions[0].source_group == ""
+
+
+def test_duplicate_subject_session_labels_are_flagged(tmp_path):
+    """Two folders claiming one sub/ses are noted, not silently merged.
+
+    Real in mmmdata: subject 003 has a sess04 under two protocol folders, and
+    subject 005 has sess19 twice within one. Ingestion is idempotent, so the
+    second would resolve to the first rather than fail.
+    """
+    dcm_dir = tmp_path / "dcm"
+    for name in [
+        "MMM_003_sess04_20240718_100500",
+        "MMM_003_sess04_20240813_122815",
+        "MMM_004_sess05_20240725_095503",
+    ]:
+        (dcm_dir / name / "Series_01_mprage").mkdir(parents=True)
+
+    by_folder = {s.folder_name: s for s in discover_sessions(dcm_dir)}
+    assert "also claimed by" in by_folder["MMM_003_sess04_20240718_100500"].notes
+    assert "MMM_003_sess04_20240813_122815" in by_folder["MMM_003_sess04_20240718_100500"].notes
+    assert by_folder["MMM_004_sess05_20240725_095503"].notes == ""
+
+
 def test_discover_sessions_excludes_phantom_and_test_folders(tmp_path):
     """Phantom/QA/test/demo and whitespace-containing folders are skipped by
     default; real subject folders are kept."""
