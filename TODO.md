@@ -362,10 +362,14 @@ Tasteful, not over-designed, and after the product behavior is locked.
     flags a suspect mapping from folder *names*. This checks the same question
     against the DICOM headers, which are much harder to get wrong by hand.
     mmmdata's duplicate `sub-003/ses-sess04` is exactly the shape it would catch.
-  - **Design caution:** report, don't block, and never write the identifying
-    values into any durable artifact — that would defeat the de-identification it
-    guards. Comparing hashes rather than values is probably the right shape, and
-    would also let the check run without the operator seeing PII.
+  - **Design caution, agreed and deliberately not settled here:** report, don't
+    block, and never write the identifying values into any durable artifact —
+    that would defeat the de-identification it guards. Comparing hashes rather
+    than values is the likely shape, and would let the check run without the
+    operator seeing PII at all. **The mechanism gets decided when the formal
+    anonymization layer of `#7.1` is built, not before** — it should fall out of
+    that layer's PII policy rather than being fixed early by a check that has to
+    live alongside it.
 
 ---
 
