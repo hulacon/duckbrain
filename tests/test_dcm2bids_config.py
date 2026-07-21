@@ -5,10 +5,16 @@ from duckbrain.core.dicom_inspect import (
     parse_task_run,
     extract_task_label,
 )
+import pytest
+
 from duckbrain.core.dcm2bids_config import (
     build_task_run_mapping,
     generate_config,
+    FmapRule,
     TaskRunEntry,
+    fmap_rules_from_config,
+    fmap_rules_to_config_section,
+    resolve_fmap_assignments,
 )
 from duckbrain.core.dicom_inspect import FieldmapDetection
 
@@ -250,3 +256,149 @@ def test_generate_config_honors_edited_mapping():
     d = cfg["descriptions"][0]
     assert d["custom_entities"] == "task-attn_run-5"
     assert d["sidecar_changes"]["TaskName"] == "attn"
+
+
+# ---- project-wide fieldmap bindings ([fmap_mapping]) ----
+
+def _two_pair_session():
+    """Two complete 'encoding' pairs plus two bolds whose names match neither."""
+    series = [
+        _series(9, "se_epi_ap_encoding", "fmap", n=3),
+        _series(11, "se_epi_pa_encoding", "fmap", n=3),
+        _series(20, "study_r1", "func", n=200),
+        _series(30, "test_r1", "func", n=200),
+        _series(48, "se_epi_ap_encoding", "fmap", n=3),
+        _series(50, "se_epi_pa_encoding", "fmap", n=3),
+    ]
+    fmaps = FieldmapDetection(
+        strategy="series_description",
+        groups={"encoding": {"ap": 9, "pa": 11}, "encoding-2": {"ap": 48, "pa": 50}},
+        group_entities={
+            "encoding": "acq-encoding_run-1",
+            "encoding-2": "acq-encoding_run-2",
+        },
+    )
+    mapping = [
+        TaskRunEntry(20, "study_r1", "bold", task="study", run=1),
+        TaskRunEntry(30, "test_r1", "bold", task="test", run=1),
+    ]
+    return series, fmaps, mapping
+
+
+def _b0_by_task(cfg):
+    return {
+        d["sidecar_changes"]["TaskName"]: d["sidecar_changes"].get("B0FieldIdentifier")
+        for d in cfg["descriptions"]
+        if d["suffix"] == "bold"
+    }
+
+
+def test_without_rules_every_task_takes_the_first_pair():
+    """The documented no-temporal-proximity default — the baseline a rule corrects."""
+    series, fmaps, mapping = _two_pair_session()
+    assert _b0_by_task(generate_config(series, fmaps, mapping=mapping)) == {
+        "study": "B0map_encoding",
+        "test": "B0map_encoding",
+    }
+
+
+def test_fmap_rule_binds_a_task_to_the_later_pair():
+    """A run acquired after a re-shot fieldmap can be pointed at that second pair."""
+    series, fmaps, mapping = _two_pair_session()
+    cfg = generate_config(
+        series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "encoding-2")]
+    )
+    # Only the named task moves; the other keeps the automatic binding.
+    assert _b0_by_task(cfg) == {
+        "study": "B0map_encoding",
+        "test": "B0map_encoding-2",
+    }
+
+
+def test_fmap_rule_beats_the_name_match():
+    """A rule states, the prefix heuristic infers — explicit wins."""
+    series, fmaps, _ = _two_pair_session()
+    series = [s for s in series if s.series_number != 30]  # one bold is enough here
+    mapping = [TaskRunEntry(20, "study_r1", "bold", task="encoding", run=1)]
+    # Bare, the task name prefix-matches group "encoding".
+    assert _b0_by_task(generate_config(series, fmaps, mapping=mapping)) == {
+        "encoding": "B0map_encoding"
+    }
+    cfg = generate_config(
+        series, fmaps, mapping=mapping, fmap_rules=[FmapRule("encoding", "encoding-2")]
+    )
+    assert _b0_by_task(cfg) == {"encoding": "B0map_encoding-2"}
+
+
+def test_fmap_rule_task_is_matched_after_sanitizing():
+    """A rule written with an underscore still binds the label that ships."""
+    series, fmaps, _ = _two_pair_session()
+    series = [s for s in series if s.series_number != 30]  # one bold is enough here
+    mapping = [TaskRunEntry(20, "study_r1", "bold", task="free_recall", run=1)]
+    cfg = generate_config(
+        series, fmaps, mapping=mapping, fmap_rules=[FmapRule("free_recall", "encoding-2")]
+    )
+    assert _b0_by_task(cfg) == {"freeRecall": "B0map_encoding-2"}
+
+
+def test_fmap_rule_naming_a_missing_group_raises():
+    """Silently falling back would give the run a fieldmap the project didn't ask
+    for — the one outcome an explicit binding exists to prevent."""
+    series, fmaps, mapping = _two_pair_session()
+    with pytest.raises(ValueError) as exc:
+        generate_config(
+            series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "recall")]
+        )
+    msg = str(exc.value)
+    assert "recall" in msg and "does not exist" in msg
+    # The message has to name what *is* available or it isn't actionable.
+    assert "encoding-2" in msg
+
+
+def test_fmap_rule_naming_a_half_pair_raises():
+    """Binding to a lone AP would hand fMRIPrep a correction it cannot run."""
+    series = [
+        _series(5, "se_epi_ap", "fmap", n=3),
+        _series(6, "se_epi_ap", "fmap", n=3),
+        _series(7, "se_epi_pa", "fmap", n=3),
+        _series(9, "study_r1", "func", n=200),
+    ]
+    fmaps = FieldmapDetection(
+        strategy="series_number",
+        groups={"1": {"ap": 5}, "2": {"ap": 6, "pa": 7}},
+        group_entities={"1": "run-1", "2": "run-2"},
+    )
+    mapping = [TaskRunEntry(9, "study_r1", "bold", task="study", run=1)]
+    with pytest.raises(ValueError) as exc:
+        generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("study", "1")])
+    assert "only one phase-encoding direction" in str(exc.value)
+
+
+def test_resolve_fmap_assignments_matches_what_is_written():
+    """The GUI's binding display is generated by the same call the config is, so
+    it cannot drift from the B0FieldIdentifier that actually ships."""
+    series, fmaps, mapping = _two_pair_session()
+    rules = [FmapRule("test", "encoding-2")]
+    resolved = resolve_fmap_assignments(mapping, fmaps, rules)
+    assert resolved == {"study": "encoding", "test": "encoding-2"}
+    written = _b0_by_task(generate_config(series, fmaps, mapping=mapping, fmap_rules=rules))
+    assert {t: f"B0map_{g}" for t, g in resolved.items()} == written
+
+
+def test_resolve_fmap_assignments_empty_without_fieldmaps():
+    _, _, mapping = _two_pair_session()
+    assert resolve_fmap_assignments(mapping, FieldmapDetection(strategy="none")) == {}
+
+
+def test_fmap_rules_config_round_trip():
+    rules = [FmapRule("study", "encoding"), FmapRule("test", "encoding-2")]
+    section = fmap_rules_to_config_section(rules)
+    assert fmap_rules_from_config({"fmap_mapping": section}) == rules
+
+
+def test_fmap_rules_from_config_tolerates_junk():
+    """A hand-edited section must never sink config loading."""
+    assert fmap_rules_from_config({}) == []
+    assert fmap_rules_from_config({"fmap_mapping": {}}) == []
+    section = {"rule": [{"task": "a"}, {"group": "g"}, {"task": " x ", "group": " g "}]}
+    assert fmap_rules_from_config({"fmap_mapping": section}) == [FmapRule("x", "g")]

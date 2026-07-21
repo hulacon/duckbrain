@@ -315,6 +315,26 @@ def save_project_task_map(project_dir: str | Path, rules: list) -> Path:
     return _dump_toml(path, data)
 
 
+def save_project_fmap_map(project_dir: str | Path, rules: list) -> Path:
+    """Persist project-wide ``task -> fieldmap group`` bindings into the project config.
+
+    Read-modify-write so it only touches the ``[fmap_mapping]`` section and
+    preserves every other project setting — same contract as
+    :func:`save_project_task_map`. ``rules`` is a list of
+    :class:`~duckbrain.core.dcm2bids_config.FmapRule`; an empty list removes the
+    section entirely (reverting to automatic assignment).
+    """
+    from .core.dcm2bids_config import fmap_rules_to_config_section
+
+    path = project_config_path(project_dir)
+    data = _load_toml(path)
+    if rules:
+        data["fmap_mapping"] = fmap_rules_to_config_section(rules)
+    else:
+        data.pop("fmap_mapping", None)
+    return _dump_toml(path, data)
+
+
 # Top-level directories duckbrain creates that are NOT BIDS-reserved names
 # (BIDS reserves only sourcedata/, derivatives/, code/, phenotype/, stimuli/).
 # Listing them in .bidsignore keeps the project-dir == BIDS-root layout

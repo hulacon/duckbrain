@@ -11,6 +11,17 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **Project-wide fieldmap binding** — when a session holds more than one usable
+  fieldmap pair, a study can now declare which pair corrects which task instead of
+  accepting the automatic choice (name match, else the first pair — there is no
+  temporal-proximity logic). Set it on the Conversion page's new **Fieldmap
+  Binding** table, which also *shows* the binding for the first time: previously
+  the func↔fmap link was only visible as `B0FieldIdentifier` strings inside the
+  generated JSON. Persisted to the project config's `[fmap_mapping]` and threaded
+  through bulk/cockpit conversion, so both paths agree. A binding naming a group a
+  session doesn't have — or one holding a single phase-encoding direction —
+  **fails loudly**: quietly using a different pair is precisely what an explicit
+  binding exists to prevent.
 - **Project-wide task mapping** — define a study's `SeriesDescription → task`
   mapping once and inherit it across every subject (per-session edits still
   override). Persisted to the project config's `[task_mapping]`; threaded through

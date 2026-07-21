@@ -151,10 +151,17 @@ problem,** and the line is drawn here on purpose:
   filesystem uses it and it isn't expected to be common, so it is not worth
   chasing a live example. Just **don't record it as live-validated**; close it for
   free if such an export ever turns up.
-- **bold→fmap linking sends every task to the first *complete* group** —
-  `_assign_fmap_group` has no temporal-proximity logic, per-rule or otherwise.
-  Fine for conversion; a candidate refinement, not a bug. It can no longer pick a
-  half group (an aborted lone AP).
+- **bold→fmap linking still has no temporal-proximity logic** — an *unbound* task
+  goes to the first *complete* group; `_assign_fmap_group` never reasons about
+  acquisition time. It can no longer pick a half group (an aborted lone AP).
+  Since 2026-07-21 this is escapable rather than fixed: a project can declare
+  `task -> group` outright in `[fmap_mapping]` (`FmapRule`), which wins over the
+  name-match heuristic and the first-group default. That covers the case the
+  missing logic would have — a run acquired after a re-shot fieldmap — at the cost
+  of saying so once per study. Inferring it from timestamps stays a candidate
+  refinement, and the explicit binding is now the thing to measure it against.
+  A rule naming a group a session lacks **raises**; see the silently-degrading
+  rule in `CLAUDE.md`.
 - **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
   becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
   alone on purpose: renaming it would change the `B0FieldIdentifier` of

@@ -22,6 +22,17 @@ Rules fix the task only; run numbers stay per-session (positional), so a subject
 that repeats a task never collides on run-. :func:`task_rules_from_mapping`
 collapses a reviewed session back into rules, so a user reviews one subject and
 saves that as the project default for the rest.
+
+**Fieldmap binding.** Which fieldmap pair a bold's ``B0FieldIdentifier`` points
+at is decided by :func:`_assign_fmap_group`, whose heuristic (prefix-match the
+task label against the group name, else take the first complete pair) cannot
+express "this task used the *second* ``encoding`` pair". A :class:`FmapRule`
+(project config's ``[fmap_mapping]``) binds ``task -> group`` outright and wins
+over that heuristic — the same explicit-beats-inferred stance the ReproIn entity
+handling takes. A rule naming a group this session lacks, or one missing a
+direction, **raises**: a project-wide binding that silently fell back to a
+different pair would hand fMRIPrep a distortion correction the user didn't ask
+for, or one it cannot run.
 """
 
 from __future__ import annotations
@@ -75,6 +86,27 @@ class TaskRule:
 
     description: str
     task: str
+
+
+@dataclass
+class FmapRule:
+    """A project-wide binding of a task label to a fieldmap group.
+
+    ``task`` is matched against the *sanitized* BIDS task entity (the label that
+    actually reaches the filename), case-insensitively and exactly — a rule is an
+    explicit statement, so it does not prefix-match the way the fallback
+    heuristic does. Both sides are sanitized before comparison, so a rule written
+    as ``free_recall`` still binds the task that ships as ``freeRecall``.
+
+    ``group`` is a key of :attr:`FieldmapDetection.groups` — ``"encoding"``,
+    ``"encoding-2"``, or ``"1"``/``"2"`` for unnamed pairs (the names the
+    Conversion page lists under Fieldmap Detection). Group keys are stable for a
+    study for the same reason task rules are: the protocol, and therefore the
+    SeriesDescriptions the keys derive from, repeat across subjects.
+    """
+
+    task: str
+    group: str
 
 
 def _rule_lookup(rules: list[TaskRule] | None) -> dict[str, TaskRule]:
@@ -189,6 +221,43 @@ def task_rules_to_config_section(rules: list[TaskRule]) -> dict:
     return {"rule": [{"description": r.description, "task": r.task} for r in rules]}
 
 
+def fmap_rules_from_config(config: dict) -> list[FmapRule]:
+    """Read project-wide fieldmap bindings from a merged config's ``[fmap_mapping]``.
+
+    Tolerant of malformed rows (a missing task or group is skipped) so a
+    hand-edited section can never sink config loading — same contract as
+    :func:`task_rules_from_config`. A group that doesn't exist in a given session
+    is *not* caught here: it is a per-session fact, so it surfaces at assignment
+    time where the available groups are known.
+    """
+    section = config.get("fmap_mapping") or {}
+    out: list[FmapRule] = []
+    for row in section.get("rule") or []:
+        task = str(row.get("task", "")).strip()
+        group = str(row.get("group", "")).strip()
+        if not task or not group:
+            continue
+        out.append(FmapRule(task, group))
+    return out
+
+
+def fmap_rules_to_config_section(rules: list[FmapRule]) -> dict:
+    """Serialize fieldmap bindings into a TOML-friendly ``[fmap_mapping]`` section."""
+    return {"rule": [{"task": r.task, "group": r.group} for r in rules]}
+
+
+def _fmap_rule_lookup(rules: list[FmapRule] | None) -> dict[str, str]:
+    """Index fieldmap bindings by sanitized, lowercased task label; last wins.
+
+    Sanitizing the rule's task mirrors what :func:`generate_config` does to the
+    mapping's task before it reaches assignment, so the two always meet in the
+    same namespace.
+    """
+    if not rules:
+        return {}
+    return {sanitize_task_label(r.task).lower(): r.group for r in rules if r.task}
+
+
 def generate_config(
     series_list: list[SeriesInfo],
     fieldmaps: FieldmapDetection,
@@ -196,6 +265,7 @@ def generate_config(
     session: str = "",
     mapping: list[TaskRunEntry] | None = None,
     template: str | None = None,
+    fmap_rules: list[FmapRule] | None = None,
 ) -> dict:
     """Build a dcm2bids-compatible config dict from classified DICOM series.
 
@@ -215,11 +285,20 @@ def generate_config(
         (using ``template``). Pass an edited mapping to honor user corrections.
     template : str, optional
         Glob-like naming template used only when ``mapping`` is not supplied.
+    fmap_rules : list[FmapRule], optional
+        Project-wide ``task -> fieldmap group`` bindings; each wins over the
+        name-matching heuristic for the task it names.
 
     Returns
     -------
     dict
         dcm2bids config with {"descriptions": [...]}.
+
+    Raises
+    ------
+    ValueError
+        If an ``fmap_rules`` entry names a group this session doesn't have, or
+        one that holds only a single phase-encoding direction.
     """
     descriptions = []
     sub_ses = f"sub{subject}ses{session}" if subject and session else ""
@@ -230,6 +309,7 @@ def generate_config(
 
     # Track which fieldmap groups are used by which tasks
     fmap_group_assignments: dict[str, str] = {}
+    fmap_rule_lookup = _fmap_rule_lookup(fmap_rules)
 
     # --- Anatomicals ---
     for s in series_list:
@@ -270,7 +350,9 @@ def generate_config(
 
         # Assign B0FieldIdentifier if fieldmaps detected
         if fieldmaps.strategy != "none" and fieldmaps.groups:
-            fmap_group = _assign_fmap_group(task, fieldmaps, fmap_group_assignments)
+            fmap_group = _assign_fmap_group(
+                task, fieldmaps, fmap_group_assignments, fmap_rule_lookup
+            )
             if fmap_group is not None:
                 group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
                 desc["sidecar_changes"]["B0FieldIdentifier"] = group_id
@@ -321,6 +403,32 @@ def generate_config(
             )
 
     return {"descriptions": descriptions}
+
+
+def resolve_fmap_assignments(
+    mapping: list[TaskRunEntry],
+    fieldmaps: FieldmapDetection,
+    fmap_rules: list[FmapRule] | None = None,
+) -> dict[str, str]:
+    """Report ``task -> fieldmap group`` exactly as :func:`generate_config` binds it.
+
+    The binding is otherwise only visible as ``B0FieldIdentifier`` strings buried
+    in the generated JSON, which is a poor way to check that a rule did what was
+    intended. Runs the same bold-only, sanitized-label loop against the same
+    assignment function, so it cannot drift from what is actually written — and
+    it raises on an unsatisfiable rule for the same reason.
+    """
+    if fieldmaps.strategy == "none" or not fieldmaps.groups:
+        return {}
+    assignments: dict[str, str] = {}
+    lookup = _fmap_rule_lookup(fmap_rules)
+    for entry in mapping:
+        if entry.role != "bold":
+            continue
+        _assign_fmap_group(
+            sanitize_task_label(entry.task), fieldmaps, assignments, lookup
+        )
+    return assignments
 
 
 # BIDS anatomical suffixes a ReproIn ``anat-<label>`` may name. Spelled out
@@ -422,17 +530,26 @@ def _assign_fmap_group(
     task: str,
     fieldmaps: FieldmapDetection,
     assignments: dict[str, str],
+    rules: dict[str, str] | None = None,
 ) -> str | None:
     """Assign a fieldmap group to a task.
 
-    If there are named groups, tries to match task → group name.
-    Otherwise assigns the first (or only) group.
+    Three sources, each overriding the one after it:
+
+      1. an explicit project-wide :class:`FmapRule` binding (``rules``),
+      2. a name match — the task label prefixed by the group's base name,
+      3. the first complete group.
 
     Only groups holding *both* directions are candidates. An aborted fieldmap
     leaves a lone AP that pairs with nothing, and it sorts first — real sessions
     do this (MMM_003_sess18 opens with two APs before the PA). Pointing a bold's
     ``B0FieldIdentifier`` at a half-group would give fMRIPrep a distortion
     correction it cannot run.
+
+    Raises ``ValueError`` when a rule names a group this session lacks or one
+    that is half a pair. Falling back would silently give the run a *different*
+    fieldmap than the project asked for — the one outcome an explicit binding
+    exists to prevent.
     """
     if task in assignments:
         return assignments[task]
@@ -442,9 +559,31 @@ def _assign_fmap_group(
     if not groups:
         return None
 
+    # An explicit binding wins outright, and is matched exactly rather than by
+    # prefix — the heuristic below infers, a rule states.
+    wanted = (rules or {}).get(task.lower())
+    if wanted is not None:
+        if wanted not in complete:
+            known = ", ".join(sorted(fieldmaps.groups)) or "none"
+            reason = (
+                f"holds only one phase-encoding direction "
+                f"({', '.join(sorted(fieldmaps.groups[wanted])).upper()})"
+                if wanted in fieldmaps.groups
+                else "does not exist in this session"
+            )
+            raise ValueError(
+                f"[fmap_mapping] binds task '{task}' to fieldmap group "
+                f"'{wanted}', but that group {reason}. Groups detected here: "
+                f"{known}. Fix the rule in the project config, or drop it to "
+                f"fall back to automatic assignment."
+            )
+        assignments[task] = wanted
+        return wanted
+
     # Try matching by name. A group reacquired within one session is keyed
     # "<name>-2", "<name>-3", … so match on the base name; the first pair wins,
-    # which is the documented no-temporal-proximity limitation (TODO #5).
+    # which is the documented no-temporal-proximity limitation (TODO #5) and the
+    # case an explicit rule above exists to settle.
     for g in groups:
         base = re.sub(r"-\d+$", "", g)
         if base and task.lower().startswith(base.lower()):

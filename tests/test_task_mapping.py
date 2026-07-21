@@ -267,3 +267,40 @@ def test_sanitize_task_label_public_wrapper():
     assert sanitize_task_label("faces-run") == "facesRun"
     assert sanitize_task_label("already") == "already"
     assert sanitize_task_label("") == "unknown"
+
+
+# ---- fieldmap bindings persist alongside, not on top of, the task rules ----
+
+def test_save_project_fmap_map_preserves_other_keys(tmp_path):
+    from duckbrain.config import (
+        save_project_config,
+        save_project_fmap_map,
+        save_project_task_map,
+        _load_toml,
+        project_config_path,
+    )
+    from duckbrain.core.dcm2bids_config import FmapRule, fmap_rules_from_config
+
+    save_project_config(tmp_path, {"project": {"name": "study"}})
+    save_project_task_map(tmp_path, [TaskRule("MB4_rest", "rest")])
+    save_project_fmap_map(tmp_path, [FmapRule("rest", "encoding-2")])
+
+    data = _load_toml(project_config_path(tmp_path))
+    assert data["project"]["name"] == "study"                      # untouched
+    assert task_rules_from_config(data)[0].task == "rest"          # untouched
+    assert fmap_rules_from_config(data) == [FmapRule("rest", "encoding-2")]
+
+
+def test_save_project_fmap_map_empty_removes_section(tmp_path):
+    from duckbrain.config import (
+        save_project_fmap_map,
+        _load_toml,
+        project_config_path,
+    )
+    from duckbrain.core.dcm2bids_config import FmapRule, fmap_rules_from_config
+
+    save_project_fmap_map(tmp_path, [FmapRule("rest", "encoding")])
+    save_project_fmap_map(tmp_path, [])   # clear -> back to automatic assignment
+    data = _load_toml(project_config_path(tmp_path))
+    assert "fmap_mapping" not in data
+    assert fmap_rules_from_config(data) == []

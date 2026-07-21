@@ -199,7 +199,10 @@ from duckbrain.core.dcm2bids_config import (
     build_task_run_mapping,
     generate_config,
     config_to_json,
+    FmapRule,
     TaskRunEntry,
+    fmap_rules_from_config,
+    resolve_fmap_assignments,
     task_rules_from_config,
     task_rules_from_mapping,
 )
@@ -298,12 +301,107 @@ else:
     st.info("No functional runs detected in this session.")
     edited_mapping = []
 
+# ---- Fieldmap binding (which pair each run's B0FieldIdentifier points at) ----
+# Only worth showing when there is a choice to make: with one usable pair every
+# run gets it, and with none there is nothing to bind. The automatic rule sends
+# every unmatched task to the *first* pair, so this is where a session with a
+# re-shot fieldmap gets corrected.
+project_fmap_rules = fmap_rules_from_config(config)
+complete_groups = [g for g, d in fieldmaps.groups.items() if "ap" in d and "pa" in d]
+session_fmap_rules = project_fmap_rules
+
+if edited_mapping and len(complete_groups) > 1:
+    st.subheader("Fieldmap Binding")
+    st.markdown(
+        "This session has **more than one usable fieldmap pair**, so which pair "
+        "corrects which run is a real choice. duckbrain has no temporal-proximity "
+        "logic — unless a task's name matches a group's, it defaults to the first "
+        "pair. Set it explicitly below."
+    )
+
+    try:
+        resolved = resolve_fmap_assignments(edited_mapping, fieldmaps, project_fmap_rules)
+    except ValueError as exc:
+        # A project rule naming a group this session lacks. Show it, then fall
+        # back to the automatic binding so the page stays usable and the user can
+        # correct the row rather than being locked out.
+        st.error(f"{exc}")
+        resolved = resolve_fmap_assignments(edited_mapping, fieldmaps, None)
+
+    bound = {r.task for r in project_fmap_rules}
+    binding_df = st.data_editor(
+        pd.DataFrame(
+            [
+                {
+                    "task": task,
+                    "fieldmap group": group,
+                    "source": "project rule" if task in bound else "automatic",
+                }
+                for task, group in sorted(resolved.items())
+            ]
+        ),
+        width="stretch",
+        hide_index=True,
+        disabled=["task", "source"],
+        column_config={
+            "fieldmap group": st.column_config.SelectboxColumn(
+                "fieldmap group",
+                options=complete_groups,
+                required=True,
+                help="Only pairs holding both AP and PA are offered — a half pair "
+                "would give fMRIPrep a correction it cannot run.",
+            )
+        },
+        key="fmap_binding_editor",
+    )
+    session_fmap_rules = [
+        FmapRule(task=str(row["task"]), group=str(row["fieldmap group"]))
+        for _, row in binding_df.iterrows()
+    ]
+
+    if st.button(
+        "⭑ Save this binding as the project default",
+        key="save_project_fmap_map",
+        help="Writes these task → fieldmap group rows to the project config's "
+        "[fmap_mapping]. Every other subject and any bulk convert then uses "
+        "them instead of the automatic rule.",
+    ):
+        from duckbrain.config import resolve_project_dir, save_project_fmap_map
+
+        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
+        if not project_dir:
+            st.error("No project directory resolved — can't save the default.")
+        else:
+            save_project_fmap_map(project_dir, session_fmap_rules)
+            st.success(
+                f"Saved {len(session_fmap_rules)} fieldmap binding(s) as the "
+                f"project default in `{project_dir}/code/duckbrain.toml`. Group "
+                "names must exist in every session — a session missing one will "
+                "fail loudly rather than silently use a different pair."
+            )
+elif project_fmap_rules:
+    st.caption(
+        f"↪ {len(project_fmap_rules)} project-wide fieldmap binding(s) on file; "
+        "this session has fewer than two usable pairs, so there's nothing to choose."
+    )
+
 # ---- Auto-generate dcm2bids config ----
 st.subheader("dcm2bids Configuration")
 
-auto_config = generate_config(
-    series_list, fieldmaps, subject=subject, session=session, mapping=edited_mapping
-)
+try:
+    auto_config = generate_config(
+        series_list,
+        fieldmaps,
+        subject=subject,
+        session=session,
+        mapping=edited_mapping,
+        fmap_rules=session_fmap_rules,
+    )
+except ValueError as exc:
+    # An unsatisfiable fieldmap binding. Refuse to show a config rather than
+    # generate one that quietly uses a different pair than the project asked for.
+    st.error(f"Cannot generate a config: {exc}")
+    st.stop()
 auto_json = config_to_json(auto_config)
 
 st.markdown("Review and edit the auto-generated dcm2bids config below:")

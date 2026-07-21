@@ -160,6 +160,7 @@ def generate_session_config(
     session: str,
     template: str | None = None,
     rules: list | None = None,
+    fmap_rules: list | None = None,
 ) -> dict:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
@@ -169,7 +170,11 @@ def generate_session_config(
 
     ``rules`` is an optional list of project-wide :class:`TaskRule`s; when given,
     they override the naming heuristic for the series they name, so a bulk convert
-    inherits the study's once-defined task/run mapping.
+    inherits the study's once-defined task/run mapping. ``fmap_rules`` does the
+    same for :class:`FmapRule` fieldmap bindings — without it a bulk convert would
+    quietly fall back to automatic fieldmap assignment while the GUI path honored
+    the project's bindings, which is exactly the kind of divergence the mapping
+    exists to close.
     """
     from .dicom_inspect import list_series, classify_series, detect_fieldmaps
     from .dcm2bids_config import build_task_run_mapping, generate_config
@@ -181,7 +186,12 @@ def generate_session_config(
     fieldmaps = detect_fieldmaps(series_list)
     mapping = build_task_run_mapping(series_list, template=template or None, rules=rules)
     return generate_config(
-        series_list, fieldmaps, subject=subject, session=session, mapping=mapping
+        series_list,
+        fieldmaps,
+        subject=subject,
+        session=session,
+        mapping=mapping,
+        fmap_rules=fmap_rules,
     )
 
 

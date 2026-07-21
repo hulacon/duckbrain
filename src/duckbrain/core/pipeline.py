@@ -84,11 +84,15 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
     # Auto-generation inherits the project-wide task/run mapping (if any), so a
     # bulk/cockpit convert honors the study's once-defined task labels.
     if not cfg_path.exists():
-        from .dcm2bids_config import task_rules_from_config
+        from .dcm2bids_config import fmap_rules_from_config, task_rules_from_config
 
         rules = task_rules_from_config(config)
+        fmap_rules = fmap_rules_from_config(config)
         save_dcm2bids_config(
-            generate_session_config(dicom_dir, subject, session, rules=rules), cfg_path
+            generate_session_config(
+                dicom_dir, subject, session, rules=rules, fmap_rules=fmap_rules
+            ),
+            cfg_path,
         )
     ctx = build_context(
         config, "dcm2bids", subject=subject, session=session,
