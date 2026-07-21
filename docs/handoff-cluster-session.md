@@ -10,15 +10,17 @@
 > §2/§3 notes for how each hypothesis actually resolved, not as work to do.**
 > The next on-cluster session should start from `TODO.md`, not from here.
 
-**Updated 2026-07-16 at the end of an on-cluster session.** The provenance item
-that headed this doc is now closed and validated live; §2 and §3 below were *not*
-reached and are still the live-validation work waiting for a Talapas session
-(shared FS, real scanner exports, `dcm2bids`/SLURM behavior).
+**Everything below is the 2026-07-16 snapshot, preserved as written.** At that
+point the provenance item had just closed and §2/§3 had not been reached — they
+were the live-validation work still waiting for a Talapas session. They were
+reached on 2026-07-21; see the ✅ notes on each.
 
-## State of `main`
+## State of `main` *(as of 2026-07-16)*
 
-- **255 tests pass** (`python -m pytest tests/ -q`); working tree clean, pushed.
-  Don't trust a commit hash quoted in a doc — check `git log --oneline -1`.
+- Full suite green, working tree clean, pushed. Don't trust a test count or a
+  commit hash quoted in a doc — run `python -m pytest tests/ -q` and
+  `git log --oneline -1`. (This line used to quote a number, which was stale
+  within the week.)
 - **Licensed GPL-3.0-or-later; released + tagged `v0.1.0`.** Semver + `CHANGELOG.md`.
   Note the accepted trade-off: GPL blocks upstreaming duckbrain code into the
   Apache-2.0 nipreps tools or MIT nipoppy (so the mooted `surveyor.py` → mmmdata

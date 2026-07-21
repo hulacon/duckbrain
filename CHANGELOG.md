@@ -26,13 +26,6 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   SLURM jobs" panel (the catch-all for jobs not tied to a board cell), fed from the
   same single SLURM pull. `survey_live(config, with_jobs=True)` exposes the job
   index; `cancel_job()` wraps `scancel`; `find_job_logs()` resolves array-job logs.
-
-### Changed
-- **MRIQC default pinned to `24.0.2`** (was `24.1.0`) — `24.0.2` is both the
-  validated version and MRIQC's latest stable release; there is no `24.1.0` Docker
-  tag (that string is only the `24.0.2` container's internal self-report). The old
-  default pointed the build command at a nonexistent tag.
-
 - **ReproIn console naming is understood** —
   [ReproIn](https://github.com/ReproNim/reproin) sequence names
   (`func-bold_ses-pre_task-faces_acq-1mm_run-01_dir-AP`) are parsed for their BIDS
@@ -53,6 +46,12 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   as a session label or a date, and two folders claiming the same `sub-XX/ses-YY`
   (real in mmmdata, and ingestion is idempotent, so the second would have quietly
   resolved to the first).
+
+### Changed
+- **MRIQC default pinned to `24.0.2`** (was `24.1.0`) — `24.0.2` is both the
+  validated version and MRIQC's latest stable release; there is no `24.1.0` Docker
+  tag (that string is only the `24.0.2` container's internal self-report). The old
+  default pointed the build command at a nonexistent tag.
 
 ### Fixed
 - **Reacquired *named* fieldmap pairs were silently discarded.** A session that
