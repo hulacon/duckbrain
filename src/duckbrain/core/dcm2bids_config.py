@@ -660,9 +660,25 @@ def _fmap_description(
         "criteria": {
             "SeriesNumber": series_number,
         },
+        # NOTE: PhaseEncodingDirection is deliberately NOT written here.
+        #
+        # It used to be forced to "j-"/"j" from the ``_ap``/``_pa`` token in the
+        # series name. But dcm2niix already derives the real value from the DICOM
+        # header (it is present in every sidecar it writes), so overwriting it
+        # with a name-derived guess could only ever lose information: a no-op when
+        # they agree, and wrong when they don't. And it is wrong in the worst
+        # possible way — a mis-signed phase-encoding direction doesn't skip
+        # distortion correction, it applies it backwards, deforming the data while
+        # looking processed.
+        #
+        # Trusting a filename over the data is the same species of error as the
+        # inverted B0 fields (see this module's header). The header wins; a
+        # disagreement between it and the name is *reported* instead, by
+        # ``consistency._check_fmap_pe_direction`` — a name/header mismatch is a
+        # real signal about the acquisition, worth surfacing rather than silently
+        # overwriting.
         "sidecar_changes": {
             "B0FieldIdentifier": b0_field_id,
-            "PhaseEncodingDirection": "j-" if direction == "AP" else "j",
         },
         "custom_entities": custom_entities,
     }

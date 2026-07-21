@@ -17,12 +17,22 @@ the ledger so an old reference still resolves.
 **Opened 2026-07-21** after `#14`, asking what *else* we might be getting wrong.
 First real validator run happened the same day; findings below.
 
-- **It works and needs no new infrastructure.** `node` v20 is on the login node,
-  so `npx bids-validator@1.14.14 <project> --json` runs today. For compute nodes /
-  offline, build an apptainer image (apptainer 1.4.1 is available) — the same
-  pattern as the other containers. The newer schema-based validator is Deno-based
-  and Deno is **not** installed; `bidsschematools` (pip) is the lighter route if
-  what's wanted is checking *the plan* rather than a converted dataset.
+- ✅ **Done 2026-07-21 — and it needed no new infrastructure at all.** dcm2bids
+  has its own `--bids_validate` flag, and **bids-validator 1.14.6 already ships
+  inside `dcm2bids-3.2.0.sif`** (with node). It is now on by default
+  (`[conversion] bids_validate`, opt-out), and its findings land in the SLURM log
+  the cockpit already shows. Nothing to install, nothing to reinvent.
+- **If plan-time validation is wanted later**, `bidsschematools` (pip) validates
+  a *filename* against the schema without a dataset, which would let the
+  Conversion Plan table be checked before a job is submitted. Note what it can
+  and cannot replace: it can say whether `sub-001_task-x_run-1_bold.nii.gz` is
+  legal BIDS, but it cannot say that `div_perFace_r1` means task `divPerFace` run
+  1 — that inference is study-specific and is what duckbrain's heuristics are
+  *for*. The two are complementary, not alternatives.
+- **Entity ordering may already be redundant.** dcm2bids reorders `custom_entities`
+  per the spec unless `--do_not_reorder_entities` is passed, so
+  `_fmap_description`'s manual acq/dir/run ordering might be doing work dcm2bids
+  would do anyway. Harmless, but worth checking before adding more of it.
 - 🔴 **The single most important caveat: the validator did NOT catch `#14`.** Run
   against `mmm_fmap_check` while its sidecars still had the inverted
   identifier/source, it reported zero fieldmap issues. It checks structure and
@@ -49,18 +59,19 @@ First real validator run happened the same day; findings below.
 - **No `Authors`** in `dataset_description.json`.
 - **`events.tsv` missing** for task scans. Not duckbrain's to invent, but the
   Scanning-notes item (`#7.3`) is where it would come from.
-- **Unresolved: does `_sbref` require `TaskName`?** duckbrain writes it on `bold`
-  only, and the legacy validator did not complain — which may mean it isn't
-  required, or may mean that check only looks at `_bold`. Confirm against the
-  schema rather than the legacy validator.
-- **Suspect, unproven: `PhaseEncodingDirection` is overwritten from a *filename*
-  guess.** `_fmap_description` forces `j-`/`j` from the `_ap`/`_pa` token, while
-  dcm2niix derives the real value from the DICOM header (it is present in every
-  sidecar it writes). Overwriting a header-derived value with a name-derived one
-  can only lose information — it is a no-op when they agree and wrong when they
-  don't, and "trust the filename over the data" is exactly the species of error
-  `#14` turned out to be. Verify against a non-axial or non-AP/PA acquisition,
-  then most likely stop writing it.
+- ✅ **Resolved: `_sbref` does NOT require `TaskName`.** The spec requires it for
+  `bold`; `sbref` needs the `task-<label>` *entity* in the filename, which
+  duckbrain already writes. Not a bug — no change needed. (The spec does list
+  `sbref` among the suffixes that may carry `B0FieldSource`, which is what `#14`
+  now writes, so that half is explicitly endorsed.)
+- ✅ **Fixed 2026-07-21: `PhaseEncodingDirection` is no longer overwritten.**
+  `_fmap_description` forced `j-`/`j` from the `_ap`/`_pa` token while dcm2niix
+  derives the real value from the DICOM header. The header now wins. Ben's call
+  on what to do with disagreements — *flag, don't silently prefer either* — is
+  implemented as the `fmap-pe-direction` consistency check: a series labelled AP
+  whose header says PA means either the console labelling is wrong (and every
+  downstream assumption about that study inherits it) or the series came from
+  another protocol. Both want a human.
 
 ## #14 — Re-convert everything written with inverted fieldmap intent
 

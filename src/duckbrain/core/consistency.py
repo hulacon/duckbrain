@@ -705,11 +705,70 @@ def _check_presence(config: dict) -> list[ConsistencyIssue]:
 
 # ---- public API -------------------------------------------------------------
 
+# Expected phase-encoding direction for each ``dir-`` entity duckbrain emits.
+# AP is anterior->posterior, which for an axial acquisition is -j.
+_PE_FOR_DIR = {"AP": "j-", "PA": "j"}
+
+_DIR_ENTITY_RE = re.compile(r"_dir-([A-Za-z0-9]+)")
+
+
+def _check_fmap_pe_direction(config: dict) -> list[ConsistencyIssue]:
+    """Flag fieldmaps whose header PE direction disagrees with their ``dir-`` label.
+
+    duckbrain used to *force* ``PhaseEncodingDirection`` to match the ``_ap``/
+    ``_pa`` token in the series name, overwriting the value dcm2niix derives from
+    the DICOM header. That could only lose information, and a mis-signed
+    direction applies distortion correction backwards rather than skipping it.
+
+    So the header is now left alone and the disagreement is reported here. A
+    mismatch is a genuine signal about the acquisition — a protocol whose name
+    says AP while the scanner encoded PA means either the console labelling is
+    wrong (every downstream assumption about that study inherits it) or the
+    series was re-used from another protocol. Both are worth a human look, and
+    neither is something to silently paper over.
+    """
+    issues: list[ConsistencyIssue] = []
+    bids_dir = (config.get("paths") or {}).get("bids_dir") or ""
+    if not bids_dir or not Path(bids_dir).is_dir():
+        return issues
+
+    for sidecar in sorted(Path(bids_dir).glob("sub-*/**/fmap/*_epi.json")):
+        match = _DIR_ENTITY_RE.search(sidecar.name)
+        if not match:
+            continue
+        expected = _PE_FOR_DIR.get(match.group(1).upper())
+        if expected is None:
+            continue
+        actual = _read_json(sidecar).get("PhaseEncodingDirection")
+        if not actual or actual == expected:
+            continue
+        subject = next(
+            (p.name.replace("sub-", "") for p in sidecar.parents if p.name.startswith("sub-")),
+            "",
+        )
+        issues.append(
+            ConsistencyIssue(
+                check="fmap-pe-direction",
+                subject=subject,
+                stage="converted",
+                message=(
+                    f"`{sidecar.name}` is labelled `dir-{match.group(1).upper()}` "
+                    f"(expected `PhaseEncodingDirection` {expected}) but its "
+                    f"header says `{actual}`. The header is authoritative and is "
+                    "what fMRIPrep uses, so the *label* is the suspect one — "
+                    "check how that series is named at the console."
+                ),
+            )
+        )
+    return issues
+
+
 def check_consistency(config: dict) -> list[ConsistencyIssue]:
     """Run all provenance-consistency checks; return the flagged issues.
 
     Empty list means nothing inconsistent was found. Ordering is stable
-    (config-vs-provenance, version drift, mixed provenance, staleness, presence)
+    (config-vs-provenance, version drift, mixed provenance, staleness, presence,
+    fieldmap PE direction)
     so the cockpit renders deterministically.
     """
     issues: list[ConsistencyIssue] = []
@@ -722,6 +781,7 @@ def check_consistency(config: dict) -> list[ConsistencyIssue]:
         _check_mixed_provenance,
         _check_staleness,
         _check_presence,
+        _check_fmap_pe_direction,
     ):
         try:
             issues.extend(check(config))

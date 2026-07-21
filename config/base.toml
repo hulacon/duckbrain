@@ -21,6 +21,14 @@ base_dir = "/projects/lcni/dcm"
 group = ""                 # e.g., "hulacon"
 project = ""               # e.g., "mmmdata"
 
+[conversion]
+# Run the BIDS validator on the output once dcm2bids finishes (its own
+# --bids_validate flag). The validator ships *inside* the dcm2bids container, so
+# this costs nothing to enable and needs no extra install. Findings land in the
+# SLURM log the cockpit already shows. Structural/naming problems only — it does
+# not check semantic intent, so a clean run is not an all-clear (see TODO #15).
+bids_validate = true
+
 [containers]
 dcm2bids_version = "3.2.0"
 fmriprep_version = "24.1.1"

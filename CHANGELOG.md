@@ -51,7 +51,27 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   page, so the series↔pair↔task join is done by eye instead of working memory.
   Colour is always paired with the group's label — never the only channel.
 
+- **BIDS validation now runs automatically after every conversion.** dcm2bids has
+  its own `--bids_validate`, and the validator already ships inside the dcm2bids
+  container — so this costs nothing and needed no new install. On by default
+  (`[conversion] bids_validate = true` to opt out); findings appear in the SLURM
+  log the cockpit already shows. Worth knowing what it does *not* do: it checks
+  structure and naming, not semantic intent, and would not have caught the
+  fieldmap bug below.
+- **New consistency check `fmap-pe-direction`** — flags a fieldmap whose `dir-AP`
+  / `dir-PA` label disagrees with the `PhaseEncodingDirection` in its header. The
+  header is authoritative, so the *label* is the suspect one, and a mismatch
+  usually means the console protocol is misnamed — which every downstream
+  assumption about that study would inherit.
+
 ### Fixed
+- **duckbrain no longer overwrites `PhaseEncodingDirection`.** It was forced to
+  `j-`/`j` from the `_ap`/`_pa` token in the series name, clobbering the value
+  dcm2niix derives from the DICOM header. That could only lose information — a
+  no-op when they agree, and wrong when they don't — and a mis-signed phase
+  encoding direction doesn't skip distortion correction, it applies it backwards,
+  deforming the data while looking processed. The header is now left alone and
+  disagreements are reported (see `fmap-pe-direction` above).
 - **`.bidsignore` now covers `tmp_dcm2bids/`.** dcm2bids' working directory holds
   a log named `sub-XXX_ses-YY_*.log`, so the BIDS validator inferred a phantom
   subject with no valid data — three of the four errors on a real dataset. Only

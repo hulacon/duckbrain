@@ -75,6 +75,9 @@ def build_context(config: dict, step: str, **extra) -> dict:
         "containers": config.get("containers", {}),
         "fmriprep": config.get("fmriprep", {}),
         "nordic": config.get("nordic", {}),
+        # Default on: the validator is already inside the dcm2bids container, so
+        # the only cost of leaving it off is not knowing.
+        "bids_validate": (config.get("conversion") or {}).get("bids_validate", True),
     }
     context.update(extra)
     return context

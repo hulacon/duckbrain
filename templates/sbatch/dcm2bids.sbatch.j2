@@ -23,7 +23,7 @@ singularity run --cleanenv \
 {% if session %}  -s {{ session }} \
 {% endif %}  -c {{ config_json }} \
   -o {{ paths.bids_dir }} \
-  {% if force %}--force_dcm2bids{% endif %}
+  {% if bids_validate %}--bids_validate {% endif %}{% if force %}--force_dcm2bids{% endif %}
 
 EXIT_CODE=$?
 echo "Finished: $(date)"
