@@ -12,6 +12,56 @@ the ledger so an old reference still resolves.
 
 ---
 
+## #15 — Validate output against the BIDS standard, as a habit not a one-off
+
+**Opened 2026-07-21** after `#14`, asking what *else* we might be getting wrong.
+First real validator run happened the same day; findings below.
+
+- **It works and needs no new infrastructure.** `node` v20 is on the login node,
+  so `npx bids-validator@1.14.14 <project> --json` runs today. For compute nodes /
+  offline, build an apptainer image (apptainer 1.4.1 is available) — the same
+  pattern as the other containers. The newer schema-based validator is Deno-based
+  and Deno is **not** installed; `bidsschematools` (pip) is the lighter route if
+  what's wanted is checking *the plan* rather than a converted dataset.
+- 🔴 **The single most important caveat: the validator did NOT catch `#14`.** Run
+  against `mmm_fmap_check` while its sidecars still had the inverted
+  identifier/source, it reported zero fieldmap issues. It checks structure and
+  naming, not semantic intent. **Validation raises the floor; it does not catch
+  the class of bug that has actually bitten us.** Outcome checks — e.g. grepping
+  the fMRIPrep report for "Susceptibility distortion correction: None" — are what
+  catch those, and are worth building alongside.
+- **Where it belongs:** `core/consistency.py` is the module for "catching what
+  runs silently", and the cockpit already surfaces its checks. A validator wrapper
+  fits there. Validating the *plan* pre-submission (duckbrain now predicts every
+  output filename — `core/conversion_plan.py`) would catch naming errors before
+  burning a SLURM job, which is the cheaper half.
+
+### Findings from the first run (`mmm_fmap_check`)
+
+- ✅ **Fixed 2026-07-21:** `.bidsignore` listed `work/` but not `tmp_dcm2bids/`.
+  dcm2bids' log is named `sub-003_ses-02_*.log`, so the validator inferred a
+  phantom subject — three of the four errors.
+- **`sourcedata/` DICOM symlinks get followed** and every `.dcm` reported as
+  `NOT_INCLUDED`, with paths escaping the dataset root. May be a legacy-validator
+  quirk (`sourcedata/` should be skipped); check against the v2 validator before
+  adding a `.bidsignore` entry for it.
+- **No `README`** — scaffolding doesn't write one, and BIDS recommends it.
+- **No `Authors`** in `dataset_description.json`.
+- **`events.tsv` missing** for task scans. Not duckbrain's to invent, but the
+  Scanning-notes item (`#7.3`) is where it would come from.
+- **Unresolved: does `_sbref` require `TaskName`?** duckbrain writes it on `bold`
+  only, and the legacy validator did not complain — which may mean it isn't
+  required, or may mean that check only looks at `_bold`. Confirm against the
+  schema rather than the legacy validator.
+- **Suspect, unproven: `PhaseEncodingDirection` is overwritten from a *filename*
+  guess.** `_fmap_description` forces `j-`/`j` from the `_ap`/`_pa` token, while
+  dcm2niix derives the real value from the DICOM header (it is present in every
+  sidecar it writes). Overwriting a header-derived value with a name-derived one
+  can only lose information — it is a no-op when they agree and wrong when they
+  don't, and "trust the filename over the data" is exactly the species of error
+  `#14` turned out to be. Verify against a non-axial or non-AP/PA acquisition,
+  then most likely stop writing it.
+
 ## #14 — Re-convert everything written with inverted fieldmap intent
 
 **Opened 2026-07-21, and it is the highest-priority item.** The code bug is fixed

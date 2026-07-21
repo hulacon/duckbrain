@@ -299,3 +299,14 @@ def test_recent_projects_normalizes_without_resolving_symlinks(user_cfg, tmp_pat
     remember_project(f"{link}/")
     remember_project(str(link))  # same entry once slashes collapse
     assert recent_projects() == [str(link)]
+
+
+def test_bidsignore_covers_dcm2bids_working_dir(tmp_path):
+    """`tmp_dcm2bids/log/sub-XXX_ses-YY_*.log` makes the validator infer a phantom
+    subject with no valid data — three of four errors on a real dataset."""
+    from duckbrain.config import write_bidsignore
+
+    write_bidsignore(tmp_path)
+    entries = (tmp_path / ".bidsignore").read_text().split()
+    assert "tmp_dcm2bids/" in entries
+    assert "work/" in entries

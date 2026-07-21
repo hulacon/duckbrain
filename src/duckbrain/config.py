@@ -341,7 +341,15 @@ def save_project_fmap_map(project_dir: str | Path, rules: list) -> Path:
 # validator-clean — the standards-alignment that lets us keep the single-dir
 # layout instead of Nipoppy's nested bids/ envelope. See the
 # nipoppy-status-tracking notes.
-_BIDSIGNORE_ENTRIES = ("work/",)
+#
+# ``tmp_dcm2bids/`` is dcm2bids' own working directory, and it is the one that
+# actually trips the validator: it holds ``log/sub-XXX_ses-YY_*.log``, whose
+# BIDS-looking name makes the validator infer a subject that has no valid data
+# (SUBJECT_LABEL_IN_FILENAME_DOESNOT_MATCH_DIRECTORY,
+# SESSION_LABEL_..., NO_VALID_DATA_FOUND_FOR_SUBJECT — three of four errors on a
+# real dataset). It was missing here while ``work/`` — which dcm2bids never
+# writes to — was listed.
+_BIDSIGNORE_ENTRIES = ("work/", "tmp_dcm2bids/")
 
 
 def write_bidsignore(project_dir: str | Path) -> Path:

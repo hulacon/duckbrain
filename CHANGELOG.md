@@ -52,6 +52,10 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   Colour is always paired with the group's label — never the only channel.
 
 ### Fixed
+- **`.bidsignore` now covers `tmp_dcm2bids/`.** dcm2bids' working directory holds
+  a log named `sub-XXX_ses-YY_*.log`, so the BIDS validator inferred a phantom
+  subject with no valid data — three of the four errors on a real dataset. Only
+  `work/`, which dcm2bids never writes to, was listed.
 - 🔴 **Fieldmap intent was inverted, so susceptibility distortion correction never
   ran.** BIDS estimates the field from scans sharing a `B0FieldIdentifier` and
   applies it to scans sharing a `B0FieldSource`; duckbrain wrote the identifier on
