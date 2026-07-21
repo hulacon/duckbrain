@@ -402,3 +402,81 @@ def test_fmap_rules_from_config_tolerates_junk():
     assert fmap_rules_from_config({"fmap_mapping": {}}) == []
     section = {"rule": [{"task": "a"}, {"group": "g"}, {"task": " x ", "group": " g "}]}
     assert fmap_rules_from_config({"fmap_mapping": section}) == [FmapRule("x", "g")]
+
+
+# ---- sessions with no fieldmaps, and the "none" opt-out ----
+
+def _no_fmap_session():
+    series = [_series(1, "t1_mprage", "anat", n=200), _series(9, "study_r1", "func", n=200)]
+    mapping = [TaskRunEntry(9, "study_r1", "bold", task="study", run=1)]
+    return series, FieldmapDetection(strategy="none"), mapping
+
+
+def test_no_fieldmaps_writes_no_b0_field_and_no_fmap_descriptions():
+    """The plain no-fieldmap session: nothing to correct with, nothing claimed."""
+    series, fmaps, mapping = _no_fmap_session()
+    cfg = generate_config(series, fmaps, mapping=mapping)
+    assert _b0_by_task(cfg) == {"study": None}
+    assert [d for d in cfg["descriptions"] if d["datatype"] == "fmap"] == []
+
+
+def test_binding_a_group_raises_when_the_session_has_no_fieldmaps():
+    """The gap the 'were any detected' guard left: a project-wide rule naming a
+    group must fail here too, not be skipped along with the whole fieldmap step."""
+    series, fmaps, mapping = _no_fmap_session()
+    with pytest.raises(ValueError) as exc:
+        generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("study", "encoding")])
+    msg = str(exc.value)
+    assert "does not exist" in msg
+    # The available-groups line must not read as naming the 'none' sentinel.
+    assert "Groups detected here: none." not in msg
+
+
+def test_none_opts_a_task_out_of_distortion_correction():
+    """'none' is always satisfiable — including where there is nothing to bind."""
+    series, fmaps, mapping = _no_fmap_session()
+    cfg = generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("study", "none")])
+    assert _b0_by_task(cfg) == {"study": None}
+
+
+def test_none_opts_out_even_when_pairs_are_available():
+    """A run that shouldn't be corrected, in a session that could correct it."""
+    series, fmaps, mapping = _two_pair_session()
+    cfg = generate_config(
+        series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "none")]
+    )
+    assert _b0_by_task(cfg) == {"study": "B0map_encoding", "test": None}
+
+
+def test_none_is_case_insensitive():
+    series, fmaps, mapping = _two_pair_session()
+    cfg = generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "None")])
+    assert _b0_by_task(cfg)["test"] is None
+
+
+def test_a_real_group_named_none_wins_over_the_sentinel():
+    """Far-fetched (it needs a series like se_epi_ap_none), but the data has to
+    win over a reserved word or the binding would mean something else entirely."""
+    series = [
+        _series(5, "se_epi_ap_none", "fmap", n=3),
+        _series(6, "se_epi_pa_none", "fmap", n=3),
+        _series(9, "study_r1", "func", n=200),
+    ]
+    fmaps = FieldmapDetection(
+        strategy="series_description", groups={"none": {"ap": 5, "pa": 6}}
+    )
+    mapping = [TaskRunEntry(9, "study_r1", "bold", task="study", run=1)]
+    cfg = generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("study", "none")])
+    assert _b0_by_task(cfg) == {"study": "B0map_none"}
+
+
+def test_resolve_reports_none_rather_than_omitting_the_task():
+    """Opting out is a decision worth seeing in the GUI table, not an absence."""
+    series, fmaps, mapping = _two_pair_session()
+    resolved = resolve_fmap_assignments(mapping, fmaps, [FmapRule("test", "none")])
+    assert resolved == {"study": "encoding", "test": "none"}
+
+
+def test_resolve_is_empty_for_an_unbound_session_without_fieldmaps():
+    _, fmaps, mapping = _no_fmap_session()
+    assert resolve_fmap_assignments(mapping, fmaps) == {}

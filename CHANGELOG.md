@@ -19,9 +19,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   the func↔fmap link was only visible as `B0FieldIdentifier` strings inside the
   generated JSON. Persisted to the project config's `[fmap_mapping]` and threaded
   through bulk/cockpit conversion, so both paths agree. A binding naming a group a
-  session doesn't have — or one holding a single phase-encoding direction —
-  **fails loudly**: quietly using a different pair is precisely what an explicit
-  binding exists to prevent.
+  session doesn't have — or one holding a single phase-encoding direction, or any
+  group at all in a session that collected no fieldmaps — **fails loudly**:
+  quietly using a different pair, or none, is precisely what an explicit binding
+  exists to prevent. The reserved group `none` binds a task to no fieldmap, for a
+  run that shouldn't be distortion-corrected. A session with no fieldmaps and no
+  binding is unchanged: no `B0FieldIdentifier`, no `fmap/`, fMRIPrep runs without
+  susceptibility distortion correction.
 - **Project-wide task mapping** — define a study's `SeriesDescription → task`
   mapping once and inherit it across every subject (per-session edits still
   override). Persisted to the project config's `[task_mapping]`; threaded through

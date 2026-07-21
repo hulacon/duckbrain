@@ -206,6 +206,7 @@ from duckbrain.core.dcm2bids_config import (
     task_rules_from_config,
     task_rules_from_mapping,
 )
+from duckbrain.core.dicom_inspect import sanitize_task_label
 
 template = st.text_input(
     "Naming template (optional)",
@@ -262,8 +263,6 @@ if seed_mapping:
     # A BIDS task entity must be alphanumeric. The config generator sanitizes
     # anyway (so no invalid filename ever ships), but surface it here so the
     # rewrite isn't silent — an edit like "resting_test" becomes "restingTest".
-    from duckbrain.core.dicom_inspect import sanitize_task_label
-
     fixups = {
         e.task: sanitize_task_label(e.task)
         for e in edited_mapping
@@ -302,22 +301,39 @@ else:
     edited_mapping = []
 
 # ---- Fieldmap binding (which pair each run's B0FieldIdentifier points at) ----
-# Only worth showing when there is a choice to make: with one usable pair every
-# run gets it, and with none there is nothing to bind. The automatic rule sends
-# every unmatched task to the *first* pair, so this is where a session with a
-# re-shot fieldmap gets corrected.
+# The automatic rule sends every task whose name doesn't match a group to the
+# *first* complete pair — there is no temporal-proximity logic — so this is where
+# a session with a re-shot fieldmap gets corrected. "none" opts a run out of
+# distortion correction entirely.
 project_fmap_rules = fmap_rules_from_config(config)
 complete_groups = [g for g, d in fieldmaps.groups.items() if "ap" in d and "pa" in d]
 session_fmap_rules = project_fmap_rules
 
-if edited_mapping and len(complete_groups) > 1:
+# Every task, not just the ones with a binding: a project rule this session can't
+# honor must be fixable *here*, and it wouldn't be if the row were missing.
+bold_tasks = list(
+    dict.fromkeys(sanitize_task_label(e.task) for e in edited_mapping if e.role == "bold")
+)
+
+if bold_tasks and (complete_groups or project_fmap_rules):
     st.subheader("Fieldmap Binding")
-    st.markdown(
-        "This session has **more than one usable fieldmap pair**, so which pair "
-        "corrects which run is a real choice. duckbrain has no temporal-proximity "
-        "logic — unless a task's name matches a group's, it defaults to the first "
-        "pair. Set it explicitly below."
-    )
+    if len(complete_groups) > 1:
+        st.markdown(
+            "This session has **more than one usable fieldmap pair**, so which "
+            "pair corrects which run is a real choice — and unless a task's name "
+            "matches a group's, it defaults to the first pair. Set it below."
+        )
+    elif complete_groups:
+        st.markdown(
+            "One usable fieldmap pair, so every run gets it. Set a run to "
+            "**none** to leave it without distortion correction."
+        )
+    else:
+        st.markdown(
+            "**No usable fieldmap pair in this session.** A project binding that "
+            "names a group can't be honored here — set those runs to **none** to "
+            "convert them without distortion correction."
+        )
 
     try:
         resolved = resolve_fmap_assignments(edited_mapping, fieldmaps, project_fmap_rules)
@@ -328,16 +344,18 @@ if edited_mapping and len(complete_groups) > 1:
         st.error(f"{exc}")
         resolved = resolve_fmap_assignments(edited_mapping, fieldmaps, None)
 
-    bound = {r.task for r in project_fmap_rules}
+    bound = {sanitize_task_label(r.task) for r in project_fmap_rules}
     binding_df = st.data_editor(
         pd.DataFrame(
             [
                 {
                     "task": task,
-                    "fieldmap group": group,
+                    # A task with nothing to bind to reads as "none" — which is
+                    # exactly what gets written for it either way.
+                    "fieldmap group": resolved.get(task, "none"),
                     "source": "project rule" if task in bound else "automatic",
                 }
-                for task, group in sorted(resolved.items())
+                for task in bold_tasks
             ]
         ),
         width="stretch",
@@ -346,10 +364,11 @@ if edited_mapping and len(complete_groups) > 1:
         column_config={
             "fieldmap group": st.column_config.SelectboxColumn(
                 "fieldmap group",
-                options=complete_groups,
+                options=[*complete_groups, "none"],
                 required=True,
                 help="Only pairs holding both AP and PA are offered — a half pair "
-                "would give fMRIPrep a correction it cannot run.",
+                "would give fMRIPrep a correction it cannot run. 'none' writes no "
+                "B0FieldIdentifier, so the run is preprocessed uncorrected.",
             )
         },
         key="fmap_binding_editor",
@@ -375,15 +394,11 @@ if edited_mapping and len(complete_groups) > 1:
             save_project_fmap_map(project_dir, session_fmap_rules)
             st.success(
                 f"Saved {len(session_fmap_rules)} fieldmap binding(s) as the "
-                f"project default in `{project_dir}/code/duckbrain.toml`. Group "
-                "names must exist in every session — a session missing one will "
-                "fail loudly rather than silently use a different pair."
+                f"project default in `{project_dir}/code/duckbrain.toml`. A group "
+                "named here must exist in every session — one that's missing it "
+                "fails loudly rather than silently using a different pair. Use "
+                "`none` for a task that shouldn't be distortion-corrected."
             )
-elif project_fmap_rules:
-    st.caption(
-        f"↪ {len(project_fmap_rules)} project-wide fieldmap binding(s) on file; "
-        "this session has fewer than two usable pairs, so there's nothing to choose."
-    )
 
 # ---- Auto-generate dcm2bids config ----
 st.subheader("dcm2bids Configuration")

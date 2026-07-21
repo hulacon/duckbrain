@@ -32,7 +32,14 @@ over that heuristic — the same explicit-beats-inferred stance the ReproIn enti
 handling takes. A rule naming a group this session lacks, or one missing a
 direction, **raises**: a project-wide binding that silently fell back to a
 different pair would hand fMRIPrep a distortion correction the user didn't ask
-for, or one it cannot run.
+for, or one it cannot run. That holds when a session collected *no* fieldmaps at
+all, which is the case a "were any detected" guard would quietly skip.
+
+The reserved group ``"none"`` binds a task to no fieldmap, so a run that
+shouldn't be distortion-corrected — or a session whose fieldmaps weren't
+collected — is stated rather than inferred from an absence. Sessions with no
+fieldmaps and no binding are unaffected: no ``B0FieldIdentifier`` is written, no
+``fmap`` descriptions are emitted, and fMRIPrep simply runs without SDC.
 """
 
 from __future__ import annotations
@@ -88,6 +95,12 @@ class TaskRule:
     task: str
 
 
+# The group value that opts a task out of distortion correction. It has to be a
+# real word rather than the empty string: "" is already a *legitimate* group key
+# (the session with one unnamed pair), so it can't double as "no fieldmap".
+_NO_FMAP = "none"
+
+
 @dataclass
 class FmapRule:
     """A project-wide binding of a task label to a fieldmap group.
@@ -103,6 +116,13 @@ class FmapRule:
     Conversion page lists under Fieldmap Detection). Group keys are stable for a
     study for the same reason task rules are: the protocol, and therefore the
     SeriesDescriptions the keys derive from, repeat across subjects.
+
+    The reserved value ``"none"`` means *this task gets no distortion
+    correction* — no ``B0FieldIdentifier`` is written, which is the right answer
+    for a run whose fieldmaps weren't collected or shouldn't be applied. It is
+    the one group value that is always satisfiable, so it is also how a project
+    keeps a binding honest for sessions that legitimately lack fieldmaps rather
+    than deleting the rule.
     """
 
     task: str
@@ -348,14 +368,17 @@ def generate_config(
             },
         }
 
-        # Assign B0FieldIdentifier if fieldmaps detected
-        if fieldmaps.strategy != "none" and fieldmaps.groups:
-            fmap_group = _assign_fmap_group(
-                task, fieldmaps, fmap_group_assignments, fmap_rule_lookup
-            )
-            if fmap_group is not None:
-                group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
-                desc["sidecar_changes"]["B0FieldIdentifier"] = group_id
+        # Assign B0FieldIdentifier. Called unconditionally rather than behind a
+        # "were any fieldmaps detected" guard: with none detected it returns None
+        # and nothing is written (unchanged), but a project binding that names a
+        # group still gets to fail instead of being skipped along with everything
+        # else. That guard is what let an unhonorable rule pass silently.
+        fmap_group = _assign_fmap_group(
+            task, fieldmaps, fmap_group_assignments, fmap_rule_lookup
+        )
+        if fmap_group is not None:
+            group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
+            desc["sidecar_changes"]["B0FieldIdentifier"] = group_id
 
         descriptions.append(desc)
 
@@ -417,9 +440,11 @@ def resolve_fmap_assignments(
     intended. Runs the same bold-only, sanitized-label loop against the same
     assignment function, so it cannot drift from what is actually written — and
     it raises on an unsatisfiable rule for the same reason.
+
+    A task bound to ``"none"`` is reported as such rather than omitted: opting a
+    run out of distortion correction is a decision worth seeing in the table, not
+    an absence. Tasks with no binding and no fieldmaps to assign are absent.
     """
-    if fieldmaps.strategy == "none" or not fieldmaps.groups:
-        return {}
     assignments: dict[str, str] = {}
     lookup = _fmap_rule_lookup(fmap_rules)
     for entry in mapping:
@@ -552,19 +577,29 @@ def _assign_fmap_group(
     exists to prevent.
     """
     if task in assignments:
-        return assignments[task]
+        group = assignments[task]
+        return None if group == _NO_FMAP else group
 
     complete = [g for g, dirs in fieldmaps.groups.items() if "ap" in dirs and "pa" in dirs]
-    groups = complete or list(fieldmaps.groups.keys())
-    if not groups:
-        return None
 
     # An explicit binding wins outright, and is matched exactly rather than by
-    # prefix — the heuristic below infers, a rule states.
+    # prefix — the heuristic below infers, a rule states. This is checked *before
+    # the no-groups early return* on purpose: a session that collected no
+    # fieldmaps at all must still fail a binding it cannot honor, exactly as a
+    # session that collected the wrong ones does. Skipping it there was a silent
+    # degradation — the project said which pair to use and got none, quietly.
     wanted = (rules or {}).get(task.lower())
     if wanted is not None:
+        # ``none`` opts a task out of distortion correction entirely. A real
+        # group could in principle be keyed "none" (from a series named
+        # ``se_epi_ap_none``); if one is, the actual data wins over the sentinel.
+        if wanted.lower() == _NO_FMAP and _NO_FMAP not in fieldmaps.groups:
+            assignments[task] = _NO_FMAP
+            return None
         if wanted not in complete:
-            known = ", ".join(sorted(fieldmaps.groups)) or "none"
+            # Not the bare word "none" — that is the opt-out sentinel, and
+            # "Groups detected here: none" would read as naming it.
+            known = ", ".join(sorted(fieldmaps.groups)) or "(no fieldmaps in this session)"
             reason = (
                 f"holds only one phase-encoding direction "
                 f"({', '.join(sorted(fieldmaps.groups[wanted])).upper()})"
@@ -574,11 +609,16 @@ def _assign_fmap_group(
             raise ValueError(
                 f"[fmap_mapping] binds task '{task}' to fieldmap group "
                 f"'{wanted}', but that group {reason}. Groups detected here: "
-                f"{known}. Fix the rule in the project config, or drop it to "
-                f"fall back to automatic assignment."
+                f"{known}. Fix the rule in the project config, set the group to "
+                f"'{_NO_FMAP}' if this task shouldn't be distortion-corrected, or "
+                f"drop the rule to fall back to automatic assignment."
             )
         assignments[task] = wanted
         return wanted
+
+    groups = complete or list(fieldmaps.groups.keys())
+    if not groups:
+        return None
 
     # Try matching by name. A group reacquired within one session is keyed
     # "<name>-2", "<name>-3", … so match on the base name; the first pair wins,
