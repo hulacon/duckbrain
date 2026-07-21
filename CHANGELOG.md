@@ -32,6 +32,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   Colour is always paired with the group's label — never the only channel.
 
 ### Fixed
+- **`use_sessions` accepts both a TOML boolean and the GUI's string form.** A
+  project config carrying `use_sessions = true` (which is what a hand-written one
+  naturally has) crashed the whole Project Setup page with
+  `ValueError: 'True' is not in list`. Worse and quieter: `bool("false")` is
+  `True` in Python, so a project that turned the `ses-` entity **off** through the
+  Setup page got session entities anyway — the option did the opposite of what it
+  said. Both forms now normalize in one place in core
+  (`ingestion.normalize_use_sessions`), and a value duckbrain doesn't recognize
+  falls back to `auto` *and says so* on the Setup page instead of being swallowed.
 - **The dcm2bids JSON editor no longer silently overrides the tables.** The text
   area held its own widget state, so once you typed in it the Task/Run Mapping and
   Fieldmap Binding tables stopped reconciling and nothing said which of the two

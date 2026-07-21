@@ -121,12 +121,29 @@ st.code(
 st.header("Project settings")
 st.caption(f"Saved to `{project_config_path(active_project)}`")
 project_name = st.text_input("Project name", value=_get("project", "name"))
+# A hand-written config may hold the TOML boolean `use_sessions = true` rather
+# than the string this selectbox writes; both are legitimate, so normalize before
+# looking up the index. Indexing the raw value crashed the whole page.
+from duckbrain.core.ingestion import USE_SESSIONS_CHOICES, normalize_use_sessions
+
+_stored_use_sessions = _get("project", "use_sessions", "auto")
+_use_sessions_default = normalize_use_sessions(_stored_use_sessions)
 use_sessions = st.selectbox(
     "Use BIDS session entity (ses-)",
-    options=["auto", "true", "false"],
-    index=["auto", "true", "false"].index(_get("project", "use_sessions", "auto")),
+    options=list(USE_SESSIONS_CHOICES),
+    index=USE_SESSIONS_CHOICES.index(_use_sessions_default),
     help="auto = include ses- only when a subject has more than one session",
 )
+if _stored_use_sessions not in ("", None) and _use_sessions_default == "auto" and (
+    str(_stored_use_sessions).strip().lower() != "auto"
+):
+    # Don't silently swallow a value nobody can act on — a typo here decides
+    # whether the dataset gets ses- entities at all.
+    st.warning(
+        f"`use_sessions = {_stored_use_sessions!r}` in the project config isn't a "
+        "value duckbrain recognizes, so **auto** is being used. Save below to "
+        "replace it."
+    )
 
 st.subheader("LCNI DICOM source")
 # Legacy configs used base_dir/group/project; if one is present, seed from it.

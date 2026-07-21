@@ -361,6 +361,43 @@ def ingest_session(
     return target
 
 
+USE_SESSIONS_CHOICES = ("auto", "true", "false")
+
+_TRUTHY = frozenset({"true", "yes", "on", "1"})
+_FALSY = frozenset({"false", "no", "off", "0"})
+
+
+def normalize_use_sessions(value: str | bool | None) -> str:
+    """Reduce a ``use_sessions`` config value to ``"auto"``/``"true"``/``"false"``.
+
+    The setting arrives in two shapes and both are legitimate, which is what made
+    it fragile. TOML's ``use_sessions = true`` loads as a Python ``True``, while
+    the Setup page's selectbox writes the *string* ``"true"``/``"false"`` — so
+    every consumer had to handle both, and none of them did:
+
+    - ``["auto", "true", "false"].index(True)`` raised ``ValueError`` and took
+      down the Setup page for any project whose config used a real TOML boolean.
+    - Worse, ``bool("false")`` is ``True``. A project that turned sessions *off*
+      through the GUI got ``ses-`` entities anyway — the option quietly did the
+      opposite of what it said, which is the failure mode ``CLAUDE.md`` singles
+      out as worse than an error.
+
+    Normalizing in one place, in core, is what keeps the GUI's option list and
+    the ingestion behaviour from disagreeing again. Anything unrecognized falls
+    back to ``"auto"``, the safe default that inspects the data rather than
+    asserting an answer; callers that can show it (the Setup page) surface that
+    fallback rather than swallowing it.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value or "").strip().lower()
+    if text in _TRUTHY:
+        return "true"
+    if text in _FALSY:
+        return "false"
+    return "auto"
+
+
 def auto_number_sessions(
     sessions: list[SessionInfo], use_sessions: str | bool = "auto"
 ) -> list[BidsMapping]:
@@ -374,10 +411,13 @@ def auto_number_sessions(
     ----------
     sessions : list[SessionInfo]
         Discovered sessions (should already be sorted by date).
-    use_sessions : {"auto", True, False}
+    use_sessions : {"auto", True, False, "true", "false"}
         Whether to emit the ses- entity. ``"auto"`` (default) includes it only
         when some subject has more than one session; otherwise the study is
         single-session and ``bids_session`` is left ``""`` (no ses- entity).
+        Accepts either the TOML boolean or the GUI's string form — see
+        :func:`normalize_use_sessions`, which is why this must not test the raw
+        value for truthiness.
 
     Returns
     -------
@@ -391,10 +431,11 @@ def auto_number_sessions(
     for s in sessions:
         by_subject[s.parsed_subject].append(s)
 
-    if use_sessions == "auto":
+    mode = normalize_use_sessions(use_sessions)
+    if mode == "auto":
         include = any(len(v) > 1 for v in by_subject.values())
     else:
-        include = bool(use_sessions)
+        include = mode == "true"
 
     mappings = []
     for subject, sess_list in by_subject.items():
