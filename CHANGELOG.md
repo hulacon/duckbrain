@@ -10,6 +10,34 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+- **Conversion Plan — the Conversion page now shows what it will produce.** It
+  asked you to approve a transformation while showing only its *inputs*; the
+  predicted BIDS filenames existed nowhere except as `custom_entities` fragments
+  inside the generated JSON, so reviewing a mapping meant simulating the config
+  generator in your head. A new section renders the other half: every series with
+  the file it becomes (or an explicit **— not converted**), a **preflight** panel
+  above it, and a **which pair corrects which run** view that reads the fieldmap
+  relation the direction users actually ask about. The plan is derived from the
+  generated config dict — the same one dcm2bids consumes, hand edits included — so
+  it cannot drift from what actually runs.
+- **Preflight checks before submitting a conversion** (`core.conversion_plan`):
+  two series resolving to the same filename (an **error** — dcm2bids writes one
+  and loses the other), a fieldmap group holding one phase-encoding direction, a
+  series no description claims (an unmatched anat used to vanish silently and
+  looked exactly like a dropped scout), and bolds that will be written without
+  distortion correction while a usable pair exists. Reports, never repairs.
+- **Stable colour tokens per fieldmap pair**, shared across every surface on the
+  page, so the series↔pair↔task join is done by eye instead of working memory.
+  Colour is always paired with the group's label — never the only channel.
+
+### Fixed
+- **The dcm2bids JSON editor no longer silently overrides the tables.** The text
+  area held its own widget state, so once you typed in it the Task/Run Mapping and
+  Fieldmap Binding tables stopped reconciling and nothing said which of the two
+  would be submitted — despite the page declaring the tables the source of truth.
+  Hand-editing is now an explicit, labelled opt-in with a revert.
+
 ## [0.2.0] — 2026-07-21
 
 ### Added

@@ -171,17 +171,40 @@ if _reproin_count:
     )
 
 # ---- Fieldmap Detection ----
+# Each group gets a colour here and keeps it everywhere else on the page (the
+# plan table, the grouped relation view). That shared colour is the whole point:
+# which pair corrects which run is a *relation* spanning three surfaces, and one
+# stable token per group is what lets the eye join them. See TODO #13.
+from duckbrain.gui.components import fmap_badge, fmap_swatches, fmap_token
+
 fieldmaps = detect_fieldmaps(series_list)
+fmap_colors = fmap_swatches(fieldmaps.groups)
+
 st.subheader("Fieldmap Detection")
 if fieldmaps.strategy == "none":
-    st.info("No fieldmaps detected.")
+    st.info(
+        "No fieldmaps detected — every run will convert without distortion "
+        "correction."
+    )
 else:
-    st.success(f"Strategy: **{fieldmaps.strategy}**")
+    st.caption(
+        f"Detected by **{fieldmaps.strategy}**. These colours identify each pair "
+        "everywhere else on this page."
+    )
     for group_name, dirs in fieldmaps.groups.items():
-        label = group_name if group_name else "(unnamed)"
-        ap = dirs.get("ap", "—")
-        pa = dirs.get("pa", "—")
-        st.markdown(f"- Group **{label}**: AP=Series {ap}, PA=Series {pa}")
+        ap, pa = dirs.get("ap"), dirs.get("pa")
+        detail = (
+            f"AP = Series {ap if ap is not None else '—'} &nbsp;·&nbsp; "
+            f"PA = Series {pa if pa is not None else '—'}"
+        )
+        if ap is not None and pa is not None:
+            st.markdown(f"{fmap_badge(group_name, fmap_colors)} &nbsp; {detail}")
+        else:
+            st.markdown(
+                f"{fmap_badge(group_name, fmap_colors)} &nbsp; {detail} &nbsp; "
+                "⚠️ **incomplete** — a pair needs both directions, so this one "
+                "can't correct anything and isn't offered below."
+            )
 
 if fieldmaps.warnings:
     with st.expander("Fieldmap warnings"):
@@ -373,6 +396,15 @@ if bold_tasks and (complete_groups or project_fmap_rules):
         },
         key="fmap_binding_editor",
     )
+    # Said out loud because the plan below lists individual runs under each pair,
+    # which could read as a per-run choice. It isn't: the binding is keyed on the
+    # task label, so every run of a task gets the same pair. Settling that
+    # granularity is TODO #13's blocker (it changes the [fmap_mapping] schema).
+    st.caption(
+        "Binding is per **task**, so every run of a task gets the same pair. A "
+        "session where a pair was re-shot midway — later runs wanting the second "
+        "pair — can't be expressed here yet; see TODO #13."
+    )
     session_fmap_rules = [
         FmapRule(task=str(row["task"]), group=str(row["fieldmap group"]))
         for _, row in binding_df.iterrows()
@@ -401,8 +433,6 @@ if bold_tasks and (complete_groups or project_fmap_rules):
             )
 
 # ---- Auto-generate dcm2bids config ----
-st.subheader("dcm2bids Configuration")
-
 try:
     auto_config = generate_config(
         series_list,
@@ -419,21 +449,163 @@ except ValueError as exc:
     st.stop()
 auto_json = config_to_json(auto_config)
 
-st.markdown("Review and edit the auto-generated dcm2bids config below:")
-edited_json = st.text_area(
-    "dcm2bids config JSON",
-    value=auto_json,
-    height=400,
-    key="dcm2bids_config_editor",
-)
+# ---- Advanced: hand-edit the JSON ----
+# Behind an explicit opt-in, because the text area keeps its *own* widget state:
+# left always-on, it silently stopped tracking the tables above the moment anyone
+# typed in it, and nothing on the page said which of the two would be submitted.
+# That is the silently-degrading behavior CLAUDE.md forbids, so the override is
+# now stated, visible, and revertible.
+with st.expander("⚙️ Advanced — edit the dcm2bids config JSON by hand"):
+    override_json = st.checkbox(
+        "Edit the JSON directly instead of using the tables above",
+        value=False,
+        key="dcm2bids_json_override",
+        help="While this is off, the config is regenerated from the Task/Run "
+        "Mapping and Fieldmap Binding tables on every change. Turn it on to "
+        "hand-edit; the tables then stop driving the config until you turn it "
+        "back off or revert.",
+    )
+    if override_json:
+        st.warning(
+            "**The tables above no longer drive the config.** Your edits below "
+            "are what gets submitted."
+        )
+        edited_json = st.text_area(
+            "dcm2bids config JSON", value=auto_json, height=400,
+            key="dcm2bids_config_editor",
+        )
+        if edited_json.strip() != auto_json.strip():
+            st.caption("✏️ Edited — this differs from what the tables would generate.")
+            if st.button("↺ Revert to the generated config", key="revert_json"):
+                st.session_state.pop("dcm2bids_config_editor", None)
+                st.rerun()
+    else:
+        edited_json = auto_json
+        st.caption(
+            "Generated from the tables above. Read-only while the override is off."
+        )
+        st.code(auto_json, language="json")
 
 # Validate JSON
 try:
     parsed_config = json.loads(edited_json)
-    st.success(f"{len(parsed_config.get('descriptions', []))} descriptions defined")
 except json.JSONDecodeError as e:
     st.error(f"Invalid JSON: {e}")
     parsed_config = None
+
+# ---- Conversion Plan: what this config will actually produce ----
+# The page used to show only the *inputs* and ask the user to approve a
+# transformation, leaving them to simulate generate_config() in their head. This
+# renders the other half. It is derived from parsed_config — the same dict
+# dcm2bids consumes — so it cannot drift from what actually runs, and it reflects
+# a hand-edited override too. See docs/conversion-legibility.md (TODO #13).
+if parsed_config is not None:
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+
+    st.subheader("Conversion Plan")
+
+    plan = plan_conversion(
+        parsed_config, series_list, subject=subject, session=session
+    )
+    findings = plan_warnings(plan, fieldmaps)
+    blocking = [w for w in findings if w.severity == "error"]
+    suspect = [w for w in findings if w.severity == "warning"]
+    notes = [w for w in findings if w.severity == "info"]
+
+    # --- Preflight. Deliberately above the tables: this is the part that helps a
+    # user who doesn't yet know what to scan for, which is most of them.
+    for w in blocking:
+        st.error(w.message)
+    for w in suspect:
+        st.warning(w.message)
+    if not blocking and not suspect:
+        st.success(
+            f"{len(plan.files)} file(s) will be written, nothing collides, and "
+            "every series is accounted for."
+        )
+    for w in notes:
+        st.caption(f"ℹ️ {w.message}")
+
+    # --- Per-series outcome. Every series appears, including the ones nothing
+    # claims — a dropped series is invisible in a table built from the plan alone.
+    planned_by_series = plan.by_series
+    plan_rows = []
+    for s in series_list:
+        produced = planned_by_series.get(s.series_number, [])
+        if not produced:
+            plan_rows.append(
+                {
+                    "Series #": s.series_number,
+                    "Description": s.description,
+                    "Type": s.classification,
+                    "becomes": "— not converted",
+                    "fieldmap": "",
+                }
+            )
+            continue
+        for f in produced:
+            if f.fmap_group is not None:
+                token = fmap_token(f.fmap_group, fmap_colors)
+            elif f.is_bold:
+                token = fmap_token(None, fmap_colors)
+            else:
+                token = ""
+            plan_rows.append(
+                {
+                    "Series #": s.series_number,
+                    "Description": s.description,
+                    "Type": f.datatype,
+                    "becomes": f.filename,
+                    "fieldmap": token,
+                }
+            )
+
+    st.dataframe(
+        pd.DataFrame(plan_rows),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "becomes": st.column_config.TextColumn(
+                "becomes",
+                help="The BIDS file dcm2bids will write for this series.",
+                width="large",
+            ),
+            "fieldmap": st.column_config.TextColumn(
+                "fieldmap",
+                help="The pair that will correct this run (bolds), or the pair "
+                "this file belongs to (fieldmaps).",
+            ),
+        },
+    )
+
+    # --- The relation, read the other way round: pair → the runs it corrects.
+    # A table can only show one direction of an edge; this is the direction the
+    # user actually asks about, and it was previously nowhere on the page.
+    if fieldmaps.groups:
+        st.markdown("**Which pair corrects which run**")
+        for group_name, dirs in fieldmaps.groups.items():
+            bound = plan.bolds_for_group(group_name)
+            ap, pa = dirs.get("ap"), dirs.get("pa")
+            with st.container(border=True):
+                st.markdown(
+                    f"{fmap_badge(group_name, fmap_colors)} &nbsp; "
+                    f"AP = Series {ap if ap is not None else '—'} &nbsp;·&nbsp; "
+                    f"PA = Series {pa if pa is not None else '—'}"
+                )
+                if bound:
+                    for f in bound:
+                        st.markdown(f"&nbsp;&nbsp;↳ `{f.filename}`")
+                elif ap is None or pa is None:
+                    st.caption("Incomplete pair — corrects nothing.")
+                else:
+                    st.caption("No runs bound to this pair.")
+
+        unbound = [f for f in plan.files if f.is_bold and f.fmap_group is None]
+        if unbound:
+            with st.container(border=True):
+                st.markdown(f"{fmap_badge(None, fmap_colors)} &nbsp; no distortion correction")
+                for f in unbound:
+                    st.markdown(f"&nbsp;&nbsp;↳ `{f.filename}`")
 
 # ---- Save config / Convert / Export ----
 st.divider()

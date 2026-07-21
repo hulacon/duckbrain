@@ -244,3 +244,62 @@ def load_config_or_warn():
     except Exception as e:
         st.error(f"Error loading config: {e}")
         st.stop()
+
+
+# --- Fieldmap group colour tokens -------------------------------------------
+# Which fieldmap pair corrects which run is a *relation*, and it is read across
+# three surfaces on the Conversion page (the series table, the group list, the
+# binding editor). Giving each group one stable colour across all of them is what
+# lets the eye do that join instead of working memory. See TODO #13 /
+# docs/conversion-legibility.md.
+#
+# The colour is always paired with the group's label, never used alone: roughly
+# 1 in 12 men has some colour vision deficiency, and a binding perceivable only
+# as a hue is a binding some users cannot perceive. The emoji also survives
+# `st.dataframe`, which renders cells as plain text — no markdown, no styling.
+_FMAP_SWATCHES = [
+    ("🔵", "blue"),
+    ("🟢", "green"),
+    ("🟠", "orange"),
+    ("🟣", "violet"),
+    ("🔴", "red"),
+]
+_NO_FMAP_SWATCH = ("⚪", "gray")
+
+
+def fmap_label(group: str | None) -> str:
+    """Human label for a fieldmap group key.
+
+    The empty string is a real group key — the session with a single unnamed
+    pair — so it needs a name of its own rather than reading as missing.
+    """
+    if group is None:
+        return "no fieldmap"
+    return group if group else "(unnamed)"
+
+
+def fmap_swatches(groups) -> dict[str, tuple[str, str]]:
+    """Assign each group an ``(emoji, badge_colour)`` pair, stable by order.
+
+    Order is the caller's iteration order over the detected groups, which is
+    acquisition order — so the first pair shot is always the first colour, for
+    every subject in a study.
+    """
+    return {
+        group: _FMAP_SWATCHES[i % len(_FMAP_SWATCHES)]
+        for i, group in enumerate(groups)
+    }
+
+
+def fmap_token(group: str | None, swatches: dict[str, tuple[str, str]]) -> str:
+    """Plain-text ``🔵 encoding`` token — safe inside a dataframe cell."""
+    emoji, _ = swatches.get(group, _NO_FMAP_SWATCH) if group is not None else _NO_FMAP_SWATCH
+    return f"{emoji} {fmap_label(group)}"
+
+
+def fmap_badge(group: str | None, swatches: dict[str, tuple[str, str]]) -> str:
+    """Markdown badge for the same group — for use outside dataframes."""
+    emoji, colour = (
+        swatches.get(group, _NO_FMAP_SWATCH) if group is not None else _NO_FMAP_SWATCH
+    )
+    return f":{colour}-badge[{emoji} {fmap_label(group)}]"

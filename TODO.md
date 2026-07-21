@@ -12,6 +12,47 @@ the ledger so an old reference still resolves.
 
 ---
 
+## #13 — Conversion legibility: show the outcome, not just the input
+
+**Phases 1–5 SHIPPED 2026-07-21; the granularity blocker below is what's left.**
+Full design in **`docs/conversion-legibility.md`**.
+
+The Conversion page asks the user to approve a transformation but shows only its
+*inputs* — the predicted BIDS filenames appear nowhere except as `custom_entities`
+buried in the JSON text area, so reviewing a mapping means simulating
+`generate_config()` in your head. The fieldmap binding compounds it: which pair
+corrects which run is a *relation*, and it is currently answered jointly by three
+surfaces in three different namespaces (series numbers, group names, task labels)
+that never reference each other.
+
+- ✅ **Phases 1–5 done** — `core/conversion_plan.py` (plan + preflight), the
+  Conversion Plan section, the grouped "which pair corrects which run" view, and
+  the JSON-override fix. Phase 5 was a genuine bug, not polish: the JSON text area
+  holds its own widget state, so after you typed in it, table edits silently
+  stopped reconciling — the pattern `CLAUDE.md` forbids. Hand-editing is now an
+  explicit opt-in with a revert.
+- **UNVALIDATED in the browser.** Covered by unit + AppTest tests, but nobody has
+  looked at it in the running GUI. The colour tokens in particular are only
+  asserted as *strings*; whether the board reads well on a real session (and in
+  the dark theme) is an eyeball question. Do that on `divatten_gui_beta` or
+  `mmm_fmap_check` — the latter has the two-pair case the view exists for.
+- **The anti-drift rule this hangs on:** the preview is derived **from the
+  generated config dict**, never re-derived from the series list. Same stance
+  `resolve_fmap_assignments` already takes, and for the same reason.
+- **Drag-and-drop was considered and rejected** — reasoning recorded in the doc so
+  it isn't re-proposed. Short version: bindings must persist across 37 subjects,
+  which is what `[fmap_mapping]` already is; a gesture is per-session and would
+  have to be re-expressed as that rule anyway.
+- 🔴 **Blocking Phase 4 — binding granularity is a real modeling gap, not
+  presentation.** `FmapRule` is keyed on task label, so two runs of one task
+  cannot bind to different fieldmaps — which is the `mmm_fmap_check` case (pair
+  reshot mid-session). Deferred here because it changes a **persisted config
+  schema** (`[fmap_mapping]` would need an optional `run`, and existing project
+  configs must keep loading) and because there's an open choice: per-run binding,
+  infer from acquisition time, or both. Ties directly to `#5`'s "no
+  temporal-proximity logic" edge — that entry says the explicit binding covers the
+  case, and this is the case it *can't* express.
+
 ## #2 — Onboarding for external users
 
 **The writing is done; the dogfooding and the distribution story are open. Do not
@@ -161,7 +202,9 @@ problem,** and the line is drawn here on purpose:
   of saying so once per study. Inferring it from timestamps stays a candidate
   refinement, and the explicit binding is now the thing to measure it against.
   A rule naming a group a session lacks **raises**; see the silently-degrading
-  rule in `CLAUDE.md`.
+  rule in `CLAUDE.md`. **The binding is keyed on the task label, so it cannot
+  express "run 2 used the second pair"** — that granularity gap is written up as
+  the blocker on `#13`, which is where it gets settled.
 - **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
   becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
   alone on purpose: renaming it would change the `B0FieldIdentifier` of

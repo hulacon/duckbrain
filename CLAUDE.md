@@ -171,7 +171,8 @@ Key behaviors to know when editing the app:
 ## Start here next session
 
 **Read `TODO.md`** — it's ordered by priority and its top item is the next thing
-to do (currently `#2`, onboarding). Item ids there (`#2`, `#5b`, …) are stable
+to do (currently `#13`, conversion legibility — design in
+`docs/conversion-legibility.md`). Item ids there (`#2`, `#5b`, …) are stable
 names referenced from this file, `docs/`, and source comments, so they never get
 renumbered; a closed id keeps its line in the ledger so old references resolve.
 
