@@ -96,7 +96,7 @@ dogfooding. See `TODO.md` for what's open.
 - **BIDS projects:** `/projects/hulacon/bhutch/divatten` (sub-001 done),
   `/projects/hulacon/bhutch/divatten_gui_beta` (GUI dogfooding; `use_nordic` is
   currently **false** here), and `/projects/hulacon/bhutch/mmm_fmap_check`
-  (multi-fieldmap-pair conversion, TODO `#4`).
+  (two-fieldmap-pair conversion, the `#4` validation).
 
 ## Environment / setup
 
@@ -167,8 +167,9 @@ Key behaviors to know when editing the app:
 ## Start here next session
 
 **Read `TODO.md`** — it's ordered by priority and its top item is the next thing
-to do. Item ids there (`#4`, `#5b`, …) are stable names referenced from this file,
-`docs/`, and source comments, so they never get renumbered.
+to do (currently `#2`, onboarding). Item ids there (`#2`, `#5b`, …) are stable
+names referenced from this file, `docs/`, and source comments, so they never get
+renumbered; a closed id keeps its line in the ledger so old references resolve.
 
 `docs/handoff-cluster-session.md` is **fully discharged** as of 2026-07-21 — keep
 it as the record of what was asked and how each hypothesis resolved, but don't

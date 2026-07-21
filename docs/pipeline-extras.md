@@ -183,10 +183,17 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
 - **Role / placement:** **upstream, at the ingestion/naming front-end** — orthogonal
   to fMRIPrep entirely.
 - **fMRIPrep interaction:** none; this is about getting *into* BIDS cleanly.
-- **Ties to:** TODO #4 (naming/discovery robustness) and the LCNI naming survey.
-  duckbrain currently uses dcm2bids + its own discovery; ReproIn is a
-  convention-first (heudiconv heuristic) alternative.
+- **Ties to:** TODO #5's standing rule on messy source labeling, and the LCNI
+  naming survey. duckbrain currently uses dcm2bids + its own discovery; ReproIn is
+  a convention-first (heudiconv heuristic) alternative.
+- **This item got more interesting after the `#4` validation (2026-07-21).** Real
+  exports are labeled inconsistently enough (`MMM03_sess04CR`, `MMM_15_sess3.2`,
+  one `sess04` meaning two sessions) that the answer landed on *fix it at the
+  console, don't parse around it*. ReproIn is precisely that fix, so the framing
+  shifts: it is less "should we adopt heudiconv heuristics" and more "is a naming
+  convention what we recommend to LCNI users so this class of problem stops
+  arriving".
 - **Open questions:** adopt ReproIn heuristics internally vs. *recommend* the naming
   convention to LCNI users (so their exports are BIDS-ready)? Interaction with
-  duckbrain's existing dcm2bids-based ingestion; is retrofitting worth it vs. just
-  hardening our own discovery (TODO #4)?
+  duckbrain's existing dcm2bids-based ingestion; is retrofitting worth it vs.
+  leaving discovery as-is and pushing the convention upstream?

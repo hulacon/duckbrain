@@ -21,7 +21,9 @@ class SessionInfo:
     series_list: list[str] = field(default_factory=list)
     # Human-readable caveats about this row — an unreadable folder, or a parse
     # the heuristics don't trust. Surfaced in the ingestion table so a bad guess
-    # is visible rather than silently accepted (see TODO #4).
+    # is visible rather than silently accepted. This is the whole accommodation
+    # messy source labeling gets — surface it and let the user override; don't
+    # grow a parser branch per malformed folder (TODO #5).
     notes: str = ""
     # Name of the grouping folder this session was found under, for sources that
     # group sessions by protocol one level down (mmmdata's ``func_session_*/``).

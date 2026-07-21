@@ -4,7 +4,8 @@
 > 2026-07-16; §2, §3 and the deferred nested-multi-session item were all
 > validated live on 2026-07-21 and their bugs fixed on `main`. What was learned
 > is in `memory/validation-discovery-and-fieldmaps`; the accepted residuals are
-> the "#4 residuals" section of `TODO.md`. **The sections below are kept as the
+> the "accepted edges" of `#5` in `TODO.md`, along with the standing rule on how
+> much messy source labeling duckbrain accommodates. **The sections below are kept as the
 > record of what was asked and what the answers turned out to be — read the
 > §2/§3 notes for how each hypothesis actually resolved, not as work to do.**
 > The next on-cluster session should start from `TODO.md`, not from here.

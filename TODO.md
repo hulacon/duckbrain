@@ -12,25 +12,6 @@ the ledger so an old reference still resolves.
 
 ---
 
-## #4 residuals — one unverifiable path, one deliberate limitation
-
-**The item is CLOSED (2026-07-21)** — validated on real LCNI exports, five bugs
-fixed, `docs/handoff-cluster-session.md` §2/§3 discharged, and the deferred nested
-multi-session sub-item built and validated. Findings in
-`memory/validation-discovery-and-fieldmaps`. These are the accepted edges.
-
-- **`G##_S##` parsing has no real example to test against.** No export on this
-  filesystem uses it — mmmdata is `MMM_003_sess04`. `_GS_SUBJECT_RE`/
-  `_GS_SESSION_RE` stay unit-tested only; **don't record them as live-validated.**
-  Close it for free if an export in that style ever appears.
-- **bold→fmap linking still sends every task to the first *complete* group**
-  (`_assign_fmap_group` has no temporal-proximity logic). Fine for conversion; a
-  candidate refinement, not a bug. Now at least it can't pick a half-group.
-- **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
-  becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
-  alone on purpose: renaming it would change the `B0FieldIdentifier` of
-  already-converted data for no functional gain.
-
 ## #2 — Onboarding for external users
 
 **The writing is done; the dogfooding and the distribution story are open. Do not
@@ -140,7 +121,44 @@ uniformly*, because the redundancy is not evenly spread:
 
 Deliberate deferrals, each fine as-is — listed so they aren't rediscovered as bugs.
 
-- No per-rule temporal-proximity for fieldmap linking (same limitation as #4).
+### The standing rule on messy source labeling: surface it, don't parse it
+
+Validating `#4` against real exports showed how sloppy scanner-console labeling
+gets — `MMM03_sess04CR`, `MMM_15_sess3.2`, `MMM_sub005_sess08`, `MMM_test002`,
+`mmm0_230718`, and a `sess04` that means two different sessions for one subject.
+**That is the experimenter's data-hygiene problem, not duckbrain's parsing
+problem,** and the line is drawn here on purpose:
+
+- **duckbrain accommodates a naming *form*** when it is a form — a regular
+  pattern a study actually uses, e.g. the session-label qualifiers now handled by
+  `_SESSION_TOKEN_RE`. Those are cheap and they prevent the dangerous failure: a
+  real subject silently disappearing.
+- **duckbrain does not chase one-off typos.** A folder the heuristics can't read
+  gets a **Notes** entry in the ingestion table and an editable subject/session
+  cell. Making a bad guess *visible and overridable* is the whole job; growing a
+  parser branch per malformed folder is how the heuristics become unmaintainable
+  and start misreading the well-formed ones.
+- **So the fix for a study like mmmdata is upstream**, in how sessions are named
+  at the console — or in a one-time rename of the export. Don't add rules here to
+  compensate. If a *pattern* emerges (not an instance), that's when it earns code.
+- Corollary worth remembering: parsed session labels are **not unique per
+  subject**, so auto-numbering by date is the reliable path and the parsed labels
+  are a suggestion. See `memory/validation-discovery-and-fieldmaps`.
+
+### Accepted edges
+
+- **`G##_S##` parsing is unit-tested only and stays that way.** No export on this
+  filesystem uses it and it isn't expected to be common, so it is not worth
+  chasing a live example. Just **don't record it as live-validated**; close it for
+  free if such an export ever turns up.
+- **bold→fmap linking sends every task to the first *complete* group** —
+  `_assign_fmap_group` has no temporal-proximity logic, per-rule or otherwise.
+  Fine for conversion; a candidate refinement, not a bug. It can no longer pick a
+  half group (an aborted lone AP).
+- **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
+  becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
+  alone on purpose: renaming it would change the `B0FieldIdentifier` of
+  already-converted data for no functional gain.
 - Task rules are dataset-wide; there's no per-subject *rule* scoping. Per-subject
   *edits* already cover the exception case.
 - `directory_picker` is dirs-only; `fs_license` stays a text field. File-mode
@@ -282,8 +300,8 @@ existing duckbrain/mmmdata work, open questions per item — in
    on the existing surveyor/QC pages.
 5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
    confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
-6. **ReproIn evaluation** — upstream naming convention (ties to #4); adopt
-   internally vs. recommend to LCNI users.
+6. **ReproIn evaluation** — upstream naming convention; the concrete form of #5's
+   "fix labeling at the console" rule. Adopt internally vs. recommend to LCNI users.
 7. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
    actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
    path off raw/minimal data. Low demand, unique requirements.
@@ -335,7 +353,7 @@ the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule in
 
 | Done | Id | Item |
 |---|---|---|
-| 2026-07-21 | #4 | **Discovery + fieldmaps live-validated** on real LCNI exports; five bugs real data found — reacquired *named* fmap pairs silently discarded, qualified session labels adopted as the subject, `PermissionError` on an unreadable folder, bolds linking to a half fmap group, nested sources finding nothing. Two-pair conversion verified end to end |
+| 2026-07-21 | #4 | **Discovery + fieldmaps live-validated** on real LCNI exports — **item fully closed**; five bugs real data found: reacquired *named* fmap pairs silently discarded, qualified session labels adopted as the subject, `PermissionError` on an unreadable folder, bolds linking to a half fmap group, nested sources finding nothing. Two-pair conversion verified end to end. Accepted edges moved to `#5` |
 | 2026-07-21 | #4 | **Nested multi-session sources** (mmmdata's `func_session_*/` protocol folders) — one-level descent, fallback-only so the flat path is untouched; duplicate sub/ses labels flagged. Closes the deferred "#4 item 4" |
 | 2026-07-20 | #9 | **Top nav + recent-projects MRU** — declarative `st.navigation(position="top")`, sidebar freed, project bar with a Switch popover; fixed a relative import that had silently broken the project indicator under `streamlit run` |
 | 2026-07-20 | #0 #1 | **Browser eyeball pass** — dashboard table width reads well at project scale; folder picker fine as-is. Generated `#9` above |
@@ -347,7 +365,7 @@ the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule in
 | 2026-07-16 | ★ | **Provenance recording + consistency checker** — per-run provenance, `GeneratedBy` on every duckbrain-produced dataset, seven checks in the cockpit |
 | 2026-07-16 | #5c | **NORDIC versioning** — toolbox git provenance, MATLAB runtime axis (`container`/`container_source` → `runtime`/`code_source`), `toolbox-drift` / `matlab-drift` / `duckbrain-drift` checks, per-file NORDIC sidecars |
 | 2026-07-16 | #5c | **NORDIC fork/rewrite: decided against** — upstream dormant, licence likely forbids it, a rewrite inherits a permanent validation burden |
-| 2026-07-16 | #4 | **Naming/discovery** — `G##_S##` sessions, phantom/test-folder filtering, multiple-fieldmap-pair splitting (3 of 4; item 4 still open above) |
+| 2026-07-16 | #4 | **Naming/discovery** — `G##_S##` sessions, phantom/test-folder filtering, multiple-fieldmap-pair splitting (built offline; live-validated and corrected 2026-07-21, above) |
 | 2026-07-16 | #5 | **Project-wide task mapping** — define once, inherit, override per-session; rules fix the *task* only, never the run |
 | 2026-07-16 | #2 | **QUICKSTART + README written**; licensed GPL-3.0-or-later, tagged `v0.1.0` |
 | 2026-07-16 | #6 | **Nipoppy bagel export REMOVED** — a write path with no reader whose version column came from config, not provenance |

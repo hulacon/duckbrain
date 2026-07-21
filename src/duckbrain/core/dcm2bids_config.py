@@ -417,7 +417,7 @@ def _assign_fmap_group(
 
     # Try matching by name. A group reacquired within one session is keyed
     # "<name>-2", "<name>-3", … so match on the base name; the first pair wins,
-    # which is the documented no-temporal-proximity limitation (TODO #4).
+    # which is the documented no-temporal-proximity limitation (TODO #5).
     for g in groups:
         base = re.sub(r"-\d+$", "", g)
         if base and task.lower().startswith(base.lower()):
