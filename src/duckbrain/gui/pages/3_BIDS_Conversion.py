@@ -132,7 +132,12 @@ if not dicom_dir.exists():
         st.stop()
 
 st.subheader("DICOM Series")
-from duckbrain.core.dicom_inspect import list_series, classify_series, detect_fieldmaps
+from duckbrain.core.dicom_inspect import (
+    list_series,
+    classify_series,
+    detect_fieldmaps,
+    is_reproin_name,
+)
 
 series_list = list_series(dicom_dir)
 if not series_list:
@@ -153,6 +158,17 @@ series_df = pd.DataFrame(
     ]
 )
 st.dataframe(series_df, width="stretch", hide_index=True)
+
+# ReproIn-named sequences carry their BIDS entities explicitly, so duckbrain uses
+# those instead of inferring them. Worth saying out loud: it tells the user the
+# mapping below is read from the protocol names rather than guessed.
+_reproin_count = sum(1 for s in series_list if is_reproin_name(s.description))
+if _reproin_count:
+    st.info(
+        f"**ReproIn naming detected** in {_reproin_count} of {len(series_list)} series. "
+        "Datatype, task, run, acq and dir are read from the sequence names rather "
+        "than inferred, so the mapping below should need little or no correction."
+    )
 
 # ---- Fieldmap Detection ----
 fieldmaps = detect_fieldmaps(series_list)

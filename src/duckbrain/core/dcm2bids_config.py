@@ -35,6 +35,7 @@ from .dicom_inspect import (
     SeriesInfo,
     extract_task_label,
     parse_task_run,
+    reproin_entities,
     sanitize_task_label,
 )
 
@@ -322,8 +323,34 @@ def generate_config(
     return {"descriptions": descriptions}
 
 
+# BIDS anatomical suffixes a ReproIn ``anat-<label>`` may name. Spelled out
+# rather than passed through, so a console typo becomes an unconverted series the
+# user can see rather than an invalid BIDS suffix written into the dataset.
+_BIDS_ANAT_SUFFIXES = {
+    s.lower(): s
+    for s in ("T1w", "T2w", "T1map", "T2map", "T2star", "FLAIR", "PDw", "PDT2", "UNIT1", "angio")
+}
+
+
 def _anat_description(series: SeriesInfo) -> dict | None:
-    """Build an anat description entry."""
+    """Build an anat description entry.
+
+    A ReproIn ``anat-<label>`` names its BIDS suffix outright, so it is trusted
+    ahead of the vocabulary matching below. Without this, an anat whose label
+    isn't in that vocabulary (``anat-PDw``, ``anat-UNIT1``) returned None and the
+    series was dropped from the conversion silently.
+    """
+    reproin = reproin_entities(series.description)
+    if reproin.get("seqtype") == "anat":
+        suffix = _BIDS_ANAT_SUFFIXES.get(reproin.get("suffix", "").lower())
+        if suffix:
+            return {
+                "id": f"anat-{suffix}",
+                "datatype": "anat",
+                "suffix": suffix,
+                "criteria": {"SeriesNumber": series.series_number},
+            }
+
     desc_lower = series.description.lower()
 
     if "t1w" in desc_lower or "t1_" in desc_lower or "mprage" in desc_lower:

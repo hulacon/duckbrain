@@ -9,6 +9,8 @@ from duckbrain.core.dicom_inspect import (
     detect_fieldmaps,
     extract_task_label,
     get_bold_series,
+    parse_task_run,
+    reproin_entities,
 )
 
 
@@ -297,6 +299,114 @@ def test_detect_fieldmaps_aborted_ap_leaves_an_incomplete_group():
     fmaps = detect_fieldmaps(series)
     assert fmaps.groups == {"1": {"ap": 5}, "2": {"ap": 6, "pa": 7}, "3": {"ap": 12, "pa": 14}}
     assert any("missing PA" in w for w in fmaps.warnings)
+
+
+# ---- ReproIn console naming convention -------------------------------------
+
+
+def _named(descriptions):
+    """Classified SeriesInfo for a list of descriptions, numbered in order."""
+    from duckbrain.core.dicom_inspect import SeriesInfo
+
+    series = [
+        SeriesInfo(series_number=i, description=d, path=None, file_count=200)
+        for i, d in enumerate(descriptions, start=1)
+    ]
+    classify_series(series)
+    return series
+
+
+def test_reproin_entities_parses_the_full_spec():
+    assert reproin_entities("func-bold_ses-pre_task-rest_acq-1mm_run-01_dir-AP") == {
+        "seqtype": "func",
+        "suffix": "bold",
+        "ses": "pre",
+        "task": "rest",
+        "acq": "1mm",
+        "run": "01",
+        "dir": "AP",
+    }
+
+
+def test_reproin_custom_suffix_is_dropped():
+    """Everything after __ is console-only free text, never BIDS."""
+    assert reproin_entities("func-bold_task-nback__whatever_note")["task"] == "nback"
+
+
+def test_reproin_requires_more_than_a_seqtype_word():
+    """A legacy name that merely opens with a seqtype word is not ReproIn.
+
+    Without this guard, `func_run1` would be read as a ReproIn name and bypass
+    the heuristics that actually understand it.
+    """
+    assert reproin_entities("func_run1") == {}
+    assert reproin_entities("anat_scan") == {}
+    assert reproin_entities("se_epi_ap") == {}
+
+
+def test_reproin_seqtype_drives_classification():
+    """The seqtype states the datatype; _SBRef still wins, as Siemens appends it."""
+    series = _named(
+        [
+            "anat-T1w",
+            "func-bold_task-faces_run-01",
+            "func-bold_task-faces_run-01_SBRef",
+            "fmap-epi_dir-AP",
+            "dwi-dwi_dir-AP",
+        ]
+    )
+    assert [s.classification for s in series] == ["anat", "func", "sbref", "fmap", "dwi"]
+
+
+def test_reproin_explicit_runs_survive_direction_grouped_acquisition():
+    """All APs then all PAs — the order the acquisition heuristic cannot read.
+
+    Pairing by acquisition order would give {ap,ap} and {pa,pa}; the console's
+    explicit run- says which AP goes with which PA.
+    """
+    series = _named(
+        [
+            "fmap-epi_dir-AP_run-1",
+            "fmap-epi_dir-AP_run-2",
+            "fmap-epi_dir-PA_run-1",
+            "fmap-epi_dir-PA_run-2",
+        ]
+    )
+    fmaps = detect_fieldmaps(series)
+    assert fmaps.groups == {"1": {"ap": 1, "pa": 3}, "2": {"ap": 2, "pa": 4}}
+    assert fmaps.group_entities == {"1": "run-1", "2": "run-2"}
+    assert fmaps.warnings == []
+
+
+def test_reproin_acq_label_is_the_fieldmap_group():
+    series = _named(
+        [
+            "fmap-epi_acq-encoding_dir-AP",
+            "fmap-epi_acq-encoding_dir-PA",
+            "fmap-epi_acq-retrieval_dir-AP",
+            "fmap-epi_acq-retrieval_dir-PA",
+        ]
+    )
+    fmaps = detect_fieldmaps(series)
+    assert fmaps.groups == {
+        "encoding": {"ap": 1, "pa": 2},
+        "retrieval": {"ap": 3, "pa": 4},
+    }
+    assert fmaps.group_entities == {"encoding": "acq-encoding", "retrieval": "acq-retrieval"}
+
+
+def test_reproin_single_pair_keeps_the_bare_dir_entity():
+    """One ReproIn pair converts as dir-AP/dir-PA, same as any other lone pair."""
+    fmaps = detect_fieldmaps(_named(["fmap-epi_dir-AP", "fmap-epi_dir-PA"]))
+    assert list(fmaps.groups) == [""]
+    assert fmaps.group_entities == {}
+
+
+def test_reproin_run_is_read_when_other_entities_follow_it():
+    """run- sits mid-name in ReproIn, so the trailing-token heuristic misses it."""
+    assert parse_task_run("func-bold_ses-pre_task-rest_acq-1mm_run-01_dir-AP") == ("rest", 1)
+    assert parse_task_run("func-bold_task-faces_run-02") == ("faces", 2)
+    assert parse_task_run("func-bold_task-nback") == ("nback", None)
 
 
 def test_detect_fieldmaps_none(tmp_path):

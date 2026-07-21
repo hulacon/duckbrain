@@ -193,7 +193,17 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
   shifts: it is less "should we adopt heudiconv heuristics" and more "is a naming
   convention what we recommend to LCNI users so this class of problem stops
   arriving".
-- **Open questions:** adopt ReproIn heuristics internally vs. *recommend* the naming
-  convention to LCNI users (so their exports are BIDS-ready)? Interaction with
-  duckbrain's existing dcm2bids-based ingestion; is retrofitting worth it vs.
-  leaving discovery as-is and pushing the convention upstream?
+- **Reading the convention is implemented (2026-07-21).** `dicom_inspect`'s
+  `reproin_entities()` / `is_reproin_name()` parse the sequence name, and every
+  consumer prefers an explicit entity to an inferred one: seqtype → datatype,
+  `acq-` → fieldmap group, `run-` → fieldmap pairing (which survives an
+  all-APs-then-all-PAs acquisition order that the acquisition-order heuristic
+  cannot read), `task-`/`run-` → func entities, `anat-<label>` → BIDS suffix.
+  **duckbrain still converts with dcm2bids** — the heudiconv ReproIn *heuristic*
+  is not used, only the naming convention. Verified byte-identical on all 141
+  real non-ReproIn sessions, so it is purely additive.
+- **Open questions, now narrower:** the `ses-` entity is parsed but not acted on
+  (session comes from the ingestion mapping) — worth wiring, or a mismatch worth
+  warning about? And the social half is untouched: do we *recommend* the
+  convention to LCNI users so exports arrive BIDS-ready? No ReproIn-named study
+  exists locally to test against, so the implementation is unit-tested only.

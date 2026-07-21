@@ -33,6 +33,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   tag (that string is only the `24.0.2` container's internal self-report). The old
   default pointed the build command at a nonexistent tag.
 
+- **ReproIn console naming is understood** —
+  [ReproIn](https://github.com/ReproNim/reproin) sequence names
+  (`func-bold_ses-pre_task-faces_acq-1mm_run-01_dir-AP`) are parsed for their BIDS
+  entities, and those are trusted ahead of the inferring heuristics: the seqtype
+  sets the datatype, `acq-` names the fieldmap group, `run-` pairs the fieldmaps,
+  and `task-`/`run-` set the func entities. duckbrain still converts with
+  dcm2bids — only the convention is adopted, not heudiconv or the ReproIn
+  heuristic. Without this, a ReproIn-named study converted with **no fieldmaps at
+  all and no warning**. The Conversion page says when it detects the convention.
 - **Sources that group sessions by protocol** — a DICOM source whose session
   folders sit one level down (mmmdata's `anat_session/`, `func_session_*/`) is now
   discovered; previously it produced an empty list. Descent only happens when the

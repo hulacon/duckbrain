@@ -203,6 +203,32 @@ def test_generate_config_bold_skips_incomplete_fmap_group():
     assert bold["sidecar_changes"]["B0FieldIdentifier"] == "B0map_2"
 
 
+def test_generate_config_reproin_anat_label_sets_the_suffix():
+    """A ReproIn anat- label names its BIDS suffix, including ones the vocabulary
+    heuristic doesn't know — which used to drop the series silently."""
+    series = [
+        _series(1, "anat-T1w", "anat", n=200),
+        _series(2, "anat-PDw", "anat", n=200),
+    ]
+    cfg = generate_config(series, FieldmapDetection(strategy="none"))
+    anat = [d for d in cfg["descriptions"] if d["datatype"] == "anat"]
+    assert sorted(d["suffix"] for d in anat) == ["PDw", "T1w"]
+
+
+def test_generate_config_reproin_unknown_anat_label_is_not_passed_through():
+    """An unrecognized anat- label never becomes the BIDS suffix verbatim.
+
+    A console typo falls back to the vocabulary heuristic — `anat-T1www` still
+    recovers as T1w — and a label with nothing to recover from is left
+    unconverted rather than writing an invalid suffix into the dataset.
+    """
+    cfg = generate_config([_series(1, "anat-T1www", "anat", n=200)], FieldmapDetection(strategy="none"))
+    assert [d["suffix"] for d in cfg["descriptions"] if d["datatype"] == "anat"] == ["T1w"]
+
+    cfg = generate_config([_series(1, "anat-BOGUS", "anat", n=200)], FieldmapDetection(strategy="none"))
+    assert [d for d in cfg["descriptions"] if d["datatype"] == "anat"] == []
+
+
 def test_generate_config_single_fmap_pair_unchanged():
     """A lone pair keeps the bare dir- entity (no acq-/run-), preserving prior output."""
     series = [

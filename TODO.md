@@ -300,8 +300,13 @@ existing duckbrain/mmmdata work, open questions per item — in
    on the existing surveyor/QC pages.
 5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
    confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
-6. **ReproIn evaluation** — upstream naming convention; the concrete form of #5's
-   "fix labeling at the console" rule. Adopt internally vs. recommend to LCNI users.
+6. **ReproIn** — **reading it is DONE** (2026-07-21): duckbrain parses the naming
+   convention and trusts its entities over the heuristics, still converting with
+   dcm2bids. What's left is the *social* half — recommending the convention to
+   LCNI so exports arrive already carrying their entities, which is #5's "fix it
+   at the console" rule in concrete form. Open: does duckbrain also read the
+   `ses-` entity (it currently takes session from the ingestion mapping), and is a
+   ReproIn-named study worth acquiring as a test case.
 7. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
    actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
    path off raw/minimal data. Low demand, unique requirements.
