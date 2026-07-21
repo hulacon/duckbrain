@@ -293,6 +293,9 @@ existing duckbrain/mmmdata work, open questions per item — in
    PII scrubbing (DICOM headers *and* BIDS sidecars), "derive-then-torch" policy
    (age ok, name/DOB auto-removed). Candidate: `bidsonym`. *(The precomputed-mask
    fast-track is a different feature, deliberately deferred — see the doc.)*
+   **Sequencing note:** an identity sanity check wants to run *immediately before*
+   this — see Loose ideas. Once the headers are scrubbed, a wrong subject mapping
+   can no longer be detected or proven.
 2. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
 3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
    bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
@@ -344,6 +347,25 @@ Tasteful, not over-designed, and after the product behavior is locked.
   *provenance, not config*, which is the bug that made removal right. Verified spec
   preserved in `memory/nipoppy-status-tracking`; recover the code with
   `git show 9c3ab39:src/duckbrain/core/surveyor.py`.
+- **Identity sanity check before de-identification.** Do the sessions mapped to
+  one subject actually come from one person — same `PatientBirthDate`,
+  `PatientID`, `PatientName`, consistent sex? A mismatch means the ingestion
+  mapping is wrong, and the value is in *when* it runs: **before** the
+  de-identification step of `#7.1`, because that is the last moment the
+  identifying fields still exist. "Derive-then-torch" means a mis-assignment
+  found afterwards is unprovable and possibly unfixable.
+  - **The hook exists:** `bids_metadata.read_dicom_demographics` already opens a
+    DICOM per session for `PatientSex`/`PatientAge`. This is the same read
+    widened to identity fields and compared *across* the sessions of a subject,
+    rather than per-session in isolation.
+  - **It's the natural successor to the ingestion Notes column** (`#5`), which
+    flags a suspect mapping from folder *names*. This checks the same question
+    against the DICOM headers, which are much harder to get wrong by hand.
+    mmmdata's duplicate `sub-003/ses-sess04` is exactly the shape it would catch.
+  - **Design caution:** report, don't block, and never write the identifying
+    values into any durable artifact — that would defeat the de-identification it
+    guards. Comparing hashes rather than values is probably the right shape, and
+    would also let the check run without the operator seeing PII.
 
 ---
 
