@@ -12,6 +12,79 @@ the ledger so an old reference still resolves.
 
 ---
 
+## #16 — A sanity-check layer: did the tool do what we asked, not just exit 0?
+
+**Captured 2026-07-21, Ben's idea, prompted by `#15`'s caveat. Design not settled
+— that is the first task, not writing checks.**
+
+### The gap, stated once
+
+Every bug found on 2026-07-21 was invisible to every tool involved, because each
+tool did exactly what it was told:
+
+- the BIDS validator saw a well-formed dataset (the fieldmap keys were valid
+  strings in valid places — just inverted),
+- dcm2bids converted successfully,
+- fMRIPrep exited 0 and produced complete-looking derivatives,
+- and the only trace was one line in an HTML report nobody reads:
+  *"Susceptibility distortion correction: None"*.
+
+**Validators check that data is well-*formed*. Nothing checks that processing did
+what was *intended*.** That gap is the layer. It is also where duckbrain has a
+genuine advantage over the tools it orchestrates: it is the only component that
+knows what was *asked for*, so it is the only one that can compare that against
+what happened.
+
+### Candidate checks (the evidence for the layer, not a spec)
+
+**Outcome — did the tool do the thing?** This is the highest-value family and the
+one that has actually caught real bugs.
+
+- fMRIPrep reporting SDC *None* while the session has a complete fieldmap pair —
+  the `#14` detector, and the cheapest one to write.
+- Requested `output_spaces` vs the spaces actually written.
+- "Reuse anat derivatives" actually reusing (the closed 2026-07-20 bug — it was a
+  silent no-op; a check would have caught it without the code fix).
+- NORDIC producing output that actually differs from its input.
+- MRIQC IQMs present for every func the surveyor counts as complete.
+
+**Cross-artifact agreement — do two sources of the same fact match?**
+
+- ✅ `fmap-pe-direction` (built 2026-07-21) — `dir-` label vs header. The first
+  member of this family and the template for the rest.
+- TR / volume counts consistent across runs of one task.
+- The identity check already described under Loose ideas — same subject across
+  sessions — which must run *before* `#7.1` de-identification.
+
+**Quality norms** — overlaps `#7.4` (MRIQC norms dashboard); fold them together
+rather than building two things.
+
+### The design questions to settle first
+
+1. **New module, or generalize `core/consistency.py`?** That module is
+   specifically about *provenance* agreement and says so in its docstring. This is
+   broader. Reusing `ConsistencyIssue` (check / severity / subject / stage) looks
+   right regardless — the cockpit already renders it.
+2. **When do they run?** The cockpit re-derives everything on every render, so
+   anything that opens a NIfTI or parses an HTML report cannot go there naively.
+   Options: post-job hook, cached with the submission log, or an explicit "run
+   checks" action. **This is the question that most shapes the rest.**
+3. **Report, or block?** The standing rule is report-never-repair, and it should
+   hold. But a *failed* check could plausibly gate `stage_runnable` — refusing to
+   run fMRIPrep on a session whose conversion looks wrong. Powerful and easy to
+   get annoying; decide deliberately.
+4. **Where's the boundary?** This must not drift into being a worse MRIQC. The
+   line that probably holds: duckbrain checks *what it asked for versus what it
+   got*; it does not assess image quality, which is MRIQC's job.
+
+### Why it's worth real effort
+
+The failure mode this addresses is the expensive one: not a crash, but hours of
+compute producing derivatives that are quietly wrong, discovered — if at all —
+long after the runs that produced them. `CLAUDE.md`'s "a silently-degrading option
+is worse than one that fails" is the same principle at the level of a single flag;
+this is that principle applied to the pipeline as a whole.
+
 ## #15 — Validate output against the BIDS standard, as a habit not a one-off
 
 **Opened 2026-07-21** after `#14`, asking what *else* we might be getting wrong.
@@ -39,7 +112,8 @@ First real validator run happened the same day; findings below.
   naming, not semantic intent. **Validation raises the floor; it does not catch
   the class of bug that has actually bitten us.** Outcome checks — e.g. grepping
   the fMRIPrep report for "Susceptibility distortion correction: None" — are what
-  catch those, and are worth building alongside.
+  catch those. **That caveat is the seed of `#16`**, which is where the general
+  version of this belongs; don't try to solve it inside this item.
 - **Where it belongs:** `core/consistency.py` is the module for "catching what
   runs silently", and the cockpit already surfaces its checks. A validator wrapper
   fits there. Validating the *plan* pre-submission (duckbrain now predicts every
