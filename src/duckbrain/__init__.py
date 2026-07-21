@@ -24,6 +24,10 @@ non-redistributable (see docs/ and TODO.md §5c).
 is distributed by git clone and served from a working copy, so every derivative
 is stamped with a ``git describe`` of the actual checkout instead — see
 ``core.bids_metadata._duckbrain_generated_by``.
+
+This literal is the **single source** of the version: ``pyproject.toml`` declares
+``dynamic = ["version"]`` and hatchling reads it from here. Bump it here only —
+see ``docs/releasing.md``.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

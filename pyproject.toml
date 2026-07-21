@@ -4,7 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "duckbrain"
-version = "0.1.0"
+# Single-sourced from src/duckbrain/__init__.py (see [tool.hatch.version]).
+# duckbrain is served from a git checkout, so the literal belongs somewhere
+# importable without a build step — and a second copy here would drift silently.
+dynamic = ["version"]
 description = "General-purpose neuroimaging toolbox with Streamlit GUI for LCNI/Talapas HPC"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
@@ -25,6 +28,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov",
 ]
+
+[tool.hatch.version]
+path = "src/duckbrain/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/duckbrain"]

@@ -44,6 +44,7 @@ build history; those drifted out of date every time they were duplicated here.
 | How did we get here / why does this code look like this? | `git log` — the commit message is the record |
 | What changed for users? | `CHANGELOG.md` |
 | How does subsystem X work? | `docs/` (`pipeline-cockpit.md`, `pipeline-extras.md`, `handoff-cluster-session.md`) |
+| How do I cut a release? | `docs/releasing.md` (incl. why the minor bump is not just bookkeeping) |
 | What did we learn validating on real data? | `memory/` via `MEMORY.md` |
 | Why is this rule here? | the comment on the code that enforces it |
 
@@ -56,15 +57,18 @@ Run `git log --oneline -1`, `git status`, `python -m pytest tests/ -q`.
 Feature-complete across all three planned phases, plus a project surveyor and an
 actionable pipeline cockpit. **Every core stage is validated live on real data**
 on Talapas: DICOM→BIDS (output matches canonical heudiconv), fMRIPrep, MRIQC, and
-NORDIC (producer *and* `use_nordic`→fMRIPrep chaining). Released and tagged from
-`v0.1.0` (2026-07-16); semver, git tags, `CHANGELOG.md`. The GUI is in active
-dogfooding. See `TODO.md` for what's open.
+NORDIC (producer *and* `use_nordic`→fMRIPrep chaining). Semver, git tags,
+`CHANGELOG.md`; latest release `v0.2.0` (2026-07-21), first was `v0.1.0`. The GUI
+is in active dogfooding. See `TODO.md` for what's open, `docs/releasing.md` to cut
+the next one.
 
 ## Rules that bind (read before changing related code)
 
 - **Provenance stamps `git describe` of the checkout, not `__version__`.**
   duckbrain is served from a working copy, so users sit *between* releases;
-  `__version__` marks the release only. Never treat it as what ran.
+  `__version__` marks the release only. Never treat it as what ran. The version
+  literal lives in exactly one place — `src/duckbrain/__init__.py`; `pyproject.toml`
+  is `dynamic` and reads it from there. Never add a second copy.
 - **Never compare a config-pinned container *tag* to a tool's *self-reported*
   version.** Different namespaces — that bug shipped once. (The MRIQC `24.0.2`
   container self-reports `24.1.0.dev0+…`; a phantom `24.1.0` default came from
