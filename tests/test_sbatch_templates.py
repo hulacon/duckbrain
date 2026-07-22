@@ -129,3 +129,149 @@ def test_fmriprep_binds_derivatives_when_distinct_from_output():
     binds = _binds(script, "/projects/study/derivatives/anat_only")
     assert len(binds) == 1
     assert binds[0].endswith(":ro \\")
+
+
+# ---- DB-011: paths are shell arguments, and users pick the paths -------------
+#
+# Not hypothetical: /projects/lcni/dcm/hulacon/Hutchinson/New Program is a real
+# LCNI export with a space in its name, one Setup form away from a rendered
+# sbatch. Unquoted it becomes two arguments and the job fails obscurely.
+
+import shlex
+
+#: A path exercising everything bash treats specially, plus a space.
+NASTY = "/projects/My Study (v2)/it's here/$HOME`x`/data*"
+
+
+def _nasty_cfg():
+    return {
+        "paths": {
+            "work_dir": f"{NASTY}/work",
+            "log_dir": f"{NASTY}/logs",
+            "bids_dir": f"{NASTY}/bids",
+            "derivatives_dir": f"{NASTY}/derivatives",
+            "nordic_toolbox_dir": f"{NASTY}/NORDIC",
+        },
+        "slurm": {},
+        "containers": {},
+        "fmriprep": {"nprocs": 8, "mem_gb": 32},
+        "nordic": {"matlab_module": "matlab/R2024a", "excluded_nodes": ""},
+    }
+
+
+def _singularity_argv(script):
+    """argv of the singularity invocation, as bash would split it."""
+    joined = script.replace("\\\n", " ")
+    line = next(l for l in joined.splitlines() if l.startswith("singularity run"))
+    return shlex.split(line)
+
+
+def test_dcm2bids_survives_a_path_with_spaces_and_metacharacters():
+    ctx = build_context(
+        _nasty_cfg(), "dcm2bids", subject="04", session="01",
+        dicom_dir=f"{NASTY}/sourcedata/sub-04/dicom",
+        config_json=f"{NASTY}/cfg.json", config_json_dir=NASTY,
+        container_path=f"{NASTY}/dcm2bids.sif", force=False,
+    )
+    argv = _singularity_argv(render_sbatch("dcm2bids", ctx))
+
+    # Each path is exactly ONE argument, with its metacharacters intact.
+    assert f"{NASTY}/sourcedata/sub-04/dicom" in argv
+    assert f"{NASTY}/bids" in argv
+    assert f"{NASTY}/cfg.json" in argv
+    # A bind spec is one argument, not three.
+    assert f"{NASTY}/bids:{NASTY}/bids" in argv
+
+
+def test_fmriprep_survives_a_path_with_spaces_and_metacharacters():
+    ctx = build_context(
+        _nasty_cfg(), "fmriprep", subject="04", session="01",
+        bids_dir=f"{NASTY}/bids", output_dir=f"{NASTY}/out",
+        container_path=f"{NASTY}/fmriprep.sif",
+        fs_license=f"{NASTY}/license.txt", fs_license_dir=NASTY,
+        output_spaces=["MNI152NLin2009cAsym:res-2", "func"],
+        filter_file=f"{NASTY}/filter.json", anat_only=False, derivatives="",
+    )
+    argv = _singularity_argv(render_sbatch("fmriprep", ctx))
+
+    assert f"{NASTY}/bids" in argv
+    assert f"{NASTY}/out" in argv
+    assert f"{NASTY}/license.txt" in argv
+    assert f"{NASTY}/filter.json" in argv
+    assert argv[argv.index("--output-spaces") + 1] == "MNI152NLin2009cAsym:res-2"
+
+
+def test_mriqc_survives_a_path_with_spaces_and_metacharacters():
+    ctx = build_context(_nasty_cfg(), "mriqc", subject="04", session="01",
+                        container_path=f"{NASTY}/mriqc.sif", mem_gb=8)
+    argv = _singularity_argv(render_sbatch("mriqc", ctx))
+    assert f"{NASTY}/bids" in argv
+
+
+@pytest.mark.parametrize("step,extra", [
+    ("dcm2bids", dict(subject="04", session="01", dicom_dir=NASTY,
+                      config_json=f"{NASTY}/c.json", config_json_dir=NASTY,
+                      container_path=f"{NASTY}/x.sif", force=False)),
+    ("fmriprep", dict(subject="04", session="01", bids_dir=NASTY, output_dir=NASTY,
+                      container_path=NASTY, fs_license=NASTY, fs_license_dir=NASTY,
+                      output_spaces=["func"], filter_file="", anat_only=False,
+                      derivatives="")),
+    ("mriqc", dict(subject="04", session="01", container_path=NASTY, mem_gb=8)),
+    ("nordic_denoise", dict(subject="04", session="01", bold_count=2,
+                            scripts_dir=NASTY)),
+    ("nordic_bids_input", dict(subject="04", session="01", python_cmd="/usr/bin/python3")),
+])
+def test_rendered_scripts_are_parseable_shell(step, extra):
+    """Every shell command line must tokenize.
+
+    An apostrophe in a path leaves an unbalanced quote, and bash then fails on a
+    line unrelated to the one at fault. `#SBATCH` directives are excluded on
+    purpose: Slurm parses those, not bash, so metacharacters there are fine and
+    quoting them would put literal quotes in the value.
+    """
+    script = render_sbatch(step, build_context(_nasty_cfg(), step, **extra))
+    # Tokenize the remainder whole rather than line by line: a quoted heredoc-ish
+    # block (the Python snippet in nordic_bids_input) legitimately spans lines.
+    body = "\n".join(
+        l for l in script.replace("\\\n", " ").splitlines() if not l.startswith("#")
+    )
+    shlex.split(body, comments=False)
+
+
+def test_nordic_bids_input_does_not_interpolate_into_the_python_literal():
+    """It rendered into a bash-double-quoted string holding Python single-quoted
+    literals — two layers, so an apostrophe broke out of the Python string and a
+    $ was expanded by bash before Python saw it. Values go via the environment."""
+    script = render_sbatch("nordic_bids_input", build_context(
+        _nasty_cfg(), "nordic_bids_input", subject="04", session="01",
+        python_cmd="/usr/bin/python3"))
+
+    assert f"bids_dir='{NASTY}/bids'" not in script
+    assert 'os.environ["DUCKBRAIN_BIDS_DIR"]' in script
+    # The path appears exactly once, in a quoted export.
+    export = next(l for l in script.splitlines() if l.startswith("export DUCKBRAIN_BIDS_DIR"))
+    assert shlex.split(export)[1] == f"DUCKBRAIN_BIDS_DIR={NASTY}/bids"
+
+
+def test_nordic_denoise_does_not_interpolate_into_the_matlab_literal():
+    script = render_sbatch("nordic_denoise", build_context(
+        _nasty_cfg(), "nordic_denoise", subject="04", session="01",
+        bold_count=2, scripts_dir=NASTY))
+
+    assert f"addpath('{NASTY}/NORDIC')" not in script
+    assert "getenv('DUCKBRAIN_NORDIC_TOOLBOX')" in script
+
+
+def test_extra_flags_stays_an_unquoted_shell_fragment():
+    """The one deliberately trusted field: quoting it would collapse several
+    flags into a single argument."""
+    ctx = build_context(
+        _nasty_cfg(), "fmriprep", subject="04", session="",
+        bids_dir="/b", output_dir="/o", container_path="/x", fs_license="/l",
+        fs_license_dir="/", output_spaces=["func"], filter_file="",
+        anat_only=False, derivatives="",
+        extra_flags="--use-syn-sdc --fd-spike-threshold 0.5",
+    )
+    argv = _singularity_argv(render_sbatch("fmriprep", ctx))
+    assert "--use-syn-sdc" in argv
+    assert argv[argv.index("--fd-spike-threshold") + 1] == "0.5"

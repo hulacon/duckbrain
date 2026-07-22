@@ -13,16 +13,19 @@ echo "=== dcm2bids: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif 
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
+{# Every interpolation below is ONE shell argument, so every one carries `| sh`.
+   A bind spec is built and quoted whole: source:destination:mode is a single
+   argument to singularity, not three. #}
 singularity run --cleanenv \
-  -B {{ dicom_dir }}:{{ dicom_dir }}:ro \
-  -B {{ paths.bids_dir }}:{{ paths.bids_dir }} \
-  -B {{ config_json_dir }}:{{ config_json_dir }}:ro \
-  {{ container_path }} \
-  -d {{ dicom_dir }} \
-  -p {{ subject }} \
-{% if session %}  -s {{ session }} \
-{% endif %}  -c {{ config_json }} \
-  -o {{ paths.bids_dir }} \
+  -B {{ (dicom_dir ~ ":" ~ dicom_dir ~ ":ro") | sh }} \
+  -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir) | sh }} \
+  -B {{ (config_json_dir ~ ":" ~ config_json_dir ~ ":ro") | sh }} \
+  {{ container_path | sh }} \
+  -d {{ dicom_dir | sh }} \
+  -p {{ subject | sh }} \
+{% if session %}  -s {{ session | sh }} \
+{% endif %}  -c {{ config_json | sh }} \
+  -o {{ paths.bids_dir | sh }} \
   {% if bids_validate %}--bids_validate {% endif %}{% if force %}--force_dcm2bids{% endif %}
 
 EXIT_CODE=$?

@@ -13,17 +13,31 @@ echo "=== NORDIC BIDS input tree: sub-{{ subject }} ses-{{ session }} ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-# Use Python to build BIDS input tree
-{{ python_cmd }} -c "
+# Use Python to build BIDS input tree.
+#
+# Values go through the environment, never through string interpolation. This
+# used to render into a double-quoted bash string containing single-quoted
+# Python literals — two nested layers, so a path with an apostrophe broke out of
+# the Python string and a `$` or backtick was expanded by bash before Python ever
+# saw it. Quoting alone can't fix a two-layer substitution; not substituting can.
+# The Python body below is single-quoted for bash, so it is passed through
+# verbatim.
+export DUCKBRAIN_BIDS_DIR={{ paths.bids_dir | sh }}
+export DUCKBRAIN_SUBJECT={{ subject | sh }}
+export DUCKBRAIN_SESSION={{ session | sh }}
+export DUCKBRAIN_NORDIC_DIR={{ (paths.derivatives_dir ~ "/nordic") | sh }}
+
+{{ python_cmd | sh }} -c '
+import os
 from duckbrain.core.nordic import build_nordic_bids_input
 build_nordic_bids_input(
-    bids_dir='{{ paths.bids_dir }}',
-    subject='{{ subject }}',
-    session='{{ session }}',
-    nordic_derivatives_dir='{{ paths.derivatives_dir }}/nordic',
+    bids_dir=os.environ["DUCKBRAIN_BIDS_DIR"],
+    subject=os.environ["DUCKBRAIN_SUBJECT"],
+    session=os.environ["DUCKBRAIN_SESSION"],
+    nordic_derivatives_dir=os.environ["DUCKBRAIN_NORDIC_DIR"],
 )
-print('BIDS input tree built successfully.')
-"
+print("BIDS input tree built successfully.")
+'
 
 EXIT_CODE=$?
 echo "Finished: $(date)"

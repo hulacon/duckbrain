@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import jinja2
@@ -52,6 +53,18 @@ def render_sbatch(step_name: str, context: dict, templates_dir: str | Path | Non
         keep_trailing_newline=True,
         undefined=jinja2.StrictUndefined,
     )
+    # `| sh` marks a value as exactly ONE shell argument. Every path in a
+    # template is one, and Setup accepts whatever server path the user picks —
+    # this is not hypothetical, /projects/lcni/dcm/hulacon/Hutchinson/New Program
+    # is a real DICOM export with a space in it, one form away from a rendered
+    # sbatch. Unquoted it becomes two arguments and the job fails obscurely.
+    #
+    # Two things it must NOT be applied to. `#SBATCH` directive lines are parsed
+    # by Slurm, not bash, and quoting would put literal quotes in the value. And
+    # `extra_flags` is deliberately a shell fragment the operator supplies —
+    # quoting would collapse `--use-syn-sdc --fd-spike-threshold 0.5` into a
+    # single argument. See the note on it in fmriprep.sbatch.j2.
+    env.filters["sh"] = shlex.quote
 
     template_file = f"{step_name}.sbatch.j2"
     template = env.get_template(template_file)

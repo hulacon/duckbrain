@@ -13,21 +13,23 @@ echo "=== MRIQC: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif %} 
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-WORK_DIR={{ paths.work_dir }}/mriqc_sub-{{ subject }}{% if session %}_ses-{{ session }}{% endif %}
-OUTPUT_DIR={{ paths.derivatives_dir }}/mriqc
-mkdir -p $WORK_DIR $OUTPUT_DIR
+{# Paths carry `| sh` — one interpolation, one shell argument. Expansions need
+   their own quotes; the filter protects the assignment, not each later use. #}
+WORK_DIR={{ (paths.work_dir ~ "/mriqc_sub-" ~ subject ~ ("_ses-" ~ session if session else "")) | sh }}
+OUTPUT_DIR={{ (paths.derivatives_dir ~ "/mriqc") | sh }}
+mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
 
 singularity run --cleanenv \
-  -B {{ paths.bids_dir }}:{{ paths.bids_dir }}:ro \
-  -B $OUTPUT_DIR:$OUTPUT_DIR \
-  -B $WORK_DIR:$WORK_DIR \
-  {{ container_path }} \
-  {{ paths.bids_dir }} $OUTPUT_DIR participant \
-  --participant-label {{ subject }} \
-{% if session %}  --session-id {{ session }} \
+  -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir ~ ":ro") | sh }} \
+  -B "$OUTPUT_DIR:$OUTPUT_DIR" \
+  -B "$WORK_DIR:$WORK_DIR" \
+  {{ container_path | sh }} \
+  {{ paths.bids_dir | sh }} "$OUTPUT_DIR" participant \
+  --participant-label {{ subject | sh }} \
+{% if session %}  --session-id {{ session | sh }} \
 {% endif %}  --nprocs {{ slurm.cpus }} \
   --mem-gb {{ mem_gb }} \
-  -w $WORK_DIR \
+  -w "$WORK_DIR" \
   --no-sub
 
 EXIT_CODE=$?

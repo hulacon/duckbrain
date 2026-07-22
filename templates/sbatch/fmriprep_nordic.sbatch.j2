@@ -13,33 +13,35 @@ echo "=== fMRIPrep (NORDIC): sub-{{ subject }} ses-{{ session }} ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-NORDIC_BIDS={{ paths.derivatives_dir }}/nordic/bids_input
-NORDIC_OUTPUT={{ paths.derivatives_dir }}/fmriprep_nordic
-WORK_DIR={{ paths.work_dir }}/nordic_sub-{{ subject }}_ses-{{ session }}
+{# Paths carry `| sh` — one interpolation, one shell argument. Expansions need
+   their own quotes; the filter protects the assignment, not each later use. #}
+NORDIC_BIDS={{ (paths.derivatives_dir ~ "/nordic/bids_input") | sh }}
+NORDIC_OUTPUT={{ (paths.derivatives_dir ~ "/fmriprep_nordic") | sh }}
+WORK_DIR={{ (paths.work_dir ~ "/nordic_sub-" ~ subject ~ "_ses-" ~ session) | sh }}
 
 # TemplateFlow home and tmpdir are per-job (under WORK_DIR): a shared home on the
 # node-local FS races when two fMRIPrep jobs land on the same node and both
 # initialize the skeleton cache (FileExistsError on tpl-* extraction).
-export SINGULARITYENV_TEMPLATEFLOW_HOME=$WORK_DIR/templateflow
-export SINGULARITY_TMPDIR=$WORK_DIR/tmp
-mkdir -p $WORK_DIR $NORDIC_OUTPUT $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
+export SINGULARITYENV_TEMPLATEFLOW_HOME="$WORK_DIR/templateflow"
+export SINGULARITY_TMPDIR="$WORK_DIR/tmp"
+mkdir -p "$WORK_DIR" "$NORDIC_OUTPUT" "$SINGULARITYENV_TEMPLATEFLOW_HOME" "$SINGULARITY_TMPDIR"
 
 singularity run --cleanenv \
-  -B $NORDIC_BIDS:$NORDIC_BIDS:ro \
-  -B $NORDIC_OUTPUT:$NORDIC_OUTPUT \
-  -B $WORK_DIR:$WORK_DIR \
-  -B {{ fs_license_dir }}:{{ fs_license_dir }}:ro \
-{% if anat_derivatives %}  -B {{ anat_derivatives }}:{{ anat_derivatives }}:ro \
-{% endif %}  {{ container_path }} \
-  $NORDIC_BIDS $NORDIC_OUTPUT participant \
-  --participant-label {{ subject }} \
-{% if filter_file %}  --bids-filter-file {{ filter_file }} \
-{% endif %}  --output-spaces {{ output_spaces | join(' ') }} \
-  --fs-license-file {{ fs_license }} \
+  -B "$NORDIC_BIDS:$NORDIC_BIDS:ro" \
+  -B "$NORDIC_OUTPUT:$NORDIC_OUTPUT" \
+  -B "$WORK_DIR:$WORK_DIR" \
+  -B {{ (fs_license_dir ~ ":" ~ fs_license_dir ~ ":ro") | sh }} \
+{% if anat_derivatives %}  -B {{ (anat_derivatives ~ ":" ~ anat_derivatives ~ ":ro") | sh }} \
+{% endif %}  {{ container_path | sh }} \
+  "$NORDIC_BIDS" "$NORDIC_OUTPUT" participant \
+  --participant-label {{ subject | sh }} \
+{% if filter_file %}  --bids-filter-file {{ filter_file | sh }} \
+{% endif %}  --output-spaces {{ output_spaces | map("string") | map("sh") | join(' ') }} \
+  --fs-license-file {{ fs_license | sh }} \
   --nprocs {{ fmriprep.nprocs }} \
   --mem-mb {{ fmriprep.mem_gb * 1024 }} \
-  -w $WORK_DIR \
-{% if anat_derivatives %}  --derivatives {{ anat_derivatives }} \
+  -w "$WORK_DIR" \
+{% if anat_derivatives %}  --derivatives {{ anat_derivatives | sh }} \
 {% endif %}  --skip-bids-validation --notrack
 
 EXIT_CODE=$?
@@ -47,7 +49,7 @@ EXIT_CODE=$?
 # Clean up session work dir on success
 if [ $EXIT_CODE -eq 0 ]; then
     echo "Cleaning up work dir: $WORK_DIR"
-    rm -rf $WORK_DIR
+    rm -rf "$WORK_DIR"
 fi
 
 echo "Finished: $(date)"

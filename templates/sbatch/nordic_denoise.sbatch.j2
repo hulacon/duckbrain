@@ -15,12 +15,13 @@ echo "=== NORDIC denoise: sub-{{ subject }}{% if session %} ses-{{ session }}{% 
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-# Discover BOLD runs
-FUNC_DIR={{ paths.bids_dir }}/sub-{{ subject }}{% if session %}/ses-{{ session }}{% endif %}/func
-BOLD_FILES=($(ls ${FUNC_DIR}/*_bold.nii.gz 2>/dev/null | sort))
+# Discover BOLD runs. Paths carry `| sh` — one interpolation, one shell argument
+# — and every expansion of them is quoted in turn.
+FUNC_DIR={{ (paths.bids_dir ~ "/sub-" ~ subject ~ ("/ses-" ~ session if session else "") ~ "/func") | sh }}
+BOLD_FILES=($(ls "${FUNC_DIR}"/*_bold.nii.gz 2>/dev/null | sort))
 # Count via wc, not a bash array-length expansion: the hash-brace token in
 # that expansion collides with Jinja's comment-open and breaks rendering.
-NUM_RUNS=$(ls ${FUNC_DIR}/*_bold.nii.gz 2>/dev/null | wc -l)
+NUM_RUNS=$(ls "${FUNC_DIR}"/*_bold.nii.gz 2>/dev/null | wc -l)
 
 if [ $NUM_RUNS -eq 0 ]; then
     echo "ERROR: No BOLD files found in ${FUNC_DIR}"
@@ -33,23 +34,33 @@ BOLD_IN=${BOLD_FILES[$IDX]}
 echo "Processing: $BOLD_IN"
 
 # Output directory
-OUT_DIR={{ paths.derivatives_dir }}/nordic/sub-{{ subject }}{% if session %}/ses-{{ session }}{% endif %}/func
-mkdir -p $OUT_DIR
+OUT_DIR={{ (paths.derivatives_dir ~ "/nordic/sub-" ~ subject ~ ("/ses-" ~ session if session else "") ~ "/func") | sh }}
+mkdir -p "$OUT_DIR"
 
 # Check if already processed
-BOLD_BASENAME=$(basename $BOLD_IN)
+BOLD_BASENAME=$(basename "$BOLD_IN")
 if [ -f "${OUT_DIR}/${BOLD_BASENAME}" ]; then
     echo "Output already exists, skipping: ${OUT_DIR}/${BOLD_BASENAME}"
     exit 0
 fi
 
-# Run NORDIC via MATLAB
-module load {{ nordic.matlab_module }}
+# Run NORDIC via MATLAB.
+#
+# Paths reach MATLAB through getenv, not through the -r string. That string is
+# bash-double-quoted and held MATLAB single-quoted literals — the same two-layer
+# substitution as nordic_bids_input, where an apostrophe in a path escapes the
+# MATLAB literal and a `$` is eaten by bash first. getenv has neither layer.
+export DUCKBRAIN_NORDIC_TOOLBOX={{ paths.nordic_toolbox_dir | sh }}
+export DUCKBRAIN_SCRIPTS_DIR={{ scripts_dir | sh }}
+export DUCKBRAIN_BOLD_IN="$BOLD_IN"
+export DUCKBRAIN_OUT_DIR="$OUT_DIR"
+
+module load {{ nordic.matlab_module | sh }}
 
 matlab -nodisplay -nosplash -nodesktop -r "\
-    addpath('{{ paths.nordic_toolbox_dir }}'); \
-    addpath('{{ scripts_dir }}'); \
-    nordic_denoise('${BOLD_IN}', '${OUT_DIR}'); \
+    addpath(getenv('DUCKBRAIN_NORDIC_TOOLBOX')); \
+    addpath(getenv('DUCKBRAIN_SCRIPTS_DIR')); \
+    nordic_denoise(getenv('DUCKBRAIN_BOLD_IN'), getenv('DUCKBRAIN_OUT_DIR')); \
     exit;"
 
 EXIT_CODE=$?

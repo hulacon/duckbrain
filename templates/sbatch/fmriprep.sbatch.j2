@@ -13,39 +13,45 @@ echo "=== fMRIPrep: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif 
 echo "Started: $(date)"
 echo "Node: $(hostname)"
 
-WORK_DIR={{ paths.work_dir }}/sub-{{ subject }}{% if session %}_ses-{{ session }}{% endif %}
+{# Paths carry `| sh` — one interpolation, one shell argument. Expansions of the
+   variables assigned here need their own quotes ("$WORK_DIR"), since the filter
+   only protects the assignment, not every later use of it. #}
+WORK_DIR={{ (paths.work_dir ~ "/sub-" ~ subject ~ ("_ses-" ~ session if session else "")) | sh }}
 
 # TemplateFlow home and tmpdir are per-job (under WORK_DIR): a shared home on the
 # node-local FS races when two fMRIPrep jobs land on the same node and both
 # initialize the skeleton cache (FileExistsError on tpl-* extraction).
-export SINGULARITYENV_TEMPLATEFLOW_HOME=$WORK_DIR/templateflow
-export SINGULARITY_TMPDIR=$WORK_DIR/tmp
-mkdir -p $WORK_DIR $SINGULARITYENV_TEMPLATEFLOW_HOME $SINGULARITY_TMPDIR
+export SINGULARITYENV_TEMPLATEFLOW_HOME="$WORK_DIR/templateflow"
+export SINGULARITY_TMPDIR="$WORK_DIR/tmp"
+mkdir -p "$WORK_DIR" "$SINGULARITYENV_TEMPLATEFLOW_HOME" "$SINGULARITY_TMPDIR"
 
 # Output dir is bind-mounted below; Singularity requires the source to pre-exist.
 # When --derivatives points at the output dir itself (the anat-reuse case) it is
 # NOT bound a second time read-only: that self-overlap makes Singularity drop one
 # of the two binds, and if it ever dropped the read-write one fMRIPrep could not
 # write its outputs.
-mkdir -p {{ output_dir }}
+mkdir -p {{ output_dir | sh }}
 
 singularity run --cleanenv \
-  -B {{ bids_dir }}:{{ bids_dir }}:ro \
-  -B {{ output_dir }}:{{ output_dir }} \
-  -B $WORK_DIR:$WORK_DIR \
-  -B {{ fs_license_dir }}:{{ fs_license_dir }}:ro \
-{% if derivatives and derivatives != output_dir %}  -B {{ derivatives }}:{{ derivatives }}:ro \
-{% endif %}  {{ container_path }} \
-  {{ bids_dir }} {{ output_dir }} participant \
-  --participant-label {{ subject }} \
-{% if filter_file %}  --bids-filter-file {{ filter_file }} \
-{% endif %}  --output-spaces {{ output_spaces | join(' ') }} \
-  --fs-license-file {{ fs_license }} \
+  -B {{ (bids_dir ~ ":" ~ bids_dir ~ ":ro") | sh }} \
+  -B {{ (output_dir ~ ":" ~ output_dir) | sh }} \
+  -B "$WORK_DIR:$WORK_DIR" \
+  -B {{ (fs_license_dir ~ ":" ~ fs_license_dir ~ ":ro") | sh }} \
+{% if derivatives and derivatives != output_dir %}  -B {{ (derivatives ~ ":" ~ derivatives ~ ":ro") | sh }} \
+{% endif %}  {{ container_path | sh }} \
+  {{ bids_dir | sh }} {{ output_dir | sh }} participant \
+  --participant-label {{ subject | sh }} \
+{% if filter_file %}  --bids-filter-file {{ filter_file | sh }} \
+{% endif %}  --output-spaces {{ output_spaces | map("string") | map("sh") | join(' ') }} \
+  --fs-license-file {{ fs_license | sh }} \
   --nprocs {{ fmriprep.nprocs }} \
   --mem-mb {{ fmriprep.mem_gb * 1024 }} \
-  -w $WORK_DIR \
+  -w "$WORK_DIR" \
 {% if anat_only %}  --anat-only \
-{% endif %}{% if derivatives %}  --derivatives {{ derivatives }} \
+{% endif %}{% if derivatives %}  --derivatives {{ derivatives | sh }} \
+{# extra_flags is deliberately NOT quoted: it is a shell fragment the operator
+   supplies, and it must word-split (`--use-syn-sdc --fd-spike-threshold 0.5` is
+   three arguments). That makes it the one trusted field in this template. #}
 {% endif %}{% if extra_flags is defined and extra_flags %}  {{ extra_flags }} \
 {% endif %}  --skip-bids-validation --notrack
 
