@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
+
+#: Prefix for a half-written file in the staged tree. Never pruned, never
+#: mistaken for a desired output — see ``_materialize``.
+_TMP_PREFIX = ".duckbrain-tmp-"
 
 
 def get_bold_runs(
@@ -84,6 +90,112 @@ def build_nordic_matlab_command(
     )
 
 
+def anat_dirs_for_subject(bids_dir: str | Path, subject: str) -> list[Path]:
+    """Every ``anat`` dir belonging to *subject*, across all sessions.
+
+    Anatomy is subject-scoped, not session-scoped. In multi-session studies the
+    anatomical is often acquired once and shared, so taking anat only from the
+    current session leaves fMRIPrep with no anatomical at all for every other
+    session — see ``fmriprep._SESSION_FILTER_SUFFIXES``, which states the same
+    policy for the BIDS filter half of this. The two must not disagree: the
+    filter says "any session's anat" and used to point at a tree assembled with
+    none, so a shared-anat project failed with the filter working as designed.
+
+    Returns the subject-level ``sub-XX/anat`` (rare but legal) plus every
+    ``sub-XX/ses-*/anat``, sorted. fMRIPrep is given all of them and does its own
+    selection, which is exactly what a non-NORDIC run already does.
+    """
+    root = Path(bids_dir) / f"sub-{subject}"
+    dirs = [d for d in [root / "anat"] if d.is_dir()]
+    dirs += sorted(d for d in root.glob("ses-*/anat") if d.is_dir())
+    return dirs
+
+
+@dataclass(frozen=True)
+class _Item:
+    """One file the staged tree should hold, and how to make it."""
+
+    dest: Path
+    src: Path
+    link: bool  # hardlink the payload (unchanged by NORDIC) vs. copy it
+
+
+def _is_stale(item: _Item) -> bool:
+    """Should *item* be (re)materialized?
+
+    Presence was treated as equivalence, and it is not. The Conversion page edits
+    fieldmap bindings and task labels into the raw sidecars, so a tree assembled
+    before such an edit went on serving the old ``B0FieldSource`` to fMRIPrep
+    forever, silently — the failure mode TODO #14 exists for, one layer along.
+    """
+    try:
+        d = item.dest.stat()
+    except OSError:
+        return True
+    try:
+        s = item.src.stat()
+    except OSError:
+        return False  # source vanished mid-build; the prune pass will deal with it
+    if item.link:
+        return d.st_ino != s.st_ino
+    return s.st_size != d.st_size or s.st_mtime_ns > d.st_mtime_ns
+
+
+def _materialize(item: _Item) -> None:
+    """Create ``item.dest`` from ``item.src``, atomically and idempotently.
+
+    Concurrency is real here: ``nordic_bids_input.sbatch.j2`` submits one job per
+    unit and they all write into the same project-wide ``bids_format`` root, so
+    two jobs can target the same anat file. A bare ``os.link`` raises
+    ``FileExistsError`` on the loser and kills that job. Writing to a unique temp
+    sibling and ``os.replace``-ing it in is atomic on POSIX and same-filesystem by
+    construction, so the last writer wins with byte-identical content.
+    """
+    item.dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = item.dest.with_name(
+        f"{_TMP_PREFIX}{item.dest.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+    )
+    try:
+        if item.link:
+            try:
+                os.link(item.src, tmp)
+            except OSError:
+                # EXDEV (derivatives on another filesystem), EPERM (some GPFS/NFS
+                # configurations), EMLINK. Costs disk, not correctness — and it
+                # used to be an uncaught crash reported only as a nonzero exit.
+                shutil.copy2(item.src, tmp)
+        else:
+            shutil.copy2(item.src, tmp)
+        os.replace(tmp, item.dest)
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _prune(owned_dirs: list[Path], desired: set[Path]) -> None:
+    """Delete files in *owned_dirs* that are not in *desired*.
+
+    **This deletes files.** Scoped to directories whose contents this invocation
+    is authoritative for, so a concurrent build of another unit cannot have its
+    outputs removed. Anything hand-added to those directories will disappear on
+    the next assembly; the tree is duckbrain-generated and documented as such.
+
+    Skips temp files (a racer's in-flight write) and directories.
+    """
+    for d in owned_dirs:
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            if p.is_dir() or p.name.startswith(_TMP_PREFIX) or p in desired:
+                continue
+            try:
+                p.unlink()
+            except OSError:
+                pass  # a concurrent racer may have removed it already
+
+
 def build_nordic_bids_input(
     bids_dir: str | Path,
     subject: str,
@@ -99,10 +211,18 @@ def build_nordic_bids_input(
     - NORDIC BOLDs are hardlinked (not copied) to save disk
     - All other func/ files (JSON, events, physio, SBRef) copied from raw BIDS
     - Fieldmaps copied from raw BIDS
-    - Anatomicals included (nifti hardlinked, sidecars copied) so fMRIPrep runs
-      end-to-end without a prior non-NORDIC run
+    - Anatomicals from **every session of the subject** (nifti hardlinked,
+      sidecars copied) so fMRIPrep runs end-to-end without a prior non-NORDIC
+      run — see :func:`anat_dirs_for_subject` for why not just this session's
     - Dataset root files (dataset_description.json, participants.*, .bidsignore)
       copied once, so fMRIPrep accepts the tree as a dataset
+
+    Convergent, not merely additive: a staged file is refreshed when its raw
+    source changes, and **removed when its source is gone**. Presence used to be
+    treated as equivalence, so an edited sidecar or a deleted run stayed in the
+    tree fMRIPrep reads indefinitely. See :func:`_prune` for what is deleted and
+    :func:`_materialize` for how concurrent per-unit jobs stay out of each
+    other's way.
 
     Parameters
     ----------
@@ -144,71 +264,81 @@ def build_nordic_bids_input(
     out_sub_ses = output_bids_input_dir / ss
     out_func = out_sub_ses / "func"
     out_fmap = out_sub_ses / "fmap"
-    out_anat = out_sub_ses / "anat"
-
-    out_func.mkdir(parents=True, exist_ok=True)
-    out_fmap.mkdir(parents=True, exist_ok=True)
 
     raw_func = bids_dir / ss / "func"
     raw_fmap = bids_dir / ss / "fmap"
-    raw_anat = bids_dir / ss / "anat"
     nordic_func = nordic_derivatives_dir / ss / "func"
 
-    # 1. Hardlink NORDIC BOLDs
+    items: list[_Item] = []
+
+    # 1. NORDIC BOLDs — hardlinked, since they are the payload we are staging.
     if nordic_func.is_dir():
-        for bold in nordic_func.glob("*_bold.nii.gz"):
-            dest = out_func / bold.name
-            if not dest.exists():
-                os.link(bold, dest)
+        for bold in sorted(nordic_func.glob("*_bold.nii.gz")):
+            items.append(_Item(out_func / bold.name, bold, link=True))
 
-    # 2. Copy non-BOLD func files from raw BIDS
+    # 2. Every other func file from raw BIDS (sidecars, events, physio, SBRef).
+    #    The raw BOLDs are deliberately absent — the NORDIC ones replace them.
     if raw_func.is_dir():
-        for f in raw_func.iterdir():
-            if f.name.endswith("_bold.nii.gz"):
-                continue  # Skip — we use NORDIC versions
-            dest = out_func / f.name
-            if not dest.exists():
-                shutil.copy2(f, dest)
+        for f in sorted(raw_func.iterdir()):
+            if f.is_file() and not f.name.endswith("_bold.nii.gz"):
+                items.append(_Item(out_func / f.name, f, link=False))
 
-    # 3. Copy fieldmaps from raw BIDS
+    # 3. Fieldmaps from raw BIDS.
     if raw_fmap.is_dir():
-        for f in raw_fmap.iterdir():
-            dest = out_fmap / f.name
-            if not dest.exists():
-                shutil.copy2(f, dest)
+        for f in sorted(raw_fmap.iterdir()):
+            if f.is_file():
+                items.append(_Item(out_fmap / f.name, f, link=False))
 
-    # 4. Include anatomicals so fMRIPrep runs end-to-end (nifti hardlinked to save
-    # disk — anat is unchanged by NORDIC — sidecars copied). Only make the dir if
-    # the unit actually has anat.
-    if raw_anat.is_dir():
-        out_anat.mkdir(parents=True, exist_ok=True)
-        for f in raw_anat.iterdir():
-            dest = out_anat / f.name
-            if dest.exists():
-                continue
-            if f.name.endswith(".nii.gz"):
-                os.link(f, dest)
-            else:
-                shutil.copy2(f, dest)
+    # 4. Anatomy, from EVERY session of this subject rather than just this one —
+    #    see `anat_dirs_for_subject`. NIfTIs hardlinked (anat is unchanged by
+    #    NORDIC), sidecars copied.
+    anat_items: list[_Item] = []
+    for raw_anat in anat_dirs_for_subject(bids_dir, subject):
+        out_anat = output_bids_input_dir / raw_anat.relative_to(bids_dir)
+        for f in sorted(raw_anat.iterdir()):
+            if f.is_file():
+                anat_items.append(
+                    _Item(out_anat / f.name, f, link=f.name.endswith(".nii.gz"))
+                )
+    items += anat_items
 
-    # 5. Copy the unit-level scans.tsv if present. Its filename carries the same
-    # entities as the dir path: sub-XX_ses-YY_scans.tsv or sub-XX_scans.tsv.
+    # 5. The unit-level scans.tsv. Its filename carries the same entities as the
+    #    dir path: sub-XX_ses-YY_scans.tsv or sub-XX_scans.tsv.
     scans_name = f"{sub}_ses-{session}_scans.tsv" if session else f"{sub}_scans.tsv"
     scans_tsv = bids_dir / ss / scans_name
     if scans_tsv.exists():
-        dest = out_sub_ses / scans_tsv.name
-        if not dest.exists():
-            shutil.copy2(scans_tsv, dest)
+        items.append(_Item(out_sub_ses / scans_tsv.name, scans_tsv, link=False))
 
-    # 6. Copy dataset root files once, so the tree is a valid BIDS dataset that
-    # fMRIPrep accepts (it errors without dataset_description.json even with
-    # --skip-bids-validation). Idempotent; skips whatever the raw dataset lacks.
+    # 6. Dataset root files, so the tree is a valid BIDS dataset fMRIPrep accepts
+    #    (it errors without dataset_description.json even with
+    #    --skip-bids-validation). Shared by every unit; skips what the raw
+    #    dataset lacks.
     for root_name in ("dataset_description.json", "participants.tsv",
                       "participants.json", "README", ".bidsignore"):
         src = bids_dir / root_name
-        dest = output_bids_input_dir / root_name
-        if src.exists() and not dest.exists():
-            shutil.copy2(src, dest)
+        if src.exists():
+            items.append(_Item(output_bids_input_dir / root_name, src, link=False))
+
+    out_func.mkdir(parents=True, exist_ok=True)
+    out_fmap.mkdir(parents=True, exist_ok=True)
+    for item in items:
+        if _is_stale(item):
+            _materialize(item)
+
+    # Reconcile: a file whose raw source is gone must go too, or a removed run or
+    # a renamed sidecar lingers in the tree fMRIPrep reads. Only two scopes are
+    # ever pruned, and both are safe against a concurrent build of another unit:
+    #
+    #   unit    — this unit's func/ and fmap/; no other invocation writes there.
+    #   subject — the subject's anat dirs; the desired anat set is a pure function
+    #             of (bids_dir, subject), so two concurrent units of one subject
+    #             compute the SAME set and neither can delete what the other wants.
+    #
+    # Deliberately NOT pruned: the dataset root files and other units' scans.tsv,
+    # which are shared and additive — pruning there would be one unit deleting the
+    # dataset out from under another.
+    owned = [out_func, out_fmap] + [i.dest.parent for i in anat_items]
+    _prune(owned, {i.dest for i in items})
 
     return out_sub_ses
 

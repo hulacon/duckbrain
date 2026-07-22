@@ -6,6 +6,8 @@ Both ``nordic_output_dir`` and ``build_nordic_bids_input`` used to hardcode
 when there is no session and present when there is.
 """
 
+import os
+import shutil
 from pathlib import Path
 
 from duckbrain.core.nordic import build_nordic_bids_input, nordic_output_dir
@@ -27,18 +29,23 @@ def test_nordic_output_dir_multisession(tmp_path):
 
 # ---- build_nordic_bids_input ------------------------------------------------
 
-def _seed_raw_and_nordic(root, ss):
+def _seed_raw_and_nordic(root, ss, anat_ss=None):
     """Create a minimal raw BIDS + NORDIC derivative tree under *root* for *ss*.
 
-    *ss* is the ``sub-XX[/ses-YY]`` fragment. Returns the derivatives dir.
+    *ss* is the ``sub-XX[/ses-YY]`` fragment. *anat_ss* puts the anatomy under a
+    different fragment — the shared-anat layout, where the T1w is acquired once
+    and every other session has none of its own. Defaults to *ss*, which was the
+    only shape these tests covered and the reason the bug went unnoticed.
+
+    Returns the derivatives dir.
     """
     bids = Path(root)
     raw_func = bids / ss / "func"
     raw_fmap = bids / ss / "fmap"
-    raw_anat = bids / ss / "anat"
+    raw_anat = bids / (anat_ss if anat_ss is not None else ss) / "anat"
     raw_func.mkdir(parents=True)
     raw_fmap.mkdir(parents=True)
-    raw_anat.mkdir(parents=True)
+    raw_anat.mkdir(parents=True, exist_ok=True)
     # Raw BOLD (should be skipped — NORDIC version wins) + a sidecar + an event.
     (raw_func / "sub-04_task-x_bold.nii.gz").write_bytes(b"raw")
     (raw_func / "sub-04_task-x_bold.json").write_text("{}")
@@ -213,3 +220,211 @@ def test_no_bolds_writes_nothing(tmp_path):
     bids, deriv = tmp_path / "bids", tmp_path / "derivatives"
     (bids / "sub-01").mkdir(parents=True)
     assert write_nordic_sidecars(bids, deriv, "01", provenance=_PROV) == []
+
+
+# ---- DB-004: shared anat, staleness, and concurrent builds -------------------
+
+def _build(root, subject, session, deriv):
+    return build_nordic_bids_input(root, subject, session, deriv / "nordic")
+
+
+def test_bids_input_takes_anat_from_another_session(tmp_path):
+    """The headline case: anat acquired once, in a session with no BOLD.
+
+    `fmriprep._SESSION_FILTER_SUFFIXES` leaves anat unfiltered precisely because
+    of this layout, so with use_nordic the filter said "any session's anat" and
+    pointed at a tree assembled with none — a hard fMRIPrep failure with every
+    piece working as written.
+    """
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04/ses-02", anat_ss="sub-04/ses-01")
+
+    out = _build(tmp_path, "04", "02", deriv)
+
+    tree = deriv / "nordic" / "bids_format"
+    staged = tree / "sub-04" / "ses-01" / "anat" / "sub-04_T1w.nii.gz"
+    assert staged.exists(), "anat from another session must reach the staged tree"
+    raw = tmp_path / "sub-04" / "ses-01" / "anat" / "sub-04_T1w.nii.gz"
+    assert staged.stat().st_ino == raw.stat().st_ino   # hardlinked, not copied
+    assert (out / "func" / "sub-04_task-x_bold.nii.gz").exists()
+
+
+def test_bids_input_takes_subject_level_anat(tmp_path):
+    """`sub-XX/anat` with no session level is rare but legal, and was also lost."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04/ses-02", anat_ss="sub-04")
+
+    _build(tmp_path, "04", "02", deriv)
+
+    tree = deriv / "nordic" / "bids_format"
+    assert (tree / "sub-04" / "anat" / "sub-04_T1w.nii.gz").exists()
+
+
+def test_bids_input_includes_every_sessions_anat(tmp_path):
+    """fMRIPrep sees all of them and picks; that is what a non-NORDIC run does."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04/ses-01")
+    other = tmp_path / "sub-04" / "ses-02" / "anat"
+    other.mkdir(parents=True)
+    (other / "sub-04_ses-02_T1w.nii.gz").write_bytes(b"anat2")
+
+    _build(tmp_path, "04", "01", deriv)
+
+    tree = deriv / "nordic" / "bids_format" / "sub-04"
+    assert (tree / "ses-01" / "anat" / "sub-04_T1w.nii.gz").exists()
+    assert (tree / "ses-02" / "anat" / "sub-04_ses-02_T1w.nii.gz").exists()
+
+
+def test_bids_input_without_any_anat_makes_no_anat_dir(tmp_path):
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    shutil.rmtree(tmp_path / "sub-04" / "anat")
+
+    out = _build(tmp_path, "04", "", deriv)
+
+    assert not (out / "anat").exists()
+
+
+def test_bids_input_prunes_a_file_whose_source_was_removed(tmp_path):
+    """A removed run must leave the tree fMRIPrep reads, or it processes a run
+    the dataset no longer has."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    out = _build(tmp_path, "04", "", deriv)
+    assert (out / "func" / "sub-04_task-x_events.tsv").exists()
+
+    (tmp_path / "sub-04" / "func" / "sub-04_task-x_events.tsv").unlink()
+    _build(tmp_path, "04", "", deriv)
+
+    assert not (out / "func" / "sub-04_task-x_events.tsv").exists()
+    assert (out / "func" / "sub-04_task-x_bold.json").exists()   # the rest stays
+
+
+def test_prune_leaves_another_units_files_alone(tmp_path):
+    """Two units share one bids_format root; neither may prune the other."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04/ses-01")
+    _seed_raw_and_nordic(tmp_path, "sub-04/ses-02", anat_ss="sub-04/ses-01")
+
+    out1 = _build(tmp_path, "04", "01", deriv)
+    out2 = _build(tmp_path, "04", "02", deriv)
+    _build(tmp_path, "04", "01", deriv)          # rebuild the first
+
+    assert (out2 / "func" / "sub-04_task-x_bold.nii.gz").exists()
+    assert (out1 / "func" / "sub-04_task-x_bold.nii.gz").exists()
+
+
+def test_prune_never_touches_dataset_root_files(tmp_path):
+    """Shared and additive — pruning there is one unit deleting the dataset."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    _build(tmp_path, "04", "", deriv)
+    tree = deriv / "nordic" / "bids_format"
+    (tree / "README").write_text("hand-added")
+
+    _build(tmp_path, "04", "", deriv)
+
+    assert (tree / "dataset_description.json").exists()
+    assert (tree / "README").exists()
+
+
+def test_bids_input_refreshes_a_changed_sidecar(tmp_path):
+    """The Conversion page edits fieldmap intent into raw sidecars. Treating
+    presence as equivalence served the stale B0FieldSource to fMRIPrep forever."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    out = _build(tmp_path, "04", "", deriv)
+    assert (out / "func" / "sub-04_task-x_bold.json").read_text() == "{}"
+
+    raw_json = tmp_path / "sub-04" / "func" / "sub-04_task-x_bold.json"
+    raw_json.write_text('{"B0FieldSource": "B0map_2.5mm"}')
+    os.utime(raw_json, (10**9, 10**9))   # unambiguously newer than the staged copy
+
+    _build(tmp_path, "04", "", deriv)
+
+    assert "B0FieldSource" in (out / "func" / "sub-04_task-x_bold.json").read_text()
+
+
+def test_bids_input_relinks_a_regenerated_nordic_bold(tmp_path):
+    """A re-denoised run is a new inode; the stale hardlink has to be replaced."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    out = _build(tmp_path, "04", "", deriv)
+
+    src = deriv / "nordic" / "sub-04" / "func" / "sub-04_task-x_bold.nii.gz"
+    src.unlink()
+    src.write_bytes(b"denoised-v2")
+
+    _build(tmp_path, "04", "", deriv)
+
+    staged = out / "func" / "sub-04_task-x_bold.nii.gz"
+    assert staged.read_bytes() == b"denoised-v2"
+    assert staged.stat().st_ino == src.stat().st_ino
+
+
+def test_bids_input_survives_a_preexisting_destination(tmp_path):
+    """os.link on an existing dest raised FileExistsError and killed the job."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    tree = deriv / "nordic" / "bids_format"
+    dest = tree / "sub-04" / "anat" / "sub-04_T1w.nii.gz"
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"stale")
+
+    out = _build(tmp_path, "04", "", deriv)
+
+    raw = tmp_path / "sub-04" / "anat" / "sub-04_T1w.nii.gz"
+    assert (out / "anat" / "sub-04_T1w.nii.gz").stat().st_ino == raw.stat().st_ino
+
+
+def test_bids_input_survives_a_racing_link(tmp_path, monkeypatch):
+    """nordic_bids_input.sbatch.j2 runs one job per unit into one shared root, so
+    two jobs genuinely race for the same anat file."""
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    real_link = os.link
+    calls = {"n": 0}
+
+    def flaky_link(src, dst, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise FileExistsError("another job got there first")
+        return real_link(src, dst, **kw)
+
+    monkeypatch.setattr(os, "link", flaky_link)
+    out = _build(tmp_path, "04", "", deriv)
+
+    assert (out / "func" / "sub-04_task-x_bold.nii.gz").exists()
+
+
+def test_bids_input_falls_back_to_copy_when_hardlinks_are_unsupported(tmp_path):
+    """EXDEV when derivatives sit on another filesystem; EPERM on some GPFS/NFS.
+    Costs disk, not correctness — it used to be an uncaught crash."""
+    import errno
+    from unittest.mock import patch
+
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    with patch.object(os, "link", side_effect=OSError(errno.EXDEV, "cross-device")):
+        out = _build(tmp_path, "04", "", deriv)
+
+    staged = out / "func" / "sub-04_task-x_bold.nii.gz"
+    src = deriv / "nordic" / "sub-04" / "func" / "sub-04_task-x_bold.nii.gz"
+    assert staged.read_bytes() == b"denoised"
+    assert staged.stat().st_ino != src.stat().st_ino
+
+
+def test_concurrent_unit_builds_share_one_root(tmp_path):
+    """Four sessions of one subject, built at once into the same bids_format."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    sessions = ["01", "02", "03", "04"]
+    deriv = None
+    for i, ses in enumerate(sessions):
+        d = _seed_raw_and_nordic(tmp_path, f"sub-04/ses-{ses}",
+                                 anat_ss="sub-04/ses-01" if i else None)
+        deriv = deriv or d
+
+    with ThreadPoolExecutor(4) as pool:
+        outs = list(pool.map(lambda s: _build(tmp_path, "04", s, deriv), sessions))
+
+    for out in outs:
+        assert (out / "func" / "sub-04_task-x_bold.nii.gz").exists()
+    tree = deriv / "nordic" / "bids_format"
+    assert (tree / "sub-04" / "ses-01" / "anat" / "sub-04_T1w.nii.gz").exists()
+
+
+def test_bids_input_leaves_no_temp_files(tmp_path):
+    deriv = _seed_raw_and_nordic(tmp_path, "sub-04")
+    _build(tmp_path, "04", "", deriv)
+
+    tree = deriv / "nordic" / "bids_format"
+    assert not [p for p in tree.rglob(".duckbrain-tmp-*")]
