@@ -324,12 +324,60 @@ class IngestCollision(Exception):
     """
 
 
+#: Written inside a *copied* target to record which source folder it came from.
+#: A symlink carries that provenance in the link itself; a copy carries none, and
+#: without it the collision check below cannot tell "you ingested this same folder
+#: yesterday" from "a different folder already claimed this subject/session".
+_SOURCE_MARKER = ".duckbrain-source"
+
+
 def _describe_target(target: Path) -> str:
     """What an existing ingested target points at, for a collision message."""
     try:
-        return str(target.readlink()) if target.is_symlink() else str(target.resolve())
+        if target.is_symlink():
+            return str(target.readlink())
+        recorded = _ingested_source(target)
+        return recorded if recorded else str(target)
     except OSError:
         return str(target)
+
+
+def _ingested_source(target: Path) -> str | None:
+    """The source folder a copied *target* was ingested from, or None if unrecorded.
+
+    None means either an unmarked copy — one ingested before the marker existed —
+    or an unreadable target. Callers must not read None as "different source";
+    see :func:`ingest_session`.
+    """
+    try:
+        return (target / _SOURCE_MARKER).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def _same_source(target: Path, source: Path) -> bool | None:
+    """Was *target* ingested from *source*? None when it cannot be determined.
+
+    Symlinks answer this themselves. Copies answer it from the marker file, and
+    a copy predating the marker answers None — which is not the same as False,
+    because reporting a collision against a target the user very likely created
+    from this exact folder would block a re-ingest that has always been a no-op.
+    """
+    try:
+        if target.is_symlink():
+            return target.resolve() == Path(source).resolve()
+    except OSError:  # broken link, unreadable mount
+        return False
+
+    # A real directory resolves to itself, so a resolved-path comparison here is
+    # always False and would flag every copy-mode re-ingest as a collision.
+    recorded = _ingested_source(target)
+    if recorded is None:
+        return None
+    try:
+        return Path(recorded).resolve() == Path(source).resolve()
+    except OSError:
+        return recorded == str(source)
 
 
 def ingest_session(
@@ -374,11 +422,11 @@ def ingest_session(
         # returning quietly let the caller report it as a success: two folders,
         # two green rows, one of them not on disk anywhere (TODO #17.9). Silence
         # here is the same class of bug as a silently-degrading option.
-        try:
-            same = target.resolve() == Path(session.path).resolve()
-        except OSError:              # broken link, unreadable mount
-            same = False
-        if not same:
+        #
+        # Only a *definite* different-source answer is a collision. An unmarked
+        # copy answers None, and treating that as a collision made every re-ingest
+        # of a copied session fail against its own output.
+        if _same_source(target, session.path) is False:
             raise IngestCollision(
                 f"sub-{mapping.bids_subject}"
                 + (f"/ses-{mapping.bids_session}" if mapping.bids_session else "")
@@ -397,6 +445,8 @@ def ingest_session(
         import shutil
 
         shutil.copytree(session.path, target)
+        # The copy's only record of where it came from; see `_same_source`.
+        (target / _SOURCE_MARKER).write_text(f"{Path(session.path).resolve()}\n")
     else:
         raise ValueError(f"Unknown ingestion method: {method}")
 

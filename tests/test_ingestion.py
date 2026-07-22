@@ -486,3 +486,70 @@ def test_two_folders_mapped_to_one_unit_raises_instead_of_reporting_success(tmp_
     assert a.name in str(exc.value)
     # And the first folder is still the one on disk, untouched.
     assert (sourcedata / "sub-003" / "ses-04" / "dicom").resolve() == a.resolve()
+
+
+def test_copy_reingest_is_a_noop_not_a_collision(tmp_path):
+    """A copied target must not read as a collision against its own source.
+
+    The collision check compared ``target.resolve()`` to the source, which is
+    right for a symlink and meaningless for a copy: a real directory resolves to
+    itself, so every copy-mode re-ingest reported "NOT ingested — collision"
+    against the folder it had just been made from.
+    """
+    from duckbrain.core.ingestion import BidsMapping, ingest_session
+
+    src = tmp_path / "export" / "STUDY_001_20230101"
+    (src / "Series_01").mkdir(parents=True)
+    (src / "Series_01" / "0001.dcm").write_bytes(b"x")
+    mapping = BidsMapping(folder_name=src.name, bids_subject="01", bids_session="")
+    sourcedata = tmp_path / "sourcedata"
+
+    first = ingest_session(_sess(src), mapping, sourcedata, method="copy")
+    again = ingest_session(_sess(src), mapping, sourcedata, method="copy")
+
+    assert first == again
+    assert (again / "Series_01" / "0001.dcm").read_bytes() == b"x"
+
+
+def test_copy_collision_from_a_different_source_still_raises(tmp_path):
+    """Fixing the copy no-op must not blind the check to a real collision."""
+    from duckbrain.core.ingestion import (
+        BidsMapping, IngestCollision, ingest_session,
+    )
+
+    a = tmp_path / "export" / "STUDY_001_sess04"
+    b = tmp_path / "export" / "STUDY_001_sess04_repeat"
+    for d in (a, b):
+        (d / "Series_01").mkdir(parents=True)
+
+    sourcedata = tmp_path / "sourcedata"
+    ingest_session(_sess(a), BidsMapping(a.name, "003", "04"), sourcedata, method="copy")
+
+    with pytest.raises(IngestCollision) as exc:
+        ingest_session(_sess(b), BidsMapping(b.name, "003", "04"), sourcedata,
+                       method="copy")
+
+    # The message names the recorded source, not just the destination path.
+    assert str(a) in str(exc.value)
+    assert b.name in str(exc.value)
+
+
+def test_copied_target_without_a_marker_is_not_a_collision(tmp_path):
+    """A copy ingested before the marker existed must not start erroring.
+
+    Unknown provenance is not the same answer as "a different folder": treating
+    it as a collision would break re-ingest for every project already on disk.
+    """
+    from duckbrain.core.ingestion import BidsMapping, ingest_session
+
+    src = tmp_path / "export" / "STUDY_001_20230101"
+    (src / "Series_01").mkdir(parents=True)
+    sourcedata = tmp_path / "sourcedata"
+
+    # A pre-existing copied target, as an older duckbrain would have left it.
+    legacy = sourcedata / "sub-01" / "dicom" / "Series_01"
+    legacy.mkdir(parents=True)
+
+    mapping = BidsMapping(folder_name=src.name, bids_subject="01", bids_session="")
+    target = ingest_session(_sess(src), mapping, sourcedata, method="copy")
+    assert target == sourcedata / "sub-01" / "dicom"
