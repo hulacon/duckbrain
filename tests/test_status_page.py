@@ -297,3 +297,50 @@ def test_failed_cell_shows_stderr_even_when_stdout_is_not_empty(project, monkeyp
     rendered = [c.value for c in at.code]
     assert any("the actual reason" in c for c in rendered), "stderr was not shown"
     assert any("banner line" in c for c in rendered), "stdout was dropped instead"
+
+
+# ---- Declared expectations (TODO #16 Slice A) --------------------------------
+#
+# These assert on what the page DISPLAYS, which is the #17 lesson: every one of
+# that item's ten findings was a display or a control, so none could be caught by
+# a test asserting on a returned value. The expectations panel is a control that
+# writes config, which is exactly that shape.
+
+
+def test_expectations_panel_is_offered_and_says_checks_are_off(project):
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    labels = [e.label for e in at.expander]
+    assert any("Declared expectations" in label and "none set" in label for label in labels)
+
+
+def test_a_declaration_is_summarized_and_its_shortfall_reported(project):
+    """The declaration reads back on the page, and the check it drives fires.
+
+    sub-01 has one T1w and no BOLD, so a declaration asking for two runs of
+    `rest` must both render as a summary and produce a visible error.
+    """
+    save_project_config(
+        str(project),
+        {"expected": {"session": {"anat": {"T1w": 1}, "task": {"rest": 2}}}},
+    )
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    labels = [e.label for e in at.expander]
+    assert any("Declared expectations" in label and "none set" not in label for label in labels)
+    assert any("2** run(s) of `rest`" in m for m in _markdowns(at))
+
+    # A task absent entirely is an error, not a warning — and it must reach the UI
+    # as one, since severity is only meaningful if the widget honours it.
+    errors = [e.value for e in at.error]
+    assert any("expected-task" in e and "sub-01" in e for e in errors)
+
+
+def test_no_declaration_adds_no_warnings(project):
+    """Opt-out at the display layer: a project that declares nothing must not
+    gain a single new line on the page."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert not [e.value for e in at.error if "expected-" in e.value]
+    assert not [w.value for w in at.warning if "expected-" in w.value]

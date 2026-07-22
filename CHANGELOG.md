@@ -11,6 +11,30 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **Declared study expectations, and the checks that read them** (`[expected]` in
+  a project's `code/duckbrain.toml`). You can now state what a session of your
+  study is *supposed* to contain — how many participants, how many T1w scans,
+  how many fieldmap pairs, how many runs of each task — and duckbrain flags any
+  session that falls short.
+
+  This closes a gap that was invisible by construction. Every other expectation
+  in duckbrain is worked out *from* the data it is judging: the subject list from
+  what exists on disk, the expected runs from the runs that converted. So a run
+  the scanner aborted, or a subject scanned but never ingested, shrinks the
+  expectation to match and the status board reads complete. Validated on real
+  data: with one task's BOLD removed, the status matrix still reported every
+  subject **complete** while the new check caught it.
+
+  Declare it from the Project Status page: pick a session you have reviewed and
+  trust, and freeze what it contains as the study's rule. Genuine deviations —
+  the subject whose last run was aborted — go under `[expected.exceptions]` with
+  a reason, so they stop being reported without being forgotten.
+
+  **Absent means off.** A project that declares nothing gets no expectation
+  checks and no new warnings; removing the declaration turns them back off.
+  Findings appear in the cockpit's existing warnings panel, which now
+  distinguishes errors from warnings and notes. Nothing blocks: a shortfall is
+  reported, never a gate on running a stage.
 - **A consistency check for fieldmap intent (`fmap-intent`).** The inverted
   `B0FieldIdentifier`/`B0FieldSource` bug fixed on 2026-07-21 was invisible to
   every tool involved — the dataset validated, dcm2bids succeeded, and fMRIPrep

@@ -43,7 +43,8 @@ build history; those drifted out of date every time they were duplicated here.
 | What's left to do? | `TODO.md` (open work; closed items are a one-line ledger) |
 | How did we get here / why does this code look like this? | `git log` — the commit message is the record |
 | What changed for users? | `CHANGELOG.md` |
-| How does subsystem X work? | `docs/` (`pipeline-cockpit.md`, `pipeline-extras.md`, `conversion-legibility.md`, `handoff-cluster-session.md`) |
+| How does subsystem X work? | `docs/` (`pipeline-cockpit.md`, `pipeline-extras.md`, `conversion-legibility.md`, `sanity-checks.md`, `handoff-cluster-session.md`) |
+| Why don't we just use Nipoppy / CuBIDS / mrQA? | `docs/sanity-checks.md` — surveyed and each refused or borrowed for a stated reason |
 | What did the 2026-07-22 external audit say? | `docs/code-review-260722.md` — answered and closed; see the `#18` ledger row |
 | How do I cut a release? | `docs/releasing.md` (incl. why the minor bump is not just bookkeeping) |
 | What did we learn validating on real data? | `memory/` via `MEMORY.md` |
@@ -81,6 +82,15 @@ the next one.
   fMRIPrep just reports "Susceptibility distortion correction: None" and
   preprocesses uncorrected. Found 2026-07-21 by asking what happens to SBRefs.
   Pinned by tests in `tests/test_conversion_plan.py`; never swap them.
+- **Every expectation duckbrain computes is derived from the data it judges** —
+  the roster from what exists on disk, the run list from the converted tree, the
+  NIfTI counts from the config duckbrain emitted. So a shortfall shrinks the
+  expectation to match and the board reads COMPLETE. The **only** independent
+  statement of intent is a project's `[expected]` section (`core/expectations.py`,
+  `docs/sanity-checks.md`); don't add a "check" that re-derives its own
+  expectation from the artifact it is checking, because that is the bug, not the
+  fix. `[expected]` is **opt-out by default** — absent means the checks don't run,
+  and that is a behaviour with a test, not an oversight.
 - **Provenance source rule:** for derivatives duckbrain *produces*, provenance
   lives in the data (sidecars → dataset stamp); for tool-produced derivatives
   (fMRIPrep/MRIQC) the submission log is the only channel. Enforced and explained

@@ -419,6 +419,30 @@ def save_project_task_map(project_dir: str | Path, rules: list) -> Path:
     return _dump_toml(path, data)
 
 
+def save_project_expectations(project_dir: str | Path, section: dict) -> Path:
+    """Persist the study's declared expectations into the project config.
+
+    Read-modify-write so it only touches ``[expected]`` and preserves every other
+    project setting — same contract as :func:`save_project_task_map`. An empty
+    mapping **removes the section**, which is how a project opts back out: absent
+    means the expectation checks do not run at all, so there has to be a way back
+    to absent that does not involve hand-editing TOML.
+
+    *section* is the whole ``[expected]`` table (``participants``, ``session``,
+    ``exceptions``), not just one part of it — see
+    :mod:`duckbrain.core.expectations` for the shape.
+    """
+    from .core.expectations import SECTION
+
+    path = project_config_path(project_dir)
+    data = _load_toml(path)
+    if section:
+        data[SECTION] = section
+    else:
+        data.pop(SECTION, None)
+    return _dump_toml(path, data)
+
+
 def save_project_fmap_map(project_dir: str | Path, rules: list) -> Path:
     """Persist project-wide ``task -> fieldmap group`` bindings into the project config.
 

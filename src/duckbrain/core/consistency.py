@@ -89,6 +89,12 @@ class ConsistencyIssue:
 
     ``check`` is a stable category slug; ``subject`` is ``""`` for project-level
     issues. ``message`` is the user-facing explanation.
+
+    ``severity`` is one of ``"error"`` / ``"warning"`` / ``"note"``, worst first.
+    The vocabulary is shared with :mod:`duckbrain.core.checks`, which produces the
+    same type into the same cockpit panel — a reader should not have to know which
+    module noticed. ``"error"`` means a stage downstream will fail or silently do
+    the wrong thing; ``"note"`` is worth knowing and is not a contradiction.
     """
 
     check: str

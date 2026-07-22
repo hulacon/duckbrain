@@ -55,7 +55,7 @@ source = ["duckbrain"]
 # 0%: they are scripts, not importable modules, and the tests that cover them
 # assert on their *source* rather than executing them. Core, config and slurm —
 # the code the floor is actually protecting — sit between 84% and 100%.
-fail_under = 60
+fail_under = 62
 
 [tool.ruff]
 line-length = 100

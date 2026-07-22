@@ -29,6 +29,35 @@ project = ""               # e.g., "mmmdata"
 # not check semantic intent, so a clean run is not an all-clear (see TODO #15).
 bids_validate = true
 
+# [expected] — what a session of this study is SUPPOSED to contain.
+#
+# Deliberately absent here and shipped commented-out: absent means the
+# expectation checks do not run, and a study that has not declared its
+# expectations is not thereby wrong. It belongs in a PROJECT's own
+# code/duckbrain.toml, written by the "Declare expectations" action on the
+# Project Status page rather than by hand — see core/expectations.py.
+#
+# It exists because every other expectation in duckbrain is re-derived from the
+# data being judged, so a run that was never acquired shrinks the expectation to
+# match and the board reads complete. This is the one declaration that can't.
+#
+# [expected]
+# participants = 37                  # or ["001", "002", ...]
+#
+# [expected.session]
+# fmap_pairs = 1
+#
+# [expected.session.anat]
+# T1w = 1
+#
+# [expected.session.task]
+# div = 4
+#
+# [expected.exceptions."013"]        # a real, accepted deviation
+# reason = "scanner aborted the last run"
+# [expected.exceptions."013".task]
+# div = 3
+
 [containers]
 dcm2bids_version = "3.2.0"
 fmriprep_version = "24.1.1"

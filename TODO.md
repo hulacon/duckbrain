@@ -14,7 +14,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#16`](#16) sanity-check layer ·
+[`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#18`](#18) type checking · [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
@@ -25,81 +25,90 @@ stages · [`#8`](#8) branding · [Loose ideas](#loose-ideas-not-scheduled)
 ---
 
 <a id="16"></a>
-## #16 — A sanity-check layer: did the tool do what we asked, not just exit 0?
+## #16 — Sanity checks: what we asked for vs. what we got
 
-**Captured 2026-07-21, Ben's idea, prompted by `#15`'s caveat. Design not settled
-— that is the first task, not writing checks.**
+**Slice A shipped 2026-07-22** — a declared `[expected]` prescription plus the
+cheap checks that read it (see the ledger). **Full design, prior-art verdicts and
+the decisions that are settled: `docs/sanity-checks.md`.** Do not re-open the
+boundary question or the Nipoppy/CuBIDS/mrQA verdicts without reading it.
 
-### The gap, stated once
+What remains, in the order it should be built. Each is a slice because each has
+its own commitment to weigh.
 
-Every bug found on 2026-07-21 was invisible to every tool involved, because each
-tool did exactly what it was told: the BIDS validator saw a well-formed dataset
-(the fieldmap keys were valid strings in valid places — just inverted), dcm2bids
-converted successfully, fMRIPrep exited 0 and produced complete-looking
-derivatives, and the only trace was one line in an HTML report nobody reads:
-*"Susceptibility distortion correction: None"*.
+### `#16.1` — The request record (L2)
 
-**Validators check that data is well-*formed*. Nothing checks that processing did
-what was *intended*.** That gap is the layer. It is also where duckbrain has a
-genuine advantage over the tools it orchestrates: it is the only component that
-knows what was *asked for*, so it is the only one that can compare that against
-what happened.
+`submissions.tsv` carries tool *identity* only. Absent: `output_spaces`,
+`nprocs`, `mem_gb`, `anat_only`, `use_derivatives`, `extra_flags`, the generated
+BIDS filter path, `use_nordic`, SLURM resources. `script_path` makes them
+*recoverable* by re-parsing an sbatch, which is not the same as recorded.
 
-### Candidate checks (the evidence for the layer, not a spec)
+- Write `<log_dir>/requests/<job_id>.json` at launch and add a `request_path`
+  column — mirroring `script_path` exactly, so this is a solved shape
+  (`pipeline._migrate_log_header` already handles the column addition).
+- Its first consumer: **requested `output_spaces` vs the spaces actually
+  written** — impossible today because `surveyor._entity_key` strips `space-` and
+  nothing else records the ask.
+- Not a JSON blob column (keeps the TSV greppable), and not a stamp in the
+  derivative tree (fMRIPrep/MRIQC overwrite their own `dataset_description.json`,
+  which is why `consistency.py`'s source rule routes tool-produced derivatives to
+  the log).
 
-**Outcome — did the tool do the thing?** The highest-value family, and the one
-that has actually caught real bugs.
+### `#16.2` — Outcome checks, and duckbrain's first cache
 
-- fMRIPrep reporting SDC *None* while the session has a complete fieldmap pair.
-  **Partly answered already, and the gap left is instructive.** `fmap-intent`
-  (2026-07-22, `#14`) catches the *cause* from the sidecars, before fMRIPrep
-  runs — strictly better than catching it after hours of compute. What it cannot
-  see is fMRIPrep declining to use metadata that *is* correct, which is the pure
-  outcome check and still wants the report parsed. So the two are complementary:
-  check the input where you can, and the output where only the tool knows.
-- Requested `output_spaces` vs the spaces actually written.
-- "Reuse anat derivatives" actually reusing (the closed 2026-07-20 bug — it was a
-  silent no-op; a check would have caught it without the code fix).
-- NORDIC producing output that actually differs from its input.
-- MRIQC IQMs present for every func the surveyor counts as complete.
+- Parse the fMRIPrep report for **SDC actually applied**. Complementary to
+  `fmap-intent`, not redundant: that catches the *cause* from the sidecars before
+  hours of compute; this catches fMRIPrep declining metadata that *is* correct.
+- Others in the family: "reuse anat derivatives" actually reusing (the silent
+  no-op closed 2026-07-20); NORDIC output actually differing from its input;
+  MRIQC IQMs present for every func the surveyor counts complete.
+- 🔴 **The commitment to weigh, and why this is its own item.** These need
+  `Check.cost = EXPENSIVE`, which needs a cached, fingerprinted result — and
+  duckbrain has *zero* caching today, with `surveyor.py`'s docstring advertising
+  "no state store" as a virtue. Decided in principle (cache to
+  `<log_dir>/checks.json` keyed on job id + newest input mtime, rendered with a
+  staleness marker, recomputed by an explicit action; **not** a post-job hook,
+  since jobs die, get cancelled, and run outside duckbrain). Decide it again with
+  the code in front of you.
+- The registry already carries the `cost` field so adding one is not a reshape;
+  `test_no_expensive_check_is_registered_yet` is the tripwire.
 
-**Cross-artifact agreement — do two sources of the same fact match?**
+### `#16.3` — An opt-in audit stage (mrQA, later CuBIDS)
 
-- ✅ `fmap-pe-direction` (built 2026-07-21) — `dir-` label vs header. The first
-  member of this family and the template for the rest.
-- TR / volume counts consistent across runs of one task.
-- The identity check under Loose ideas, which must run *before* `#7.1`.
+Ben's suggestion, and a better home than this layer for external tooling. A
+*different question*: heterogeneity **discovery** over the whole dataset,
+occasional and deliberate — versus a per-unit **contract** check on the board.
 
-**Quality norms** — overlaps `#7.4` (MRIQC norms dashboard); fold them together
-rather than building two things.
+- Costs almost no new architecture: both tools are batch, slow, whole-dataset and
+  emit HTML, so it is a SLURM stage reusing `StageSpec`, `advance_one`,
+  `submit_job` and the cockpit log viewers. Project-level action with a report
+  link, not a matrix column.
+- **mrQA first** — Apache-2.0, pip, light deps, reads DICOM *or* BIDS, and
+  `--ref-protocol-path` is optional (it infers a reference by majority), so it
+  works on `divatten_beta` with zero setup. Behind an optional extra
+  (`duckbrain[audit]`); raise a clear "not installed" rather than skipping
+  silently. 🔴 Last release 0.3, **April 2024** — pin it, keep it
+  non-load-bearing.
+- **CuBIDS later and container-only.** `datalad` is a hard dependency (wants
+  `git-annex`, a non-pip system binary) and its pinned `numpy`/`pandas` upper
+  bounds would fight streamlit. Never a pip dependency of duckbrain. Adds to the
+  ~8.6 GB container problem under `#2`, so it must earn it.
+- **PHI detection belongs here; PHI removal belongs to `#7.1`.**
+  `cubids print-metadata-fields` is read-only and could report sidecars still
+  carrying `PatientName`. `cubids remove-metadata-fields` mutates in place and
+  must wait for `#7.1`'s PII policy — see the note there.
 
-**Display-vs-reality**, inherited from `#17`. Every one of that item's ten
-findings was a display or a control, so none could be caught by tests asserting
-on returned values. Detection belongs here: "what we asked for versus what we
-got" and "what the screen says versus what the config says" are the same question
-one layer apart, and this item's design should cover both rather than growing a
-second mechanism. The cheap general *defense* is already articulated by `#13` —
-**derive the display from the artifact that will actually be used, never
-re-derive it from the inputs** — extended from the plan table to config widgets
-and launch params.
+### Still-unhomed candidates
 
-### The design questions to settle first
-
-1. **New module, or generalize `core/consistency.py`?** That module is
-   specifically about *provenance* agreement and says so in its docstring. This is
-   broader. Reusing `ConsistencyIssue` (check / severity / subject / stage) looks
-   right regardless — the cockpit already renders it.
-2. **When do they run?** The cockpit re-derives everything on every render, so
-   anything that opens a NIfTI or parses an HTML report cannot go there naively.
-   Options: post-job hook, cached with the submission log, or an explicit "run
-   checks" action. **This is the question that most shapes the rest.**
-3. **Report, or block?** The standing rule is report-never-repair, and it should
-   hold. But a *failed* check could plausibly gate `stage_runnable` — refusing to
-   run fMRIPrep on a session whose conversion looks wrong. Powerful and easy to
-   get annoying; decide deliberately.
-4. **Where's the boundary?** This must not drift into being a worse MRIQC. The
-   line that probably holds: duckbrain checks *what it asked for versus what it
-   got*; it does not assess image quality, which is MRIQC's job.
+- **Cross-artifact agreement**, the family `fmap-pe-direction` (2026-07-21)
+  started: TR / volume counts consistent across runs of one task.
+- **Quality norms** — overlaps `#7.4` (MRIQC norms dashboard); fold them together
+  rather than building two things.
+- **Display-vs-reality**, inherited from `#17`. Every one of that item's ten
+  findings was a display or a control, so none could be caught by tests asserting
+  on returned values. The cheap general *defense* is already articulated by `#13`
+  — **derive the display from the artifact that will actually be used, never
+  re-derive it from the inputs**. Whether detection can be mechanized here at all
+  is unproven; `#13`'s rule may be the whole answer.
 
 **Why it's worth real effort:** the failure mode is the expensive one — not a
 crash, but hours of compute producing derivatives that are quietly wrong,
@@ -503,6 +512,14 @@ existing duckbrain/mmmdata work, open questions per item — in
    **Sequencing note:** an identity sanity check wants to run *immediately before*
    this — see Loose ideas. Once the headers are scrubbed, a wrong subject mapping
    can no longer be detected or proven.
+   **The sidecar-scrubbing half has a candidate implementation, and it waits for
+   this item on purpose:** `cubids remove-metadata-fields --fields PatientName`
+   does exactly the BIDS-sidecar half. It **mutates sidecars in place**, so it
+   needs this item's PII policy (age ok, name/DOB auto-removed, derive-then-torch)
+   decided *first* — shipping a scrubber under `#16` would have fixed the
+   mechanism before the policy, and it breaks the report-never-repair rule.
+   Read-only *detection* (`cubids print-metadata-fields`) is `#16.3`'s, not this
+   item's. Same reasoning that defers the identity check's mechanism to here.
 2. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
 3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
    bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
@@ -594,6 +611,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-22 | #16 | **Sanity checks, Slice A — a declaration the data can't quietly agree with.** Ben's reframing is what the item turned on: *codifying intent is different from cataloguing what has been done*, and duckbrain was entirely the latter — every expectation in the codebase is re-derived from the data it judges, so a shortfall shrinks the expectation to match and reads COMPLETE. New `[expected]` project-config section (roster + per-session contents + `[expected.exceptions]`), `core/expectations.py`, `core/checks.py` with a cost-aware registry, rendered in the cockpit's existing panel. **Absent means off** — opt-out is the default and has its own test. Elicited from a good session then frozen (BIDScoin's study-bidsmap bootstrap); `elicit` deliberately never proposes the roster, the one thing disk can't know. Validated live on `divatten_beta`: with a task's BOLD and a fieldmap direction removed from a scratch mirror, `survey_project` still read **complete** for all five subjects while the checks caught both — the contrast is pinned by `test_surveyor_still_reads_complete_when_a_run_is_missing`. Live validation also found a real bug: zero has to be a *declaration*, or "this subject has no resting run" is unrecordable. Prior art surveyed and refused deliberately (Nipoppy's manifest borrowed as a shape, CuBIDS never a pip dep, mrQA out of scope) — `docs/sanity-checks.md`. `#16.1`–`#16.3` stay open |
 | 2026-07-22 | #14 | **Inverted fieldmap intent — data cleanup done, and the detector that makes it self-reporting.** The cleanup resolved by *deletion*: the three affected projects were removed, and the one live project (`divatten_beta`, converted after the fix) verified correct in both directions including SBRefs. No fMRIPrep derivative anywhere had been built from inverted data, so the expensive re-run half never arose. The durable half is `fmap-intent` in `core/consistency.py`, deliberately **wider than the original bug** — a *dangling* `B0FieldSource` that no fieldmap declares fails identically and silently, so it is caught too, and the check runs over the NORDIC `bids_input` tree as well as raw BIDS. Validated both ways against real data: silent on `divatten_beta`, and it fires on that same subject's sidecars re-inverted to the pre-fix shape |
 | 2026-07-22 | #18.1 | **Quality gates** — CI on Python 3.10/3.12 (import check + `compileall`, `ruff check`, `ruff format --check`, `pytest --cov`), ruff/coverage/pytest config in `pyproject.toml`, coverage floor 60% as a ratchet. The narrow first ruleset found two real bugs. Type checking and wider lint stay open under `#18` |
 | 2026-07-22 | #18 | **External code review answered** (`docs/code-review-260722.md`, DB-001…DB-012) — every finding fixed with a regression test or given a written reason to stand. Two findings were already fixed by `#17.5`–`#17.10` and one half-fixed; **two of its claims were wrong** and were checked rather than actioned; and it missed a regression its own subject introduced (a collision check comparing `target.resolve()` to the source, meaningless for a copied directory). An audit is not uniformly right |

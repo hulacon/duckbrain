@@ -61,6 +61,7 @@ from duckbrain.core.pipeline import (
     survey_live,
 )
 from duckbrain.core.consistency import check_consistency
+from duckbrain.core.checks import run_checks
 
 # ---- Refresh controls ----
 c_refresh, c_auto = st.columns([1, 3])
@@ -347,6 +348,124 @@ def _deep_links():
             pass  # standalone (non-multipage) render — links are best-effort
 
 
+def _expectations_section(config, matrix):
+    """Declare what a session of this study should contain — elicit, then freeze.
+
+    The elicit-from-a-good-session flow is the whole usability argument for the
+    feature: nobody hand-writes a declaration, so the draft has to come from data
+    the user has already reviewed. What makes it worth anything is that it is then
+    *frozen* — every later session is judged against that one instead of against
+    itself, which is the circularity `core/expectations.py` exists to break.
+
+    Deliberately not on the Setup page: this is a study-design statement made once
+    you have seen a session convert correctly, not a machine setting, and it is
+    read right next to the warnings it produces.
+    """
+    from duckbrain.config import resolve_project_dir, save_project_expectations
+    from duckbrain.core.expectations import (
+        SessionExpectation,
+        declared,
+        elicit,
+        expected_participants,
+        has_bids_unit,
+    )
+
+    current = declared(config) or {}
+    bids_dir = config["paths"].get("bids_dir", "")
+    label = "🎯 Declared expectations" + ("" if current else " — none set (checks off)")
+
+    with st.expander(label):
+        st.caption(
+            "Every other expectation in duckbrain is re-derived from the data it "
+            "judges, so a run that was never acquired shrinks the expectation to "
+            "match and reads complete. This is the one declaration that can't. "
+            "Absent means the checks don't run."
+        )
+
+        if current:
+            want = SessionExpectation.from_config_section(current.get("session"))
+            _, count = expected_participants(config)
+            bits = []
+            if count:
+                bits.append(f"**{count}** participants")
+            if want.anat:
+                bits.append(", ".join(f"**{n}**× {s}" for s, n in sorted(want.anat.items())))
+            if want.fmap_pairs:
+                bits.append(f"**{want.fmap_pairs}** fieldmap pair(s)")
+            if want.task:
+                bits.append(
+                    ", ".join(f"**{n}** run(s) of `{t}`" for t, n in sorted(want.task.items()))
+                )
+            st.markdown("Each session should have: " + " · ".join(bits) if bits else "_(empty)_")
+            exceptions = current.get("exceptions") or {}
+            if exceptions:
+                st.caption(
+                    f"{len(exceptions)} accepted deviation(s): "
+                    + ", ".join(f"`{k}`" for k in sorted(exceptions))
+                    + " — edit these in `code/duckbrain.toml`."
+                )
+
+        units = [
+            (row.subject, row.session)
+            for row in matrix.itertuples()
+            if has_bids_unit(bids_dir, row.subject, row.session)
+        ]
+        if not units:
+            st.info("Nothing converted yet — there's no session to derive a declaration from.")
+            return
+
+        choice = st.selectbox(
+            "Derive from a session you've reviewed and trust",
+            units,
+            format_func=lambda u: _unit_label(*u),
+            key="expect_source",
+        )
+        draft = elicit(config, *choice)
+        st.code(str(draft or "{}"), language="python")
+
+        n_participants = st.number_input(
+            "Participants this study plans to scan (0 = don't declare)",
+            min_value=0,
+            value=expected_participants(config)[1],
+            key="expect_participants",
+            help="The one thing the filesystem genuinely can't know — reading it "
+            "back off disk would reproduce the circularity this exists to break. "
+            "It's what catches a subject scanned but never ingested.",
+        )
+
+        c_save, c_clear = st.columns(2)
+        project_dir = resolve_project_dir() or bids_dir
+        with c_save:
+            if st.button(
+                "⭑ Freeze this as the study's expectation",
+                width="stretch",
+                disabled=not (draft or n_participants),
+            ):
+                if not project_dir:
+                    st.error("No project directory resolved — can't save.")
+                else:
+                    section = dict(current)
+                    if draft:
+                        section["session"] = draft
+                    if n_participants:
+                        section["participants"] = int(n_participants)
+                    else:
+                        section.pop("participants", None)
+                    save_project_expectations(project_dir, section)
+                    st.success(f"Saved to `{project_dir}/code/duckbrain.toml`.")
+                    st.rerun()
+        with c_clear:
+            if st.button(
+                "Remove declaration",
+                width="stretch",
+                disabled=not current,
+                help="Turns the expectation checks back off. Nothing else changes.",
+            ):
+                save_project_expectations(project_dir, {})
+                st.success("Declaration removed — expectation checks are off.")
+                st.rerun()
+
+
 def _submission_log(config):
     with st.expander("Recent submissions (durable log)"):
         subs = read_submissions(config, limit=25)
@@ -486,20 +605,34 @@ def dashboard():
     # ---- Provenance consistency (⚠️) ----
     # On-disk provenance is authoritative; the submission log is an overlay that
     # catches cross-subject mixing on-disk can't represent. Silent when clean.
-    issues = check_consistency(config)
+    # `run_checks` is folded into the same panel on purpose: it asks a different
+    # question (did we get what the study DECLARED, per core/expectations.py) but
+    # a reader shouldn't have to know which module noticed. It is silent unless
+    # the project declares `[expected]`, so this adds nothing for projects that
+    # haven't opted in.
+    issues = check_consistency(config) + run_checks(config)
     if issues:
         warnings = [i for i in issues if i.severity != "note"]
-        st.subheader("⚠️ Provenance warnings" if warnings else "Provenance notes")
+        st.subheader("⚠️ Warnings" if warnings else "Notes")
         st.caption(
             "Self-contradictory pipeline state — config vs. what's on disk, mixed "
-            "provenance/versions across subjects, staleness, or a missing input."
+            "provenance/versions across subjects, staleness, or a missing input — "
+            "plus any shortfall against this project's declared expectations."
         )
         for issue in issues:
             where = f" *(sub-{issue.subject})*" if issue.subject else ""
             text = f"**{issue.check}** — {issue.message}{where}"
-            # A note is provenance worth knowing, not a contradiction to fix —
-            # keep it visually distinct so it can't dilute the real warnings.
-            (st.info if issue.severity == "note" else st.warning)(text)
+            # A note is worth knowing, not a contradiction to fix — keep it
+            # visually distinct so it can't dilute the real warnings. An error
+            # means a downstream stage will fail or quietly do the wrong thing.
+            if issue.severity == "note":
+                st.info(text)
+            elif issue.severity == "error":
+                st.error(text)
+            else:
+                st.warning(text)
+
+    _expectations_section(config, matrix)
 
     # ---- Actionable status board ----
     # One board instead of three blocks: the matrix cells ARE the launch controls.
