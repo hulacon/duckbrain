@@ -93,6 +93,21 @@ the next one.
   toggle can't do what it says, raise — don't submit a job that quietly does
   something else. (Cost us a real fMRIPrep run: "reuse anat derivatives" with
   nothing to reuse rebuilt the anat and said nothing.)
+- **Open work goes in `TODO.md` and nowhere else.** No `# TODO:` markers in
+  source — that's a second backlog nothing sorts, prioritizes, or reads. This
+  repo has zero and should keep it that way.
+- **Cite a `TODO` id only for *open* work, and only from a doc that expands it**
+  (`conversion_plan.py` → `docs/conversion-legibility.md` for `#13` is the shape:
+  both ends live, the pointer leads somewhere richer than itself). In code,
+  **state the reason and let `git blame` carry the provenance.** A backward
+  pointer to a closed item resolves to a ledger row that says *less* than the
+  comment you were already reading, it pins the id registry in place forever, and
+  it rots into a claim about current state — `config.py` spent a week asserting
+  `#17.1` was open after it had been closed twice. For a closed item, cite the
+  *test* that pins it: a test can't go quietly stale, it fails. `DB-0xx` ids are
+  the safe exception — that review document is frozen, so they can never be
+  renumbered by anyone. **Don't retro-sweep existing citations**; drop one when
+  you're editing that line anyway.
 
 ## Validation projects (real data, on Talapas)
 
