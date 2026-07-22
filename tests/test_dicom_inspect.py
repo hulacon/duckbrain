@@ -1,7 +1,6 @@
 """Tests for duckbrain DICOM inspection module."""
 
 import pytest
-from pathlib import Path
 
 from duckbrain.core.dicom_inspect import (
     list_series,

@@ -13,7 +13,6 @@ prompted these tests (DB-007) found the path built from them unchecked.
 import os
 from pathlib import Path
 
-import pydicom
 import pytest
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian

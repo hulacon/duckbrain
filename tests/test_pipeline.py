@@ -700,8 +700,9 @@ def _git_repo(path, remote=None):
     """A throwaway git checkout, standing in for a user's NORDIC_Raw clone."""
     import subprocess
     path.mkdir(parents=True, exist_ok=True)
-    run = lambda *a: subprocess.run(["git", "-C", str(path), *a], check=True,
-                                    capture_output=True)
+    def run(*a):
+        return subprocess.run(["git", "-C", str(path), *a], check=True,
+                              capture_output=True)
     run("init", "-q")
     run("config", "user.email", "t@t")
     run("config", "user.name", "t")

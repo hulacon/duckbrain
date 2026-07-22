@@ -1,6 +1,5 @@
 """AppTest smoke/interaction tests for gui.components.directory_picker."""
 
-from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 

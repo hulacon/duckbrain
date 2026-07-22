@@ -13,8 +13,9 @@ from duckbrain.core import toolbox as T
 
 def _repo(path, remote=None, tag=None):
     path.mkdir(parents=True, exist_ok=True)
-    run = lambda *a: subprocess.run(["git", "-C", str(path), *a], check=True,
-                                    capture_output=True)
+    def run(*a):
+        return subprocess.run(["git", "-C", str(path), *a], check=True,
+                              capture_output=True)
     run("init", "-q")
     run("config", "user.email", "t@t")
     run("config", "user.name", "t")

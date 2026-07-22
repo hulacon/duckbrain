@@ -6,7 +6,6 @@ import json
 import subprocess
 from pathlib import Path
 
-from ..config import get_slurm_resources, load_config
 
 
 def build_dcm2bids_command(

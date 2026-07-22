@@ -202,7 +202,7 @@ def test_shared_resources_show_the_shared_value_not_the_projects(project, tmp_pa
     that says "all your projects", and saving pushed that pin onto every other
     project.
     """
-    from duckbrain.config import USER_CONFIG_ENV, save_project_config, save_user_config
+    from duckbrain.config import save_project_config, save_user_config
 
     save_user_config({"containers": {"fmriprep_version": "24.1.1"}})
     save_project_config(str(project), {"containers": {"fmriprep_version": "23.2.0"}})

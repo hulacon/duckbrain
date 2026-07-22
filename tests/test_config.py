@@ -185,7 +185,7 @@ def test_write_bidsignore_idempotent_and_preserves_user_lines(tmp_path):
     (tmp_path / ".bidsignore").write_text("my_custom_scratch/\n")
     write_bidsignore(tmp_path)
     write_bidsignore(tmp_path)  # second call must not duplicate
-    lines = [l for l in (tmp_path / ".bidsignore").read_text().splitlines() if l.strip()]
+    lines = [line for line in (tmp_path / ".bidsignore").read_text().splitlines() if line.strip()]
     assert "my_custom_scratch/" in lines
     assert lines.count("work/") == 1
 

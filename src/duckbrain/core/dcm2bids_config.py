@@ -528,13 +528,13 @@ def generate_config(
         if "ap" in group_dirs:
             descriptions.append(
                 _fmap_description(
-                    group_dirs["ap"], "AP", group_id, series_list, group_name, extra_entity
+                    group_dirs["ap"], "AP", group_id, group_name, extra_entity
                 )
             )
         if "pa" in group_dirs:
             descriptions.append(
                 _fmap_description(
-                    group_dirs["pa"], "PA", group_id, series_list, group_name, extra_entity
+                    group_dirs["pa"], "PA", group_id, group_name, extra_entity
                 )
             )
 
@@ -626,7 +626,6 @@ def _fmap_description(
     series_number: int,
     direction: str,
     b0_field_id: str,
-    series_list: list[SeriesInfo],
     group_name: str = "",
     extra_entity: str = "",
 ) -> dict:
@@ -637,13 +636,6 @@ def _fmap_description(
     (``acq`` before ``dir``, ``run`` after) and folded into the description id so
     ids stay unique across pairs.
     """
-    # Find the series to get its description for matching
-    series_desc = ""
-    for s in series_list:
-        if s.series_number == series_number:
-            series_desc = s.description
-            break
-
     # BIDS entity order is acq- before dir-, run- after; extra_entity may carry
     # either or both (a named group reacquired in one session gets both).
     parts = [p for p in extra_entity.split("_") if p]

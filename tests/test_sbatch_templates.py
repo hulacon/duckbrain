@@ -61,7 +61,7 @@ def test_dcm2bids_includes_session_flag_when_multi_session():
 def test_logs_go_to_shared_log_dir_not_tmp(step, ctx_extra):
     ctx = build_context(_cfg(), step, **ctx_extra)
     script = render_sbatch(step, ctx)
-    out_line = next(l for l in script.splitlines() if "--output" in l)
+    out_line = next(line for line in script.splitlines() if "--output" in line)
     assert "/projects/study/logs/" in out_line
     assert "/tmp/logs" not in out_line
 
@@ -82,9 +82,9 @@ def test_fmriprep_creates_output_dir_before_bind():
     # output dir must be mkdir'd before `singularity run`.
     script = _fmriprep()
     lines = script.splitlines()
-    mkdir_i = next(i for i, l in enumerate(lines)
-                   if "mkdir" in l and "/projects/study/derivatives/fmriprep" in l)
-    run_i = next(i for i, l in enumerate(lines) if l.startswith("singularity run"))
+    mkdir_i = next(i for i, line in enumerate(lines)
+                   if "mkdir" in line and "/projects/study/derivatives/fmriprep" in line)
+    run_i = next(i for i, line in enumerate(lines) if line.startswith("singularity run"))
     assert mkdir_i < run_i
 
 
@@ -92,7 +92,7 @@ def test_fmriprep_templateflow_home_is_per_job():
     # Regression: a shared node-local TemplateFlow home races when two jobs land
     # on the same node. It must live under the per-job WORK_DIR.
     script = _fmriprep()
-    tf_line = next(l for l in script.splitlines() if "TEMPLATEFLOW_HOME=" in l)
+    tf_line = next(line for line in script.splitlines() if "TEMPLATEFLOW_HOME=" in line)
     assert "$WORK_DIR/templateflow" in tf_line
 
 
@@ -108,7 +108,7 @@ def test_fmriprep_no_custom_flags_when_absent():
 
 
 def _binds(script, path):
-    return [l for l in script.splitlines() if l.strip().startswith(f"-B {path}:")]
+    return [line for line in script.splitlines() if line.strip().startswith(f"-B {path}:")]
 
 
 def test_fmriprep_anat_reuse_does_not_rebind_output_dir():
@@ -162,7 +162,7 @@ def _nasty_cfg():
 def _singularity_argv(script):
     """argv of the singularity invocation, as bash would split it."""
     joined = script.replace("\\\n", " ")
-    line = next(l for l in joined.splitlines() if l.startswith("singularity run"))
+    line = next(line for line in joined.splitlines() if line.startswith("singularity run"))
     return shlex.split(line)
 
 
@@ -233,7 +233,7 @@ def test_rendered_scripts_are_parseable_shell(step, extra):
     # Tokenize the remainder whole rather than line by line: a quoted heredoc-ish
     # block (the Python snippet in nordic_bids_input) legitimately spans lines.
     body = "\n".join(
-        l for l in script.replace("\\\n", " ").splitlines() if not l.startswith("#")
+        line for line in script.replace("\\\n", " ").splitlines() if not line.startswith("#")
     )
     shlex.split(body, comments=False)
 
@@ -249,7 +249,7 @@ def test_nordic_bids_input_does_not_interpolate_into_the_python_literal():
     assert f"bids_dir='{NASTY}/bids'" not in script
     assert 'os.environ["DUCKBRAIN_BIDS_DIR"]' in script
     # The path appears exactly once, in a quoted export.
-    export = next(l for l in script.splitlines() if l.startswith("export DUCKBRAIN_BIDS_DIR"))
+    export = next(line for line in script.splitlines() if line.startswith("export DUCKBRAIN_BIDS_DIR"))
     assert shlex.split(export)[1] == f"DUCKBRAIN_BIDS_DIR={NASTY}/bids"
 
 

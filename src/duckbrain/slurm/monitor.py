@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -232,7 +233,7 @@ def job_history(user: str | None = None, days: int = 7) -> list[JobInfo]:
     return jobs
 
 
-def find_job_logs(job_id: str, log_dir: str) -> list["Path"]:
+def find_job_logs(job_id: str, log_dir: str) -> list[Path]:
     """Resolve the on-disk log files for a job id, sorted by name.
 
     Matches the sbatch ``--output`` conventions duckbrain emits:
@@ -243,8 +244,6 @@ def find_job_logs(job_id: str, log_dir: str) -> list["Path"]:
     - ``slurm-<job_id>.out`` — SLURM's default fallback name
     plus the ``.err``/``.log`` counterparts. Deduped by filename.
     """
-    from pathlib import Path
-
     log_dir = Path(log_dir)
     if not log_dir.is_dir():
         return []

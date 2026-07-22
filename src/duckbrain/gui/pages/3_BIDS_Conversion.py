@@ -44,11 +44,8 @@ for s in ingested:
 # ---- Bulk conversion (skips per-session review) ----
 bids_dir = paths.get("bids_dir", "")
 from duckbrain.core.conversion import (
-    resolve_dicom_dir,
     session_bids_exists,
-    generate_session_config,
     save_dcm2bids_config,
-    get_container_path,
 )
 from duckbrain.core.ingestion import sub_ses_relpath
 
@@ -119,7 +116,6 @@ with col2:
 if not subject:
     st.stop()
 
-from duckbrain.core.ingestion import sub_ses_relpath
 
 # ---- DICOM Inspection ----
 dicom_dir = Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dicom"

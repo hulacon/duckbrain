@@ -437,7 +437,6 @@ def test_auto_number_sessions(mock_dcm_source):
 # ---- TODO #17.9: a no-op must not be reported as a write ---------------------
 
 def _sess(path):
-    from duckbrain.core.ingestion import SessionInfo
 
     return SessionInfo(folder_name=path.name, parsed_subject="", parsed_session="",
                        date="", path=path)
@@ -445,7 +444,7 @@ def _sess(path):
 
 def test_reingesting_the_same_folder_is_a_silent_noop(tmp_path):
     """Idempotent re-ingest of the SAME source stays a no-op, not an error."""
-    from duckbrain.core.ingestion import BidsMapping, SessionInfo, ingest_session
+    from duckbrain.core.ingestion import BidsMapping, ingest_session
 
     src = tmp_path / "export" / "STUDY_001_20230101"
     (src / "Series_01").mkdir(parents=True)
@@ -466,7 +465,7 @@ def test_two_folders_mapped_to_one_unit_raises_instead_of_reporting_success(tmp_
     was ever linked — the second session's DICOMs were nowhere on disk.
     """
     from duckbrain.core.ingestion import (
-        BidsMapping, IngestCollision, SessionInfo, ingest_session,
+        BidsMapping, IngestCollision, ingest_session,
     )
 
     a = tmp_path / "export" / "STUDY_001_sess04"
