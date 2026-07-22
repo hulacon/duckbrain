@@ -11,6 +11,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **A consistency check for fieldmap intent (`fmap-intent`).** The inverted
+  `B0FieldIdentifier`/`B0FieldSource` bug fixed on 2026-07-21 was invisible to
+  every tool involved — the dataset validated, dcm2bids succeeded, and fMRIPrep
+  exited 0 having quietly skipped susceptibility distortion correction. The
+  cockpit now flags it directly, on the raw BIDS tree and on the NORDIC
+  `bids_input` tree that fMRIPrep actually reads on the NORDIC path.
+
+  It is deliberately wider than the bug it comes from. Inversion is only one way
+  to end up with fieldmap metadata nothing can act on, so it also catches a
+  `B0FieldSource` that no fieldmap declares as an identifier, a BOLD or SBRef
+  with no source at all in a session that *has* fieldmaps, and a fieldmap no
+  scan can reference. Each fails identically and silently. It reports and never
+  repairs: whether to re-convert or swap the keys depends on what else those
+  sidecars have been edited to say.
 - **Continuous integration** — `ruff check`, `ruff format --check`, an import
   check and `pytest --cov` now run on every push and pull request, against
   Python 3.10 and 3.12. Nothing about duckbrain's behaviour changes; what changes

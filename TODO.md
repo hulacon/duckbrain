@@ -13,7 +13,7 @@ the ledger so an old reference still resolves. Sub-ids resolve to their parent's
 row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
-**Open items, in priority order:** [`#14`](#14) data cleanup ·
+**Open items, in priority order:**
 [Licensing](#licensing-follow-ups) · [`#16`](#16) sanity-check layer ·
 [`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
 [`#18`](#18) type checking · [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
@@ -22,34 +22,6 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 stages · [`#8`](#8) branding · [Loose ideas](#loose-ideas-not-scheduled)
 
 ---
-
-<a id="14"></a>
-## #14 — Re-convert everything written with inverted fieldmap intent
-
-**Opened 2026-07-21, and it is the highest-priority item.** The code bug is fixed
-(see `CHANGELOG.md`); this is the data cleanup it implies, which is *not* done.
-
-duckbrain wrote `B0FieldIdentifier` on bolds and `B0FieldSource` on fieldmaps —
-backwards. BIDS estimates the field from scans sharing an **identifier** and
-applies it to scans sharing a **source**, so every dataset duckbrain has ever
-converted has fieldmap metadata no tool can act on, and every fMRIPrep
-derivative built from one ran **without susceptibility distortion correction**.
-
-- **Confirmed, not inferred.** `divatten_gui_beta`'s fMRIPrep reports say
-  "Susceptibility distortion correction: None" for sub-04 and sub-015, with
-  complete AP/PA pairs present in the BIDS tree and no `--ignore` passed anywhere.
-- **Known affected:** `/projects/hulacon/bhutch/divatten`, `divatten_gui_beta`
-  (has fMRIPrep + MRIQC derivatives — those are the ones that actually need
-  re-running), `mmm_fmap_check`. Any external clone too.
-- **Two routes, and the cheap one is probably right.** Re-converting is clean but
-  costs a dcm2bids run per session; patching is a small script that swaps the two
-  keys in the existing sidecars and leaves the images untouched. The sidecars are
-  the only thing wrong, so patching is defensible — but it must also *add* the
-  `B0FieldSource` the SBRefs never had.
-- **Then re-run fMRIPrep** on anything whose derivatives you intend to use. That's
-  the expensive half and the reason this is worth doing deliberately.
-- **Worth a consistency check** (`core/consistency.py`): a fieldmap with no
-  `B0FieldIdentifier`, or a bold with one, is now a detectable error.
 
 <a id="licensing-follow-ups"></a>
 ## Licensing follow-ups
@@ -588,6 +560,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-22 | #14 | **Inverted fieldmap intent — data cleanup done, and the detector that makes it self-reporting.** The cleanup resolved by *deletion*: the three affected projects were removed, and the one live project (`divatten_beta`, converted after the fix) verified correct in both directions including SBRefs. No fMRIPrep derivative anywhere had been built from inverted data, so the expensive re-run half never arose. The durable half is `fmap-intent` in `core/consistency.py`, deliberately **wider than the original bug** — a *dangling* `B0FieldSource` that no fieldmap declares fails identically and silently, so it is caught too, and the check runs over the NORDIC `bids_input` tree as well as raw BIDS. Validated both ways against real data: silent on `divatten_beta`, and it fires on that same subject's sidecars re-inverted to the pre-fix shape |
 | 2026-07-22 | #18.1 | **Quality gates** — CI on Python 3.10/3.12 (import check + `compileall`, `ruff check`, `ruff format --check`, `pytest --cov`), ruff/coverage/pytest config in `pyproject.toml`, coverage floor 60% as a ratchet. The narrow first ruleset found two real bugs. Type checking and wider lint stay open under `#18` |
 | 2026-07-22 | #18 | **External code review answered** (`docs/code-review-260722.md`, DB-001…DB-012) — every finding fixed with a regression test or given a written reason to stand. Two findings were already fixed by `#17.5`–`#17.10` and one half-fixed; **two of its claims were wrong** and were checked rather than actioned; and it missed a regression its own subject introduced (a collision check comparing `target.resolve()` to the source, meaningless for a copied directory). An audit is not uniformly right |
 | 2026-07-22 | #17 | **GUI/config drift audit — `#17.1`–`#17.10` all closed.** One bug class: the computation is correct and the interface describes it wrongly, or a control looks live and isn't. Invisible to the whole suite, since nothing asserted on what is *displayed*, and every one exited 0. Each fix is pinned by a test **checked to fail against the old code**. `#17.1` was reopened once by `#18`/DB-001 — a closed item can be half-closed |

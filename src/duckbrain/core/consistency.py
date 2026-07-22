@@ -822,12 +822,173 @@ def _check_fmap_pe_direction(config: dict) -> list[ConsistencyIssue]:
     return issues
 
 
+def _b0_values(sidecar: dict, key: str) -> list[str]:
+    """The ``B0Field*`` values on *sidecar*, which BIDS allows to be str or list."""
+    raw = sidecar.get(key)
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    if isinstance(raw, list):
+        return [v for v in raw if isinstance(v, str) and v]
+    return []
+
+
+def _fmap_intent_units(root: Path) -> list[Path]:
+    """Directories holding a ``func``/``fmap`` pair — ``sub-*`` or ``sub-*/ses-*``."""
+    return sorted(
+        {
+            d.parent
+            for pattern in ("sub-*/{}", "sub-*/ses-*/{}")
+            for name in ("func", "fmap")
+            for d in root.glob(pattern.format(name))
+            if d.is_dir()
+        }
+    )
+
+
+def _examples(names: list[str], limit: int = 3) -> str:
+    shown = ", ".join(f"`{n}`" for n in names[:limit])
+    return shown + (f" (+{len(names) - limit} more)" if len(names) > limit else "")
+
+
+def _check_fmap_intent_at(root: Path, where: str) -> list[ConsistencyIssue]:
+    """The fieldmap-intent check over one BIDS tree; see ``_check_fmap_intent``."""
+    issues: list[ConsistencyIssue] = []
+    for unit in _fmap_intent_units(root):
+        subject = next(
+            (
+                p.name.replace("sub-", "")
+                for p in [unit, *unit.parents]
+                if p.name.startswith("sub-")
+            ),
+            "",
+        )
+        fmaps = sorted((unit / "fmap").glob("*.json")) if (unit / "fmap").is_dir() else []
+        funcs = (
+            sorted([*(unit / "func").glob("*_bold.json"), *(unit / "func").glob("*_sbref.json")])
+            if (unit / "func").is_dir()
+            else []
+        )
+        if not fmaps and not funcs:
+            continue
+
+        declared: set[str] = set()
+        bad_fmaps, mute_fmaps = [], []
+        for f in fmaps:
+            data = _read_json(f)
+            ids = _b0_values(data, "B0FieldIdentifier")
+            declared.update(ids)
+            if _b0_values(data, "B0FieldSource"):
+                bad_fmaps.append(f.name)
+            elif not ids:
+                mute_fmaps.append(f.name)
+
+        bad_funcs, dangling, unbound = [], [], []
+        for f in funcs:
+            data = _read_json(f)
+            if _b0_values(data, "B0FieldIdentifier"):
+                bad_funcs.append(f.name)
+                continue
+            sources = _b0_values(data, "B0FieldSource")
+            if not sources:
+                if declared:
+                    unbound.append(f.name)
+            elif not set(sources) & declared:
+                dangling.append(f.name)
+
+        def add(message: str) -> None:
+            issues.append(
+                ConsistencyIssue(
+                    check="fmap-intent",
+                    subject=subject,
+                    stage="converted",
+                    message=message,
+                )
+            )
+
+        if bad_fmaps or bad_funcs:
+            add(
+                f"{where}: fieldmap intent is **inverted**. "
+                + (
+                    f"Fieldmaps carrying `B0FieldSource`: {_examples(bad_fmaps)}. "
+                    if bad_fmaps
+                    else ""
+                )
+                + (
+                    f"BOLD/SBRef carrying `B0FieldIdentifier`: {_examples(bad_funcs)}. "
+                    if bad_funcs
+                    else ""
+                )
+                + "The field is *estimated* from scans sharing a `B0FieldIdentifier` "
+                "and *applied* to scans sharing a `B0FieldSource`, so the fieldmap "
+                "carries the identifier and the BOLD/SBRef the source. Inverted, no "
+                "tool can act on it and fMRIPrep runs without distortion correction. "
+                "Re-convert this session, or swap the two keys in these sidecars."
+            )
+        if dangling:
+            add(
+                f"{where}: {_examples(dangling)} name a `B0FieldSource` that no "
+                f"fieldmap here declares as `B0FieldIdentifier` "
+                f"(declared: {', '.join(sorted(declared)) or 'none'}). "
+                "Nothing will estimate that field, so these runs get no distortion "
+                "correction — fMRIPrep will still exit 0 and report SDC `None`."
+            )
+        if unbound:
+            add(
+                f"{where}: {_examples(unbound)} carry no `B0FieldSource` although this "
+                "session has fieldmaps, so they are excluded from distortion "
+                "correction. An unbound SBRef matters more than it looks: fMRIPrep "
+                "builds the BOLD reference from it when present."
+            )
+        if mute_fmaps:
+            add(
+                f"{where}: {_examples(mute_fmaps)} carry no `B0FieldIdentifier`, so "
+                "nothing can reference them and the field is never estimated."
+            )
+    return issues
+
+
+def _check_fmap_intent(config: dict) -> list[ConsistencyIssue]:
+    """Flag fieldmap metadata no tool can act on — the TODO #14 detector.
+
+    duckbrain shipped ``B0FieldIdentifier`` on BOLDs and ``B0FieldSource`` on
+    fieldmaps, exactly backwards, and **nothing complained**: the dataset
+    validates, dcm2bids succeeds, and fMRIPrep exits 0 having quietly skipped
+    susceptibility distortion correction. The only trace was one line in an HTML
+    report — "Susceptibility distortion correction: None".
+
+    That is the failure this check exists to make loud, and it is deliberately
+    wider than the original bug. The inversion is only one way to end up with
+    fieldmap metadata that resolves to nothing; a *dangling* source (no fieldmap
+    declares the identifier it names) produces the identical silent outcome and
+    is the shape a hand-edited or partially-assembled tree fails in.
+
+    Hence it runs over the NORDIC ``bids_input`` tree as well as raw BIDS. That
+    staged tree is what fMRIPrep actually reads on the NORDIC path, it is
+    assembled rather than converted, and ``nordic._is_stale`` exists because it
+    could serve a stale ``B0FieldSource`` forever — the same failure one layer
+    along.
+
+    Reports, never repairs: which of re-converting or swapping the keys is right
+    depends on what else the sidecars have been edited to say.
+    """
+    issues: list[ConsistencyIssue] = []
+    paths = config.get("paths") or {}
+    roots = [(paths.get("bids_dir") or "", "raw BIDS")]
+    derivatives = paths.get("derivatives_dir") or ""
+    if derivatives:
+        roots.append((str(Path(derivatives) / "nordic" / "bids_input"), "NORDIC fMRIPrep input"))
+    for root, where in roots:
+        if root and Path(root).is_dir():
+            issues.extend(_check_fmap_intent_at(Path(root), where))
+    return issues
+
+
 def check_consistency(config: dict) -> list[ConsistencyIssue]:
     """Run all provenance-consistency checks; return the flagged issues.
 
     Empty list means nothing inconsistent was found. Ordering is stable
     (config-vs-provenance, version drift, mixed provenance, staleness, presence,
-    fieldmap PE direction)
+    fieldmap PE direction, fieldmap intent)
     so the cockpit renders deterministically.
     """
     issues: list[ConsistencyIssue] = []
@@ -841,6 +1002,7 @@ def check_consistency(config: dict) -> list[ConsistencyIssue]:
         _check_staleness,
         _check_presence,
         _check_fmap_pe_direction,
+        _check_fmap_intent,
     ):
         try:
             issues.extend(check(config))

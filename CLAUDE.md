@@ -204,10 +204,8 @@ Key behaviors to know when editing the app:
 ## Start here next session
 
 **Read `TODO.md`** — it opens with a priority-ordered index of the open items,
-and the first one is the next thing to do (currently `#14`, re-converting
-datasets written with inverted fieldmap intent — the code is fixed, the data is
-not). Trust the index over this sentence; a named item here goes stale the moment
-priorities move. Item ids (`#2`, `#5b`, …) are stable names referenced from this
+and the first one is the next thing to do. Trust the index over this sentence; a
+named item here goes stale the moment priorities move. Item ids (`#2`, `#5b`, …) are stable names referenced from this
 file, `docs/`, and source comments, so they never get renumbered; a closed id
 keeps its line in the ledger, and a sub-id like `#17.4` resolves to its parent's
 row, so old references still land.
