@@ -59,7 +59,10 @@ def _git(repo: str | Path, *args: str) -> str:
     try:
         proc = subprocess.run(
             [exe, "-C", str(repo), *args],
-            capture_output=True, text=True, timeout=_GIT_TIMEOUT_S, check=False,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_S,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -87,7 +90,7 @@ def _normalize_remote(url: str) -> str:
         return ""
     if u.endswith(".git"):
         u = u[: -len(".git")]
-    if "://" in u:            # https://host/Owner/Repo
+    if "://" in u:  # https://host/Owner/Repo
         u = u.split("://", 1)[1]
         u = u.split("/", 1)[1] if "/" in u else u
     elif ":" in u and "@" in u:  # git@host:Owner/Repo

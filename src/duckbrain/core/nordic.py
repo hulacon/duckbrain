@@ -85,8 +85,7 @@ def build_nordic_matlab_command(
     )
 
     return (
-        f"module load {matlab_module} && "
-        f"matlab -nodisplay -nosplash -nodesktop -r \"{matlab_cmd}\""
+        f'module load {matlab_module} && matlab -nodisplay -nosplash -nodesktop -r "{matlab_cmd}"'
     )
 
 
@@ -152,9 +151,7 @@ def _materialize(item: _Item) -> None:
     construction, so the last writer wins with byte-identical content.
     """
     item.dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = item.dest.with_name(
-        f"{_TMP_PREFIX}{item.dest.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}"
-    )
+    tmp = item.dest.with_name(f"{_TMP_PREFIX}{item.dest.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}")
     try:
         if item.link:
             try:
@@ -297,9 +294,7 @@ def build_nordic_bids_input(
         out_anat = output_bids_input_dir / raw_anat.relative_to(bids_dir)
         for f in sorted(raw_anat.iterdir()):
             if f.is_file():
-                anat_items.append(
-                    _Item(out_anat / f.name, f, link=f.name.endswith(".nii.gz"))
-                )
+                anat_items.append(_Item(out_anat / f.name, f, link=f.name.endswith(".nii.gz")))
     items += anat_items
 
     # 5. The unit-level scans.tsv. Its filename carries the same entities as the
@@ -313,8 +308,13 @@ def build_nordic_bids_input(
     #    (it errors without dataset_description.json even with
     #    --skip-bids-validation). Shared by every unit; skips what the raw
     #    dataset lacks.
-    for root_name in ("dataset_description.json", "participants.tsv",
-                      "participants.json", "README", ".bidsignore"):
+    for root_name in (
+        "dataset_description.json",
+        "participants.tsv",
+        "participants.json",
+        "README",
+        ".bidsignore",
+    ):
         src = bids_dir / root_name
         if src.exists():
             items.append(_Item(output_bids_input_dir / root_name, src, link=False))

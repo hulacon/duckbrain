@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 
 
-
 def build_dcm2bids_command(
     subject: str,
     session: str,
@@ -55,12 +54,17 @@ def build_dcm2bids_command(
         "singularity",
         "run",
         "--cleanenv",
-        "-B", f"{dicom_dir}:{dicom_dir}:ro",
-        "-B", f"{bids_dir}:{bids_dir}",
-        "-B", f"{config_json.parent}:{config_json.parent}:ro",
+        "-B",
+        f"{dicom_dir}:{dicom_dir}:ro",
+        "-B",
+        f"{bids_dir}:{bids_dir}",
+        "-B",
+        f"{config_json.parent}:{config_json.parent}:ro",
         str(container_path),
-        "-d", str(dicom_dir),
-        "-p", subject,
+        "-d",
+        str(dicom_dir),
+        "-p",
+        subject,
     ]
 
     # Omit -s for single-session studies (no ses- entity)
@@ -68,8 +72,10 @@ def build_dcm2bids_command(
         cmd += ["-s", session]
 
     cmd += [
-        "-c", str(config_json),
-        "-o", str(bids_dir),
+        "-c",
+        str(config_json),
+        "-o",
+        str(bids_dir),
     ]
 
     if force:

@@ -11,6 +11,7 @@ st.title("Preprocessing")
 # ---- Load config ----
 try:
     from duckbrain.config import load_config
+
     config = load_config()
 except FileNotFoundError:
     st.error("Configuration not found. Please complete **Project Setup** first.")
@@ -89,9 +90,11 @@ with tab_fmriprep:
     st.subheader("fMRIPrep")
 
     if config.get("nordic", {}).get("use_nordic", False):
-        st.info("🧊 **use_nordic** is on for this project — fMRIPrep runs on the "
-                "NORDIC-denoised input (`derivatives/nordic/bids_format`) and "
-                "requires the NORDIC stage to be complete for each subject first.")
+        st.info(
+            "🧊 **use_nordic** is on for this project — fMRIPrep runs on the "
+            "NORDIC-denoised input (`derivatives/nordic/bids_format`) and "
+            "requires the NORDIC stage to be complete for each subject first."
+        )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -104,19 +107,29 @@ with tab_fmriprep:
     with col1:
         fp_spaces = st.text_input(
             "Output spaces",
-            value=" ".join(config.get("fmriprep", {}).get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"])),
+            value=" ".join(
+                config.get("fmriprep", {}).get(
+                    "output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
+                )
+            ),
         )
     with col2:
-        fp_nprocs = st.number_input("nprocs", value=config.get("fmriprep", {}).get("nprocs", 8), min_value=1)
-        fp_mem = st.number_input("mem_gb", value=config.get("fmriprep", {}).get("mem_gb", 32), min_value=4)
+        fp_nprocs = st.number_input(
+            "nprocs", value=config.get("fmriprep", {}).get("nprocs", 8), min_value=1
+        )
+        fp_mem = st.number_input(
+            "mem_gb", value=config.get("fmriprep", {}).get("mem_gb", 32), min_value=4
+        )
     with col3:
         fp_anat_only = st.checkbox("Anat-only mode", value=False)
         fp_use_derivatives = st.checkbox(
-            "Reuse anat derivatives", value=False,
+            "Reuse anat derivatives",
+            value=False,
             help="Reuses preprocessed anatomicals instead of rebuilding them. "
             "Requires a prior Anat-only run: any selected subject without one is "
             "reported as an error below rather than submitted. If you are "
-            "re-running because the anat went wrong, leave this off.")
+            "re-running because the anat went wrong, leave this off.",
+        )
 
     fp_extra_flags = st.text_input(
         "Custom fMRIPrep flags",
@@ -129,6 +142,7 @@ with tab_fmriprep:
 
     # SLURM resources
     from duckbrain.config import get_slurm_resources
+
     fp_slurm = get_slurm_resources(config, "fmriprep")
     with st.expander("SLURM Resources"):
         st.json(fp_slurm)
@@ -152,18 +166,35 @@ with tab_fmriprep:
                 for ses in _targets(sub, fp_sessions):
                     try:
                         ref = advance_one(
-                            config, "fmriprep", sub, ses,
+                            config,
+                            "fmriprep",
+                            sub,
+                            ses,
                             export_only=fp_export,
-                            output_spaces=fp_spaces, anat_only=fp_anat_only,
+                            output_spaces=fp_spaces,
+                            anat_only=fp_anat_only,
                             use_derivatives=fp_use_derivatives,
-                            extra_flags=fp_extra_flags, nprocs=fp_nprocs, mem_gb=fp_mem,
+                            extra_flags=fp_extra_flags,
+                            nprocs=fp_nprocs,
+                            mem_gb=fp_mem,
                         )
                         if fp_submit:
-                            results.append({"subject": sub, "session": ses, "job_id": ref, "status": "submitted"})
+                            results.append(
+                                {
+                                    "subject": sub,
+                                    "session": ses,
+                                    "job_id": ref,
+                                    "status": "submitted",
+                                }
+                            )
                         else:
-                            results.append({"subject": sub, "session": ses, "path": ref, "status": "exported"})
+                            results.append(
+                                {"subject": sub, "session": ses, "path": ref, "status": "exported"}
+                            )
                     except Exception as e:
-                        results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
+                        results.append(
+                            {"subject": sub, "session": ses, "status": "error", "error": str(e)}
+                        )
 
             st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
 
@@ -182,6 +213,7 @@ with tab_nordic:
     # Show BOLD count per selection
     if nd_subjects and (nd_sessions or not nd_study_sessions):
         from duckbrain.core.nordic import get_bold_runs
+
         for sub in nd_subjects:
             for ses in _targets(sub, nd_sessions):
                 bolds = get_bold_runs(bids_dir, sub, ses)
@@ -212,11 +244,22 @@ with tab_nordic:
                     try:
                         ref = advance_one(config, "nordic", sub, ses, export_only=nd_export)
                         if nd_submit:
-                            results.append({"subject": sub, "session": ses, "job_id": ref, "status": "submitted"})
+                            results.append(
+                                {
+                                    "subject": sub,
+                                    "session": ses,
+                                    "job_id": ref,
+                                    "status": "submitted",
+                                }
+                            )
                         else:
-                            results.append({"subject": sub, "session": ses, "path": ref, "status": "exported"})
+                            results.append(
+                                {"subject": sub, "session": ses, "path": ref, "status": "exported"}
+                            )
                     except Exception as e:
-                        results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
+                        results.append(
+                            {"subject": sub, "session": ses, "status": "error", "error": str(e)}
+                        )
 
             st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
 
@@ -256,10 +299,21 @@ with tab_mriqc:
                     try:
                         ref = advance_one(config, "mriqc", sub, ses, export_only=mq_export)
                         if mq_submit:
-                            results.append({"subject": sub, "session": ses, "job_id": ref, "status": "submitted"})
+                            results.append(
+                                {
+                                    "subject": sub,
+                                    "session": ses,
+                                    "job_id": ref,
+                                    "status": "submitted",
+                                }
+                            )
                         else:
-                            results.append({"subject": sub, "session": ses, "path": ref, "status": "exported"})
+                            results.append(
+                                {"subject": sub, "session": ses, "path": ref, "status": "exported"}
+                            )
                     except Exception as e:
-                        results.append({"subject": sub, "session": ses, "status": "error", "error": str(e)})
+                        results.append(
+                            {"subject": sub, "session": ses, "status": "error", "error": str(e)}
+                        )
 
             st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)

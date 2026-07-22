@@ -314,6 +314,7 @@ def test_bidsignore_covers_dcm2bids_working_dir(tmp_path):
 
 # ---- TODO #17.1 / #17.2: saving must not destroy, settings must take effect ---
 
+
 def test_saving_project_settings_preserves_the_studys_mappings(tmp_path):
     """The Setup page writes four sections; the rest of the file must survive.
 
@@ -324,18 +325,24 @@ def test_saving_project_settings_preserves_the_studys_mappings(tmp_path):
     """
     from duckbrain.config import _load_toml, project_config_path, save_project_config
 
-    save_project_config(tmp_path, {
-        "project": {"name": "study"},
-        "task_mapping": {"rule": [{"description": "rest_bold", "task": "rest"}]},
-        "fmap_mapping": {"rule": [{"task": "rest", "group": "2.5mm"}]},
-        "fmriprep": {"output_spaces": "MNI152NLin2009cAsym:res-2"},
-    })
+    save_project_config(
+        tmp_path,
+        {
+            "project": {"name": "study"},
+            "task_mapping": {"rule": [{"description": "rest_bold", "task": "rest"}]},
+            "fmap_mapping": {"rule": [{"task": "rest", "group": "2.5mm"}]},
+            "fmriprep": {"output_spaces": "MNI152NLin2009cAsym:res-2"},
+        },
+    )
     # Exactly what the Setup page's "Save project settings" button writes.
-    save_project_config(tmp_path, {
-        "project": {"name": "study"},
-        "dcm_source": {"dir": "/dicom/study"},
-        "slurm": {"account": "hulacon"},
-    })
+    save_project_config(
+        tmp_path,
+        {
+            "project": {"name": "study"},
+            "dcm_source": {"dir": "/dicom/study"},
+            "slurm": {"account": "hulacon"},
+        },
+    )
 
     stored = _load_toml(project_config_path(tmp_path))
     assert stored["task_mapping"]["rule"][0]["task"] == "rest"
@@ -370,17 +377,21 @@ def test_owned_fields_preserve_a_nested_subtable(tmp_path):
     """
     from duckbrain.config import _load_toml, project_config_path, save_project_config
 
-    save_project_config(tmp_path, {"slurm": {
-        "account": "hulacon",
-        "memory": "64G",
-        "overrides": {"fmriprep": {"time": "48:00:00", "mem": "96G"}},
-    }})
-    save_project_config(tmp_path, {"slurm": {"partition": "compute"}},
-                        owned=_SETUP_OWNS)
+    save_project_config(
+        tmp_path,
+        {
+            "slurm": {
+                "account": "hulacon",
+                "memory": "64G",
+                "overrides": {"fmriprep": {"time": "48:00:00", "mem": "96G"}},
+            }
+        },
+    )
+    save_project_config(tmp_path, {"slurm": {"partition": "compute"}}, owned=_SETUP_OWNS)
 
     stored = _load_toml(project_config_path(tmp_path))["slurm"]
     assert stored["overrides"]["fmriprep"]["time"] == "48:00:00"
-    assert stored["memory"] == "64G"          # hand-written scalar survives too
+    assert stored["memory"] == "64G"  # hand-written scalar survives too
     assert stored["partition"] == "compute"
 
 
@@ -404,9 +415,15 @@ def test_owned_section_absent_from_data_still_clears(tmp_path):
     """
     from duckbrain.config import _load_toml, project_config_path, save_project_config
 
-    save_project_config(tmp_path, {"slurm": {
-        "account": "old", "overrides": {"fmriprep": {"time": "48:00:00"}},
-    }})
+    save_project_config(
+        tmp_path,
+        {
+            "slurm": {
+                "account": "old",
+                "overrides": {"fmriprep": {"time": "48:00:00"}},
+            }
+        },
+    )
     save_project_config(tmp_path, {"project": {"name": "s"}}, owned=_SETUP_OWNS)
 
     stored = _load_toml(project_config_path(tmp_path))["slurm"]
@@ -455,8 +472,7 @@ def test_project_partition_reaches_every_stage(tmp_path, monkeypatch):
 
     proj = tmp_path / "p"
     scaffold_project(str(proj))
-    save_project_config(str(proj), {"slurm": {"partition": "mypart",
-                                              "partition_long": "mylong"}})
+    save_project_config(str(proj), {"slurm": {"partition": "mypart", "partition_long": "mylong"}})
     cfg = load_config(project_dir=str(proj))
 
     assert get_slurm_resources(cfg, "dcm2bids")["partition"] == "mypart"
@@ -476,21 +492,32 @@ def test_shipped_partition_defaults_are_unchanged(tmp_path):
     proj = tmp_path / "p"
     scaffold_project(str(proj))
     cfg = load_config(project_dir=str(proj))
-    landed = {s: get_slurm_resources(cfg, s)["partition"]
-              for s in ("dcm2bids", "mriqc", "nordic", "fmriprep")}
-    assert landed == {"dcm2bids": "compute", "mriqc": "compute",
-                      "nordic": "compute", "fmriprep": "computelong"}
+    landed = {
+        s: get_slurm_resources(cfg, s)["partition"]
+        for s in ("dcm2bids", "mriqc", "nordic", "fmriprep")
+    }
+    assert landed == {
+        "dcm2bids": "compute",
+        "mriqc": "compute",
+        "nordic": "compute",
+        "fmriprep": "computelong",
+    }
 
 
 def test_an_explicit_per_stage_partition_still_wins(tmp_path):
-    from duckbrain.config import (get_slurm_resources, load_config,
-                                  save_project_config, scaffold_project)
+    from duckbrain.config import (
+        get_slurm_resources,
+        load_config,
+        save_project_config,
+        scaffold_project,
+    )
 
     proj = tmp_path / "p"
     scaffold_project(str(proj))
-    save_project_config(str(proj), {
-        "slurm": {"partition": "mypart",
-                  "overrides": {"mriqc": {"partition": "pinned"}}}})
+    save_project_config(
+        str(proj),
+        {"slurm": {"partition": "mypart", "overrides": {"mriqc": {"partition": "pinned"}}}},
+    )
     cfg = load_config(project_dir=str(proj))
     assert get_slurm_resources(cfg, "mriqc")["partition"] == "pinned"
     assert get_slurm_resources(cfg, "dcm2bids")["partition"] == "mypart"

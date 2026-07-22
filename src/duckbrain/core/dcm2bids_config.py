@@ -351,11 +351,7 @@ def _fmap_rule_lookup(
     """
     if not rules:
         return {}
-    return {
-        (sanitize_task_label(r.task).lower(), r.run): r.group
-        for r in rules
-        if r.task
-    }
+    return {(sanitize_task_label(r.task).lower(), r.run): r.group for r in rules if r.task}
 
 
 def _lookup_fmap_rule(
@@ -527,15 +523,11 @@ def generate_config(
 
         if "ap" in group_dirs:
             descriptions.append(
-                _fmap_description(
-                    group_dirs["ap"], "AP", group_id, group_name, extra_entity
-                )
+                _fmap_description(group_dirs["ap"], "AP", group_id, group_name, extra_entity)
             )
         if "pa" in group_dirs:
             descriptions.append(
-                _fmap_description(
-                    group_dirs["pa"], "PA", group_id, group_name, extra_entity
-                )
+                _fmap_description(group_dirs["pa"], "PA", group_id, group_name, extra_entity)
             )
 
     return {"descriptions": descriptions}

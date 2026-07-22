@@ -20,7 +20,10 @@ def test_array_job_logs_resolve_all_tasks(tmp_path):
         (tmp_path / f"nordic_45428802_{a}.out").write_text(f"task {a}\n")
     files = find_job_logs("45428802", str(tmp_path))
     assert {p.name for p in files} == {
-        "nordic_45428802_1.out", "nordic_45428802_2.out", "nordic_45428802_10.out"}
+        "nordic_45428802_1.out",
+        "nordic_45428802_2.out",
+        "nordic_45428802_10.out",
+    }
     combined = job_log("45428802", str(tmp_path))["stdout"]
     assert "task 1" in combined and "task 10" in combined
 
@@ -79,6 +82,7 @@ def test_cancel_job_raises_on_failure(monkeypatch):
 
 # ---- DB-010: reads are bounded ----------------------------------------------
 
+
 def test_job_log_reads_only_the_tail_of_a_large_file(tmp_path):
     """job_log used read_text() on every matching file and concatenated the lot,
     to display the last few thousand characters. The cockpit's popover body is
@@ -92,8 +96,8 @@ def test_job_log_reads_only_the_tail_of_a_large_file(tmp_path):
 
     logs = job_log("123", str(tmp_path), max_bytes=8_000)
 
-    assert len(logs["stdout"]) <= 8_200          # tail plus the elision marker
-    assert "line 199999" in logs["stdout"]       # ...and it is the *end*
+    assert len(logs["stdout"]) <= 8_200  # tail plus the elision marker
+    assert "line 199999" in logs["stdout"]  # ...and it is the *end*
     assert "line 0\n" not in logs["stdout"]
 
 

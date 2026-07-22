@@ -19,13 +19,15 @@ from duckbrain.core.pipeline import record_submission
 
 
 def _config(root, use_nordic=False, containers=None, containers_dir=None):
-    cfg = {"paths": {
-        "bids_dir": str(root),
-        "sourcedata_dir": str(root / "sourcedata"),
-        "derivatives_dir": str(root / "derivatives"),
-        "log_dir": str(root / "code" / "logs"),
-        "work_dir": "/tmp",
-    }}
+    cfg = {
+        "paths": {
+            "bids_dir": str(root),
+            "sourcedata_dir": str(root / "sourcedata"),
+            "derivatives_dir": str(root / "derivatives"),
+            "log_dir": str(root / "code" / "logs"),
+            "work_dir": "/tmp",
+        }
+    }
     if containers_dir:
         cfg["paths"]["containers_dir"] = containers_dir
     if use_nordic:
@@ -79,6 +81,7 @@ def _codes(issues):
 
 # ---- reader -----------------------------------------------------------------
 
+
 def test_read_derivative_provenance_parses_generatedby_and_link(tmp_path):
     _fmriprep_desc(tmp_path, raw_link="/proj/derivatives/nordic/bids_format")
     prov = read_derivative_provenance(_config(tmp_path), "fmriprep")
@@ -95,6 +98,7 @@ def test_read_derivative_provenance_absent(tmp_path):
 
 
 # ---- config vs provenance ---------------------------------------------------
+
 
 def test_use_nordic_but_fmriprep_from_raw_flags(tmp_path):
     _fmriprep_desc(tmp_path, raw_link=str(tmp_path))  # raw = project root, not nordic
@@ -124,6 +128,7 @@ def test_external_fmriprep_without_link_not_flagged(tmp_path):
 
 # ---- container drift --------------------------------------------------------
 
+
 def test_container_drift_flagged_when_pin_bumped_without_rerun(tmp_path):
     _fmriprep_desc(tmp_path)
     _fmriprep_unit(tmp_path, "01")
@@ -132,8 +137,9 @@ def test_container_drift_flagged_when_pin_bumped_without_rerun(tmp_path):
         containers={"fmriprep_version": "25.0.0"},
         containers_dir=_containers(tmp_path, "fmriprep-25.0.0.simg"),
     )
-    record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", runtime="fmriprep-24.1.1.simg")
+    record_submission(
+        cfg, "fmriprep", "01", "", "J1", tool="fmriprep", runtime="fmriprep-24.1.1.simg"
+    )
     assert "container-drift" in _codes(check_consistency(cfg))
 
 
@@ -145,8 +151,9 @@ def test_matching_container_is_clean(tmp_path):
         containers={"fmriprep_version": "24.1.1"},
         containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
     )
-    record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", runtime="fmriprep-24.1.1.simg")
+    record_submission(
+        cfg, "fmriprep", "01", "", "J1", tool="fmriprep", runtime="fmriprep-24.1.1.simg"
+    )
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
@@ -162,8 +169,9 @@ def test_container_tag_differing_from_self_reported_version_is_clean(tmp_path):
         containers={"fmriprep_version": "24.0.2"},
         containers_dir=_containers(tmp_path, "fmriprep-24.0.2.simg"),
     )
-    record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", runtime="fmriprep-24.0.2.simg")
+    record_submission(
+        cfg, "fmriprep", "01", "", "J1", tool="fmriprep", runtime="fmriprep-24.0.2.simg"
+    )
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
@@ -172,7 +180,10 @@ def test_on_disk_container_tag_beats_log_overlay(tmp_path):
     decides, even when the log's container disagrees."""
     deriv = tmp_path / "derivatives" / "fmriprep"
     write_derivative_description(
-        deriv, "fmriprep", tool="fMRIPrep", tool_version="24.1.1",
+        deriv,
+        "fmriprep",
+        tool="fMRIPrep",
+        tool_version="24.1.1",
         container="fmriprep-24.1.1.simg",
     )
     _fmriprep_unit(tmp_path, "01")
@@ -182,16 +193,17 @@ def test_on_disk_container_tag_beats_log_overlay(tmp_path):
         containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
     )
     # Log claims a different container; on-disk agrees with config, so: clean.
-    record_submission(cfg, "fmriprep", "01", "", "J1",
-                      tool="fmriprep", runtime="fmriprep-99.9.9.simg")
+    record_submission(
+        cfg, "fmriprep", "01", "", "J1", tool="fmriprep", runtime="fmriprep-99.9.9.simg"
+    )
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
 def _build_tags(monkeypatch, mapping):
     """Stub the images' recorded build provenance: {filename: docker tag}."""
     import duckbrain.core.consistency as CO
-    monkeypatch.setattr(CO, "container_build_tag",
-                        lambda p: mapping.get(Path(p).name, ""))
+
+    monkeypatch.setattr(CO, "container_build_tag", lambda p: mapping.get(Path(p).name, ""))
 
 
 def test_same_filename_rebuilt_from_a_different_image_is_drift(monkeypatch, tmp_path):
@@ -205,9 +217,16 @@ def test_same_filename_rebuilt_from_a_different_image_is_drift(monkeypatch, tmp_
         containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
     )
     _build_tags(monkeypatch, {"fmriprep-24.1.1.simg": "nipreps/fmriprep:24.1.1"})
-    record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
-                      runtime="fmriprep-24.1.1.simg",
-                      code_source="nipreps/fmriprep:23.0.0")  # what actually ran
+    record_submission(
+        cfg,
+        "fmriprep",
+        "01",
+        "",
+        "J1",
+        tool="fmriprep",
+        runtime="fmriprep-24.1.1.simg",
+        code_source="nipreps/fmriprep:23.0.0",
+    )  # what actually ran
     assert "container-drift" in _codes(check_consistency(cfg))
 
 
@@ -222,9 +241,16 @@ def test_renamed_container_with_same_build_source_is_clean(monkeypatch, tmp_path
         containers_dir=_containers(tmp_path, "fmriprep-24.1.1.simg"),
     )
     _build_tags(monkeypatch, {"fmriprep-24.1.1.simg": "nipreps/fmriprep:24.1.1"})
-    record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
-                      runtime="fmriprep-24.1.1-copy.simg",
-                      code_source="nipreps/fmriprep:24.1.1")
+    record_submission(
+        cfg,
+        "fmriprep",
+        "01",
+        "",
+        "J1",
+        tool="fmriprep",
+        runtime="fmriprep-24.1.1-copy.simg",
+        code_source="nipreps/fmriprep:24.1.1",
+    )
     assert "container-drift" not in _codes(check_consistency(cfg))
 
 
@@ -238,8 +264,9 @@ def test_falls_back_to_filename_when_build_tag_unknown(monkeypatch, tmp_path):
         containers_dir=_containers(tmp_path, "fmriprep-25.0.0.simg"),
     )
     _build_tags(monkeypatch, {})  # no image records provenance
-    record_submission(cfg, "fmriprep", "01", "", "J1", tool="fmriprep",
-                      runtime="fmriprep-24.1.1.simg")  # legacy row: no source
+    record_submission(
+        cfg, "fmriprep", "01", "", "J1", tool="fmriprep", runtime="fmriprep-24.1.1.simg"
+    )  # legacy row: no source
     assert "container-drift" in _codes(check_consistency(cfg))
 
 
@@ -247,7 +274,10 @@ def test_on_disk_container_uri_is_read_as_build_provenance(monkeypatch, tmp_path
     """A duckbrain-stamped Container.URI is authoritative build provenance."""
     deriv = tmp_path / "derivatives" / "fmriprep"
     write_derivative_description(
-        deriv, "fmriprep", tool="fMRIPrep", tool_version="24.1.1",
+        deriv,
+        "fmriprep",
+        tool="fMRIPrep",
+        tool_version="24.1.1",
         container="fmriprep-24.1.1.simg",
         container_uri="docker://nipreps/fmriprep:23.0.0",
     )
@@ -282,6 +312,7 @@ def test_external_derivative_without_recorded_container_never_flagged(tmp_path):
 # group-writable shared path, so any lab member's `git pull` silently changes
 # denoising for every project pointing at it.
 
+
 def _nordic_deriv(root, *, version=""):
     """A NORDIC derivative as duckbrain stamps it."""
     deriv = root / "derivatives" / "nordic"
@@ -291,6 +322,7 @@ def _nordic_deriv(root, *, version=""):
 
 def _toolbox(monkeypatch, current):
     import duckbrain.core.consistency as CO
+
     monkeypatch.setattr(CO, "describe", lambda repo: current)
 
 
@@ -353,9 +385,9 @@ def test_sidecars_outrank_the_dataset_level_stamp(monkeypatch, tmp_path):
     """dataset_description is overwritten by whichever run finished last, so it
     cannot represent a part-re-run derivative. The per-file sidecar wins."""
     cfg = _nordic_cfg(tmp_path)
-    _nordic_deriv(tmp_path, version="v9.9.9-gstale")   # dataset-level, stale
+    _nordic_deriv(tmp_path, version="v9.9.9-gstale")  # dataset-level, stale
     _nordic_sidecar(tmp_path, "01", 1, ToolVersion="v1.0.2-24-g0861968")
-    _toolbox(monkeypatch, "v1.0.2-24-g0861968")        # matches the sidecar
+    _toolbox(monkeypatch, "v1.0.2-24-g0861968")  # matches the sidecar
     assert "toolbox-drift" not in _codes(check_consistency(cfg))
 
 
@@ -364,12 +396,12 @@ def test_unknowable_toolbox_version_is_never_drift(monkeypatch, tmp_path):
     as a plain unpacked copy) must not read as drift."""
     cfg = _config(tmp_path)
     cfg["paths"]["nordic_toolbox_dir"] = str(tmp_path / "NORDIC_Raw")
-    _nordic_deriv(tmp_path, version="")   # nothing recorded
+    _nordic_deriv(tmp_path, version="")  # nothing recorded
     _toolbox(monkeypatch, "v1.0.2-31-gabcdef1")
     assert "toolbox-drift" not in _codes(check_consistency(cfg))
 
     _nordic_deriv(tmp_path, version="v1.0.2-24-g0861968")
-    _toolbox(monkeypatch, "")             # toolbox not a checkout / not configured
+    _toolbox(monkeypatch, "")  # toolbox not a checkout / not configured
     assert "toolbox-drift" not in _codes(check_consistency(cfg))
 
 
@@ -386,6 +418,7 @@ def test_no_nordic_derivative_means_no_toolbox_check(monkeypatch, tmp_path):
 # NORDIC's runtime (MATLAB) and code (the toolbox checkout) move independently,
 # so a matlab_module bump is invisible to toolbox-drift.
 
+
 def _nordic_cfg(root, matlab="matlab/R2024a"):
     cfg = _config(root)
     cfg["paths"]["nordic_toolbox_dir"] = str(root / "NORDIC_Raw")
@@ -395,9 +428,13 @@ def _nordic_cfg(root, matlab="matlab/R2024a"):
 
 def test_matlab_module_changed_since_the_run_is_drift(monkeypatch, tmp_path):
     cfg = _nordic_cfg(tmp_path, matlab="matlab/R2025a")
-    write_derivative_description(tmp_path / "derivatives" / "nordic", "nordic",
-                                 tool="nordic", tool_version="v1.0.2-24-g0861968",
-                                 runtime="matlab/R2024a")
+    write_derivative_description(
+        tmp_path / "derivatives" / "nordic",
+        "nordic",
+        tool="nordic",
+        tool_version="v1.0.2-24-g0861968",
+        runtime="matlab/R2024a",
+    )
     _toolbox(monkeypatch, "v1.0.2-24-g0861968")  # toolbox itself unchanged
     issues = check_consistency(cfg)
     assert "matlab-drift" in _codes(issues)
@@ -406,9 +443,13 @@ def test_matlab_module_changed_since_the_run_is_drift(monkeypatch, tmp_path):
 
 def test_unchanged_matlab_module_is_clean(monkeypatch, tmp_path):
     cfg = _nordic_cfg(tmp_path, matlab="matlab/R2024a")
-    write_derivative_description(tmp_path / "derivatives" / "nordic", "nordic",
-                                 tool="nordic", tool_version="v1.0.2-24-g0861968",
-                                 runtime="matlab/R2024a")
+    write_derivative_description(
+        tmp_path / "derivatives" / "nordic",
+        "nordic",
+        tool="nordic",
+        tool_version="v1.0.2-24-g0861968",
+        runtime="matlab/R2024a",
+    )
     _toolbox(monkeypatch, "v1.0.2-24-g0861968")
     assert "matlab-drift" not in _codes(check_consistency(cfg))
 
@@ -435,26 +476,33 @@ def test_unknowable_matlab_runtime_is_never_drift(monkeypatch, tmp_path):
 # only where duckbrain authors the recipe, only on a release-line change, and
 # only as a note.
 
+
 def _duckbrain(monkeypatch, version):
     import duckbrain.core.consistency as CO
+
     monkeypatch.setattr(CO, "duckbrain_version", lambda: version)
 
 
 def _stamp_duckbrain(root, version):
     """A dataset root stamped by a given duckbrain, as write_dataset_description does."""
     root.mkdir(parents=True, exist_ok=True)
-    (root / "dataset_description.json").write_text(json.dumps({
-        "Name": "x", "BIDSVersion": "1.9.0",
-        "GeneratedBy": [{"Name": "duckbrain", "Version": version}],
-    }))
+    (root / "dataset_description.json").write_text(
+        json.dumps(
+            {
+                "Name": "x",
+                "BIDSVersion": "1.9.0",
+                "GeneratedBy": [{"Name": "duckbrain", "Version": version}],
+            }
+        )
+    )
 
 
 def test_release_line_change_is_noted_for_conversion(monkeypatch, tmp_path):
-    _stamp_duckbrain(tmp_path, "v0.1.0")           # BIDS root: what converted it
-    _duckbrain(monkeypatch, "v0.3.0-2-gabcdef1")   # duckbrain now
+    _stamp_duckbrain(tmp_path, "v0.1.0")  # BIDS root: what converted it
+    _duckbrain(monkeypatch, "v0.3.0-2-gabcdef1")  # duckbrain now
     issues = [i for i in check_consistency(_config(tmp_path)) if i.check == "duckbrain-drift"]
     assert issues and issues[0].stage == "converted"
-    assert issues[0].severity == "note"            # not a warning
+    assert issues[0].severity == "note"  # not a warning
 
 
 def test_development_within_a_release_line_is_silent(monkeypatch, tmp_path):
@@ -499,7 +547,7 @@ def test_duckbrain_drift_is_noted_for_nordic(monkeypatch, tmp_path):
 def test_duckbrain_drift_not_raised_for_launcher_stages(monkeypatch, tmp_path):
     """fMRIPrep/MRIQC: duckbrain only passes flags to a container, so its own
     version says nothing about the output — flagging it would be pure noise."""
-    _fmriprep_desc(tmp_path)   # a real fMRIPrep derivative...
+    _fmriprep_desc(tmp_path)  # a real fMRIPrep derivative...
     _fmriprep_unit(tmp_path, "01")
     _duckbrain(monkeypatch, "v9.0.0")  # ...and a wildly different duckbrain
     issues = [i for i in check_consistency(_config(tmp_path)) if i.check == "duckbrain-drift"]
@@ -518,6 +566,7 @@ def test_untagged_duckbrain_checkout_is_never_drift(monkeypatch, tmp_path):
 
 
 # ---- mixed provenance / version (log overlay) -------------------------------
+
 
 def test_mixed_input_variant_across_subjects_flagged(tmp_path):
     cfg = _config(tmp_path)
@@ -586,8 +635,7 @@ def test_mixed_matlab_runtimes_across_nordic_subjects_flagged(tmp_path):
 def test_uniform_nordic_provenance_is_clean(tmp_path):
     cfg = _nordic_cfg(tmp_path)
     for sub in ("01", "02"):
-        _nordic_sidecar(tmp_path, sub, 1, ToolVersion="v1.0.2-24-g0861968",
-                        Runtime="matlab/R2024a")
+        _nordic_sidecar(tmp_path, sub, 1, ToolVersion="v1.0.2-24-g0861968", Runtime="matlab/R2024a")
     codes = _codes(check_consistency(cfg))
     assert "mixed-version" not in codes and "mixed-runtime" not in codes
 
@@ -629,8 +677,10 @@ def test_submission_without_output_on_disk_contributes_no_provenance(tmp_path):
 
 # ---- staleness --------------------------------------------------------------
 
+
 def test_nordic_newer_than_fmriprep_flags_staleness(tmp_path):
     import os
+
     cfg = _config(tmp_path, use_nordic=True)
     deriv = tmp_path / "derivatives"
     fp = deriv / "fmriprep" / "sub-01" / "func"
@@ -649,6 +699,7 @@ def test_nordic_newer_than_fmriprep_flags_staleness(tmp_path):
 
 # ---- presence ---------------------------------------------------------------
 
+
 def test_presence_fmriprep_without_nordic_in_nordic_project(tmp_path):
     cfg = _config(tmp_path, use_nordic=True)
     # A complete-looking fMRIPrep unit, no NORDIC output, no func in BIDS so the
@@ -664,6 +715,7 @@ def test_presence_fmriprep_without_nordic_in_nordic_project(tmp_path):
 
 
 # ---- clean project ----------------------------------------------------------
+
 
 def test_clean_project_has_no_issues(tmp_path):
     assert check_consistency(_config(tmp_path)) == []

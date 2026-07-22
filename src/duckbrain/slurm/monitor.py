@@ -33,13 +33,9 @@ def cancel_job(job_id: str) -> None:
     job). Raises :class:`RuntimeError` with stderr on a non-zero exit so the GUI
     can surface why a cancel didn't take.
     """
-    result = subprocess.run(
-        ["scancel", str(job_id)], capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["scancel", str(job_id)], capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"scancel failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
+        raise RuntimeError(f"scancel failed (exit {result.returncode}): {result.stderr.strip()}")
 
 
 def known_partitions() -> set[str]:
@@ -59,7 +55,10 @@ def known_partitions() -> set[str]:
     try:
         result = subprocess.run(
             ["sinfo", "-h", "-o", "%P"],
-            capture_output=True, text=True, check=False, timeout=10,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
         return set()
@@ -88,8 +87,10 @@ def list_jobs(user: str | None = None) -> list[JobInfo]:
     result = subprocess.run(
         [
             "squeue",
-            "-u", user,
-            "-o", "%i|%j|%T|%P|%M|%l|%N|%R",
+            "-u",
+            user,
+            "-o",
+            "%i|%j|%T|%P|%M|%l|%N|%R",
             "--noheader",
         ],
         capture_output=True,
@@ -135,7 +136,8 @@ def job_status(job_id: str) -> JobInfo | None:
     result = subprocess.run(
         [
             "sacct",
-            "-j", job_id,
+            "-j",
+            job_id,
             "--format=JobID,JobName,State,Partition,Elapsed,Timelimit,NodeList,Submit,Start,End,ExitCode",
             "--parsable2",
             "--noheader",
@@ -193,8 +195,10 @@ def job_history(user: str | None = None, days: int = 7) -> list[JobInfo]:
     result = subprocess.run(
         [
             "sacct",
-            "-u", user,
-            "--starttime", start_date,
+            "-u",
+            user,
+            "--starttime",
+            start_date,
             "--format=JobID,JobName,State,Partition,Elapsed,Timelimit,NodeList,Submit,Start,End,ExitCode",
             "--parsable2",
             "--noheader",
@@ -251,8 +255,8 @@ def find_job_logs(job_id: str, log_dir: str) -> list[Path]:
     found: dict[str, "Path"] = {}
     for ext in ("out", "err", "log"):
         for pattern in (
-            f"*_{job_id}.{ext}",      # plain per-job
-            f"*_{job_id}_*.{ext}",    # array task (nordic_<A>_<a>.out)
+            f"*_{job_id}.{ext}",  # plain per-job
+            f"*_{job_id}_*.{ext}",  # array task (nordic_<A>_<a>.out)
             f"slurm-{job_id}.{ext}",  # SLURM default
         ):
             for match in log_dir.glob(pattern):

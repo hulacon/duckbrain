@@ -46,16 +46,17 @@ class Status(str, Enum):
     and compares equal to its plain-string form.
     """
 
-    MISSING = "missing"   # no expected outputs at all — stage not started
-    PARTIAL = "partial"   # some but not all — started, not finished (or crashed)
+    MISSING = "missing"  # no expected outputs at all — stage not started
+    PARTIAL = "partial"  # some but not all — started, not finished (or crashed)
     COMPLETE = "complete"  # every expected output present
-    NA = "n/a"            # stage does not apply to this unit
+    NA = "n/a"  # stage does not apply to this unit
 
 
 RANK = {Status.MISSING: 0, Status.PARTIAL: 1, Status.COMPLETE: 2, Status.NA: 3}
 
 
 # ---- low-level glob helpers -------------------------------------------------
+
 
 def _has_match(root: Path, pattern: str) -> bool:
     """True if any path under *root* matches the glob *pattern* (non-empty file)."""
@@ -189,6 +190,7 @@ def _fmriprep_input_dir(config: dict) -> str:
 
 # ---- unit discovery ---------------------------------------------------------
 
+
 def _iter_sub_ses(root: str | Path):
     """Yield ``(subject, session)`` for every ``sub-XX[/ses-YY]`` under *root*.
 
@@ -202,11 +204,11 @@ def _iter_sub_ses(root: str | Path):
     for sub_dir in sorted(root.glob("sub-*")):
         if not sub_dir.is_dir():
             continue
-        subject = sub_dir.name[len("sub-"):]
+        subject = sub_dir.name[len("sub-") :]
         ses_dirs = [d for d in sorted(sub_dir.glob("ses-*")) if d.is_dir()]
         if ses_dirs:
             for d in ses_dirs:
-                yield subject, d.name[len("ses-"):]
+                yield subject, d.name[len("ses-") :]
         else:
             yield subject, ""
 
@@ -234,6 +236,7 @@ def discover_units(paths: dict) -> list[tuple[str, str]]:
 # expectation depends on ``use_nordic`` (see :func:`_fmriprep_input_dir`), and a
 # tracker that could only see paths had no way to ask.
 
+
 def _fmt(pattern: str, subject: str, session: str) -> str:
     ss = str(sub_ses_relpath(subject, session))
     return pattern.format(ss=ss, sub=subject)
@@ -248,9 +251,7 @@ def _ingested_status(config: dict, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _expected_conversion_counts(
-    paths: dict, subject: str, session: str
-) -> dict[str, int] | None:
+def _expected_conversion_counts(paths: dict, subject: str, session: str) -> dict[str, int] | None:
     """How many NIfTIs each datatype should hold, per the reviewed dcm2bids config.
 
     ``None`` when there is no config to read — see :func:`_converted_status`.
@@ -262,8 +263,7 @@ def _expected_conversion_counts(
     """
     import json
 
-    cfg = (Path(paths["sourcedata_dir"]) / sub_ses_relpath(subject, session)
-           / "dcm2bids_config.json")
+    cfg = Path(paths["sourcedata_dir"]) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
     try:
         descriptions = json.loads(cfg.read_text()).get("descriptions", [])
     except (OSError, ValueError):
@@ -333,8 +333,8 @@ def _fmriprep_status(config: dict, subject: str, session: str) -> Status:
     subtree_exists = _has_match(root, _fmt("{ss}", subject, session))
 
     if not expected:
-        return Status.COMPLETE if anat_ok else (
-            Status.PARTIAL if subtree_exists else Status.MISSING
+        return (
+            Status.COMPLETE if anat_ok else (Status.PARTIAL if subtree_exists else Status.MISSING)
         )
     if anat_ok and expected <= found:
         return Status.COMPLETE
@@ -357,14 +357,18 @@ def _mriqc_status(config: dict, subject: str, session: str) -> Status:
     #
     # Both of MRIQC's layouts have to be checked: nested (sub-XX/**/…) and flat
     # filenames at the derivative root.
-    has_anat = any(_has_match(root, p) for p in (
-        _fmt("{ss}/**/*_T1w.json", subject, session), f"sub-{subject}*_T1w.json"))
+    has_anat = any(
+        _has_match(root, p)
+        for p in (_fmt("{ss}/**/*_T1w.json", subject, session), f"sub-{subject}*_T1w.json")
+    )
 
     expected = _expected_bold_keys(paths["bids_dir"], subject, session)
-    found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | \
-        _found_keys(root, f"sub-{subject}*_bold.json")
-    subtree_exists = _has_match(root, _fmt("{ss}", subject, session)) or \
-        _has_match(root, f"sub-{subject}*")
+    found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | _found_keys(
+        root, f"sub-{subject}*_bold.json"
+    )
+    subtree_exists = _has_match(root, _fmt("{ss}", subject, session)) or _has_match(
+        root, f"sub-{subject}*"
+    )
 
     if has_anat and (not expected or expected <= found):
         return Status.COMPLETE
@@ -383,9 +387,7 @@ def _nordic_status(config: dict, subject: str, session: str) -> Status:
     # exactly the "some runs denoised" state a single wildcard called complete.
     # This is the stage where the bug was most reachable.
     expected = _expected_bold_keys(paths["bids_dir"], subject, session)
-    found = _found_keys(
-        root, _fmt("{ss}/**/func/sub-{sub}*_bold.nii.gz", subject, session)
-    )
+    found = _found_keys(root, _fmt("{ss}/**/func/sub-{sub}*_bold.nii.gz", subject, session))
     return _grade(expected, found, _has_match(root, _fmt("{ss}", subject, session)))
 
 
@@ -399,6 +401,7 @@ _TRACKERS = {
 
 
 # ---- public API -------------------------------------------------------------
+
 
 def survey_project(config: dict) -> pd.DataFrame:
     """Build the pipeline status matrix for a project.
@@ -447,9 +450,7 @@ def survey_project(config: dict) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-def run_progress(
-    config: dict, stage: str, subject: str, session: str
-) -> tuple[int, int] | None:
+def run_progress(config: dict, stage: str, subject: str, session: str) -> tuple[int, int] | None:
     """``(runs_done, runs_expected)`` for a run-counted stage, or None.
 
     A PARTIAL cell with no number is its own silent degrade — it says "not
@@ -476,8 +477,9 @@ def run_progress(
     elif stage == "mriqc":
         expected = _expected_bold_keys(paths["bids_dir"], subject, session)
         root = Path(paths["derivatives_dir"]) / "mriqc"
-        found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | \
-            _found_keys(root, f"sub-{subject}*_bold.json")
+        found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | _found_keys(
+            root, f"sub-{subject}*_bold.json"
+        )
     else:
         return None
 

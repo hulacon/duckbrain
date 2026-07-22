@@ -29,16 +29,19 @@ from duckbrain.slurm.monitor import JobInfo
 
 
 def _config(root):
-    return {"paths": {
-        "bids_dir": str(root),
-        "sourcedata_dir": str(root / "sourcedata"),
-        "derivatives_dir": str(root / "derivatives"),
-        "log_dir": str(root / "code" / "logs"),
-        "work_dir": "/tmp",
-    }}
+    return {
+        "paths": {
+            "bids_dir": str(root),
+            "sourcedata_dir": str(root / "sourcedata"),
+            "derivatives_dir": str(root / "derivatives"),
+            "log_dir": str(root / "code" / "logs"),
+            "work_dir": "/tmp",
+        }
+    }
 
 
 # ---- registry / naming ------------------------------------------------------
+
 
 def test_tag_for_sessionless_and_multisession():
     assert tag_for("04", "") == "04"
@@ -59,6 +62,7 @@ def test_dependency_chain():
 
 # ---- non-launchable stages --------------------------------------------------
 
+
 def test_unknown_stage_raises():
     with pytest.raises(PipelineError, match="Unknown stage"):
         advance_one({"paths": {}}, "bogus", "04", "")
@@ -71,8 +75,10 @@ def test_ingested_is_not_launchable():
 
 # ---- converted (dcm2bids): happy-path dispatch, naming, export --------------
 
+
 def _patch_dcm2bids(monkeypatch, tmp_path, capture):
     import duckbrain.core.conversion as C
+
     monkeypatch.setattr(C, "get_container_path", lambda cfg: "cont.simg")
     monkeypatch.setattr(C, "resolve_dicom_dir", lambda sd, sub, ses: tmp_path / "dcm")
     monkeypatch.setattr(C, "generate_session_config", lambda d, sub, ses, **kw: {})
@@ -109,7 +115,8 @@ def test_export_only_writes_script_and_does_not_submit(monkeypatch, tmp_path):
     _patch_dcm2bids(monkeypatch, tmp_path, cap)
     written = {}
     monkeypatch.setattr(
-        P, "export_script",
+        P,
+        "export_script",
         lambda content, path: written.update(content=content, path=str(path)) or path,
     )
     ref = advance_one(_config(tmp_path), "converted", "008", "", export_only=True)
@@ -120,8 +127,10 @@ def test_export_only_writes_script_and_does_not_submit(monkeypatch, tmp_path):
 
 # ---- stage preconditions raise PipelineError --------------------------------
 
+
 def test_fmriprep_missing_license_raises(monkeypatch, tmp_path):
     import duckbrain.core.fmriprep as F
+
     monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
     monkeypatch.setattr(F, "find_fs_license", lambda cfg: None)
     with pytest.raises(PipelineError, match="FreeSurfer license"):
@@ -130,6 +139,7 @@ def test_fmriprep_missing_license_raises(monkeypatch, tmp_path):
 
 def test_nordic_no_bold_raises(monkeypatch, tmp_path):
     import duckbrain.core.nordic as N
+
     monkeypatch.setattr(N, "get_bold_runs", lambda bids, sub, ses: [])
     with pytest.raises(PipelineError, match="BOLD"):
         advance_one(_config(tmp_path), "nordic", "008", "")
@@ -138,6 +148,7 @@ def test_nordic_no_bold_raises(monkeypatch, tmp_path):
 def test_nordic_launch_stamps_derivative_provenance(monkeypatch, tmp_path):
     import json
     import duckbrain.core.nordic as N
+
     monkeypatch.setattr(N, "get_bold_runs", lambda bids, sub, ses: [tmp_path / "a_bold.nii.gz"])
     monkeypatch.setattr(P, "build_context", lambda *a, **k: {})
     monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: "#script")
@@ -146,7 +157,9 @@ def test_nordic_launch_stamps_derivative_provenance(monkeypatch, tmp_path):
     advance_one(cfg, "nordic", "008", "")
     # NORDIC writes no provenance itself, so duckbrain stamps the derivative root
     # in the same BIDS-Derivatives format the checker reads from other tools.
-    desc = json.loads((tmp_path / "derivatives" / "nordic" / "dataset_description.json").read_text())
+    desc = json.loads(
+        (tmp_path / "derivatives" / "nordic" / "dataset_description.json").read_text()
+    )
     assert desc["DatasetType"] == "derivative"
     assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "nordic"]
     assert desc["DatasetLinks"]["raw"] == cfg["paths"]["bids_dir"]
@@ -158,6 +171,7 @@ def test_nordic_launch_stamps_derivative_provenance(monkeypatch, tmp_path):
 # subject: it rebuilds the anat workflow and logs nothing about the reuse it
 # could not do. Requesting reuse must therefore fail loudly at submit time
 # rather than burn hours pretending to have saved them.
+
 
 def _write_anat_deriv(root, subject, session=""):
     """Lay down the marker a finished fMRIPrep anat leaves behind."""
@@ -171,18 +185,19 @@ def _write_anat_deriv(root, subject, session=""):
 
 def _patch_fmriprep(monkeypatch, tmp_path, cap):
     import duckbrain.core.fmriprep as F
+
     lic = tmp_path / "license.txt"
     lic.write_text("x")
     monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
     monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
     monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
-    monkeypatch.setattr(
-        P, "render_sbatch", lambda template, ctx: cap.update(ctx=ctx) or "s")
+    monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: cap.update(ctx=ctx) or "s")
     monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
 
 
 def test_has_anat_derivatives_detects_finished_anat(tmp_path):
     from duckbrain.core.fmriprep import has_anat_derivatives
+
     deriv = str(tmp_path / "derivatives")
     assert has_anat_derivatives(deriv, "008") is False  # no tree at all
     _write_anat_deriv(tmp_path, "008")
@@ -192,6 +207,7 @@ def test_has_anat_derivatives_detects_finished_anat(tmp_path):
 
 def test_has_anat_derivatives_is_per_session(tmp_path):
     from duckbrain.core.fmriprep import has_anat_derivatives
+
     deriv = str(tmp_path / "derivatives")
     _write_anat_deriv(tmp_path, "008", "01")
     assert has_anat_derivatives(deriv, "008", "01") is True
@@ -200,6 +216,7 @@ def test_has_anat_derivatives_is_per_session(tmp_path):
 
 def test_has_anat_derivatives_ignores_empty_file(tmp_path):
     from duckbrain.core.fmriprep import has_anat_derivatives
+
     f = _write_anat_deriv(tmp_path, "008")
     f.write_text("")  # a crashed run can leave a zero-byte stub
     assert has_anat_derivatives(str(tmp_path / "derivatives"), "008") is False
@@ -223,8 +240,10 @@ def test_fmriprep_reuse_with_prior_anat_passes_derivatives_path(monkeypatch, tmp
 
 # ---- params flow through to the rendered context ----------------------------
 
+
 def test_fmriprep_params_reach_context(monkeypatch, tmp_path):
     import duckbrain.core.fmriprep as F
+
     (tmp_path / "fs").mkdir()
     lic = tmp_path / "fs" / "license.txt"
     lic.write_text("x")
@@ -233,12 +252,20 @@ def test_fmriprep_params_reach_context(monkeypatch, tmp_path):
     monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
 
     cap = {}
-    monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: cap.update(template=template, ctx=ctx) or "s")
+    monkeypatch.setattr(
+        P, "render_sbatch", lambda template, ctx: cap.update(template=template, ctx=ctx) or "s"
+    )
     monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
 
     advance_one(
-        _config(tmp_path), "fmriprep", "008", "",
-        nprocs=4, mem_gb=99, output_spaces="MNI152NLin2009cAsym T1w", anat_only=True,
+        _config(tmp_path),
+        "fmriprep",
+        "008",
+        "",
+        nprocs=4,
+        mem_gb=99,
+        output_spaces="MNI152NLin2009cAsym T1w",
+        anat_only=True,
     )
     assert cap["template"] == "fmriprep"
     ctx = cap["ctx"]
@@ -268,8 +295,14 @@ def _patch_survey(monkeypatch, row, active=None, hist=None):
 def test_survey_live_overlays_running_and_blocks_run(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "complete", "fmriprep": "partial", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "complete",
+            "fmriprep": "partial",
+            "mriqc": "missing",
+        },
         active=[JobInfo(job_id="1", name="fmriprep_04", state="RUNNING", partition="c")],
     )
     row = survey_live({}).iloc[0]
@@ -281,8 +314,14 @@ def test_survey_live_overlays_running_and_blocks_run(monkeypatch):
 def test_survey_live_pending_reads_queued(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "complete", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "complete",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         active=[JobInfo(job_id="1", name="fmriprep_04", state="PENDING", partition="c")],
     )
     row = survey_live({}).iloc[0]
@@ -293,8 +332,14 @@ def test_survey_live_pending_reads_queued(monkeypatch):
 def test_survey_live_complete_not_downgraded_by_stale_failure(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "complete", "fmriprep": "complete", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "complete",
+            "fmriprep": "complete",
+            "mriqc": "missing",
+        },
         hist=[JobInfo(job_id="9", name="fmriprep_04", state="FAILED", partition="c")],
     )
     row = survey_live({}).iloc[0]
@@ -305,8 +350,14 @@ def test_survey_live_complete_not_downgraded_by_stale_failure(monkeypatch):
 def test_survey_live_failed_overlay_is_runnable(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "complete", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "complete",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         hist=[JobInfo(job_id="9", name="fmriprep_04", state="TIMEOUT", partition="c")],
     )
     row = survey_live({}).iloc[0]
@@ -324,13 +375,29 @@ def test_survey_live_failed_but_later_completed_is_not_failed(monkeypatch):
     """
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "missing",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         hist=[
-            JobInfo(job_id="9", name="dcm2bids_04", state="COMPLETED", partition="c",
-                    submit_time="2026-07-22T11:00:00"),
-            JobInfo(job_id="8", name="dcm2bids_04", state="FAILED", partition="c",
-                    submit_time="2026-07-22T09:00:00"),
+            JobInfo(
+                job_id="9",
+                name="dcm2bids_04",
+                state="COMPLETED",
+                partition="c",
+                submit_time="2026-07-22T11:00:00",
+            ),
+            JobInfo(
+                job_id="8",
+                name="dcm2bids_04",
+                state="FAILED",
+                partition="c",
+                submit_time="2026-07-22T09:00:00",
+            ),
         ],
     )
     row = survey_live({}).iloc[0]
@@ -348,13 +415,29 @@ def test_survey_live_completed_then_failed_shows_the_failure(monkeypatch):
     """
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "missing",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         hist=[
-            JobInfo(job_id="8", name="dcm2bids_04", state="COMPLETED", partition="c",
-                    submit_time="2026-07-22T09:00:00"),
-            JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c",
-                    submit_time="2026-07-22T11:00:00"),
+            JobInfo(
+                job_id="8",
+                name="dcm2bids_04",
+                state="COMPLETED",
+                partition="c",
+                submit_time="2026-07-22T09:00:00",
+            ),
+            JobInfo(
+                job_id="9",
+                name="dcm2bids_04",
+                state="FAILED",
+                partition="c",
+                submit_time="2026-07-22T11:00:00",
+            ),
         ],
     )
     row = survey_live({}).iloc[0]
@@ -365,13 +448,29 @@ def test_survey_live_orders_attempts_by_job_id_without_timestamps(monkeypatch):
     """sacct can report Submit as 'Unknown'; the numeric job id still orders."""
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "missing",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         hist=[
-            JobInfo(job_id="120", name="dcm2bids_04", state="FAILED", partition="c",
-                    submit_time="Unknown"),
-            JobInfo(job_id="99", name="dcm2bids_04", state="COMPLETED", partition="c",
-                    submit_time="Unknown"),
+            JobInfo(
+                job_id="120",
+                name="dcm2bids_04",
+                state="FAILED",
+                partition="c",
+                submit_time="Unknown",
+            ),
+            JobInfo(
+                job_id="99",
+                name="dcm2bids_04",
+                state="COMPLETED",
+                partition="c",
+                submit_time="Unknown",
+            ),
         ],
     )
     # 120 > 99 numerically; a string compare would put "99" last and hide the fail.
@@ -381,11 +480,24 @@ def test_survey_live_orders_attempts_by_job_id_without_timestamps(monkeypatch):
 def test_survey_live_an_active_retry_outranks_any_history(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "missing",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         active=[JobInfo(job_id="10", name="dcm2bids_04", state="RUNNING", partition="c")],
-        hist=[JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c",
-                      submit_time="2026-07-22T09:00:00")],
+        hist=[
+            JobInfo(
+                job_id="9",
+                name="dcm2bids_04",
+                state="FAILED",
+                partition="c",
+                submit_time="2026-07-22T09:00:00",
+            )
+        ],
     )
     assert survey_live({}).iloc[0]["converted_job"] == "running"
 
@@ -395,9 +507,16 @@ def test_survey_live_with_jobs_returns_single_pull_index(monkeypatch):
     hist = [JobInfo(job_id="9", name="mriqc_04", state="COMPLETED", partition="c")]
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "complete", "fmriprep": "partial", "mriqc": "complete"},
-        active=active, hist=hist,
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "complete",
+            "fmriprep": "partial",
+            "mriqc": "complete",
+        },
+        active=active,
+        hist=hist,
     )
     matrix, jobs = survey_live({}, with_jobs=True)
     assert matrix.iloc[0]["fmriprep_job"] == "running"
@@ -411,8 +530,14 @@ def test_survey_live_with_jobs_returns_single_pull_index(monkeypatch):
 def test_survey_live_default_return_is_matrix_only(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "missing",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
     )
     out = survey_live({})  # no with_jobs → bare DataFrame, back-compat
     assert isinstance(out, pd.DataFrame)
@@ -421,12 +546,18 @@ def test_survey_live_default_return_is_matrix_only(monkeypatch):
 def test_stage_runnable_dependency_gating(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "missing",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
     )
     row = survey_live({}).iloc[0]
-    assert stage_runnable(row, "converted") is True   # ingested complete → go
-    assert stage_runnable(row, "fmriprep") is False   # converted not complete → gated
+    assert stage_runnable(row, "converted") is True  # ingested complete → go
+    assert stage_runnable(row, "fmriprep") is False  # converted not complete → gated
 
 
 def test_effective_depends_on_use_nordic():
@@ -444,12 +575,21 @@ def test_effective_depends_on_use_nordic():
 def test_stage_runnable_use_nordic_gates_fmriprep_on_nordic():
     # converted done, nordic not yet: fMRIPrep is runnable normally but gated
     # when use_nordic is on (its input doesn't exist yet).
-    row = {"subject": "08", "session": "", "ingested": "complete",
-           "converted": "complete", "nordic": "missing",
-           "fmriprep": "missing", "mriqc": "missing",
-           "converted_job": "", "nordic_job": "", "fmriprep_job": "", "mriqc_job": ""}
-    assert stage_runnable(row, "fmriprep") is True                 # static dep = converted
-    assert stage_runnable(row, "fmriprep", {}) is True             # config off = converted
+    row = {
+        "subject": "08",
+        "session": "",
+        "ingested": "complete",
+        "converted": "complete",
+        "nordic": "missing",
+        "fmriprep": "missing",
+        "mriqc": "missing",
+        "converted_job": "",
+        "nordic_job": "",
+        "fmriprep_job": "",
+        "mriqc_job": "",
+    }
+    assert stage_runnable(row, "fmriprep") is True  # static dep = converted
+    assert stage_runnable(row, "fmriprep", {}) is True  # config off = converted
     assert stage_runnable(row, "fmriprep", {"nordic": {"use_nordic": True}}) is False
     # Once NORDIC completes, the use_nordic gate opens.
     row2 = {**row, "nordic": "complete"}
@@ -460,6 +600,7 @@ def _patch_fmriprep_deps(monkeypatch, tmp_path, denoised):
     """Stub fMRIPrep + NORDIC deps; capture the rendered context. Returns cap dict."""
     import duckbrain.core.fmriprep as F
     import duckbrain.core.nordic as N
+
     (tmp_path / "fs").mkdir()
     lic = tmp_path / "fs" / "license.txt"
     lic.write_text("x")
@@ -468,11 +609,9 @@ def _patch_fmriprep_deps(monkeypatch, tmp_path, denoised):
     monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
     monkeypatch.setattr(N, "get_bold_runs", lambda root, sub, ses: denoised)
     built = {}
-    monkeypatch.setattr(N, "build_nordic_bids_input",
-                        lambda **kw: built.update(kw) or tmp_path)
+    monkeypatch.setattr(N, "build_nordic_bids_input", lambda **kw: built.update(kw) or tmp_path)
     cap = {"built": built}
-    monkeypatch.setattr(P, "render_sbatch",
-                        lambda t, ctx: cap.update(ctx=ctx) or "s")
+    monkeypatch.setattr(P, "render_sbatch", lambda t, ctx: cap.update(ctx=ctx) or "s")
     monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
     return cap
 
@@ -506,8 +645,14 @@ def test_fmriprep_without_use_nordic_reads_raw_bids(monkeypatch, tmp_path):
 def test_survey_live_multisession_join_key(monkeypatch):
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "01", "ingested": "complete",
-         "converted": "complete", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "01",
+            "ingested": "complete",
+            "converted": "complete",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         active=[JobInfo(job_id="1", name="fmriprep_04_01", state="RUNNING", partition="c")],
     )
     row = survey_live({}).iloc[0]
@@ -518,17 +663,29 @@ def test_survey_live_graceful_when_slurm_unavailable(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("squeue: command not found")
 
-    monkeypatch.setattr(P, "survey_project", lambda cfg: _fake_matrix(
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "complete", "fmriprep": "missing", "mriqc": "missing"}))
+    monkeypatch.setattr(
+        P,
+        "survey_project",
+        lambda cfg: _fake_matrix(
+            {
+                "subject": "04",
+                "session": "",
+                "ingested": "complete",
+                "converted": "complete",
+                "fmriprep": "missing",
+                "mriqc": "missing",
+            }
+        ),
+    )
     monkeypatch.setattr(P, "list_jobs", boom)
     monkeypatch.setattr(P, "job_history", boom)
     row = survey_live({}).iloc[0]
-    assert row["fmriprep_job"] == ""            # no overlay, no crash
+    assert row["fmriprep_job"] == ""  # no overlay, no crash
     assert stage_runnable(row, "fmriprep") is True
 
 
 # ---- durable submission log -------------------------------------------------
+
 
 def test_advance_one_records_submission(monkeypatch, tmp_path):
     cap = {}
@@ -538,7 +695,12 @@ def test_advance_one_records_submission(monkeypatch, tmp_path):
     subs = read_submissions(cfg)
     assert len(subs) == 1
     r = subs.iloc[0]
-    assert (r["stage"], r["subject"], r["session"], r["job_id"]) == ("converted", "008", "01", "JOB123")
+    assert (r["stage"], r["subject"], r["session"], r["job_id"]) == (
+        "converted",
+        "008",
+        "01",
+        "JOB123",
+    )
     assert r["timestamp"]  # non-empty ISO stamp
     # Provenance is captured alongside the launch (container from the stubbed
     # get_container_path; no version key in the test config, so tool_version is "").
@@ -547,8 +709,10 @@ def test_advance_one_records_submission(monkeypatch, tmp_path):
 
 # ---- run provenance ---------------------------------------------------------
 
+
 def test_run_provenance_reads_version_and_container(monkeypatch, tmp_path):
     import duckbrain.core.fmriprep as F
+
     monkeypatch.setattr(F, "get_container_path", lambda cfg: "/imgs/fmriprep-24.1.1.sif")
     cfg = _config(tmp_path)
     cfg["containers"] = {"fmriprep_version": "24.1.1"}
@@ -561,6 +725,7 @@ def test_run_provenance_reads_version_and_container(monkeypatch, tmp_path):
 
 def test_run_provenance_fmriprep_input_variant_nordic(monkeypatch, tmp_path):
     import duckbrain.core.fmriprep as F
+
     monkeypatch.setattr(F, "get_container_path", lambda cfg: "fmriprep.sif")
     cfg = _config(tmp_path)
     cfg["nordic"] = {"use_nordic": True}
@@ -581,7 +746,7 @@ def test_run_provenance_nordic_without_a_toolbox_has_no_version(tmp_path):
     prov = run_provenance(_config(tmp_path), "nordic")
     assert prov["tool"] == "nordic"
     assert prov["tool_version"] == ""  # no toolbox configured: unknowable, not guessed
-    assert prov["runtime"] == ""     # NORDIC runs no container, ever
+    assert prov["runtime"] == ""  # NORDIC runs no container, ever
     assert prov["code_source"] == ""
     assert prov["input_variant"] == "raw"
 
@@ -599,13 +764,15 @@ def test_unset_toolbox_never_describes_the_current_directory(monkeypatch, tmp_pa
 
 
 def test_run_provenance_nordic_reads_the_toolbox_checkout(tmp_path):
-    repo = _git_repo(tmp_path / "NORDIC_Raw", remote="https://github.com/SteenMoeller/NORDIC_Raw.git")
+    repo = _git_repo(
+        tmp_path / "NORDIC_Raw", remote="https://github.com/SteenMoeller/NORDIC_Raw.git"
+    )
     cfg = _config(tmp_path)
     cfg["paths"]["nordic_toolbox_dir"] = str(repo)
     prov = run_provenance(cfg, "nordic")
     sha = _sha(repo)
     assert prov["tool"] == "nordic"
-    assert prov["tool_version"] == sha            # no tags yet: --always gives the sha
+    assert prov["tool_version"] == sha  # no tags yet: --always gives the sha
     assert prov["code_source"] == f"SteenMoeller/NORDIC_Raw@{sha}"
     assert prov["runtime"] == ""
 
@@ -613,18 +780,21 @@ def test_run_provenance_nordic_reads_the_toolbox_checkout(tmp_path):
 def test_run_provenance_nordic_records_matlab_as_its_runtime(tmp_path):
     """NORDIC's two axes land in the same pair of slots a container stage uses:
     the runtime slot is free precisely because NORDIC runs no image."""
-    repo = _git_repo(tmp_path / "NORDIC_Raw", remote="https://github.com/SteenMoeller/NORDIC_Raw.git")
+    repo = _git_repo(
+        tmp_path / "NORDIC_Raw", remote="https://github.com/SteenMoeller/NORDIC_Raw.git"
+    )
     cfg = _config(tmp_path)
     cfg["paths"]["nordic_toolbox_dir"] = str(repo)
     cfg["nordic"] = {"matlab_module": "matlab/R2024a"}
     prov = run_provenance(cfg, "nordic")
-    assert prov["runtime"] == "matlab/R2024a"                       # what ran it
+    assert prov["runtime"] == "matlab/R2024a"  # what ran it
     assert prov["code_source"].startswith("SteenMoeller/NORDIC_Raw@")  # where code came from
 
 
 def test_run_provenance_container_stage_runtime_is_the_image(monkeypatch, tmp_path):
     """The mirror: for a container the image *is* the runtime."""
     import duckbrain.core.fmriprep as F
+
     monkeypatch.setattr(F, "get_container_path", lambda cfg: tmp_path / "fmriprep-24.1.1.sif")
     prov = run_provenance(_config(tmp_path), "fmriprep")
     assert prov["runtime"] == "fmriprep-24.1.1.sif"
@@ -633,6 +803,7 @@ def test_run_provenance_container_stage_runtime_is_the_image(monkeypatch, tmp_pa
 def test_nordic_stamp_records_matlab_as_its_own_generatedby_entry(monkeypatch, tmp_path):
     import json
     import duckbrain.core.nordic as N
+
     monkeypatch.setattr(N, "get_bold_runs", lambda bids, sub, ses: [tmp_path / "a_bold.nii.gz"])
     monkeypatch.setattr(P, "build_context", lambda *a, **k: {})
     monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: "#script")
@@ -640,7 +811,9 @@ def test_nordic_stamp_records_matlab_as_its_own_generatedby_entry(monkeypatch, t
     cfg = _config(tmp_path)
     cfg["nordic"] = {"matlab_module": "matlab/R2024a"}
     advance_one(cfg, "nordic", "008", "")
-    desc = json.loads((tmp_path / "derivatives" / "nordic" / "dataset_description.json").read_text())
+    desc = json.loads(
+        (tmp_path / "derivatives" / "nordic" / "dataset_description.json").read_text()
+    )
     # GeneratedBy is a list, so MATLAB — a genuine second tool in the chain, with
     # no dedicated BIDS field — earns its own entry.
     assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "nordic", "matlab"]
@@ -696,13 +869,16 @@ def test_read_submissions_limit_and_order(tmp_path):
 # outright — taking the log, the Job Monitor, and every log-overlay consistency
 # check down with it on the next launch.
 
+
 def _git_repo(path, remote=None):
     """A throwaway git checkout, standing in for a user's NORDIC_Raw clone."""
     import subprocess
+
     path.mkdir(parents=True, exist_ok=True)
+
     def run(*a):
-        return subprocess.run(["git", "-C", str(path), *a], check=True,
-                              capture_output=True)
+        return subprocess.run(["git", "-C", str(path), *a], check=True, capture_output=True)
+
     run("init", "-q")
     run("config", "user.email", "t@t")
     run("config", "user.name", "t")
@@ -716,8 +892,13 @@ def _git_repo(path, remote=None):
 
 def _sha(path):
     import subprocess
-    return subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
-                          capture_output=True, text=True, check=True).stdout.strip()
+
+    return subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 _LEGACY_HEADER = "timestamp\tsubject\tsession\tstage\tjob_id"
@@ -737,9 +918,16 @@ def _write_legacy_log(cfg):
 def test_appending_to_a_legacy_log_keeps_it_readable(tmp_path):
     cfg = _config(tmp_path)
     _write_legacy_log(cfg)
-    record_submission(cfg, "fmriprep", "099", "", "J999",
-                      tool="fmriprep", runtime="fmriprep-24.1.1.simg",
-                      input_variant="raw")
+    record_submission(
+        cfg,
+        "fmriprep",
+        "099",
+        "",
+        "J999",
+        tool="fmriprep",
+        runtime="fmriprep-24.1.1.simg",
+        input_variant="raw",
+    )
     df = read_submissions(cfg)  # must not raise
     assert len(df) == 3
     assert list(df["job_id"]) == ["45191143", "45428802", "J999"]
@@ -770,10 +958,14 @@ def test_migration_is_idempotent(tmp_path):
     assert len(read_submissions(cfg)) == 4
 
 
-_RENAMED_HEADER = ("timestamp\tsubject\tsession\tstage\ttool\ttool_version\t"
-                   "container\tcontainer_source\tinput_variant\tjob_id")
-_RENAMED_ROW = ("2026-07-16T10:00:00\t01\t\tfmriprep\tfmriprep\t24.1.1\t"
-                "fmriprep-24.1.1.simg\tnipreps/fmriprep:24.1.1\traw\tJ1")
+_RENAMED_HEADER = (
+    "timestamp\tsubject\tsession\tstage\ttool\ttool_version\t"
+    "container\tcontainer_source\tinput_variant\tjob_id"
+)
+_RENAMED_ROW = (
+    "2026-07-16T10:00:00\t01\t\tfmriprep\tfmriprep\t24.1.1\t"
+    "fmriprep-24.1.1.simg\tnipreps/fmriprep:24.1.1\traw\tJ1"
+)
 
 
 def test_migration_carries_renamed_columns_rather_than_dropping_them(tmp_path):
@@ -822,8 +1014,10 @@ def test_read_submissions_tolerates_an_already_ragged_log(tmp_path):
     cfg = _config(tmp_path)
     path = _write_legacy_log(cfg)
     with open(path, "a") as f:  # the wide row that used to break the parser
-        f.write("2026-07-16T10:00:00\t099\t\tfmriprep\tfmriprep\t24.1.1\t"
-                "fmriprep-24.1.1.simg\tnipreps/fmriprep:24.1.1\traw\tJ999\n")
+        f.write(
+            "2026-07-16T10:00:00\t099\t\tfmriprep\tfmriprep\t24.1.1\t"
+            "fmriprep-24.1.1.simg\tnipreps/fmriprep:24.1.1\traw\tJ999\n"
+        )
     df = read_submissions(cfg)
     assert len(df) == 3
     assert list(df["subject"]) == ["008", "04", "099"]
@@ -832,12 +1026,15 @@ def test_read_submissions_tolerates_an_already_ragged_log(tmp_path):
 def test_submission_log_write_failure_never_sinks_submit(monkeypatch, tmp_path):
     cap = {}
     _patch_dcm2bids(monkeypatch, tmp_path, cap)
-    monkeypatch.setattr(P, "record_submission", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(
+        P, "record_submission", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
+    )
     # Submission still returns its job id despite the logging blowup.
     assert advance_one(_config(tmp_path), "converted", "008", "") == "JOB123"
 
 
 # ---- DB-002: PARTIAL is the state that lets real failures through ------------
+
 
 def test_partial_stage_lets_a_failed_badge_through(monkeypatch):
     """COMPLETE suppresses a stale sacct failure — and that rule was only safe
@@ -849,8 +1046,14 @@ def test_partial_stage_lets_a_failed_badge_through(monkeypatch):
     """
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "partial", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "partial",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         hist=[JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c")],
     )
     row = survey_live({}).iloc[0]
@@ -865,8 +1068,14 @@ def test_complete_stage_still_suppresses_a_stale_failure(monkeypatch):
     """
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "complete", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "complete",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
         hist=[JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c")],
     )
     assert survey_live({}).iloc[0]["converted_job"] == ""
@@ -877,8 +1086,14 @@ def test_a_partial_dependency_blocks_the_downstream_stage(monkeypatch):
     conversion unlocked preprocessing on a half-converted unit."""
     _patch_survey(
         monkeypatch,
-        {"subject": "04", "session": "", "ingested": "complete",
-         "converted": "partial", "fmriprep": "missing", "mriqc": "missing"},
+        {
+            "subject": "04",
+            "session": "",
+            "ingested": "complete",
+            "converted": "partial",
+            "fmriprep": "missing",
+            "mriqc": "missing",
+        },
     )
     row = survey_live({}).iloc[0]
     assert stage_runnable(row, "fmriprep") is False
@@ -886,12 +1101,14 @@ def test_a_partial_dependency_blocks_the_downstream_stage(monkeypatch):
 
 # ---- DB-012: each attempt's script survives the next attempt ----------------
 
+
 def _fake_sbatch(job_id):
     """Stand in for subprocess.run(['sbatch', ...])."""
     from types import SimpleNamespace
 
     return lambda *a, **kw: SimpleNamespace(
-        returncode=0, stdout=f"Submitted batch job {job_id}\n", stderr="")
+        returncode=0, stdout=f"Submitted batch job {job_id}\n", stderr=""
+    )
 
 
 def test_each_submission_keeps_its_own_script(tmp_path, monkeypatch):
@@ -927,8 +1144,11 @@ def test_a_failed_submission_archives_nothing(tmp_path, monkeypatch):
     from duckbrain.slurm.submit import submit_job
 
     scripts = tmp_path / "logs"
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: SimpleNamespace(
-        returncode=1, stdout="", stderr="Invalid partition"))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **kw: SimpleNamespace(returncode=1, stdout="", stderr="Invalid partition"),
+    )
 
     with pytest.raises(RuntimeError):
         submit_job("#!/bin/bash\n", "fmriprep_04", scripts_dir=scripts)
@@ -939,14 +1159,16 @@ def test_a_failed_submission_archives_nothing(tmp_path, monkeypatch):
 def test_submission_record_points_at_the_archived_script(tmp_path):
     """The record said which container ran but not what was asked of it."""
     config = {"paths": {"log_dir": str(tmp_path / "code" / "logs")}}
-    record_submission(config, "fmriprep", "04", "", "1001",
-                      script_path="/logs/fmriprep_04_1001.sbatch")
+    record_submission(
+        config, "fmriprep", "04", "", "1001", script_path="/logs/fmriprep_04_1001.sbatch"
+    )
 
     log = tmp_path / "code" / "logs" / "submissions.tsv"
     header, row = log.read_text().strip().splitlines()
     assert "script_path" in header.split("\t")
-    assert row.split("\t")[header.split("\t").index("script_path")] == \
-        "/logs/fmriprep_04_1001.sbatch"
+    assert (
+        row.split("\t")[header.split("\t").index("script_path")] == "/logs/fmriprep_04_1001.sbatch"
+    )
 
 
 def test_an_older_log_gains_the_script_path_column(tmp_path):
@@ -964,6 +1186,6 @@ def test_an_older_log_gains_the_script_path_column(tmp_path):
 
     lines = log.read_text().strip().splitlines()
     assert lines[0].split("\t")[-1] == "script_path"
-    assert lines[1].split("\t")[9] == "900"      # the old row kept its job id
-    assert lines[1].split("\t")[-1] == ""        # ...and fills the new field empty
+    assert lines[1].split("\t")[9] == "900"  # the old row kept its job id
+    assert lines[1].split("\t")[-1] == ""  # ...and fills the new field empty
     assert lines[2].split("\t")[-1] == "/s.sbatch"

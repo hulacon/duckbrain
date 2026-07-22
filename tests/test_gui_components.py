@@ -1,6 +1,5 @@
 """AppTest smoke/interaction tests for gui.components.directory_picker."""
 
-
 from streamlit.testing.v1 import AppTest
 
 
@@ -17,9 +16,7 @@ def _picker_app(default="", allow_create=False, must_exist=False):
 
 
 def _run(tmp_path, **kwargs):
-    at = AppTest.from_function(
-        _picker_app, kwargs={"default": str(tmp_path), **kwargs}
-    )
+    at = AppTest.from_function(_picker_app, kwargs={"default": str(tmp_path), **kwargs})
     at.run()
     assert not at.exception
     return at

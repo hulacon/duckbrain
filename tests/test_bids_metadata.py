@@ -24,6 +24,7 @@ def _json(path):
 
 # ---- dataset_description provenance -----------------------------------------
 
+
 def test_write_dataset_description_versions_duckbrain_from_its_checkout(tmp_path):
     """duckbrain is distributed by git clone and served from a working copy, so
     users sit on arbitrary commits: stamp the actual checkout, not a
@@ -39,6 +40,7 @@ def test_duckbrain_version_falls_back_to_the_package_off_a_checkout(monkeypatch,
     """Installed from a wheel there is no git to ask, and the packaged version
     *is* the truth."""
     import duckbrain.core.bids_metadata as M
+
     monkeypatch.setattr(M, "_duckbrain_repo", lambda: tmp_path / "not-a-checkout")
     desc = _json(write_dataset_description(tmp_path / "bids", name="study"))
     assert desc["GeneratedBy"] == [{"Name": "duckbrain", "Version": __version__}]
@@ -52,10 +54,16 @@ def test_write_dataset_description_custom_generated_by(tmp_path):
 
 def test_write_derivative_description_records_tool_and_source(tmp_path):
     deriv = tmp_path / "derivatives" / "nordic"
-    desc = _json(write_derivative_description(
-        deriv, "nordic", tool="nordic", tool_version="",
-        container="", source_dataset="/proj/bids",
-    ))
+    desc = _json(
+        write_derivative_description(
+            deriv,
+            "nordic",
+            tool="nordic",
+            tool_version="",
+            container="",
+            source_dataset="/proj/bids",
+        )
+    )
     assert desc["DatasetType"] == "derivative"
     names = [g["Name"] for g in desc["GeneratedBy"]]
     assert names == ["duckbrain", "nordic"]
@@ -64,10 +72,15 @@ def test_write_derivative_description_records_tool_and_source(tmp_path):
 
 
 def test_write_derivative_description_embeds_version_and_container(tmp_path):
-    desc = _json(write_derivative_description(
-        tmp_path / "d", "fmriprep-like", tool="fmriprep",
-        tool_version="24.1.1", container="fmriprep-24.1.1.sif",
-    ))
+    desc = _json(
+        write_derivative_description(
+            tmp_path / "d",
+            "fmriprep-like",
+            tool="fmriprep",
+            tool_version="24.1.1",
+            container="fmriprep-24.1.1.sif",
+        )
+    )
     tool_entry = next(g for g in desc["GeneratedBy"] if g["Name"] == "fmriprep")
     assert tool_entry["Version"] == "24.1.1"
     assert tool_entry["Container"]["Tag"] == "fmriprep-24.1.1.sif"
@@ -119,14 +132,15 @@ def test_write_participants_append_dedupes(tmp_path):
 # The raw BIDS root is duckbrain's output too (it ran dcm2bids to make it), so it
 # must name the converter — dcm2bids' version determines the BIDS it emits.
 
+
 def test_converter_generated_by_names_duckbrain_and_dcm2bids(monkeypatch, tmp_path):
     from duckbrain.core.bids_metadata import converter_generated_by
     import duckbrain.core.conversion as C
+
     img = tmp_path / "dcm2bids-3.2.0.sif"
     img.write_text("img")
     monkeypatch.setattr(C, "get_container_path", lambda cfg: img)
-    cfg = {"paths": {"containers_dir": str(tmp_path)},
-           "containers": {"dcm2bids_version": "3.2.0"}}
+    cfg = {"paths": {"containers_dir": str(tmp_path)}, "containers": {"dcm2bids_version": "3.2.0"}}
     entries = converter_generated_by(cfg)
     assert [e["Name"] for e in entries] == ["duckbrain", "dcm2bids"]
     assert entries[1]["Version"] == "3.2.0"
@@ -136,6 +150,7 @@ def test_converter_generated_by_names_duckbrain_and_dcm2bids(monkeypatch, tmp_pa
 def test_converter_generated_by_degrades_to_duckbrain_alone(tmp_path):
     """No containers configured: record what we know, never block the write."""
     from duckbrain.core.bids_metadata import converter_generated_by
+
     entries = converter_generated_by({"paths": {}})
     assert entries[0]["Name"] == "duckbrain"
 
@@ -143,11 +158,14 @@ def test_converter_generated_by_degrades_to_duckbrain_alone(tmp_path):
 def test_root_description_records_the_converter(monkeypatch, tmp_path):
     from duckbrain.core.bids_metadata import converter_generated_by
     import duckbrain.core.conversion as C
+
     img = tmp_path / "dcm2bids-3.2.0.sif"
     img.write_text("img")
     monkeypatch.setattr(C, "get_container_path", lambda cfg: img)
-    cfg = {"paths": {"containers_dir": str(tmp_path)},
-           "containers": {"dcm2bids_version": "3.2.0"}}
-    desc = _json(write_dataset_description(
-        tmp_path / "bids", name="study", generated_by=converter_generated_by(cfg)))
+    cfg = {"paths": {"containers_dir": str(tmp_path)}, "containers": {"dcm2bids_version": "3.2.0"}}
+    desc = _json(
+        write_dataset_description(
+            tmp_path / "bids", name="study", generated_by=converter_generated_by(cfg)
+        )
+    )
     assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "dcm2bids"]

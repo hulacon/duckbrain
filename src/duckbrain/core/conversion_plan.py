@@ -117,9 +117,9 @@ class ConversionPlan:
         missing from this view reads as unbound when it is not.
         """
         return [
-            f for f in self.files
-            if f.datatype == "func" and f.suffix in ("bold", "sbref")
-            and f.fmap_group == group
+            f
+            for f in self.files
+            if f.datatype == "func" and f.suffix in ("bold", "sbref") and f.fmap_group == group
         ]
 
 
@@ -441,9 +441,7 @@ def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> Confi
 
         extra_criteria = sorted(set(criteria) - {"SeriesNumber"})
         if extra_criteria:
-            out.unrepresentable.append(
-                f"`{label}` also matches on {', '.join(extra_criteria)}"
-            )
+            out.unrepresentable.append(f"`{label}` also matches on {', '.join(extra_criteria)}")
         extra_keys = sorted(set(d) - _KNOWN_DESC_KEYS)
         if extra_keys:
             out.unrepresentable.append(f"`{label}` sets {', '.join(extra_keys)}")
@@ -451,22 +449,16 @@ def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> Confi
         sidecar = d.get("sidecar_changes") or {}
         extra_sidecar = sorted(set(sidecar) - _KNOWN_SIDECAR_KEYS)
         if extra_sidecar:
-            out.unrepresentable.append(
-                f"`{label}` sets sidecar_changes {', '.join(extra_sidecar)}"
-            )
+            out.unrepresentable.append(f"`{label}` sets sidecar_changes {', '.join(extra_sidecar)}")
 
         entities = dict(_ENTITY_RE.findall(str(d.get("custom_entities", ""))))
         if "task" in entities:
             out.task_by_series[series_number] = entities["task"]
         run = entities.get("run")
-        out.run_by_series[series_number] = (
-            int(run) if run is not None and run.isdigit() else None
-        )
+        out.run_by_series[series_number] = int(run) if run is not None and run.isdigit() else None
 
         identifier = sidecar.get("B0FieldIdentifier") or sidecar.get("B0FieldSource")
-        out.group_by_series[series_number] = (
-            group_by_id.get(identifier) if identifier else None
-        )
+        out.group_by_series[series_number] = group_by_id.get(identifier) if identifier else None
 
     known = {s.series_number for s in series_list}
     for series_number in sorted(set(out.task_by_series) - known):

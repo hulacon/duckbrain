@@ -77,19 +77,14 @@ def _project_bar() -> None:
     label, switcher = st.columns([6, 1], vertical_alignment="center")
 
     with label:
-        st.caption(
-            f"Project: `{active}`" if active
-            else "No project open — start in **Setup**."
-        )
+        st.caption(f"Project: `{active}`" if active else "No project open — start in **Setup**.")
     with switcher:
         if not others:
             return
         with st.popover("Switch", width="stretch"):
             st.caption("Recent projects")
             for path in others:
-                if st.button(
-                    _shorten(path), key=f"_recent_{path}", help=path, width="stretch"
-                ):
+                if st.button(_shorten(path), key=f"_recent_{path}", help=path, width="stretch"):
                     activate_project(path)
                     st.rerun()
 
@@ -102,8 +97,7 @@ def main():
         initial_sidebar_state="collapsed",
     )
     nav = st.navigation(
-        [st.Page(_PAGES_DIR / f, title=t, default=(i == 0))
-         for i, (f, t) in enumerate(_PAGES)],
+        [st.Page(_PAGES_DIR / f, title=t, default=(i == 0)) for i, (f, t) in enumerate(_PAGES)],
         position="top",
     )
     _project_bar()

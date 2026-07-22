@@ -43,8 +43,10 @@ def test_status_is_the_default_landing_page():
 def test_app_runs_and_shows_no_project_prompt(user_cfg):
     at = AppTest.from_file(APP, default_timeout=60).run()
     assert not at.exception
-    assert any("start in **Setup**" in c.value.lower() or
-               "start in **setup**" in c.value.lower() for c in at.caption)
+    assert any(
+        "start in **Setup**" in c.value.lower() or "start in **setup**" in c.value.lower()
+        for c in at.caption
+    )
 
 
 def test_project_bar_shows_the_active_project(user_cfg, tmp_path, monkeypatch):
@@ -68,7 +70,7 @@ def test_switcher_offers_other_recents_and_switches(user_cfg, tmp_path, monkeypa
     at = AppTest.from_file(APP, default_timeout=60).run()
     assert not at.exception
     keys = {b.key for b in at.button if b.key}
-    assert f"_recent_{other}" in keys       # the other project is offered
+    assert f"_recent_{other}" in keys  # the other project is offered
     assert f"_recent_{active}" not in keys  # the active one is not
 
     at.button(key=f"_recent_{other}").click().run()

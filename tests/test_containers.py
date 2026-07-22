@@ -106,8 +106,10 @@ def test_rebuilt_image_at_same_path_is_not_served_from_cache(monkeypatch, tmp_pa
     # Rebuild in place: same path, new contents (so new size/mtime), new labels.
     img.write_text("version two")
     monkeypatch.setattr(
-        C.subprocess, "run",
+        C.subprocess,
+        "run",
         lambda cmd, **kw: subprocess.CompletedProcess(
-            cmd, 0, stdout="org.label-schema.usage.singularity.deffile.from: t/x:2\n", stderr=""),
+            cmd, 0, stdout="org.label-schema.usage.singularity.deffile.from: t/x:2\n", stderr=""
+        ),
     )
     assert C.container_build_tag(img) == "t/x:2"

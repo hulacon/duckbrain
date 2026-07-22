@@ -11,6 +11,7 @@ import pandas as pd
 
 # ---- MRIQC Metrics ----
 
+
 def load_mriqc_metrics(mriqc_dir: str | Path, modality: str = "bold") -> pd.DataFrame:
     """Load MRIQC IQM metrics into a DataFrame.
 
@@ -137,6 +138,7 @@ def _iqr_outlier(series: pd.Series, multiplier: float) -> pd.Series:
 
 # ---- Motion Summary ----
 
+
 def summarize_motion(
     confounds_dir: str | Path,
     fd_threshold: float = 0.5,
@@ -178,6 +180,7 @@ def summarize_motion(
 
 
 # ---- QC Decisions ----
+
 
 def save_decision(
     decisions_dir: str | Path,

@@ -11,6 +11,7 @@ st.title("QC Dashboard")
 # ---- Load config ----
 try:
     from duckbrain.config import load_config
+
     config = load_config()
 except FileNotFoundError:
     st.error("Configuration not found. Please complete **Project Setup** first.")
@@ -61,15 +62,16 @@ st.metric("Outlier runs", n_outliers, delta=None)
 
 # ---- Metrics table ----
 # Select display columns
-id_cols = [c for c in ["sub", "ses", "task", "run", "_source_file"] if c in metrics_with_outliers.columns]
+id_cols = [
+    c for c in ["sub", "ses", "task", "run", "_source_file"] if c in metrics_with_outliers.columns
+]
 available_iqms = [c for c in iqm_cols if c in metrics_with_outliers.columns]
 display_cols = id_cols + available_iqms + ["is_outlier"]
 
 st.dataframe(
     metrics_with_outliers[display_cols].style.apply(
         lambda row: [
-            "background-color: #ffcccc" if row.get("is_outlier", False) else ""
-            for _ in row
+            "background-color: #ffcccc" if row.get("is_outlier", False) else "" for _ in row
         ],
         axis=1,
     ),
@@ -134,11 +136,14 @@ existing_decisions = load_decisions(decisions_dir)
 # Build run key column
 if "sub" in metrics_with_outliers.columns:
     metrics_with_outliers["run_key"] = metrics_with_outliers.apply(
-        lambda row: "_".join(
-            f"{k}-{row[k]}"
-            for k in ["sub", "ses", "task", "run"]
-            if k in row and pd.notna(row[k])
-        ) + f"_{modality}",
+        lambda row: (
+            "_".join(
+                f"{k}-{row[k]}"
+                for k in ["sub", "ses", "task", "run"]
+                if k in row and pd.notna(row[k])
+            )
+            + f"_{modality}"
+        ),
         axis=1,
     )
 
@@ -153,14 +158,16 @@ if "sub" in metrics_with_outliers.columns:
             # a reminder against acquired a verdict they never made, while the
             # header above still read "no decision" (TODO #17.10).
             reason = st.text_input(
-                "Reason", key=f"reason_{run_key}", value=current.get("reason", ""),
-                help="Saved with the decision you pick — a note on its own is not "
-                "a verdict.",
+                "Reason",
+                key=f"reason_{run_key}",
+                value=current.get("reason", ""),
+                help="Saved with the decision you pick — a note on its own is not a verdict.",
             )
 
             def _record(verdict, _key=run_key, _reason_key=f"reason_{run_key}"):
-                save_decision(decisions_dir, _key, verdict,
-                              reason=st.session_state.get(_reason_key, ""))
+                save_decision(
+                    decisions_dir, _key, verdict, reason=st.session_state.get(_reason_key, "")
+                )
                 st.toast(f"{_key}: {verdict}", icon="✅")
 
             col1, col2, col3 = st.columns(3)

@@ -67,16 +67,21 @@ def build_mriqc_command(
     for b in binds:
         cmd.extend(["-B", b])
 
-    cmd.extend([
-        str(container_path),
-        str(bids_dir),
-        str(output_dir),
-        analysis_level,
-        "--nprocs", str(nprocs),
-        "--mem-gb", str(mem_gb),
-        "-w", str(work_dir),
-        "--no-sub",
-    ])
+    cmd.extend(
+        [
+            str(container_path),
+            str(bids_dir),
+            str(output_dir),
+            analysis_level,
+            "--nprocs",
+            str(nprocs),
+            "--mem-gb",
+            str(mem_gb),
+            "-w",
+            str(work_dir),
+            "--no-sub",
+        ]
+    )
 
     if subject:
         cmd.extend(["--participant-label", subject])

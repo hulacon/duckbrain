@@ -15,6 +15,7 @@ from duckbrain.core.nordic import build_nordic_bids_input, nordic_output_dir
 
 # ---- nordic_output_dir ------------------------------------------------------
 
+
 def test_nordic_output_dir_sessionless(tmp_path):
     out = nordic_output_dir(tmp_path / "derivatives", "04")
     assert out == tmp_path / "derivatives" / "nordic" / "sub-04" / "func"
@@ -28,6 +29,7 @@ def test_nordic_output_dir_multisession(tmp_path):
 
 
 # ---- build_nordic_bids_input ------------------------------------------------
+
 
 def _seed_raw_and_nordic(root, ss, anat_ss=None):
     """Create a minimal raw BIDS + NORDIC derivative tree under *root* for *ss*.
@@ -168,8 +170,9 @@ def test_sidecar_does_not_use_bep028_reserved_keys(tmp_path):
 def test_empty_provenance_fields_are_omitted(tmp_path):
     bids, deriv = tmp_path / "bids", tmp_path / "derivatives"
     _raw_bold(bids, "01", "sub-01_task-x_bold", sidecar={})
-    (written,) = write_nordic_sidecars(bids, deriv, "01",
-                                       provenance={"Tool": "nordic", "Runtime": ""})
+    (written,) = write_nordic_sidecars(
+        bids, deriv, "01", provenance={"Tool": "nordic", "Runtime": ""}
+    )
     assert json.loads(written.read_text())["Duckbrain"] == {"Tool": "nordic"}
 
 
@@ -213,7 +216,8 @@ def test_sessionless_and_multisession_paths(tmp_path):
     (written,) = write_nordic_sidecars(bids, deriv, "01", "02", provenance=_PROV)
     assert written.parent == nordic_output_dir(deriv, "01", "02")
     assert json.loads(written.read_text())["Sources"] == [
-        "bids:raw:sub-01/ses-02/func/sub-01_ses-02_task-x_bold.nii.gz"]
+        "bids:raw:sub-01/ses-02/func/sub-01_ses-02_task-x_bold.nii.gz"
+    ]
 
 
 def test_no_bolds_writes_nothing(tmp_path):
@@ -223,6 +227,7 @@ def test_no_bolds_writes_nothing(tmp_path):
 
 
 # ---- DB-004: shared anat, staleness, and concurrent builds -------------------
+
 
 def _build(root, subject, session, deriv):
     return build_nordic_bids_input(root, subject, session, deriv / "nordic")
@@ -244,7 +249,7 @@ def test_bids_input_takes_anat_from_another_session(tmp_path):
     staged = tree / "sub-04" / "ses-01" / "anat" / "sub-04_T1w.nii.gz"
     assert staged.exists(), "anat from another session must reach the staged tree"
     raw = tmp_path / "sub-04" / "ses-01" / "anat" / "sub-04_T1w.nii.gz"
-    assert staged.stat().st_ino == raw.stat().st_ino   # hardlinked, not copied
+    assert staged.stat().st_ino == raw.stat().st_ino  # hardlinked, not copied
     assert (out / "func" / "sub-04_task-x_bold.nii.gz").exists()
 
 
@@ -292,7 +297,7 @@ def test_bids_input_prunes_a_file_whose_source_was_removed(tmp_path):
     _build(tmp_path, "04", "", deriv)
 
     assert not (out / "func" / "sub-04_task-x_events.tsv").exists()
-    assert (out / "func" / "sub-04_task-x_bold.json").exists()   # the rest stays
+    assert (out / "func" / "sub-04_task-x_bold.json").exists()  # the rest stays
 
 
 def test_prune_leaves_another_units_files_alone(tmp_path):
@@ -302,7 +307,7 @@ def test_prune_leaves_another_units_files_alone(tmp_path):
 
     out1 = _build(tmp_path, "04", "01", deriv)
     out2 = _build(tmp_path, "04", "02", deriv)
-    _build(tmp_path, "04", "01", deriv)          # rebuild the first
+    _build(tmp_path, "04", "01", deriv)  # rebuild the first
 
     assert (out2 / "func" / "sub-04_task-x_bold.nii.gz").exists()
     assert (out1 / "func" / "sub-04_task-x_bold.nii.gz").exists()
@@ -330,7 +335,7 @@ def test_bids_input_refreshes_a_changed_sidecar(tmp_path):
 
     raw_json = tmp_path / "sub-04" / "func" / "sub-04_task-x_bold.json"
     raw_json.write_text('{"B0FieldSource": "B0map_2.5mm"}')
-    os.utime(raw_json, (10**9, 10**9))   # unambiguously newer than the staged copy
+    os.utime(raw_json, (10**9, 10**9))  # unambiguously newer than the staged copy
 
     _build(tmp_path, "04", "", deriv)
 
@@ -409,8 +414,9 @@ def test_concurrent_unit_builds_share_one_root(tmp_path):
     sessions = ["01", "02", "03", "04"]
     deriv = None
     for i, ses in enumerate(sessions):
-        d = _seed_raw_and_nordic(tmp_path, f"sub-04/ses-{ses}",
-                                 anat_ss="sub-04/ses-01" if i else None)
+        d = _seed_raw_and_nordic(
+            tmp_path, f"sub-04/ses-{ses}", anat_ss="sub-04/ses-01" if i else None
+        )
         deriv = deriv or d
 
     with ThreadPoolExecutor(4) as pool:

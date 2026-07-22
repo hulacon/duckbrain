@@ -31,9 +31,7 @@ def write_session_filter(path: str | Path, session: str) -> Path:
     return path
 
 
-def has_anat_derivatives(
-    derivatives_dir: str | Path, subject: str, session: str = ""
-) -> bool:
+def has_anat_derivatives(derivatives_dir: str | Path, subject: str, session: str = "") -> bool:
     """True if a prior fMRIPrep run left reusable preprocessed anatomicals for this unit.
 
     Gates the "reuse anat derivatives" option. Pointing ``--derivatives`` at a tree
@@ -139,20 +137,28 @@ def build_fmriprep_command(
     for b in binds:
         cmd.extend(["-B", b])
 
-    cmd.extend([
-        str(container_path),
-        str(bids_dir),
-        str(output_dir),
-        "participant",
-        "--participant-label", subject,
-        "--output-spaces", *output_spaces,
-        "--fs-license-file", str(fs_license),
-        "--nprocs", str(nprocs),
-        "--mem-mb", str(mem_gb * 1024),
-        "-w", str(work_dir),
-        "--skip-bids-validation",
-        "--notrack",
-    ])
+    cmd.extend(
+        [
+            str(container_path),
+            str(bids_dir),
+            str(output_dir),
+            "participant",
+            "--participant-label",
+            subject,
+            "--output-spaces",
+            *output_spaces,
+            "--fs-license-file",
+            str(fs_license),
+            "--nprocs",
+            str(nprocs),
+            "--mem-mb",
+            str(mem_gb * 1024),
+            "-w",
+            str(work_dir),
+            "--skip-bids-validation",
+            "--notrack",
+        ]
+    )
 
     if anat_only:
         cmd.append("--anat-only")

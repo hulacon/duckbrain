@@ -24,8 +24,16 @@ from duckbrain.core.dicom_sorter import (
 )
 
 
-def _write_dicom(path, *, patient="Sub01", study="", series_desc="mprage",
-                 series_num=2, date="20260722", time="120000"):
+def _write_dicom(
+    path,
+    *,
+    patient="Sub01",
+    study="",
+    series_desc="mprage",
+    series_num=2,
+    date="20260722",
+    time="120000",
+):
     """A minimal but genuinely readable DICOM file at *path*."""
     path.parent.mkdir(parents=True, exist_ok=True)
     ds = Dataset()
@@ -46,16 +54,20 @@ def _write_dicom(path, *, patient="Sub01", study="", series_desc="mprage",
 
 # ---- the sanitizer ----------------------------------------------------------
 
-@pytest.mark.parametrize("raw,expected", [
-    ("mprage", "mprage"),
-    ("t1 mprage", "t1_mprage"),
-    ("../../etc", ".._.._etc".strip("._")),   # separators go; no traversal survives
-    ("/absolute/path", "absolute_path"),
-    ("back\\slash", "back_slash"),
-    ("quote'inject", "quote_inject"),
-    ("dollar$sign", "dollar_sign"),
-    ("BOLD-task+rest.v2", "BOLD-task+rest.v2"),   # readable characters survive
-])
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("mprage", "mprage"),
+        ("t1 mprage", "t1_mprage"),
+        ("../../etc", ".._.._etc".strip("._")),  # separators go; no traversal survives
+        ("/absolute/path", "absolute_path"),
+        ("back\\slash", "back_slash"),
+        ("quote'inject", "quote_inject"),
+        ("dollar$sign", "dollar_sign"),
+        ("BOLD-task+rest.v2", "BOLD-task+rest.v2"),  # readable characters survive
+    ],
+)
 def test_safe_component_strips_what_would_change_the_path(raw, expected):
     out = safe_component(raw, "fallback")
     assert out == expected
@@ -76,6 +88,7 @@ def test_safe_component_keeps_unicode_out_of_paths():
 
 
 # ---- containment ------------------------------------------------------------
+
 
 def test_traversal_in_patient_name_stays_inside_the_output_root(tmp_path):
     src, out = tmp_path / "in", tmp_path / "out"
@@ -117,6 +130,7 @@ def test_every_destination_stays_under_the_output_root(tmp_path):
 
 # ---- overlapping roots ------------------------------------------------------
 
+
 def test_output_nested_under_input_is_refused(tmp_path):
     """With the default move this rearranges the source tree into itself, and
     sorted output can be rediscovered as new input."""
@@ -142,12 +156,13 @@ def test_identical_roots_are_refused(tmp_path):
 
 # ---- symlinks ---------------------------------------------------------------
 
+
 def test_a_symlink_loop_does_not_hang_the_walk(tmp_path):
     src, out = tmp_path / "in", tmp_path / "out"
     _write_dicom(src / "0001.dcm")
     (src / "loop").symlink_to(src, target_is_directory=True)
 
-    result = sort_dicoms(src, out, copy=True)   # must terminate
+    result = sort_dicoms(src, out, copy=True)  # must terminate
 
     assert result.sorted_files == 1
 
@@ -166,10 +181,17 @@ def test_a_symlink_out_of_the_tree_is_not_followed(tmp_path):
 
 # ---- the ordinary path, so the hardening didn't break sorting ---------------
 
+
 def test_files_land_in_the_expected_lcni_layout(tmp_path):
     src, out = tmp_path / "in", tmp_path / "out"
-    _write_dicom(src / "0001.dcm", patient="Sub01", series_num=2,
-                 series_desc="t1_mprage", date="20260722", time="120000")
+    _write_dicom(
+        src / "0001.dcm",
+        patient="Sub01",
+        series_num=2,
+        series_desc="t1_mprage",
+        date="20260722",
+        time="120000",
+    )
 
     sort_dicoms(src, out, copy=True)
 

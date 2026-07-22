@@ -159,9 +159,11 @@ def sort_dicoms(
 
         dest = (
             session_dir
-            / (safe_component(patient_name, "Unknown")
-               + f"_{safe_component(date, '00000000')}"
-               + f"_{safe_component(time, '000000')}")
+            / (
+                safe_component(patient_name, "Unknown")
+                + f"_{safe_component(date, '00000000')}"
+                + f"_{safe_component(time, '000000')}"
+            )
             / f"Series_{series_num:02d}_{safe_component(series_desc, 'unknown')}"
             / safe_component(filepath.name, "file.dcm")
         )
@@ -170,9 +172,7 @@ def sort_dicoms(
         # said, the destination is inside the output root.
         if not Path(os.path.normpath(dest)).is_relative_to(out_res):
             result.failed_files += 1
-            result.errors.append(
-                f"{filepath.name}: destination {dest} escapes {output_dir}"
-            )
+            result.errors.append(f"{filepath.name}: destination {dest} escapes {output_dir}")
             continue
 
         if not overwrite and dest.exists():
@@ -186,6 +186,7 @@ def sort_dicoms(
         dest.parent.mkdir(parents=True, exist_ok=True)
         if copy:
             import shutil
+
             shutil.copy2(filepath, dest)
         else:
             os.renames(filepath, dest)

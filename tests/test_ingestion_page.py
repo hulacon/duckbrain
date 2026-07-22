@@ -27,8 +27,7 @@ def project(tmp_path):
         (folder / "Series_02_bold").mkdir(parents=True)
     save_project_config(
         str(proj),
-        {"project": {"name": "test", "use_sessions": "auto"},
-         "dcm_source": {"dir": str(src)}},
+        {"project": {"name": "test", "use_sessions": "auto"}, "dcm_source": {"dir": str(src)}},
     )
     os.environ["DUCKBRAIN_PROJECT_DIR"] = str(proj)
     yield proj

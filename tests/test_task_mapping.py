@@ -25,6 +25,7 @@ def _series(num, desc, cls, n=300):
 
 # ---- rules override the heuristic's task ----
 
+
 def test_rule_overrides_heuristic_task():
     # Heuristic would parse "MB4_rest" -> task "MB4Rest"; a rule renames it.
     series = [_series(9, "MB4_rest", "func")]
@@ -69,8 +70,8 @@ def test_unmatched_series_falls_back_to_heuristic():
     rules = [TaskRule(description="MB4_rest", task="rest")]
     mapping = build_task_run_mapping(series, rules=rules)
     by_series = {e.series_number: e for e in mapping}
-    assert by_series[5].task == "rest"           # from rule
-    assert by_series[9].task == "encoding"        # from heuristic
+    assert by_series[5].task == "rest"  # from rule
+    assert by_series[9].task == "encoding"  # from heuristic
 
 
 def test_sbref_inherits_rule_via_its_bold():
@@ -101,12 +102,13 @@ def test_no_rules_is_identical_to_heuristic():
 
 # ---- the "define once, inherit across subjects" promise ----
 
+
 def test_same_rules_apply_across_subjects_with_different_series_numbers():
     """Two subjects, same protocol (same descriptions) but different SeriesNumbers,
     resolve to the same task under one rule set — the point of a project map."""
     rules = [TaskRule(description="MB4_rest", task="rest")]
     sub_a = [_series(9, "MB4_rest", "func")]
-    sub_b = [_series(14, "MB4_rest", "func")]   # different acquisition order
+    sub_b = [_series(14, "MB4_rest", "func")]  # different acquisition order
     a = build_task_run_mapping(sub_a, rules=rules)
     b = build_task_run_mapping(sub_b, rules=rules)
     assert a[0].task == b[0].task == "rest"
@@ -137,6 +139,7 @@ def test_rules_flow_through_generate_config_entities():
 
 # ---- collapse a reviewed session back into rules ----
 
+
 def test_task_rules_from_mapping_keeps_bold_skips_sbref():
     entries = [
         TaskRunEntry(9, "MB4_rest", "bold", "rest", 1),
@@ -160,6 +163,7 @@ def test_task_rules_from_mapping_dedupes_last_wins():
 
 # ---- (de)serialization round-trip ----
 
+
 def test_rules_config_roundtrip():
     rules = [TaskRule("MB4_rest", "rest"), TaskRule("faces_run1", "faces")]
     section = task_rules_to_config_section(rules)
@@ -178,8 +182,8 @@ def test_task_rules_from_config_tolerates_malformed_rows():
     section = {
         "rule": [
             {"description": "ok", "task": "t"},
-            {"description": "", "task": "skipme"},      # no description
-            {"description": "notask"},                   # no task
+            {"description": "", "task": "skipme"},  # no description
+            {"description": "notask"},  # no task
             {"description": "legacy", "task": "l", "run": 2},  # legacy run ignored
         ]
     }
@@ -195,6 +199,7 @@ def test_task_rules_from_config_empty_when_section_absent():
 
 # ---- persistence preserves other project settings ----
 
+
 def test_save_project_task_map_preserves_other_keys(tmp_path):
     # Read the project file directly (not load_config) to stay isolated from the
     # developer's real user config / env.
@@ -209,8 +214,8 @@ def test_save_project_task_map_preserves_other_keys(tmp_path):
     save_project_task_map(tmp_path, [TaskRule("MB4_rest", "rest")])
 
     data = _load_toml(project_config_path(tmp_path))
-    assert data["project"]["name"] == "study"          # untouched
-    assert data["slurm"]["account"] == "lab"           # untouched
+    assert data["project"]["name"] == "study"  # untouched
+    assert data["slurm"]["account"] == "lab"  # untouched
     rules = task_rules_from_config(data)
     assert [(r.description, r.task) for r in rules] == [("MB4_rest", "rest")]
 
@@ -223,13 +228,14 @@ def test_save_project_task_map_empty_removes_section(tmp_path):
     )
 
     save_project_task_map(tmp_path, [TaskRule("MB4_rest", "rest")])
-    save_project_task_map(tmp_path, [])   # clear
+    save_project_task_map(tmp_path, [])  # clear
     data = _load_toml(project_config_path(tmp_path))
     assert "task_mapping" not in data
     assert task_rules_from_config(data) == []
 
 
 # ---- task labels are sanitized to valid BIDS entities (no _, space, hyphen) ----
+
 
 def test_underscore_task_label_is_sanitized_in_generated_entities():
     # A user edit / hand-written rule like "resting_test" would otherwise emit
@@ -271,6 +277,7 @@ def test_sanitize_task_label_public_wrapper():
 
 # ---- fieldmap bindings persist alongside, not on top of, the task rules ----
 
+
 def test_save_project_fmap_map_preserves_other_keys(tmp_path):
     from duckbrain.config import (
         save_project_config,
@@ -286,8 +293,8 @@ def test_save_project_fmap_map_preserves_other_keys(tmp_path):
     save_project_fmap_map(tmp_path, [FmapRule("rest", "encoding-2")])
 
     data = _load_toml(project_config_path(tmp_path))
-    assert data["project"]["name"] == "study"                      # untouched
-    assert task_rules_from_config(data)[0].task == "rest"          # untouched
+    assert data["project"]["name"] == "study"  # untouched
+    assert task_rules_from_config(data)[0].task == "rest"  # untouched
     assert fmap_rules_from_config(data) == [FmapRule("rest", "encoding-2")]
 
 
@@ -300,7 +307,7 @@ def test_save_project_fmap_map_empty_removes_section(tmp_path):
     from duckbrain.core.dcm2bids_config import FmapRule, fmap_rules_from_config
 
     save_project_fmap_map(tmp_path, [FmapRule("rest", "encoding")])
-    save_project_fmap_map(tmp_path, [])   # clear -> back to automatic assignment
+    save_project_fmap_map(tmp_path, [])  # clear -> back to automatic assignment
     data = _load_toml(project_config_path(tmp_path))
     assert "fmap_mapping" not in data
     assert fmap_rules_from_config(data) == []

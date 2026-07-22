@@ -91,9 +91,7 @@ def submit_job(
     )
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"sbatch failed (exit {result.returncode}):\n{result.stderr}"
-        )
+        raise RuntimeError(f"sbatch failed (exit {result.returncode}):\n{result.stderr}")
 
     # Parse job ID from "Submitted batch job 12345"
     match = re.search(r"Submitted batch job (\d+)", result.stdout)
@@ -140,9 +138,7 @@ def submit_with_dependency(
     )
 
     if result.returncode != 0:
-        raise RuntimeError(
-            f"sbatch failed (exit {result.returncode}):\n{result.stderr}"
-        )
+        raise RuntimeError(f"sbatch failed (exit {result.returncode}):\n{result.stderr}")
 
     match = re.search(r"Submitted batch job (\d+)", result.stdout)
     if not match:

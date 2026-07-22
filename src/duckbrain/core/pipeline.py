@@ -66,6 +66,7 @@ def _resolve_log_dir(config: dict) -> str:
 # the caller (GUI widgets or cockpit defaults) via **params, falling back to
 # config so a bare ``advance_one(config, stage, sub, ses)`` works.
 
+
 def _build_dcm2bids(config, subject, session, log_dir, params):
     from .conversion import (
         generate_session_config,
@@ -95,9 +96,14 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
             cfg_path,
         )
     ctx = build_context(
-        config, "dcm2bids", subject=subject, session=session,
-        dicom_dir=str(dicom_dir), config_json=str(cfg_path),
-        config_json_dir=str(cfg_path.parent), container_path=str(container_path),
+        config,
+        "dcm2bids",
+        subject=subject,
+        session=session,
+        dicom_dir=str(dicom_dir),
+        config_json=str(cfg_path),
+        config_json_dir=str(cfg_path.parent),
+        container_path=str(container_path),
         force=force,
     )
     return "dcm2bids", ctx
@@ -105,7 +111,10 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
 
 def _build_fmriprep(config, subject, session, log_dir, params):
     from .fmriprep import (
-        find_fs_license, get_container_path, has_anat_derivatives, write_session_filter,
+        find_fs_license,
+        get_container_path,
+        has_anat_derivatives,
+        write_session_filter,
     )
 
     paths = config["paths"]
@@ -136,7 +145,9 @@ def _build_fmriprep(config, subject, session, log_dir, params):
                 "Run the NORDIC stage first."
             )
         build_nordic_bids_input(
-            bids_dir=paths["bids_dir"], subject=subject, session=session,
+            bids_dir=paths["bids_dir"],
+            subject=subject,
+            session=session,
             nordic_derivatives_dir=nordic_root,
         )
         fmriprep_input = f"{nordic_root}/bids_format"
@@ -144,8 +155,11 @@ def _build_fmriprep(config, subject, session, log_dir, params):
     # A session filter restricts fMRIPrep to one session (multi-session only).
     filter_file = ""
     if session:
-        filter_file = str(write_session_filter(
-            Path(log_dir) / f"bids_filter_{tag_for(subject, session)}.json", session))
+        filter_file = str(
+            write_session_filter(
+                Path(log_dir) / f"bids_filter_{tag_for(subject, session)}.json", session
+            )
+        )
 
     spaces = params.get(
         "output_spaces",
@@ -170,11 +184,18 @@ def _build_fmriprep(config, subject, session, log_dir, params):
     mem_gb = int(params.get("mem_gb", fp_cfg.get("mem_gb", 32)))
 
     ctx = build_context(
-        config, "fmriprep", subject=subject, session=session,
-        bids_dir=fmriprep_input, output_dir=output_dir,
-        container_path=str(container), fs_license=str(fs_license),
-        fs_license_dir=str(fs_license.parent), output_spaces=spaces,
-        filter_file=filter_file, anat_only=anat_only,
+        config,
+        "fmriprep",
+        subject=subject,
+        session=session,
+        bids_dir=fmriprep_input,
+        output_dir=output_dir,
+        container_path=str(container),
+        fs_license=str(fs_license),
+        fs_license_dir=str(fs_license.parent),
+        output_spaces=spaces,
+        filter_file=filter_file,
+        anat_only=anat_only,
         derivatives=output_dir if use_derivatives else "",
         extra_flags=extra_flags,
     )
@@ -199,11 +220,14 @@ def _build_nordic(config, subject, session, log_dir, params):
         from .containers import container_uri
         from .nordic import write_nordic_sidecars
         from .toolbox import code_url
+
         prov = run_provenance(config, "nordic")
         image = resolve_container(config, "nordic")
         write_derivative_description(
-            f"{paths['derivatives_dir']}/nordic", "nordic",
-            tool=prov["tool"], tool_version=prov["tool_version"],
+            f"{paths['derivatives_dir']}/nordic",
+            "nordic",
+            tool=prov["tool"],
+            tool_version=prov["tool_version"],
             container=image.name if image else "",
             container_uri=container_uri(image) if image else "",
             code_url=code_url(nordic_toolbox_dir(config)),
@@ -214,7 +238,10 @@ def _build_nordic(config, subject, session, log_dir, params):
         # submission log doesn't travel with the data, so only these keep a
         # copied/archived NORDIC output self-describing.
         write_nordic_sidecars(
-            paths["bids_dir"], paths["derivatives_dir"], subject, session,
+            paths["bids_dir"],
+            paths["derivatives_dir"],
+            subject,
+            session,
             provenance={
                 "Version": duckbrain_version(),
                 "Tool": prov["tool"],
@@ -229,8 +256,13 @@ def _build_nordic(config, subject, session, log_dir, params):
     # NORDIC's sbatch shells out to a duckbrain script in the repo's scripts/ dir.
     scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
     ctx = build_context(
-        config, "nordic", subject=subject, session=session,
-        bold_count=len(bolds), scripts_dir=str(scripts_dir), python_cmd=sys.executable,
+        config,
+        "nordic",
+        subject=subject,
+        session=session,
+        bold_count=len(bolds),
+        scripts_dir=str(scripts_dir),
+        python_cmd=sys.executable,
     )
     return "nordic_denoise", ctx
 
@@ -250,13 +282,18 @@ def _build_mriqc(config, subject, session, log_dir, params):
     # headroom buffer so overshoot stays inside the cgroup limit.
     mem_gb = int(params.get("mem_gb", max(alloc_gb - 8, 1)))
     ctx = build_context(
-        config, "mriqc", subject=subject, session=session,
-        container_path=str(container), mem_gb=mem_gb,
+        config,
+        "mriqc",
+        subject=subject,
+        session=session,
+        container_path=str(container),
+        mem_gb=mem_gb,
     )
     return "mriqc", ctx
 
 
 # ---- stage registry ---------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class StageSpec:
@@ -309,6 +346,7 @@ def effective_depends_on(config: dict, stage: str) -> str | None:
 
 
 # ---- public API -------------------------------------------------------------
+
 
 def advance_one(
     config: dict,
@@ -370,7 +408,11 @@ def advance_one(
     # sink an otherwise-successful submission.
     try:
         record_submission(
-            config, stage, subject, session, job_id,
+            config,
+            stage,
+            subject,
+            session,
+            job_id,
             script_path=str(archived_script_path(log_dir, job_name, job_id)),
             **run_provenance(config, stage),
         )
@@ -398,8 +440,16 @@ _SUBMISSION_LOG = "submissions.tsv"
 # after a re-run with different resources or flags the exact command line of the
 # failed attempt was unrecoverable even though its log and its row both survived.
 _SUBMISSION_COLUMNS = [
-    "timestamp", "subject", "session", "stage",
-    "tool", "tool_version", "runtime", "code_source", "input_variant", "job_id",
+    "timestamp",
+    "subject",
+    "session",
+    "stage",
+    "tool",
+    "tool_version",
+    "runtime",
+    "code_source",
+    "input_variant",
+    "job_id",
     "script_path",
 ]
 
@@ -486,6 +536,7 @@ def run_provenance(config: dict, stage: str) -> dict:
             # A container image *is* the runtime; its Docker tag names the code.
             runtime = Path(path).name
             from .containers import container_build_tag
+
             code_source = container_build_tag(path)
     except Exception:
         runtime = runtime or ""
@@ -498,6 +549,7 @@ def run_provenance(config: dict, stage: str) -> dict:
     if stage == "nordic":
         try:
             from .toolbox import describe, source_ref
+
             repo = nordic_toolbox_dir(config)
             tool_version = describe(repo)
             code_source = source_ref(repo)
@@ -610,8 +662,19 @@ def record_submission(
     _migrate_log_header(path)
     write_header = not path.exists()
     ts = datetime.now().isoformat(timespec="seconds")
-    row = [ts, subject, session, stage, tool, tool_version, runtime,
-           code_source, input_variant, str(job_id), script_path]
+    row = [
+        ts,
+        subject,
+        session,
+        stage,
+        tool,
+        tool_version,
+        runtime,
+        code_source,
+        input_variant,
+        str(job_id),
+        script_path,
+    ]
     with open(path, "a") as f:
         if write_header:
             f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
@@ -659,8 +722,14 @@ def read_submissions(config: dict, limit: int | None = None) -> pd.DataFrame:
 _QUEUED_STATES = {"PENDING", "CONFIGURING"}
 # sacct terminal states that mean the last attempt did not succeed.
 _FAILED_STATES = {
-    "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY",
-    "NODE_FAIL", "BOOT_FAIL", "DEADLINE", "PREEMPTED",
+    "FAILED",
+    "CANCELLED",
+    "TIMEOUT",
+    "OUT_OF_MEMORY",
+    "NODE_FAIL",
+    "BOOT_FAIL",
+    "DEADLINE",
+    "PREEMPTED",
 }
 
 
@@ -755,8 +824,7 @@ def survey_live(config: dict, with_jobs: bool = False):
                 vals.append(active[name])
             elif row[stage] == Status.COMPLETE.value:
                 vals.append("")
-            elif (job := latest.get(name)) is not None and \
-                    _norm_state(job.state) in _FAILED_STATES:
+            elif (job := latest.get(name)) is not None and _norm_state(job.state) in _FAILED_STATES:
                 vals.append("failed")
             else:
                 vals.append("")
@@ -764,7 +832,7 @@ def survey_live(config: dict, with_jobs: bool = False):
 
     if with_jobs:
         by_id: dict[str, object] = {}
-        for j in hist:          # active overrides history for the same id
+        for j in hist:  # active overrides history for the same id
             by_id[str(j.job_id)] = j
         for j in active_jobs:
             by_id[str(j.job_id)] = j

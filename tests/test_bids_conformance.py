@@ -29,9 +29,7 @@ def test_fmap_descriptions_do_not_overwrite_phase_encoding_direction():
         _series(3, "se_epi_ap", "fmap", n=3),
         _series(4, "se_epi_pa", "fmap", n=3),
     ]
-    fmaps = FieldmapDetection(
-        strategy="series_description", groups={"": {"ap": 3, "pa": 4}}
-    )
+    fmaps = FieldmapDetection(strategy="series_description", groups={"": {"ap": 3, "pa": 4}})
     cfg = generate_config(series, fmaps, subject="001")
 
     fmap_descs = [d for d in cfg["descriptions"] if d["datatype"] == "fmap"]
@@ -106,8 +104,14 @@ def test_dcm2bids_template_requests_validation_by_default(tmp_path):
 
     def render(cfg):
         ctx = build_context(
-            cfg, "dcm2bids", subject="001", session="01", dicom_dir="/d",
-            config_json="/c.json", config_json_dir="/", container_path="/x.sif",
+            cfg,
+            "dcm2bids",
+            subject="001",
+            session="01",
+            dicom_dir="/d",
+            config_json="/c.json",
+            config_json_dir="/",
+            container_path="/x.sif",
             force=False,
         )
         return render_sbatch("dcm2bids", ctx)

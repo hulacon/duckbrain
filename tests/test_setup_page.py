@@ -80,11 +80,16 @@ def test_save_project_settings_keeps_hand_written_slurm_overrides(project):
     """
     from duckbrain.config import _load_toml, project_config_path, save_project_config
 
-    save_project_config(str(project), {"slurm": {
-        "account": "hulacon",
-        "memory": "64G",
-        "overrides": {"fmriprep": {"time": "48:00:00"}},
-    }})
+    save_project_config(
+        str(project),
+        {
+            "slurm": {
+                "account": "hulacon",
+                "memory": "64G",
+                "overrides": {"fmriprep": {"time": "48:00:00"}},
+            }
+        },
+    )
 
     at = _open(project)
     for ti in at.text_input:
@@ -143,6 +148,7 @@ def test_setup_flags_a_partition_this_cluster_does_not_have(project, monkeypatch
 
     monkeypatch.setattr(M, "known_partitions", lambda: {"compute", "computelong"})
     from duckbrain.config import save_project_config
+
     save_project_config(str(project), {"slurm": {"partition": "medium"}})
 
     at = _open(project)
@@ -159,6 +165,7 @@ def test_no_partition_complaint_when_slurm_cannot_be_queried(project, monkeypatc
 
     monkeypatch.setattr(M, "known_partitions", lambda: set())
     from duckbrain.config import save_project_config
+
     save_project_config(str(project), {"slurm": {"partition": "anything"}})
 
     at = _open(project)
@@ -167,6 +174,7 @@ def test_no_partition_complaint_when_slurm_cannot_be_queried(project, monkeypatc
 
 
 # ---- TODO #17.7 / #17.8: the page must describe the project it is on ---------
+
 
 def test_pickers_follow_a_project_switch(project, tmp_path, monkeypatch):
     """A picker's committed selection is sticky per session; switching projects

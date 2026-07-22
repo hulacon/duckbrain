@@ -96,9 +96,7 @@ def test_json_override_is_off_by_default_and_must_be_opted_into(project):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
 
-    override = next(
-        c for c in at.checkbox if c.key == "dcm2bids_json_override"
-    )
+    override = next(c for c in at.checkbox if c.key == "dcm2bids_json_override")
     assert override.value is False
     # Off: no editable text area, so the tables cannot be silently overridden.
     assert not [t for t in at.text_area if t.key == "dcm2bids_config_editor"]
@@ -146,8 +144,14 @@ def test_one_table_carries_every_decision_and_the_outcome(two_pair_project):
     at = AppTest.from_file(PAGE, default_timeout=90).run()
     assert not at.exception
     assert list(_plan_table(at).columns) == [
-        "Series #", "Description", "Type", "# Files",
-        "task", "run", "fieldmap", "becomes",
+        "Series #",
+        "Description",
+        "Type",
+        "# Files",
+        "task",
+        "run",
+        "fieldmap",
+        "becomes",
     ]
 
 
@@ -215,6 +219,7 @@ def test_a_task_run_collision_is_reported_as_an_error(two_pair_project):
 
 # ---- TODO #17.5 / #17.6: the page must describe the config that will ship -----
 
+
 def _override_with(at, config_dict):
     """Turn the hand-edit override on and put *config_dict* in the text area."""
     import json
@@ -235,12 +240,21 @@ def test_override_reconciles_the_table_instead_of_leaving_it_stale(project):
     baseline = _plan_table(at)
     assert "perFace" in list(baseline["task"])
 
-    at = _override_with(at, {"descriptions": [{
-        "id": "func-bold-renamed", "datatype": "func", "suffix": "bold",
-        "criteria": {"SeriesNumber": 9},
-        "custom_entities": "task-renamed_run-1",
-        "sidecar_changes": {"TaskName": "renamed"},
-    }]})
+    at = _override_with(
+        at,
+        {
+            "descriptions": [
+                {
+                    "id": "func-bold-renamed",
+                    "datatype": "func",
+                    "suffix": "bold",
+                    "criteria": {"SeriesNumber": 9},
+                    "custom_entities": "task-renamed_run-1",
+                    "sidecar_changes": {"TaskName": "renamed"},
+                }
+            ]
+        },
+    )
     assert not at.exception
 
     table = _plan_table(at)
@@ -266,7 +280,7 @@ def test_a_saved_config_is_surfaced_because_bulk_convert_uses_it(project):
     file and never read it, so a reviewed session reopened looking unreviewed."""
     import json
 
-    saved = (project / "sourcedata" / "sub-001" / "ses-01" / "dcm2bids_config.json")
+    saved = project / "sourcedata" / "sub-001" / "ses-01" / "dcm2bids_config.json"
     saved.write_text(json.dumps({"descriptions": []}))
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()
@@ -277,6 +291,7 @@ def test_a_saved_config_is_surfaced_because_bulk_convert_uses_it(project):
 
 
 # ---- DB-005: per-session submit is the same operation as bulk submit ---------
+
 
 def _button(at, label):
     for b in at.button:
@@ -297,6 +312,7 @@ def test_per_session_submit_records_provenance_like_the_bulk_path(project, monke
 
     monkeypatch.setattr(S, "submit_job", lambda *a, **kw: "424242")
     import duckbrain.core.pipeline as P
+
     monkeypatch.setattr(P, "submit_job", lambda *a, **kw: "424242")
 
     at = AppTest.from_file(PAGE, default_timeout=90).run()
@@ -306,7 +322,7 @@ def test_per_session_submit_records_provenance_like_the_bulk_path(project, monke
     log = project / "code" / "logs" / "submissions.tsv"
     assert log.exists(), "no durable submission record was written"
     rows = log.read_text().strip().splitlines()
-    assert len(rows) >= 2                       # header + the run
+    assert len(rows) >= 2  # header + the run
     assert "424242" in rows[-1]
     assert "dcm2bids" in rows[-1]
 

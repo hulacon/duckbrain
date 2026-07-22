@@ -436,10 +436,12 @@ def test_auto_number_sessions(mock_dcm_source):
 
 # ---- TODO #17.9: a no-op must not be reported as a write ---------------------
 
+
 def _sess(path):
 
-    return SessionInfo(folder_name=path.name, parsed_subject="", parsed_session="",
-                       date="", path=path)
+    return SessionInfo(
+        folder_name=path.name, parsed_subject="", parsed_session="", date="", path=path
+    )
 
 
 def test_reingesting_the_same_folder_is_a_silent_noop(tmp_path):
@@ -465,7 +467,9 @@ def test_two_folders_mapped_to_one_unit_raises_instead_of_reporting_success(tmp_
     was ever linked — the second session's DICOMs were nowhere on disk.
     """
     from duckbrain.core.ingestion import (
-        BidsMapping, IngestCollision, ingest_session,
+        BidsMapping,
+        IngestCollision,
+        ingest_session,
     )
 
     a = tmp_path / "export" / "STUDY_001_sess04"
@@ -513,7 +517,9 @@ def test_copy_reingest_is_a_noop_not_a_collision(tmp_path):
 def test_copy_collision_from_a_different_source_still_raises(tmp_path):
     """Fixing the copy no-op must not blind the check to a real collision."""
     from duckbrain.core.ingestion import (
-        BidsMapping, IngestCollision, ingest_session,
+        BidsMapping,
+        IngestCollision,
+        ingest_session,
     )
 
     a = tmp_path / "export" / "STUDY_001_sess04"
@@ -525,8 +531,7 @@ def test_copy_collision_from_a_different_source_still_raises(tmp_path):
     ingest_session(_sess(a), BidsMapping(a.name, "003", "04"), sourcedata, method="copy")
 
     with pytest.raises(IngestCollision) as exc:
-        ingest_session(_sess(b), BidsMapping(b.name, "003", "04"), sourcedata,
-                       method="copy")
+        ingest_session(_sess(b), BidsMapping(b.name, "003", "04"), sourcedata, method="copy")
 
     # The message names the recorded source, not just the destination path.
     assert str(a) in str(exc.value)
@@ -556,6 +561,7 @@ def test_copied_target_without_a_marker_is_not_a_collision(tmp_path):
 
 # ---- DB-003 residue: labels and duplicate destinations ----------------------
 
+
 @pytest.mark.parametrize("subject", ["../../escape", "01/junk", "..", "", "sub 01", "a-b"])
 def test_invalid_subject_labels_are_rejected(tmp_path, subject):
     """`_sanitize_label` only ever ran on the heuristic's guesses; the mapping
@@ -567,8 +573,7 @@ def test_invalid_subject_labels_are_rejected(tmp_path, subject):
     (src / "Series_01").mkdir(parents=True)
 
     with pytest.raises(InvalidLabel):
-        ingest_session(_sess(src), BidsMapping(src.name, subject, ""),
-                       tmp_path / "sourcedata")
+        ingest_session(_sess(src), BidsMapping(src.name, subject, ""), tmp_path / "sourcedata")
 
 
 def test_invalid_session_labels_are_rejected(tmp_path):
@@ -578,8 +583,7 @@ def test_invalid_session_labels_are_rejected(tmp_path):
     (src / "Series_01").mkdir(parents=True)
 
     with pytest.raises(InvalidLabel):
-        ingest_session(_sess(src), BidsMapping(src.name, "01", "../.."),
-                       tmp_path / "sourcedata")
+        ingest_session(_sess(src), BidsMapping(src.name, "01", "../.."), tmp_path / "sourcedata")
 
 
 def test_a_rejected_label_writes_nothing(tmp_path):
@@ -619,7 +623,10 @@ def test_plan_ingest_flags_two_folders_claiming_one_destination(tmp_path):
 def test_plan_ingest_is_empty_for_a_clean_mapping(tmp_path):
     from duckbrain.core.ingestion import BidsMapping, plan_ingest
 
-    assert plan_ingest(
-        [BidsMapping("a", "001", ""), BidsMapping("b", "002", "")],
-        tmp_path / "sourcedata",
-    ) == {}
+    assert (
+        plan_ingest(
+            [BidsMapping("a", "001", ""), BidsMapping("b", "002", "")],
+            tmp_path / "sourcedata",
+        )
+        == {}
+    )

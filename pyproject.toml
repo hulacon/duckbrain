@@ -27,6 +27,7 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "ruff>=0.6",
 ]
 
 [tool.hatch.version]
@@ -34,3 +35,45 @@ path = "src/duckbrain/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/duckbrain"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Coverage is NOT in addopts: it costs ~25% wall clock on every local run, and
+# the floor below is only meaningful on a full-suite run anyway. CI adds the
+# --cov flags; a single test file run locally stays fast.
+
+[tool.coverage.run]
+source = ["duckbrain"]
+
+[tool.coverage.report]
+# A ratchet, not a target. Measured 61.0% when the gate was added (2026-07-22);
+# the floor sits a point under so a statement-count difference between Python
+# versions can't fail CI on its own. Raise it when coverage rises — never lower
+# it to make a red build green.
+#
+# The number reads low because the six Streamlit pages (~1200 statements) score
+# 0%: they are scripts, not importable modules, and the tests that cover them
+# assert on their *source* rather than executing them. Core, config and slurm —
+# the code the floor is actually protecting — sit between 84% and 100%.
+fail_under = 60
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# pycodestyle + pyflakes only, deliberately. This is the first gate the repo has
+# ever had; a wider ruleset would have meant a large mechanical diff competing
+# for attention with the two real bugs the narrow one found (a missing `Path`
+# import in an annotation, and a dead series lookup in `_fmap_description`).
+# Widen it — isort, bugbear, pyupgrade — a ruleset at a time, each with its own
+# commit.
+select = ["E", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# Streamlit pages must call st.set_page_config() before anything else touches
+# st, and they import modules *after* a config guard that may st.stop(). Imports
+# genuinely cannot all sit at the top of these files.
+"src/duckbrain/gui/pages/*" = ["E402"]
+# The test suite groups an import with the narrative section that uses it, which
+# is how these files stay readable at ~500 lines.
+"tests/*" = ["E402"]

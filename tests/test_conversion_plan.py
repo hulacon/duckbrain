@@ -43,9 +43,7 @@ def _plan(series, subject="001", session="01", mapping=None):
     fieldmaps = detect_fieldmaps(series)
     if mapping is None:
         mapping = build_task_run_mapping(series)
-    config = generate_config(
-        series, fieldmaps, subject=subject, session=session, mapping=mapping
-    )
+    config = generate_config(series, fieldmaps, subject=subject, session=session, mapping=mapping)
     return plan_conversion(config, series, subject=subject, session=session), fieldmaps
 
 
@@ -62,12 +60,8 @@ def test_plan_renders_bids_paths():
 
     paths = {f.series_number: f.path for f in plan.files}
     assert paths[2] == "sub-001/ses-01/anat/sub-001_ses-01_T1w.nii.gz"
-    assert paths[9] == (
-        "sub-001/ses-01/func/sub-001_ses-01_task-divPerFace_run-1_bold.nii.gz"
-    )
-    assert paths[8] == (
-        "sub-001/ses-01/func/sub-001_ses-01_task-divPerFace_run-1_sbref.nii.gz"
-    )
+    assert paths[9] == ("sub-001/ses-01/func/sub-001_ses-01_task-divPerFace_run-1_bold.nii.gz")
+    assert paths[8] == ("sub-001/ses-01/func/sub-001_ses-01_task-divPerFace_run-1_sbref.nii.gz")
 
 
 def test_plan_omits_ses_entity_when_sessionless():
@@ -273,7 +267,10 @@ def test_read_config_into_table_recovers_task_run_and_group():
     classify_series(series)
     fieldmaps = detect_fieldmaps(series)
     config = generate_config(
-        series, fieldmaps, subject="001", session="01",
+        series,
+        fieldmaps,
+        subject="001",
+        session="01",
         mapping=build_task_run_mapping(series),
     )
 
@@ -302,7 +299,12 @@ def test_read_config_into_table_reports_what_it_cannot_represent():
                 "sidecar_changes": {"TaskName": "perFace", "EchoTime": 0.03},
                 "IntendedFor": ["x"],
             },
-            {"id": "orphan", "datatype": "anat", "suffix": "T1w", "criteria": {"SeriesDescription": "*"}},
+            {
+                "id": "orphan",
+                "datatype": "anat",
+                "suffix": "T1w",
+                "criteria": {"SeriesDescription": "*"},
+            },
         ],
     }
 
@@ -330,7 +332,10 @@ def _sidecars(series, subject="001", session="01"):
     classify_series(series)
     fieldmaps = detect_fieldmaps(series)
     cfg = generate_config(
-        series, fieldmaps, subject=subject, session=session,
+        series,
+        fieldmaps,
+        subject=subject,
+        session=session,
         mapping=build_task_run_mapping(series),
     )
     return {d["id"]: d.get("sidecar_changes") or {} for d in cfg["descriptions"]}
@@ -402,7 +407,7 @@ def test_a_half_fieldmap_pair_binds_nothing_even_when_it_is_the_only_one():
     a field that cannot be estimated.
     """
     series = [
-        _series(3, "se_epi_ap"),          # AP only — the scan was aborted
+        _series(3, "se_epi_ap"),  # AP only — the scan was aborted
         _series(8, "div_perFace_r1_SBRef", n=1),
         _series(9, "div_perFace_r1"),
     ]
@@ -418,7 +423,7 @@ def test_a_complete_pair_still_wins_when_a_half_pair_is_also_present():
     series = [
         _series(3, "se_epi_ap_good"),
         _series(4, "se_epi_pa_good"),
-        _series(5, "se_epi_ap_aborted"),   # half pair, must not be chosen
+        _series(5, "se_epi_ap_aborted"),  # half pair, must not be chosen
         _bold(9, "perFace", 1),
     ]
     plan, _ = _plan(series)

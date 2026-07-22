@@ -239,11 +239,7 @@ def _parse_session_folder(folder: Path) -> SessionInfo | None:
     if len(tokens) >= 2 and _SESSION_TOKEN_RE.match(tokens[-1]):
         session = tokens[-1]
         tokens = tokens[:-1]
-    elif (
-        len(tokens) >= 2
-        and _GS_SESSION_RE.match(tokens[-1])
-        and _GS_SUBJECT_RE.match(tokens[-2])
-    ):
+    elif len(tokens) >= 2 and _GS_SESSION_RE.match(tokens[-1]) and _GS_SUBJECT_RE.match(tokens[-2]):
         # "G##_S##" style: last token is the session, the paired G-token is the subject.
         session = tokens[-1]
         tokens = tokens[:-1]
@@ -340,9 +336,7 @@ def sub_ses_relpath(subject: str, session: str = "") -> Path:
     return p
 
 
-def plan_ingest(
-    mappings: list[BidsMapping], sourcedata_dir: str | Path
-) -> dict[str, list[str]]:
+def plan_ingest(mappings: list[BidsMapping], sourcedata_dir: str | Path) -> dict[str, list[str]]:
     """Destinations claimed by more than one folder: ``{relpath: [folder, ...]}``.
 
     Preflight, because the collision check inside :func:`ingest_session` is

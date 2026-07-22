@@ -51,8 +51,8 @@ def directory_picker(
     session: when its value changes the picker re-seeds from ``default`` instead
     of holding a selection that now belongs to somewhere else.
     """
-    sel_key = f"__dp_{key}"        # committed selection (= text input state)
-    cwd_key = f"__dp_{key}_cwd"    # directory the browser is currently showing
+    sel_key = f"__dp_{key}"  # committed selection (= text input state)
+    cwd_key = f"__dp_{key}_cwd"  # directory the browser is currently showing
     new_key = f"__dp_{key}_new"
     err_key = f"__dp_{key}_err"
     flt_key = f"__dp_{key}_flt"
@@ -94,8 +94,12 @@ def directory_picker(
             except OSError as e:
                 st.session_state[err_key] = str(e)
 
-    st.text_input(label, key=sel_key, on_change=_typed,
-                  help=help or "Type / paste a path, or pick one with Browse below.")
+    st.text_input(
+        label,
+        key=sel_key,
+        on_change=_typed,
+        help=help or "Type / paste a path, or pick one with Browse below.",
+    )
 
     @st.fragment
     def _browser():
@@ -107,17 +111,23 @@ def directory_picker(
             for i, part in enumerate(crumbs):
                 if i >= 2:
                     st.markdown("/")
-                st.button(part, key=f"{key}_bc{i}", type="tertiary",
-                          on_click=_goto, args=(Path(*crumbs[: i + 1]),))
+                st.button(
+                    part,
+                    key=f"{key}_bc{i}",
+                    type="tertiary",
+                    on_click=_goto,
+                    args=(Path(*crumbs[: i + 1]),),
+                )
 
         bar = st.columns([3, 1]) if allow_create else st.columns([1])
-        flt = bar[0].text_input("filter", key=flt_key, placeholder="filter folders…",
-                                label_visibility="collapsed")
+        flt = bar[0].text_input(
+            "filter", key=flt_key, placeholder="filter folders…", label_visibility="collapsed"
+        )
         if allow_create:
             with bar[1].popover("➕ New", width="stretch"):
                 st.text_input("New folder name", key=new_key, placeholder="folder name")
                 st.button("Create here", key=f"{key}_mk", on_click=_create)
-                if (err := st.session_state.pop(err_key, None)):
+                if err := st.session_state.pop(err_key, None):
                     st.error(f"Could not create folder: {err}")
 
         subdirs: list[str] = []
@@ -138,13 +148,17 @@ def directory_picker(
                 st.caption("(no subfolders here)" if not flt else "(no folders match the filter)")
             else:
                 for i, name in enumerate(subdirs[:_DP_MAX_BUTTONS]):
-                    st.button(f"📁 {name}", key=f"{key}_d{i}", type="tertiary",
-                              on_click=_goto, args=(cwd / name,))
+                    st.button(
+                        f"📁 {name}",
+                        key=f"{key}_d{i}",
+                        type="tertiary",
+                        on_click=_goto,
+                        args=(cwd / name,),
+                    )
                 if len(subdirs) > _DP_MAX_BUTTONS:
                     st.caption(f"… {len(subdirs) - _DP_MAX_BUTTONS} more — narrow with the filter")
 
-        if st.button("✓ Use this folder", key=f"{key}_use", type="primary",
-                     on_click=_commit):
+        if st.button("✓ Use this folder", key=f"{key}_use", type="primary", on_click=_commit):
             st.rerun(scope="app")  # propagate the new selection to the whole page
 
     with st.expander("📂 Browse"):
@@ -181,8 +195,8 @@ def job_card(job_id: str, name: str, state: str, time_used: str = "", partition:
                     background: rgba(0,0,0,0.02); border-radius: 0 4px 4px 0;">
             <strong>{name}</strong> (Job {job_id})<br/>
             <span style="color: {color}; font-weight: bold;">{state}</span>
-            {f' | {time_used}' if time_used else ''}
-            {f' | {partition}' if partition else ''}
+            {f" | {time_used}" if time_used else ""}
+            {f" | {partition}" if partition else ""}
         </div>
         """,
         unsafe_allow_html=True,
@@ -228,22 +242,14 @@ def subject_session_selector(
     col1, col2 = st.columns(2)
     with col1:
         if multiselect:
-            selected_subs = st.multiselect(
-                "Subjects", subjects, key=f"{key_prefix}_subjects"
-            )
+            selected_subs = st.multiselect("Subjects", subjects, key=f"{key_prefix}_subjects")
         else:
-            selected_subs = st.selectbox(
-                "Subject", subjects, key=f"{key_prefix}_subject"
-            )
+            selected_subs = st.selectbox("Subject", subjects, key=f"{key_prefix}_subject")
     with col2:
         if multiselect:
-            selected_ses = st.multiselect(
-                "Sessions", sessions, key=f"{key_prefix}_sessions"
-            )
+            selected_ses = st.multiselect("Sessions", sessions, key=f"{key_prefix}_sessions")
         else:
-            selected_ses = st.selectbox(
-                "Session", sessions, key=f"{key_prefix}_session"
-            )
+            selected_ses = st.selectbox("Session", sessions, key=f"{key_prefix}_session")
     return selected_subs, selected_ses
 
 
@@ -251,11 +257,10 @@ def load_config_or_warn():
     """Try to load config, show warning if not found. Returns config or None."""
     try:
         from ..config import load_config
+
         return load_config()
     except FileNotFoundError:
-        st.error(
-            "Configuration not found. Please complete **Project Setup** first."
-        )
+        st.error("Configuration not found. Please complete **Project Setup** first.")
         st.stop()
     except Exception as e:
         st.error(f"Error loading config: {e}")
@@ -301,10 +306,7 @@ def fmap_swatches(groups) -> dict[str, tuple[str, str]]:
     acquisition order — so the first pair shot is always the first colour, for
     every subject in a study.
     """
-    return {
-        group: _FMAP_SWATCHES[i % len(_FMAP_SWATCHES)]
-        for i, group in enumerate(groups)
-    }
+    return {group: _FMAP_SWATCHES[i % len(_FMAP_SWATCHES)] for i, group in enumerate(groups)}
 
 
 def fmap_token(group: str | None, swatches: dict[str, tuple[str, str]]) -> str:
@@ -315,7 +317,5 @@ def fmap_token(group: str | None, swatches: dict[str, tuple[str, str]]) -> str:
 
 def fmap_badge(group: str | None, swatches: dict[str, tuple[str, str]]) -> str:
     """Markdown badge for the same group — for use outside dataframes."""
-    emoji, colour = (
-        swatches.get(group, _NO_FMAP_SWATCH) if group is not None else _NO_FMAP_SWATCH
-    )
+    emoji, colour = swatches.get(group, _NO_FMAP_SWATCH) if group is not None else _NO_FMAP_SWATCH
     return f":{colour}-badge[{emoji} {fmap_label(group)}]"

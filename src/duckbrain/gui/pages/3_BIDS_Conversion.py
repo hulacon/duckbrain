@@ -55,8 +55,10 @@ converted_map = {
     for s in ingested
 }
 
-with st.expander(f"⚡ Bulk convert all ingested sessions "
-                 f"({sum(not v for v in converted_map.values())} unconverted of {len(ingested)})"):
+with st.expander(
+    f"⚡ Bulk convert all ingested sessions "
+    f"({sum(not v for v in converted_map.values())} unconverted of {len(ingested)})"
+):
     st.caption(
         "Submits one dcm2bids job per session using the **automatic** task/run "
         "mapping — no per-session review. A session that already has a saved "
@@ -66,12 +68,16 @@ with st.expander(f"⚡ Bulk convert all ingested sessions "
     st.dataframe(
         pd.DataFrame(
             [
-                {"subject": s["subject"], "session": s["session"] or "(none)",
-                 "converted": "✓" if converted_map[(s["subject"], s["session"])] else ""}
+                {
+                    "subject": s["subject"],
+                    "session": s["session"] or "(none)",
+                    "converted": "✓" if converted_map[(s["subject"], s["session"])] else "",
+                }
                 for s in ingested
             ]
         ),
-        width="stretch", hide_index=True,
+        width="stretch",
+        hide_index=True,
     )
 
     bulk_force = st.checkbox(
@@ -79,8 +85,12 @@ with st.expander(f"⚡ Bulk convert all ingested sessions "
     )
     target = [s for s in ingested if bulk_force or not converted_map[(s["subject"], s["session"])]]
 
-    if st.button(f"Submit conversion for {len(target)} session(s)",
-                 type="primary", key="bulk_submit", disabled=not target):
+    if st.button(
+        f"Submit conversion for {len(target)} session(s)",
+        type="primary",
+        key="bulk_submit",
+        disabled=not target,
+    ):
         from duckbrain.core.pipeline import advance_one, _resolve_log_dir
 
         log_dir = _resolve_log_dir(config)
@@ -90,11 +100,23 @@ with st.expander(f"⚡ Bulk convert all ingested sessions "
             sub, ses = s["subject"], s["session"]
             try:
                 job_id = advance_one(config, "converted", sub, ses, force=bulk_force)
-                results.append({"subject": sub, "session": ses or "(none)",
-                                "job_id": job_id, "status": "submitted"})
+                results.append(
+                    {
+                        "subject": sub,
+                        "session": ses or "(none)",
+                        "job_id": job_id,
+                        "status": "submitted",
+                    }
+                )
             except Exception as e:
-                results.append({"subject": sub, "session": ses or "(none)",
-                                "job_id": "—", "status": f"error: {e}"})
+                results.append(
+                    {
+                        "subject": sub,
+                        "session": ses or "(none)",
+                        "job_id": "—",
+                        "status": f"error: {e}",
+                    }
+                )
             prog.progress((i + 1) / len(target))
 
         st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
@@ -137,7 +159,9 @@ from duckbrain.core.dicom_inspect import (
 
 series_list = list_series(dicom_dir)
 if not series_list:
-    st.warning("No series directories found. Check that DICOMs are organized as Series_NN_description/")
+    st.warning(
+        "No series directories found. Check that DICOMs are organized as Series_NN_description/"
+    )
     st.stop()
 
 classify_series(series_list)
@@ -165,10 +189,7 @@ fmap_colors = fmap_swatches(fieldmaps.groups)
 
 st.subheader("Fieldmap Detection")
 if fieldmaps.strategy == "none":
-    st.info(
-        "No fieldmaps detected — every run will convert without distortion "
-        "correction."
-    )
+    st.info("No fieldmaps detected — every run will convert without distortion correction.")
 else:
     st.caption(
         f"Detected by **{fieldmaps.strategy}**. These colours identify each pair "
@@ -237,9 +258,9 @@ _saved_config_path = (
     Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
 )
 if _saved_config_path.exists():
-    _saved_when = datetime.fromtimestamp(
-        _saved_config_path.stat().st_mtime
-    ).strftime("%Y-%m-%d %H:%M")
+    _saved_when = datetime.fromtimestamp(_saved_config_path.stat().st_mtime).strftime(
+        "%Y-%m-%d %H:%M"
+    )
     _c_msg, _c_btn = st.columns([3, 1], vertical_alignment="center")
     with _c_msg:
         st.info(
@@ -248,10 +269,12 @@ if _saved_config_path.exists():
             "not the table below — and submitting here overwrites it."
         )
     with _c_btn:
-        if st.button("⇧ Load the saved config", key="load_saved_config",
-                     width="stretch",
-                     help="Read the saved file into the table so you review what "
-                     "will actually run."):
+        if st.button(
+            "⇧ Load the saved config",
+            key="load_saved_config",
+            width="stretch",
+            help="Read the saved file into the table so you review what will actually run.",
+        ):
             st.session_state["_pending_json_import"] = _saved_config_path.read_text()
             st.rerun()
 
@@ -289,17 +312,13 @@ if project_rules or project_fmap_rules:
         "Edit any row to override them for this session only."
     )
 
-seed_mapping = build_task_run_mapping(
-    series_list, template=template or None, rules=project_rules
-)
+seed_mapping = build_task_run_mapping(series_list, template=template or None, rules=project_rules)
 seed_by_series = {e.series_number: e for e in seed_mapping}
 
 # Which pair each fieldmap series belongs to, so an fmap row shows its own group
 # and the relation reads off a single row in both directions.
 fmap_group_by_series = {
-    num: group
-    for group, dirs in fieldmaps.groups.items()
-    for num in dirs.values()
+    num: group for group, dirs in fieldmaps.groups.items() for num in dirs.values()
 }
 
 complete_groups = [g for g, d in fieldmaps.groups.items() if "ap" in d and "pa" in d]
@@ -346,9 +365,7 @@ if _pending_import is not None:
     except json.JSONDecodeError as exc:
         st.error(f"Can't import — that JSON is invalid: {exc}")
     else:
-        st.session_state[IMPORT_KEY] = read_config_into_table(
-            _imported_config, series_list
-        )
+        st.session_state[IMPORT_KEY] = read_config_into_table(_imported_config, series_list)
         # Stale row deltas would fight the imported values, and leaving the
         # override on would mean the import had no visible effect.
         st.session_state.pop(EDITOR_KEY, None)
@@ -358,8 +375,7 @@ if _pending_import is not None:
 imported = st.session_state.get(IMPORT_KEY)
 if imported is not None:
     st.info(
-        "Values below were loaded from the hand-edited JSON. Edit any row to "
-        "carry on from here."
+        "Values below were loaded from the hand-edited JSON. Edit any row to carry on from here."
     )
     if imported.unrepresentable:
         st.warning(
@@ -417,6 +433,7 @@ if _unknown_groups:
 
 seed_df = pd.DataFrame(seed_rows)
 
+
 def _apply_pending_edits(df, key):
     state = st.session_state.get(key)
     if not state:
@@ -463,13 +480,13 @@ if _override_config is not None:
     for _i, _num in enumerate(effective_df["Series #"]):
         _num = int(_num)
         if _num in _from_json.task_by_series:
-            effective_df.iat[_i, effective_df.columns.get_loc("task")] = (
-                _from_json.task_by_series[_num]
-            )
+            effective_df.iat[_i, effective_df.columns.get_loc("task")] = _from_json.task_by_series[
+                _num
+            ]
         if _num in _from_json.run_by_series:
-            effective_df.iat[_i, effective_df.columns.get_loc("run")] = (
-                _from_json.run_by_series[_num]
-            )
+            effective_df.iat[_i, effective_df.columns.get_loc("run")] = _from_json.run_by_series[
+                _num
+            ]
         if _num in _from_json.group_by_series:
             _g = _from_json.group_by_series[_num]
             # A group this session's DICOMs don't contain has no column value to
@@ -596,9 +613,7 @@ effective_config = auto_config if _override_config is None else _override_config
 
 # `becomes` is filled from the plan, which reads the config dict dcm2bids will
 # consume — so the column cannot promise a filename the tool won't write.
-plan = plan_conversion(
-    effective_config, series_list, subject=subject, session=session
-)
+plan = plan_conversion(effective_config, series_list, subject=subject, session=session)
 _planned = plan.by_series
 effective_df["becomes"] = [
     " + ".join(f.filename for f in _planned[num]) if num in _planned else "— not converted"
@@ -616,8 +631,10 @@ _notes = [w for w in findings if w.severity == "info"]
 with st.container(border=True):
     st.markdown("**Preflight**")
     if _override_error:
-        st.error(f"The hand-edited JSON is invalid, so the table below still "
-                 f"reflects the generated config: {_override_error}")
+        st.error(
+            f"The hand-edited JSON is invalid, so the table below still "
+            f"reflects the generated config: {_override_error}"
+        )
     for w in _blocking:
         st.error(w.message)
     for w in _suspect:
@@ -702,10 +719,7 @@ with _save_task_col:
         else:
             rules = task_rules_from_mapping(edited_mapping)
             save_project_task_map(project_dir, rules)
-            st.success(
-                f"Saved {len(rules)} task rule(s) to "
-                f"`{project_dir}/code/duckbrain.toml`."
-            )
+            st.success(f"Saved {len(rules)} task rule(s) to `{project_dir}/code/duckbrain.toml`.")
 
 with _save_fmap_col:
     if st.button(
@@ -760,9 +774,7 @@ if fieldmaps.groups:
         unbound = plan.corrected_by(None)
         if unbound:
             with st.container(border=True):
-                st.markdown(
-                    f"{fmap_badge(None, fmap_colors)} &nbsp; no distortion correction"
-                )
+                st.markdown(f"{fmap_badge(None, fmap_colors)} &nbsp; no distortion correction")
                 for f in unbound:
                     st.markdown(f"&nbsp;&nbsp;↳ `{f.filename}`")
 
@@ -794,31 +806,35 @@ with st.expander("⚙️ Advanced — edit the dcm2bids config JSON by hand"):
             "are what gets submitted."
         )
         edited_json = st.text_area(
-            "dcm2bids config JSON", value=auto_json, height=400,
+            "dcm2bids config JSON",
+            value=auto_json,
+            height=400,
             key="dcm2bids_config_editor",
         )
         if edited_json.strip() != auto_json.strip():
             st.caption("✏️ Edited — this differs from what the table would generate.")
             c_revert, c_import = st.columns(2)
             with c_revert:
-                if st.button("↺ Revert to the generated config", key="revert_json",
-                             width="stretch"):
+                if st.button(
+                    "↺ Revert to the generated config", key="revert_json", width="stretch"
+                ):
                     st.session_state.pop("dcm2bids_config_editor", None)
                     st.rerun()
             with c_import:
-                if st.button("⇧ Load these edits back into the table",
-                             key="import_json", width="stretch",
-                             help="Reads task, run and fieldmap group back out of "
-                             "the JSON and applies them to the table, then turns "
-                             "the override off. Anything the table has no column "
-                             "for is reported rather than dropped silently."):
+                if st.button(
+                    "⇧ Load these edits back into the table",
+                    key="import_json",
+                    width="stretch",
+                    help="Reads task, run and fieldmap group back out of "
+                    "the JSON and applies them to the table, then turns "
+                    "the override off. Anything the table has no column "
+                    "for is reported rather than dropped silently.",
+                ):
                     st.session_state["_pending_json_import"] = edited_json
                     st.rerun()
     else:
         edited_json = auto_json
-        st.caption(
-            "Generated from the table above. Read-only while the override is off."
-        )
+        st.caption("Generated from the table above. Read-only while the override is off.")
         st.code(auto_json, language="json")
 
 # The config that actually gets saved and submitted.
@@ -873,9 +889,7 @@ if (convert_btn or export_btn) and parsed_config:
     try:
         if convert_btn:
             job_id = advance_one(config, "converted", subject, session, force=force)
-            st.success(
-                f"Job submitted! Job ID: **{job_id}** — logs will appear in `{log_dir}`"
-            )
+            st.success(f"Job submitted! Job ID: **{job_id}** — logs will appear in `{log_dir}`")
         else:
             export_path = advance_one(
                 config, "converted", subject, session, export_only=True, force=force

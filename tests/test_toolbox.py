@@ -13,9 +13,10 @@ from duckbrain.core import toolbox as T
 
 def _repo(path, remote=None, tag=None):
     path.mkdir(parents=True, exist_ok=True)
+
     def run(*a):
-        return subprocess.run(["git", "-C", str(path), *a], check=True,
-                              capture_output=True)
+        return subprocess.run(["git", "-C", str(path), *a], check=True, capture_output=True)
+
     run("init", "-q")
     run("config", "user.email", "t@t")
     run("config", "user.name", "t")
@@ -31,11 +32,13 @@ def _repo(path, remote=None, tag=None):
 
 def _sha(path, short=True):
     args = ["rev-parse"] + (["--short"] if short else []) + ["HEAD"]
-    return subprocess.run(["git", "-C", str(path), *args],
-                          capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(
+        ["git", "-C", str(path), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 # ---- describe ---------------------------------------------------------------
+
 
 def test_describe_falls_back_to_sha_when_untagged(tmp_path):
     repo = _repo(tmp_path / "tb")
@@ -46,8 +49,9 @@ def test_describe_uses_tag_and_distance(tmp_path):
     repo = _repo(tmp_path / "tb", tag="v1.0.2")
     (repo / "extra.m").write_text("x")
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "second"], check=True,
-                   capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "second"], check=True, capture_output=True
+    )
     # Mirrors the real toolbox: commits past the last release tag.
     assert T.describe(repo).startswith("v1.0.2-1-g")
 
@@ -59,6 +63,7 @@ def test_describe_marks_local_edits_dirty(tmp_path):
 
 
 # ---- source_ref -------------------------------------------------------------
+
 
 def test_source_ref_is_owner_repo_at_sha(tmp_path):
     repo = _repo(tmp_path / "tb", remote="https://github.com/SteenMoeller/NORDIC_Raw.git")
@@ -77,10 +82,12 @@ def test_source_ref_without_remote_falls_back_to_bare_sha(tmp_path):
 
 # ---- code_url ---------------------------------------------------------------
 
+
 def test_code_url_pins_the_exact_commit(tmp_path):
     repo = _repo(tmp_path / "tb", remote="https://github.com/SteenMoeller/NORDIC_Raw.git")
     assert T.code_url(repo) == (
-        f"https://github.com/SteenMoeller/NORDIC_Raw/tree/{_sha(repo, short=False)}")
+        f"https://github.com/SteenMoeller/NORDIC_Raw/tree/{_sha(repo, short=False)}"
+    )
 
 
 def test_code_url_declines_to_guess_for_unknown_hosts(tmp_path):
@@ -90,6 +97,7 @@ def test_code_url_declines_to_guess_for_unknown_hosts(tmp_path):
 
 
 # ---- degrade paths ----------------------------------------------------------
+
 
 def test_unset_path_never_describes_the_current_directory(tmp_path, monkeypatch):
     """Regression: Path("") is `.`, so an unset toolbox dir would describe

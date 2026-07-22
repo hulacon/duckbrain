@@ -116,7 +116,10 @@ if st.button("Auto-assign subjects & sessions by date"):
         msg += " — single-session study, so BIDS Session is left blank (by design)."
     st.success(msg)
 
-st.markdown("Edit the **bids_subject** and **bids_session** columns to assign BIDS identifiers, then select sessions to ingest.")
+st.markdown(
+    "Edit the **bids_subject** and **bids_session** columns to assign BIDS "
+    "identifiers, then select sessions to ingest."
+)
 
 edited_df = st.data_editor(
     st.session_state["ingest_df"],
@@ -162,9 +165,11 @@ if not selected.empty:
     if st.button("Ingest Selected Sessions", type="primary"):
         valid = selected[selected["bids_subject"] != ""]
         _mappings = [
-            BidsMapping(folder_name=r["folder_name"],
-                        bids_subject=r["bids_subject"],
-                        bids_session=r["bids_session"])
+            BidsMapping(
+                folder_name=r["folder_name"],
+                bids_subject=r["bids_subject"],
+                bids_session=r["bids_session"],
+            )
             for _, r in valid.iterrows()
         ]
         # Preflight the whole selection before writing anything. ingest_session
@@ -189,9 +194,7 @@ if not selected.empty:
             results = []
             for i, (_, row) in enumerate(valid.iterrows()):
                 # Find matching SessionInfo
-                session = next(
-                    s for s in sessions if s.folder_name == row["folder_name"]
-                )
+                session = next(s for s in sessions if s.folder_name == row["folder_name"])
                 mapping = BidsMapping(
                     folder_name=row["folder_name"],
                     bids_subject=row["bids_subject"],
@@ -210,20 +213,28 @@ if not selected.empty:
                 already = target_path.exists()
                 try:
                     target = ingest_session(session, mapping, sourcedata_dir, method=method)
-                    results.append({
-                        "folder": row["folder_name"],
-                        "status": "already ingested" if already else "ingested",
-                        "path": str(target),
-                    })
+                    results.append(
+                        {
+                            "folder": row["folder_name"],
+                            "status": "already ingested" if already else "ingested",
+                            "path": str(target),
+                        }
+                    )
                 except IngestCollision as e:
                     results.append(
-                        {"folder": row["folder_name"], "status": "NOT ingested — collision",
-                         "path": str(e)}
+                        {
+                            "folder": row["folder_name"],
+                            "status": "NOT ingested — collision",
+                            "path": str(e),
+                        }
                     )
                 except InvalidLabel as e:
                     results.append(
-                        {"folder": row["folder_name"],
-                         "status": "NOT ingested — invalid label", "path": str(e)}
+                        {
+                            "folder": row["folder_name"],
+                            "status": "NOT ingested — invalid label",
+                            "path": str(e),
+                        }
                     )
                 except Exception as e:
                     results.append(
@@ -251,8 +262,11 @@ if not selected.empty:
             if not _collisions and not _errors:
                 st.success(
                     f"{len(_written)} session(s) ingested"
-                    + (f", {len(results) - len(_written)} already present." if
-                       len(results) - len(_written) else ".")
+                    + (
+                        f", {len(results) - len(_written)} already present."
+                        if len(results) - len(_written)
+                        else "."
+                    )
                 )
 
 # ---- BIDS Metadata Generation ----
@@ -301,7 +315,8 @@ with col2:
                 # Record the converter too, not just duckbrain — dcm2bids' version
                 # is what determines the BIDS this root contains.
                 desc_path = write_dataset_description(
-                    bids_dir, name=project_name,
+                    bids_dir,
+                    name=project_name,
                     generated_by=converter_generated_by(config),
                 )
                 st.success(f"Written: `{desc_path}`")

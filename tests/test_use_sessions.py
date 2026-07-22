@@ -123,9 +123,7 @@ def _use_sessions_widget(at):
     return next(s for s in at.selectbox if "session entity" in s.label)
 
 
-@pytest.mark.parametrize(
-    "stored,expected", [(True, "true"), (False, "false"), ("auto", "auto")]
-)
+@pytest.mark.parametrize("stored,expected", [(True, "true"), (False, "false"), ("auto", "auto")])
 def test_setup_page_loads_toml_boolean(project, stored, expected):
     at = _run_setup(project(stored))
     assert not at.exception

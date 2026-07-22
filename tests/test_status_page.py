@@ -137,6 +137,7 @@ def test_submission_log_panel_renders(project):
     # Pre-seed the durable log; the cockpit should surface it.
     from duckbrain.core.pipeline import record_submission
     from duckbrain.config import load_config
+
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "999001")
 
@@ -150,14 +151,19 @@ def test_consistency_warning_panel_renders(project):
     # check_consistency should flag it and the cockpit should surface the ⚠️.
     import json
     from duckbrain.config import save_project_config
-    save_project_config(str(project), {"project": {"name": "test"},
-                                        "nordic": {"use_nordic": True}})
+
+    save_project_config(str(project), {"project": {"name": "test"}, "nordic": {"use_nordic": True}})
     deriv = project / "derivatives" / "fmriprep"
     deriv.mkdir(parents=True, exist_ok=True)
-    (deriv / "dataset_description.json").write_text(json.dumps({
-        "Name": "fMRIPrep", "GeneratedBy": [{"Name": "fMRIPrep", "Version": "24.1.1"}],
-        "DatasetLinks": {"raw": str(project)},  # raw = project root, not the nordic tree
-    }))
+    (deriv / "dataset_description.json").write_text(
+        json.dumps(
+            {
+                "Name": "fMRIPrep",
+                "GeneratedBy": [{"Name": "fMRIPrep", "Version": "24.1.1"}],
+                "DatasetLinks": {"raw": str(project)},  # raw = project root, not the nordic tree
+            }
+        )
+    )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
     assert any("config-vs-provenance" in w.value for w in at.warning)
@@ -174,12 +180,22 @@ def test_running_cell_links_to_job_with_detail(project, monkeypatch):
     # A running job, recorded in the durable log so the cell can reference its id.
     from duckbrain.core.pipeline import record_submission
     from duckbrain.config import load_config
+
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "55123")
     monkeypatch.setattr(
-        P, "list_jobs",
-        lambda: [JobInfo(job_id="55123", name="fmriprep_01", state="RUNNING",
-                         partition="c", nodes="n0042", time_used="00:12:03")],
+        P,
+        "list_jobs",
+        lambda: [
+            JobInfo(
+                job_id="55123",
+                name="fmriprep_01",
+                state="RUNNING",
+                partition="c",
+                nodes="n0042",
+                time_used="00:12:03",
+            )
+        ],
     )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
@@ -195,10 +211,12 @@ def test_running_cell_cancel_gated_and_invokes_scancel(project, monkeypatch):
     from duckbrain.core.pipeline import record_submission
     from duckbrain.config import load_config
     import duckbrain.slurm.monitor as M
+
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "55123")
     monkeypatch.setattr(
-        P, "list_jobs",
+        P,
+        "list_jobs",
         lambda: [JobInfo(job_id="55123", name="fmriprep_01", state="RUNNING", partition="c")],
     )
     cancelled = {}
@@ -218,9 +236,9 @@ def test_running_cell_cancel_gated_and_invokes_scancel(project, monkeypatch):
 def test_all_jobs_panel_lists_orphan_jobs(project, monkeypatch):
     # A job whose name maps to no board cell must still appear in the all-jobs panel.
     monkeypatch.setattr(
-        P, "list_jobs",
-        lambda: [JobInfo(job_id="80001", name="some_manual_job", state="RUNNING",
-                         partition="c")],
+        P,
+        "list_jobs",
+        lambda: [JobInfo(job_id="80001", name="some_manual_job", state="RUNNING", partition="c")],
     )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
@@ -232,6 +250,7 @@ def test_failed_cell_exposes_log_and_rerun(project, monkeypatch):
     # sub-01 fmriprep reported failed by SLURM, with a recorded job + log on disk.
     from duckbrain.core.pipeline import record_submission
     from duckbrain.config import load_config
+
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "77001")
     log_dir = project / "code" / "logs"
@@ -239,7 +258,8 @@ def test_failed_cell_exposes_log_and_rerun(project, monkeypatch):
     (log_dir / "fmriprep_77001.out").write_text("boom: a distinctive failure line\n")
     # A failed state comes from sacct history (squeue lists only active jobs).
     monkeypatch.setattr(
-        P, "job_history",
+        P,
+        "job_history",
         lambda days=7: [JobInfo(job_id="77001", name="fmriprep_01", state="FAILED", partition="c")],
     )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
@@ -266,9 +286,9 @@ def test_failed_cell_shows_stderr_even_when_stdout_is_not_empty(project, monkeyp
     (log_dir / "fmriprep_77002.out").write_text("fMRIPrep starting: banner line\n")
     (log_dir / "fmriprep_77002.err").write_text("Traceback: the actual reason\n")
     monkeypatch.setattr(
-        P, "job_history",
-        lambda days=7: [JobInfo(job_id="77002", name="fmriprep_01", state="FAILED",
-                                partition="c")],
+        P,
+        "job_history",
+        lambda days=7: [JobInfo(job_id="77002", name="fmriprep_01", state="FAILED", partition="c")],
     )
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()

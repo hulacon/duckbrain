@@ -96,9 +96,7 @@ def test_a_run_rule_beats_the_task_wide_rule():
 def test_one_run_can_opt_out_while_its_siblings_stay_corrected():
     series, fmaps, mapping = _reshot_mid_task()
     rules = [FmapRule("encode", "none", run=2)]
-    written = _b0_by_entities(
-        generate_config(series, fmaps, mapping=mapping, fmap_rules=rules)
-    )
+    written = _b0_by_entities(generate_config(series, fmaps, mapping=mapping, fmap_rules=rules))
     assert written["task-encode_run-2"] is None
     assert written["task-encode_run-1"] == "B0map_encoding"
 
@@ -117,7 +115,9 @@ def test_an_unsatisfiable_run_rule_names_the_run_it_came_from():
     series, fmaps, mapping = _reshot_mid_task()
     with pytest.raises(ValueError, match=r"task 'encode' run 2"):
         generate_config(
-            series, fmaps, mapping=mapping,
+            series,
+            fmaps,
+            mapping=mapping,
             fmap_rules=[FmapRule("encode", "nosuchgroup", run=2)],
         )
 
@@ -129,9 +129,7 @@ def test_a_task_wide_rule_still_binds_every_run():
     """run=None keeps its old meaning, so pre-existing configs are unaffected."""
     series, fmaps, mapping = _reshot_mid_task()
     rules = [FmapRule("encode", "encoding-2")]
-    written = _b0_by_entities(
-        generate_config(series, fmaps, mapping=mapping, fmap_rules=rules)
-    )
+    written = _b0_by_entities(generate_config(series, fmaps, mapping=mapping, fmap_rules=rules))
     assert set(written.values()) == {"B0map_encoding-2"}
 
 

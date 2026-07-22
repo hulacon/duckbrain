@@ -153,11 +153,11 @@ def _project_overrides(section: str, key: str) -> str | None:
 # ---- Derived layout (read-only) ----
 st.header("Layout (derived from the project directory)")
 st.code(
-    f"bids_dir        {paths.get('bids_dir','')}\n"
-    f"sourcedata_dir  {paths.get('sourcedata_dir','')}\n"
-    f"derivatives_dir {paths.get('derivatives_dir','')}\n"
-    f"code_dir        {paths.get('code_dir','')}\n"
-    f"work_dir        {paths.get('work_dir','')}   (scratch; not under the project)",
+    f"bids_dir        {paths.get('bids_dir', '')}\n"
+    f"sourcedata_dir  {paths.get('sourcedata_dir', '')}\n"
+    f"derivatives_dir {paths.get('derivatives_dir', '')}\n"
+    f"code_dir        {paths.get('code_dir', '')}\n"
+    f"work_dir        {paths.get('work_dir', '')}   (scratch; not under the project)",
     language="text",
 )
 
@@ -178,8 +178,10 @@ use_sessions = st.selectbox(
     index=USE_SESSIONS_CHOICES.index(_use_sessions_default),
     help="auto = include ses- only when a subject has more than one session",
 )
-if _stored_use_sessions not in ("", None) and _use_sessions_default == "auto" and (
-    str(_stored_use_sessions).strip().lower() != "auto"
+if (
+    _stored_use_sessions not in ("", None)
+    and _use_sessions_default == "auto"
+    and (str(_stored_use_sessions).strip().lower() != "auto")
 ):
     # Don't silently swallow a value nobody can act on — a typo here decides
     # whether the dataset gets ses- entities at all.
@@ -192,7 +194,13 @@ if _stored_use_sessions not in ("", None) and _use_sessions_default == "auto" an
 st.subheader("LCNI DICOM source")
 # Legacy configs used base_dir/group/project; if one is present, seed from it.
 _legacy_dcm = _get("dcm_source", "dir") or "/".join(
-    p for p in (_get("dcm_source", "base_dir"), _get("dcm_source", "group"), _get("dcm_source", "project")) if p
+    p
+    for p in (
+        _get("dcm_source", "base_dir"),
+        _get("dcm_source", "group"),
+        _get("dcm_source", "project"),
+    )
+    if p
 )
 # The picker needs somewhere to start, but the starting point is not a choice the
 # user made: saving it as `dcm_source.dir` pointed Ingestion at the root of every
@@ -218,9 +226,13 @@ st.caption(
 c1, c2 = st.columns(2)
 with c1:
     slurm_account = st.text_input("Account / PIRG", value=_get("slurm", "account"))
-    slurm_partition = st.text_input("Default partition", value=_get("slurm", "partition") or "compute")
+    slurm_partition = st.text_input(
+        "Default partition", value=_get("slurm", "partition") or "compute"
+    )
 with c2:
-    slurm_partition_long = st.text_input("Long partition", value=_get("slurm", "partition_long") or "computelong")
+    slurm_partition_long = st.text_input(
+        "Long partition", value=_get("slurm", "partition_long") or "computelong"
+    )
     slurm_time = st.text_input("Default time limit", value=_get("slurm", "time") or "12:00:00")
 
 # A partition name is the one SLURM setting duckbrain can't check against itself,
@@ -252,8 +264,7 @@ if st.button("Save project settings"):
             "time": slurm_time,
         },
     }
-    path = save_project_config(active_project, _clean_dict(project_cfg),
-                               owned=_PROJECT_OWNED)
+    path = save_project_config(active_project, _clean_dict(project_cfg), owned=_PROJECT_OWNED)
     # Must be a toast, not st.success: the rerun below restarts the script from the
     # top and wipes any element written before it, so a success box would flash for
     # zero frames. Nothing else on this page changes visibly after a save (the
@@ -276,12 +287,20 @@ containers_dir = directory_picker(
 c1, c2 = st.columns(2)
 with c1:
     fs_license = st.text_input("FreeSurfer license (file)", value=_get_user("paths", "fs_license"))
-    nordic_toolbox_dir = st.text_input("NORDIC toolbox directory", value=_get_user("paths", "nordic_toolbox_dir"))
+    nordic_toolbox_dir = st.text_input(
+        "NORDIC toolbox directory", value=_get_user("paths", "nordic_toolbox_dir")
+    )
     slurm_email = st.text_input("SLURM email", value=_get_user("slurm", "email"))
 with c2:
-    dcm2bids_ver = st.text_input("dcm2bids version", value=_get_user("containers", "dcm2bids_version") or "3.2.0")
-    fmriprep_ver = st.text_input("fMRIPrep version", value=_get_user("containers", "fmriprep_version") or "24.1.1")
-    mriqc_ver = st.text_input("MRIQC version", value=_get_user("containers", "mriqc_version") or "24.0.2")
+    dcm2bids_ver = st.text_input(
+        "dcm2bids version", value=_get_user("containers", "dcm2bids_version") or "3.2.0"
+    )
+    fmriprep_ver = st.text_input(
+        "fMRIPrep version", value=_get_user("containers", "fmriprep_version") or "24.1.1"
+    )
+    mriqc_ver = st.text_input(
+        "MRIQC version", value=_get_user("containers", "mriqc_version") or "24.0.2"
+    )
 
 # A project may pin a different value on top of any of these. The fields above are
 # the shared ones (that is what they save), so say plainly where this project

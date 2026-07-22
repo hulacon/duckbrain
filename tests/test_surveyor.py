@@ -41,6 +41,7 @@ def _touch(path, content="x"):
 
 # ---- discovery --------------------------------------------------------------
 
+
 def test_discover_units_unions_sourcedata_and_bids(tmp_path):
     (tmp_path / "sourcedata" / "sub-01" / "dicom").mkdir(parents=True)
     (tmp_path / "sub-02" / "anat").mkdir(parents=True)  # BIDS-only, never ingested
@@ -58,6 +59,7 @@ def test_discover_units_multisession(tmp_path):
 
 # ---- ingested ---------------------------------------------------------------
 
+
 def test_ingested_complete_when_dicom_nonempty(tmp_path):
     _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
     df = survey_project(_config(tmp_path))
@@ -72,6 +74,7 @@ def test_ingested_missing_when_dicom_empty(tmp_path):
 
 
 # ---- converted --------------------------------------------------------------
+
 
 def test_converted_complete_with_nifti(tmp_path):
     _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
@@ -88,6 +91,7 @@ def test_converted_partial_when_tmp_scratch_but_no_nifti(tmp_path):
 
 
 # ---- fmriprep: the core presence-vs-completion case -------------------------
+
 
 def _bids_anat_func(root, sub="01", ses=""):
     ss = f"sub-{sub}" + (f"/ses-{ses}" if ses else "")
@@ -156,6 +160,7 @@ def test_fmriprep_sessionless_and_multisession_same_tracker(tmp_path):
 
 # ---- mriqc ------------------------------------------------------------------
 
+
 def test_mriqc_complete_with_iqm_json(tmp_path):
     # Anat-only subject (no func in BIDS): the anat IQM json alone is complete.
     _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
@@ -195,6 +200,7 @@ def test_mriqc_missing(tmp_path):
 
 # ---- nordic -----------------------------------------------------------------
 
+
 def test_nordic_complete_with_denoised_bold(tmp_path):
     _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
     nd = tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
@@ -220,16 +226,33 @@ def test_nordic_missing_when_no_derivative(tmp_path):
 def test_nordic_sessionless_and_multisession_same_tracker(tmp_path):
     # Sessionless output (nordic.py hardcodes an empty ses- dir for these).
     _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
-    _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "ses-" / "func" / "sub-01_task-x_bold.nii.gz")
+    _touch(
+        tmp_path
+        / "derivatives"
+        / "nordic"
+        / "sub-01"
+        / "ses-"
+        / "func"
+        / "sub-01_task-x_bold.nii.gz"
+    )
     # Multi-session output.
     _touch(tmp_path / "sub-02" / "ses-01" / "func" / "sub-02_ses-01_task-x_bold.nii.gz")
-    _touch(tmp_path / "derivatives" / "nordic" / "sub-02" / "ses-01" / "func" / "sub-02_ses-01_task-x_bold.nii.gz")
+    _touch(
+        tmp_path
+        / "derivatives"
+        / "nordic"
+        / "sub-02"
+        / "ses-01"
+        / "func"
+        / "sub-02_ses-01_task-x_bold.nii.gz"
+    )
     df = survey_project(_nordic_config(tmp_path))
     assert df.set_index("subject").loc["01", "nordic"] == Status.COMPLETE
     assert df.set_index("subject").loc["02", "nordic"] == Status.COMPLETE
 
 
 # ---- matrix + summary -------------------------------------------------------
+
 
 def test_survey_columns_and_empty_project(tmp_path):
     (tmp_path / "sourcedata").mkdir()
@@ -251,6 +274,7 @@ def test_summarize_counts(tmp_path):
 
 # ---- TODO #17.4: a stage that doesn't apply is n/a, not unfinished ------------
 
+
 def test_nordic_is_na_without_use_nordic(tmp_path):
     """NORDIC is opt-in. Grading it MISSING made every non-NORDIC project look
     like it had N units of outstanding work, and offered a one-click bulk run
@@ -264,7 +288,7 @@ def test_na_unit_is_not_runnable_and_counts_as_done(tmp_path):
     from duckbrain.core.pipeline import stage_runnable
 
     _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
-    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")   # converted
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")  # converted
     config = _config(tmp_path)
     row = survey_project(config).loc[0]
 
@@ -282,6 +306,7 @@ def test_na_unit_is_not_runnable_and_counts_as_done(tmp_path):
 # BOLD runs where one succeeded read green at every stage — and green unlocks
 # downstream work (`stage_runnable`) and suppresses a real sacct failure
 # (`survey_live`), so the wrong answer propagated instead of merely displaying.
+
 
 def _seed_bold_runs(root, ss, n, task="rest"):
     """*n* raw BOLD runs (+ the anat every stage keys off) for one unit.
@@ -303,10 +328,12 @@ def test_entity_key_strips_derivative_entities():
 
     raw = _entity_key("sub-01_ses-02_task-rest_run-1_bold.nii.gz")
     assert raw == "sub-01_ses-02_task-rest_run-1"
-    assert _entity_key(
-        "sub-01_ses-02_task-rest_run-1_space-MNI152NLin2009cAsym_res-2"
-        "_desc-preproc_bold.nii.gz"
-    ) == raw
+    assert (
+        _entity_key(
+            "sub-01_ses-02_task-rest_run-1_space-MNI152NLin2009cAsym_res-2_desc-preproc_bold.nii.gz"
+        )
+        == raw
+    )
     # ...and two genuinely different runs must not collapse.
     assert _entity_key("sub-01_task-rest_run-2_bold.nii.gz") != raw
 
@@ -316,8 +343,14 @@ def test_nordic_partial_when_only_some_runs_denoised(tmp_path):
     run whose output exists, so a partial array is the expected failure — and it
     graded COMPLETE off the one run that landed."""
     _seed_bold_runs(tmp_path, "sub-01", 4)
-    _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
-           / "sub-01_task-rest_run-1_bold.nii.gz")
+    _touch(
+        tmp_path
+        / "derivatives"
+        / "nordic"
+        / "sub-01"
+        / "func"
+        / "sub-01_task-rest_run-1_bold.nii.gz"
+    )
 
     df = survey_project(_nordic_config(tmp_path))
     assert df.loc[0, "nordic"] == Status.PARTIAL
@@ -326,8 +359,14 @@ def test_nordic_partial_when_only_some_runs_denoised(tmp_path):
 def test_nordic_complete_when_every_run_denoised(tmp_path):
     _seed_bold_runs(tmp_path, "sub-01", 4)
     for i in range(1, 5):
-        _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
-               / f"sub-01_task-rest_run-{i}_bold.nii.gz")
+        _touch(
+            tmp_path
+            / "derivatives"
+            / "nordic"
+            / "sub-01"
+            / "func"
+            / f"sub-01_task-rest_run-{i}_bold.nii.gz"
+        )
 
     df = survey_project(_nordic_config(tmp_path))
     assert df.loc[0, "nordic"] == Status.COMPLETE
@@ -339,8 +378,12 @@ def test_fmriprep_partial_when_one_run_is_missing(tmp_path):
     _touch(fp / "sub-01.html")
     _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
     for i in (1, 2):
-        _touch(fp / "sub-01" / "func"
-               / f"sub-01_task-rest_run-{i}_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
+        _touch(
+            fp
+            / "sub-01"
+            / "func"
+            / f"sub-01_task-rest_run-{i}_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"
+        )
 
     df = survey_project(_config(tmp_path))
     assert df.loc[0, "fmriprep"] == Status.PARTIAL
@@ -354,8 +397,12 @@ def test_fmriprep_complete_with_several_output_spaces_per_run(tmp_path):
     _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
     for i in (1, 2):
         for space in ("MNI152NLin2009cAsym_res-2", "fsaverage6", "func"):
-            _touch(fp / "sub-01" / "func"
-                   / f"sub-01_task-rest_run-{i}_space-{space}_desc-preproc_bold.nii.gz")
+            _touch(
+                fp
+                / "sub-01"
+                / "func"
+                / f"sub-01_task-rest_run-{i}_space-{space}_desc-preproc_bold.nii.gz"
+            )
 
     df = survey_project(_config(tmp_path))
     assert df.loc[0, "fmriprep"] == Status.COMPLETE
@@ -367,22 +414,20 @@ def test_fmriprep_expectation_follows_the_nordic_tree(tmp_path):
     Expecting runs NORDIC never produced would pin fMRIPrep at PARTIAL forever
     for work it was never given. The shortfall still surfaces once, at NORDIC.
     """
-    _seed_bold_runs(tmp_path, "sub-01", 4)          # raw has 4
+    _seed_bold_runs(tmp_path, "sub-01", 4)  # raw has 4
     nordic = tmp_path / "derivatives" / "nordic"
-    for i in (1, 2, 3):                              # NORDIC produced 3
+    for i in (1, 2, 3):  # NORDIC produced 3
         _touch(nordic / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_bold.nii.gz")
-        _touch(nordic / "bids_format" / "sub-01" / "func"
-               / f"sub-01_task-rest_run-{i}_bold.nii.gz")
+        _touch(nordic / "bids_format" / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_bold.nii.gz")
     fp = tmp_path / "derivatives" / "fmriprep"
     _touch(fp / "sub-01.html")
     _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
-    for i in (1, 2, 3):                              # ...and fMRIPrep did all 3
-        _touch(fp / "sub-01" / "func"
-               / f"sub-01_task-rest_run-{i}_desc-preproc_bold.nii.gz")
+    for i in (1, 2, 3):  # ...and fMRIPrep did all 3
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-preproc_bold.nii.gz")
 
     row = survey_project(_nordic_config(tmp_path)).loc[0]
     assert row["fmriprep"] == Status.COMPLETE
-    assert row["nordic"] == Status.PARTIAL   # reported once, where it happened
+    assert row["nordic"] == Status.PARTIAL  # reported once, where it happened
 
 
 def test_fmriprep_anat_only_unit_needs_no_func(tmp_path):
@@ -432,7 +477,7 @@ def _write_dcm2bids_config(root, ss, n_bold, n_anat=1):
 
 def test_converted_partial_when_fewer_niftis_than_the_reviewed_config(tmp_path):
     _write_dcm2bids_config(tmp_path, "sub-01", n_bold=4)
-    _seed_bold_runs(tmp_path, "sub-01", 2)   # only 2 of the 4 landed
+    _seed_bold_runs(tmp_path, "sub-01", 2)  # only 2 of the 4 landed
 
     df = survey_project(_config(tmp_path))
     assert df.loc[0, "converted"] == Status.PARTIAL
@@ -462,8 +507,14 @@ def test_run_progress_counts_what_the_status_says(tmp_path):
 
     _seed_bold_runs(tmp_path, "sub-01", 4)
     for i in (1, 2):
-        _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
-               / f"sub-01_task-rest_run-{i}_bold.nii.gz")
+        _touch(
+            tmp_path
+            / "derivatives"
+            / "nordic"
+            / "sub-01"
+            / "func"
+            / f"sub-01_task-rest_run-{i}_bold.nii.gz"
+        )
 
     config = _nordic_config(tmp_path)
     assert survey_project(config).loc[0, "nordic"] == Status.PARTIAL

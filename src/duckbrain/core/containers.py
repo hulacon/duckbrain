@@ -51,7 +51,10 @@ def _inspect_labels_cached(path: str, mtime: float, size: int) -> tuple:
     try:
         proc = subprocess.run(
             [exe, "inspect", path],
-            capture_output=True, text=True, timeout=_INSPECT_TIMEOUT_S, check=False,
+            capture_output=True,
+            text=True,
+            timeout=_INSPECT_TIMEOUT_S,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return ()

@@ -27,6 +27,7 @@ def _series(num, desc, cls, n=300):
 
 # ---- parsing ----
 
+
 def test_parse_task_run_heuristic():
     assert parse_task_run("div_retScene_perTone_r1") == ("divRetScenePerTone", 1)
     assert parse_task_run("single_perFace_r2") == ("singlePerFace", 2)
@@ -48,6 +49,7 @@ def test_extract_task_label_backward_compat():
 
 
 # ---- mapping ----
+
 
 def test_build_mapping_run_from_name():
     series = [
@@ -79,6 +81,7 @@ def test_build_mapping_run_by_repetition():
 
 
 # ---- config generation ----
+
 
 def test_generate_config_emits_run_entity():
     series = [
@@ -147,9 +150,7 @@ def test_generate_config_named_fmap_pairs_use_acq_entities():
         group_entities={"encoding": "acq-encoding", "retrieval": "acq-retrieval"},
     )
     cfg = generate_config(series, fmaps)
-    entities = sorted(
-        d["custom_entities"] for d in cfg["descriptions"] if d["datatype"] == "fmap"
-    )
+    entities = sorted(d["custom_entities"] for d in cfg["descriptions"] if d["datatype"] == "fmap")
     assert entities == [
         "acq-encoding_dir-AP",
         "acq-encoding_dir-PA",
@@ -228,10 +229,14 @@ def test_generate_config_reproin_unknown_anat_label_is_not_passed_through():
     recovers as T1w — and a label with nothing to recover from is left
     unconverted rather than writing an invalid suffix into the dataset.
     """
-    cfg = generate_config([_series(1, "anat-T1www", "anat", n=200)], FieldmapDetection(strategy="none"))
+    cfg = generate_config(
+        [_series(1, "anat-T1www", "anat", n=200)], FieldmapDetection(strategy="none")
+    )
     assert [d["suffix"] for d in cfg["descriptions"] if d["datatype"] == "anat"] == ["T1w"]
 
-    cfg = generate_config([_series(1, "anat-BOGUS", "anat", n=200)], FieldmapDetection(strategy="none"))
+    cfg = generate_config(
+        [_series(1, "anat-BOGUS", "anat", n=200)], FieldmapDetection(strategy="none")
+    )
     assert [d for d in cfg["descriptions"] if d["datatype"] == "anat"] == []
 
 
@@ -243,9 +248,7 @@ def test_generate_config_single_fmap_pair_unchanged():
     ]
     fmaps = FieldmapDetection(strategy="series_number", groups={"": {"ap": 6, "pa": 7}})
     cfg = generate_config(series, fmaps)
-    entities = sorted(
-        d["custom_entities"] for d in cfg["descriptions"] if d["datatype"] == "fmap"
-    )
+    entities = sorted(d["custom_entities"] for d in cfg["descriptions"] if d["datatype"] == "fmap")
     assert entities == ["dir-AP", "dir-PA"]
 
 
@@ -259,6 +262,7 @@ def test_generate_config_honors_edited_mapping():
 
 
 # ---- project-wide fieldmap bindings ([fmap_mapping]) ----
+
 
 def _two_pair_session():
     """Two complete 'encoding' pairs plus two bolds whose names match neither."""
@@ -346,9 +350,7 @@ def test_fmap_rule_naming_a_missing_group_raises():
     for — the one outcome an explicit binding exists to prevent."""
     series, fmaps, mapping = _two_pair_session()
     with pytest.raises(ValueError) as exc:
-        generate_config(
-            series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "recall")]
-        )
+        generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "recall")])
     msg = str(exc.value)
     assert "recall" in msg and "does not exist" in msg
     # The message has to name what *is* available or it isn't actionable.
@@ -408,6 +410,7 @@ def test_fmap_rules_from_config_tolerates_junk():
 
 # ---- sessions with no fieldmaps, and the "none" opt-out ----
 
+
 def _no_fmap_session():
     series = [_series(1, "t1_mprage", "anat", n=200), _series(9, "study_r1", "func", n=200)]
     mapping = [TaskRunEntry(9, "study_r1", "bold", task="study", run=1)]
@@ -444,9 +447,7 @@ def test_none_opts_a_task_out_of_distortion_correction():
 def test_none_opts_out_even_when_pairs_are_available():
     """A run that shouldn't be corrected, in a session that could correct it."""
     series, fmaps, mapping = _two_pair_session()
-    cfg = generate_config(
-        series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "none")]
-    )
+    cfg = generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("test", "none")])
     assert _b0_by_task(cfg) == {"study": "B0map_encoding", "test": None}
 
 
@@ -464,9 +465,7 @@ def test_a_real_group_named_none_wins_over_the_sentinel():
         _series(6, "se_epi_pa_none", "fmap", n=3),
         _series(9, "study_r1", "func", n=200),
     ]
-    fmaps = FieldmapDetection(
-        strategy="series_description", groups={"none": {"ap": 5, "pa": 6}}
-    )
+    fmaps = FieldmapDetection(strategy="series_description", groups={"none": {"ap": 5, "pa": 6}})
     mapping = [TaskRunEntry(9, "study_r1", "bold", task="study", run=1)]
     cfg = generate_config(series, fmaps, mapping=mapping, fmap_rules=[FmapRule("study", "none")])
     assert _b0_by_task(cfg) == {"study": "B0map_none"}

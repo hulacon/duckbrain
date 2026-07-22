@@ -100,6 +100,7 @@ class ConsistencyIssue:
 
 # ---- on-disk provenance readers ---------------------------------------------
 
+
 def _read_json(path: Path) -> dict:
     try:
         with open(path) as f:
@@ -114,7 +115,7 @@ class DerivativeProvenance:
 
     exists: bool
     generated_by: list  # list of {Name, Version, ...}
-    raw_link: str       # DatasetLinks.raw, "" if absent
+    raw_link: str  # DatasetLinks.raw, "" if absent
 
     def _tool_entry(self, tool: str) -> dict:
         for entry in self.generated_by:
@@ -209,6 +210,7 @@ def _newest_mtime(root: Path, pattern: str) -> float | None:
 
 # ---- individual checks ------------------------------------------------------
 
+
 def _check_config_vs_provenance(config: dict) -> list[ConsistencyIssue]:
     prov = read_derivative_provenance(config, "fmriprep")
     if not prov.exists or not prov.raw_link:
@@ -216,21 +218,29 @@ def _check_config_vs_provenance(config: dict) -> list[ConsistencyIssue]:
     on_nordic = _links_to_nordic(prov.raw_link)
     want_nordic = _use_nordic(config)
     if want_nordic and not on_nordic:
-        return [ConsistencyIssue(
-            "config-vs-provenance", stage="fmriprep",
-            message=(
-                "Project config has use_nordic on, but the fMRIPrep derivative "
-                f"was generated from raw data (DatasetLinks.raw = {prov.raw_link}). "
-                "Re-run fMRIPrep on the NORDIC tree, or turn use_nordic off."),
-        )]
+        return [
+            ConsistencyIssue(
+                "config-vs-provenance",
+                stage="fmriprep",
+                message=(
+                    "Project config has use_nordic on, but the fMRIPrep derivative "
+                    f"was generated from raw data (DatasetLinks.raw = {prov.raw_link}). "
+                    "Re-run fMRIPrep on the NORDIC tree, or turn use_nordic off."
+                ),
+            )
+        ]
     if not want_nordic and on_nordic:
-        return [ConsistencyIssue(
-            "config-vs-provenance", stage="fmriprep",
-            message=(
-                "Project config has use_nordic off, but the fMRIPrep derivative "
-                f"was generated from a NORDIC tree (DatasetLinks.raw = {prov.raw_link}). "
-                "Turn use_nordic on, or re-run fMRIPrep on raw data."),
-        )]
+        return [
+            ConsistencyIssue(
+                "config-vs-provenance",
+                stage="fmriprep",
+                message=(
+                    "Project config has use_nordic off, but the fMRIPrep derivative "
+                    f"was generated from a NORDIC tree (DatasetLinks.raw = {prov.raw_link}). "
+                    "Turn use_nordic on, or re-run fMRIPrep on raw data."
+                ),
+            )
+        ]
     return []
 
 
@@ -318,14 +328,18 @@ def _check_container_drift(config: dict) -> list[ConsistencyIssue]:
             continue
 
         if drifted:
-            issues.append(ConsistencyIssue(
-                "container-drift", stage=stage,
-                message=(
-                    f"Config now resolves {tool} to {basis} `{now}`, but the "
-                    f"existing derivative was produced with `{was}`. The pin was "
-                    "bumped (or the image rebuilt) without re-running — re-run to "
-                    "match, or the derivative is stale relative to the pin."),
-            ))
+            issues.append(
+                ConsistencyIssue(
+                    "container-drift",
+                    stage=stage,
+                    message=(
+                        f"Config now resolves {tool} to {basis} `{now}`, but the "
+                        f"existing derivative was produced with `{was}`. The pin was "
+                        "bumped (or the image rebuilt) without re-running — re-run to "
+                        "match, or the derivative is stale relative to the pin."
+                    ),
+                )
+            )
     return issues
 
 
@@ -358,15 +372,19 @@ def _check_toolbox_drift(config: dict) -> list[ConsistencyIssue]:
     current = describe(nordic_toolbox_dir(config))
     if not recorded or not current or recorded == current:
         return []
-    return [ConsistencyIssue(
-        "toolbox-drift", stage="nordic",
-        message=(
-            f"The NORDIC toolbox is now at `{current}`, but the existing NORDIC "
-            f"derivative was produced with `{recorded}`. The checkout moved (a "
-            "`git pull`, or a local edit if marked -dirty) — the derivative no "
-            "longer reflects the toolbox that would run today. Re-run NORDIC, or "
-            "check out the recorded version."),
-    )]
+    return [
+        ConsistencyIssue(
+            "toolbox-drift",
+            stage="nordic",
+            message=(
+                f"The NORDIC toolbox is now at `{current}`, but the existing NORDIC "
+                f"derivative was produced with `{recorded}`. The checkout moved (a "
+                "`git pull`, or a local edit if marked -dirty) — the derivative no "
+                "longer reflects the toolbox that would run today. Re-run NORDIC, or "
+                "check out the recorded version."
+            ),
+        )
+    ]
 
 
 def _release_line(version: str) -> str:
@@ -397,10 +415,12 @@ _DUCKBRAIN_RECIPE_STAGES = {
     "converted": (
         "duckbrain generates the dcm2bids config — which series become T1w/bold, "
         "task names, fieldmap pairing — so a release-line change can alter the "
-        "BIDS layout itself"),
+        "BIDS layout itself"
+    ),
     "nordic": (
         "duckbrain supplies NORDIC's MATLAB entrypoint and sbatch recipe, so a "
-        "release-line change can alter what NORDIC actually does"),
+        "release-line change can alter what NORDIC actually does"
+    ),
 }
 
 
@@ -436,14 +456,19 @@ def _check_duckbrain_drift(config: dict) -> list[ConsistencyIssue]:
         recorded = _release_line(prov.tool_version("duckbrain"))
         if not recorded or recorded == current:
             continue
-        issues.append(ConsistencyIssue(
-            "duckbrain-drift", severity="note", stage=stage,
-            message=(
-                f"This output was produced by duckbrain {recorded}.x; duckbrain is "
-                f"now {current}.x. Not a problem in itself — but {why}. Worth "
-                "noting for provenance; re-run only if you want the current "
-                "behavior."),
-        ))
+        issues.append(
+            ConsistencyIssue(
+                "duckbrain-drift",
+                severity="note",
+                stage=stage,
+                message=(
+                    f"This output was produced by duckbrain {recorded}.x; duckbrain is "
+                    f"now {current}.x. Not a problem in itself — but {why}. Worth "
+                    "noting for provenance; re-run only if you want the current "
+                    "behavior."
+                ),
+            )
+        )
     return issues
 
 
@@ -461,14 +486,18 @@ def _check_matlab_drift(config: dict) -> list[ConsistencyIssue]:
     current = matlab_module(config)
     if not recorded or not current or recorded == current:
         return []
-    return [ConsistencyIssue(
-        "matlab-drift", stage="nordic",
-        message=(
-            f"NORDIC now runs under `{current}`, but the existing derivative was "
-            f"produced under `{recorded}`. The MATLAB module changed without a "
-            "re-run — the derivative reflects a different runtime than the one "
-            "that would run today."),
-    )]
+    return [
+        ConsistencyIssue(
+            "matlab-drift",
+            stage="nordic",
+            message=(
+                f"NORDIC now runs under `{current}`, but the existing derivative was "
+                f"produced under `{recorded}`. The MATLAB module changed without a "
+                "re-run — the derivative reflects a different runtime than the one "
+                "that would run today."
+            ),
+        )
+    ]
 
 
 # ---- NORDIC sidecars: per-file provenance -----------------------------------
@@ -598,16 +627,21 @@ def _latest_per_subject(config: dict, stage: str) -> dict[str, dict]:
     return latest
 
 
-def _mixed_issue(check: str, stage: str, label: str, what: str,
-                 groups: dict[str, list[str]]) -> list[ConsistencyIssue]:
+def _mixed_issue(
+    check: str, stage: str, label: str, what: str, groups: dict[str, list[str]]
+) -> list[ConsistencyIssue]:
     if len(groups) < 2:
         return []
-    return [ConsistencyIssue(
-        check, stage=stage,
-        message=(
-            f"{label} was run under different {what} within the same derivative "
-            f"({_describe_groups(groups)}). Re-run so it is uniform."),
-    )]
+    return [
+        ConsistencyIssue(
+            check,
+            stage=stage,
+            message=(
+                f"{label} was run under different {what} within the same derivative "
+                f"({_describe_groups(groups)}). Re-run so it is uniform."
+            ),
+        )
+    ]
 
 
 def _check_mixed_provenance(config: dict) -> list[ConsistencyIssue]:
@@ -624,25 +658,41 @@ def _check_mixed_provenance(config: dict) -> list[ConsistencyIssue]:
     latest = _latest_per_subject(config, "fmriprep")
     if latest:
         issues += _mixed_issue(
-            "mixed-provenance", "fmriprep", "fMRIPrep", "input variants across subjects",
-            _group_subjects_by(latest, "input_variant"))
+            "mixed-provenance",
+            "fmriprep",
+            "fMRIPrep",
+            "input variants across subjects",
+            _group_subjects_by(latest, "input_variant"),
+        )
         issues += _mixed_issue(
-            "mixed-version", "fmriprep", "fMRIPrep", "tool versions across subjects",
-            _group_subjects_by(latest, "tool_version"))
+            "mixed-version",
+            "fmriprep",
+            "fMRIPrep",
+            "tool versions across subjects",
+            _group_subjects_by(latest, "tool_version"),
+        )
         issues += _mixed_issue(
-            "mixed-runtime", "fmriprep", "fMRIPrep", "runtimes across subjects",
-            _group_subjects_by(latest, "runtime"))
+            "mixed-runtime",
+            "fmriprep",
+            "fMRIPrep",
+            "runtimes across subjects",
+            _group_subjects_by(latest, "runtime"),
+        )
 
     # NORDIC — its own sidecars, the only source correct per *file*. A subject
     # listed under two values means its own runs disagree (a part re-run), which
     # the log's one-row-per-subject view cannot express. Input variant is not
     # checked: NORDIC always consumes raw.
     issues += _mixed_issue(
-        "mixed-version", "nordic", "NORDIC", "toolbox versions",
-        _sidecar_groups(config, "ToolVersion"))
+        "mixed-version",
+        "nordic",
+        "NORDIC",
+        "toolbox versions",
+        _sidecar_groups(config, "ToolVersion"),
+    )
     issues += _mixed_issue(
-        "mixed-runtime", "nordic", "NORDIC", "runtimes",
-        _sidecar_groups(config, "Runtime"))
+        "mixed-runtime", "nordic", "NORDIC", "runtimes", _sidecar_groups(config, "Runtime")
+    )
     return issues
 
 
@@ -672,13 +722,17 @@ def _check_staleness(config: dict) -> list[ConsistencyIssue]:
     nordic_new = _newest_mtime(deriv / "nordic", "sub-*/**/func/*_bold.nii.gz")
     fmriprep_old = _newest_mtime(deriv / "fmriprep", "sub-*/**/func/*_desc-preproc_bold.nii.gz")
     if nordic_new is not None and fmriprep_old is not None and nordic_new > fmriprep_old:
-        return [ConsistencyIssue(
-            "staleness", stage="fmriprep",
-            message=(
-                "NORDIC output is newer than the fMRIPrep derivative that should "
-                "consume it — NORDIC was likely re-run after fMRIPrep. fMRIPrep is "
-                "stale; re-run it on the updated NORDIC data."),
-        )]
+        return [
+            ConsistencyIssue(
+                "staleness",
+                stage="fmriprep",
+                message=(
+                    "NORDIC output is newer than the fMRIPrep derivative that should "
+                    "consume it — NORDIC was likely re-run after fMRIPrep. fMRIPrep is "
+                    "stale; re-run it on the updated NORDIC data."
+                ),
+            )
+        ]
     return []
 
 
@@ -693,13 +747,18 @@ def _check_presence(config: dict) -> list[ConsistencyIssue]:
         if fp in ("complete", "partial") and nd == "missing":
             sub, ses = r["subject"], r["session"]
             unit = f"sub-{sub}" + (f"/ses-{ses}" if ses else "")
-            issues.append(ConsistencyIssue(
-                "presence", subject=sub, stage="nordic",
-                message=(
-                    f"{unit}: fMRIPrep output exists but its NORDIC input is "
-                    "missing, though the project is configured for NORDIC. The "
-                    "fMRIPrep run may not reflect the intended denoised input."),
-            ))
+            issues.append(
+                ConsistencyIssue(
+                    "presence",
+                    subject=sub,
+                    stage="nordic",
+                    message=(
+                        f"{unit}: fMRIPrep output exists but its NORDIC input is "
+                        "missing, though the project is configured for NORDIC. The "
+                        "fMRIPrep run may not reflect the intended denoised input."
+                    ),
+                )
+            )
     return issues
 
 

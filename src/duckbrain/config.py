@@ -62,9 +62,7 @@ def _find_config_dir() -> Path:
         p = Path(env)
         if p.is_dir() and (p / "base.toml").exists():
             return p
-        raise FileNotFoundError(
-            f"DUCKBRAIN_CONFIG_DIR={env} does not contain base.toml"
-        )
+        raise FileNotFoundError(f"DUCKBRAIN_CONFIG_DIR={env} does not contain base.toml")
 
     # Walk up from package location
     current = Path(__file__).resolve().parent
@@ -167,8 +165,8 @@ def load_config(
         raise FileNotFoundError(f"base.toml not found in {config_dir}")
 
     config = _load_toml(base_path)
-    _deep_update(config, _load_toml(user_config_path()))          # shared resources
-    _deep_update(config, _load_toml(config_dir / "local.toml"))   # legacy overrides
+    _deep_update(config, _load_toml(user_config_path()))  # shared resources
+    _deep_update(config, _load_toml(config_dir / "local.toml"))  # legacy overrides
 
     pd = resolve_project_dir(project_dir)
     if pd is not None:
@@ -199,7 +197,8 @@ def get_slurm_resources(config: dict, step: str) -> dict:
     slurm = config.get("slurm", {})
     overrides = slurm.get("overrides", {}).get(step, {})
     role_default = (
-        slurm.get("partition_long", "computelong") if overrides.get("long")
+        slurm.get("partition_long", "computelong")
+        if overrides.get("long")
         else slurm.get("partition", "compute")
     )
     return {
@@ -298,9 +297,7 @@ def _save_sections(
     return _dump_toml(path, stored)
 
 
-def save_user_config(
-    data: dict, owned: Mapping[str, Sequence[str]] | None = None
-) -> Path:
+def save_user_config(data: dict, owned: Mapping[str, Sequence[str]] | None = None) -> Path:
     """Update the user-level config (shared machine resources).
 
     Section-scoped; see :func:`_save_sections`. Preserves ``[recent]``, which the
@@ -364,9 +361,7 @@ def recent_projects(existing_only: bool = True) -> list[str]:
     return out
 
 
-def remember_project(
-    project_dir: str | Path, limit: int = _MAX_RECENT_PROJECTS
-) -> Path:
+def remember_project(project_dir: str | Path, limit: int = _MAX_RECENT_PROJECTS) -> Path:
     """Push *project_dir* to the front of the recent-projects list (MRU).
 
     Read-modify-write so it only touches ``[recent]`` and preserves every other
@@ -379,7 +374,8 @@ def remember_project(
     if not isinstance(section, dict):
         section = {}
     previous = [
-        p for p in (section.get("projects") or [])
+        p
+        for p in (section.get("projects") or [])
         if isinstance(p, str) and _normalized_project(p) != entry
     ]
     section["projects"] = [entry, *previous][:limit]
@@ -396,7 +392,8 @@ def forget_project(project_dir: str | Path) -> Path:
     if not isinstance(section, dict):
         return path
     section["projects"] = [
-        p for p in (section.get("projects") or [])
+        p
+        for p in (section.get("projects") or [])
         if isinstance(p, str) and _normalized_project(p) != entry
     ]
     data["recent"] = section

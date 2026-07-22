@@ -47,9 +47,7 @@ class FieldmapDetection:
 #
 # The trailing ``__<free text>`` is console-only cruft by design and is dropped.
 _REPROIN_SEQTYPES = {"anat": "anat", "func": "func", "fmap": "fmap", "dwi": "dwi"}
-_REPROIN_SEQTYPE_RE = re.compile(
-    r"^(anat|func|fmap|dwi)(?:-[A-Za-z0-9]+)?(?=_|$)", re.IGNORECASE
-)
+_REPROIN_SEQTYPE_RE = re.compile(r"^(anat|func|fmap|dwi)(?:-[A-Za-z0-9]+)?(?=_|$)", re.IGNORECASE)
 # A BIDS key-value entity anywhere in the name, e.g. "_run-01", "_acq-1mm".
 _REPROIN_ENTITY_RE = re.compile(r"[_-](ses|task|acq|run|dir)-([A-Za-z0-9.]+)", re.IGNORECASE)
 
@@ -263,7 +261,9 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
             direction = "pa"
 
         if direction not in ("ap", "pa"):
-            warnings.append(f"Cannot determine direction for Series_{s.series_number}_{s.description}")
+            warnings.append(
+                f"Cannot determine direction for Series_{s.series_number}_{s.description}"
+            )
             continue
 
         if reproin:
@@ -279,8 +279,7 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
         by_name.setdefault(group_name, []).append((s.series_number, direction))
 
     paired = {
-        name: _pair_fieldmaps(items, explicit_runs.get(name, {}))
-        for name, items in by_name.items()
+        name: _pair_fieldmaps(items, explicit_runs.get(name, {})) for name, items in by_name.items()
     }
     total_pairs = sum(len(p) for p in paired.values())
 
@@ -341,9 +340,7 @@ def _pair_fieldmaps(
             by_run.setdefault(explicit_runs[series_number], {})[direction] = series_number
         return sorted(by_run.items())
 
-    return [
-        (i, pair) for i, pair in enumerate(_pair_by_acquisition(directed), start=1)
-    ]
+    return [(i, pair) for i, pair in enumerate(_pair_by_acquisition(directed), start=1)]
 
 
 def _pair_by_acquisition(directed: list[tuple[int, str]]) -> list[dict[str, int]]:
