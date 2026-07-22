@@ -166,8 +166,17 @@ def _launch(stage, sub, ses, config, params, *, verb="Submitted"):
 
 
 def _run_popover(row, stage, config):
+    from duckbrain.core.surveyor import run_progress
+
     sub, ses = str(row["subject"]), str(row["session"])
     st.markdown(f"**Run {stage}** — {_unit_label(sub, ses)}")
+    # A partial cell has to say how partial. Without the count it reads as an
+    # unexplained "not done" and the operator goes and counts files by hand.
+    if row.get(stage) == "partial":
+        progress = run_progress(config, stage, sub, ses)
+        if progress:
+            done, total = progress
+            st.warning(f"{done} of {total} runs present — {total - done} still missing.")
     params = _stage_params(
         stage, config, key_prefix=f"run_{stage}_{sub}_{ses}", subject=sub, session=ses)
     if st.button(f"▶ Run {stage}", type="primary", key=f"runbtn_{stage}_{sub}_{ses}"):

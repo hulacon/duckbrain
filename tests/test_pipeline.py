@@ -772,3 +772,50 @@ def test_submission_log_write_failure_never_sinks_submit(monkeypatch, tmp_path):
     monkeypatch.setattr(P, "record_submission", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
     # Submission still returns its job id despite the logging blowup.
     assert advance_one(_config(tmp_path), "converted", "008", "") == "JOB123"
+
+
+# ---- DB-002: PARTIAL is the state that lets real failures through ------------
+
+def test_partial_stage_lets_a_failed_badge_through(monkeypatch):
+    """COMPLETE suppresses a stale sacct failure — and that rule was only safe
+    once COMPLETE stopped meaning "one output exists".
+
+    While a 1-of-4 conversion graded COMPLETE, the suppression hid the three
+    genuine failures. Now that shortfall grades PARTIAL, which never reaches the
+    suppression branch, so the badge appears with no change to the rule itself.
+    """
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "partial", "fmriprep": "missing", "mriqc": "missing"},
+        hist=[JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c")],
+    )
+    row = survey_live({}).iloc[0]
+    assert row["converted_job"] == "failed"
+
+
+def test_complete_stage_still_suppresses_a_stale_failure(monkeypatch):
+    """The other half of the rule, pinned so nobody re-derives it.
+
+    A failed run followed by a successful re-run leaves a real FAILED record and
+    a complete tree; the tree is the truth.
+    """
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "complete", "fmriprep": "missing", "mriqc": "missing"},
+        hist=[JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c")],
+    )
+    assert survey_live({}).iloc[0]["converted_job"] == ""
+
+
+def test_a_partial_dependency_blocks_the_downstream_stage(monkeypatch):
+    """The reason DB-002 was more than a display bug: a green-but-partial
+    conversion unlocked preprocessing on a half-converted unit."""
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "partial", "fmriprep": "missing", "mriqc": "missing"},
+    )
+    row = survey_live({}).iloc[0]
+    assert stage_runnable(row, "fmriprep") is False

@@ -76,6 +76,11 @@ def _status_from(root: Path, required: list[str], subtree: str) -> Status:
     Returns COMPLETE when every required glob matches, PARTIAL when some do (or
     the stage's *subtree* exists but nothing expected landed — a crashed run),
     and MISSING when the subtree is absent entirely.
+
+    A glob is a *presence* test — it says some matching file exists, not that
+    every one that should exist does. For anything with one output per BOLD run,
+    use :func:`_grade` against :func:`_expected_bold_keys` instead; see the
+    "expected vs. found" section below.
     """
     subtree_exists = _has_match(root, subtree)
     hits = sum(_has_match(root, pat) for pat in required)
@@ -84,6 +89,102 @@ def _status_from(root: Path, required: list[str], subtree: str) -> Status:
     if hits > 0 or subtree_exists:
         return Status.PARTIAL
     return Status.MISSING
+
+
+# ---- expected vs. found -----------------------------------------------------
+#
+# Presence was never completion, but the trackers below graded COMPLETE off a
+# single wildcard match — so a unit with four BOLD runs where one succeeded and
+# three failed read green at every stage (DB-001 in the 2026-07-22 review, and a
+# repeat of the MRIQC anat/func bug noted in `_mriqc_status`, one granularity
+# down). Green also *unlocks* downstream work through `pipeline.stage_runnable`
+# and suppresses a real sacct failure in `pipeline.survey_live`, so the wrong
+# answer propagated rather than merely displaying.
+#
+# The fix needs no state store, because all four stages are one-output-per-run
+# downstream of the same fact — the unit's raw BOLD list. Count what should
+# exist, count what does, and compare identities rather than totals so a stale
+# leftover can't stand in for a missing run.
+
+#: Entities that identify the *acquisition* a file belongs to. Anything else in
+#: a derivative filename (``space-``, ``res-``, ``den-``, ``desc-``, ``hemi-``)
+#: describes a representation of that acquisition, not a different one.
+#:
+#: An allowlist rather than a denylist, deliberately: an entity we have never
+#: seen is then ignored, collapsing two files to one key. A denylist would do the
+#: opposite and split one run into two, inventing a shortfall out of an fMRIPrep
+#: upgrade.
+_KEY_ENTITIES = ("sub", "ses", "task", "acq", "ce", "dir", "rec", "run", "echo", "part")
+
+
+def _entity_key(name: str) -> str:
+    """The acquisition identity of a BIDS filename, stripped of representation.
+
+    ``sub-01_task-rest_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz``
+    and ``sub-01_task-rest_run-1_bold.nii.gz`` are the same acquisition, so both
+    key to ``sub-01_task-rest_run-1``.
+    """
+    stem = name.split(".")[0]
+    parts = []
+    for token in stem.split("_"):
+        key, sep, value = token.partition("-")
+        if sep and key in _KEY_ENTITIES:
+            parts.append(f"{key}-{value}")
+    return "_".join(parts)
+
+
+def _found_keys(root: Path, pattern: str) -> set[str]:
+    """:func:`_entity_key` of every non-empty file under *root* matching *pattern*."""
+    keys: set[str] = set()
+    try:
+        for p in root.glob(pattern):
+            if p.is_file() and p.stat().st_size > 0:
+                keys.add(_entity_key(p.name))
+    except (OSError, ValueError):
+        return set()
+    return keys
+
+
+def _expected_bold_keys(bids_root: str | Path, subject: str, session: str) -> set[str]:
+    """One key per raw BOLD run the unit has — what every downstream stage owes.
+
+    Reuses ``nordic.get_bold_runs``, already the run-count source of truth in
+    ``pipeline._build_nordic``/``_build_fmriprep``, so the surveyor cannot
+    disagree with what was actually launched.
+    """
+    from .nordic import get_bold_runs
+
+    return {_entity_key(p.name) for p in get_bold_runs(bids_root, subject, session)}
+
+
+def _grade(expected: set[str], found: set[str], subtree_exists: bool) -> Status:
+    """COMPLETE when every *expected* key is present, PARTIAL when only some are.
+
+    Superset, never equality: a tree holding *more* than expected — two output
+    spaces, a re-run, a leftover from a previous config — is still complete. That
+    asymmetry is what keeps this from firing on every legitimate difference
+    between what a tool writes and what we predicted.
+    """
+    if expected and expected <= found:
+        return Status.COMPLETE
+    if found or subtree_exists:
+        return Status.PARTIAL
+    return Status.MISSING
+
+
+def _fmriprep_input_dir(config: dict) -> str:
+    """The BIDS root fMRIPrep actually reads for this project.
+
+    Mirrors ``pipeline._build_fmriprep``: raw BIDS normally, but the assembled
+    ``derivatives/nordic/bids_format`` tree when ``use_nordic``. fMRIPrep must be
+    graded against what it was given — expecting runs NORDIC never produced would
+    pin it at PARTIAL forever for work it was never asked to do. The shortfall
+    still surfaces, once, at the NORDIC stage that caused it.
+    """
+    paths = config["paths"]
+    if config.get("nordic", {}).get("use_nordic", False):
+        return f"{paths['derivatives_dir']}/nordic/bids_format"
+    return paths["bids_dir"]
 
 
 # ---- unit discovery ---------------------------------------------------------
@@ -128,13 +229,18 @@ def discover_units(paths: dict) -> list[tuple[str, str]]:
 # ``sub-XX[/ses-YY]`` fragment and ``sub-{sub}`` for filename tokens; ``**`` and
 # ``*`` absorb the optional session so one pattern serves sessionless and
 # multi-session layouts alike.
+#
+# They take the whole *config*, not just ``config["paths"]``: fMRIPrep's
+# expectation depends on ``use_nordic`` (see :func:`_fmriprep_input_dir`), and a
+# tracker that could only see paths had no way to ask.
 
 def _fmt(pattern: str, subject: str, session: str) -> str:
     ss = str(sub_ses_relpath(subject, session))
     return pattern.format(ss=ss, sub=subject)
 
 
-def _ingested_status(paths: dict, subject: str, session: str) -> Status:
+def _ingested_status(config: dict, subject: str, session: str) -> Status:
+    paths = config["paths"]
     dicom = Path(paths["sourcedata_dir"]) / sub_ses_relpath(subject, session) / "dicom"
     resolved = dicom.resolve() if dicom.is_symlink() else dicom
     if resolved.is_dir() and any(resolved.iterdir()):
@@ -142,82 +248,145 @@ def _ingested_status(paths: dict, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _converted_status(paths: dict, subject: str, session: str) -> Status:
+def _expected_conversion_counts(
+    paths: dict, subject: str, session: str
+) -> dict[str, int] | None:
+    """How many NIfTIs each datatype should hold, per the reviewed dcm2bids config.
+
+    ``None`` when there is no config to read — see :func:`_converted_status`.
+
+    Counts by datatype rather than matching filenames: a description carries
+    ``datatype``/``suffix``/``custom_entities``, not an output name, and
+    reconstructing dcm2bids' naming here would be a second implementation of it
+    that could drift.
+    """
+    import json
+
+    cfg = (Path(paths["sourcedata_dir"]) / sub_ses_relpath(subject, session)
+           / "dcm2bids_config.json")
+    try:
+        descriptions = json.loads(cfg.read_text()).get("descriptions", [])
+    except (OSError, ValueError):
+        return None
+    counts: dict[str, int] = {}
+    for d in descriptions:
+        datatype = d.get("datatype")
+        if datatype:
+            counts[datatype] = counts.get(datatype, 0) + 1
+    return counts or None
+
+
+def _converted_status(config: dict, subject: str, session: str) -> Status:
+    paths = config["paths"]
     root = Path(paths["bids_dir"])
     subtree = _fmt("{ss}", subject, session)
-    # A finished conversion leaves NIfTIs; a leftover tmp_dcm2bids scratch dir
-    # with no NIfTIs means a crashed/partial run.
-    if _has_match(root, _fmt("{ss}/**/*.nii.gz", subject, session)):
+    expected = _expected_conversion_counts(paths, subject, session)
+
+    if expected is not None:
+        # Compare per datatype, so a session that converted its anat and dropped
+        # half its BOLDs is partial rather than green.
+        found: dict[str, int] = {}
+        for p in root.glob(_fmt("{ss}/**/*.nii.gz", subject, session)):
+            if p.is_file() and p.stat().st_size > 0:
+                found[p.parent.name] = found.get(p.parent.name, 0) + 1
+        if found and all(found.get(dt, 0) >= n for dt, n in expected.items()):
+            return Status.COMPLETE
+        if found:
+            return Status.PARTIAL
+    elif _has_match(root, _fmt("{ss}/**/*.nii.gz", subject, session)):
+        # No reviewed config to compare against — an externally converted or
+        # hand-dropped BIDS tree, which `discover_units` deliberately supports.
+        # Presence is the only claim we can make about a dataset duckbrain did
+        # not produce; grading every such unit PARTIAL would be a worse lie.
         return Status.COMPLETE
+
+    # A leftover tmp_dcm2bids scratch dir with no NIfTIs means a crashed run.
     tmp = root / "sourcedata" / "tmp_dcm2bids"
     if _has_match(root, subtree) or _has_match(tmp, f"sub-{subject}*"):
         return Status.PARTIAL
     return Status.MISSING
 
 
-def _bids_has_func(paths: dict, subject: str, session: str) -> bool:
-    root = Path(paths["bids_dir"])
-    return _has_match(root, _fmt("{ss}/**/func/*_bold.nii.gz", subject, session))
-
-
-def _fmriprep_status(paths: dict, subject: str, session: str) -> Status:
+def _fmriprep_status(config: dict, subject: str, session: str) -> Status:
+    paths = config["paths"]
     root = Path(paths["derivatives_dir"]) / "fmriprep"
     if not root.is_dir():
         return Status.MISSING
-    # Subject-level markers (the .html report is written per subject, only once
-    # the workflow finishes) + the anat preproc image. Wildcards absorb space-
-    # and session-tagged filename variants.
-    required = [
+
+    # Subject-level markers: the .html report is written per subject, only once
+    # the workflow finishes, and the anat preproc image. Anat is deliberately not
+    # counted — fMRIPrep merges N input T1w into one preprocessed image, so there
+    # is no run-to-output correspondence to check.
+    anat_required = [
         f"sub-{subject}.html",
         _fmt("{ss}/**/anat/sub-{sub}*_desc-preproc_T1w.nii.gz", subject, session),
     ]
-    # Only demand func output when the input BIDS actually has func for this unit
-    # (an anat-only run legitimately has none).
-    if _bids_has_func(paths, subject, session):
-        required.append(
-            _fmt("{ss}/**/func/sub-{sub}*_desc-preproc_bold.nii.gz", subject, session)
+    anat_ok = all(_has_match(root, p) for p in anat_required)
+
+    # Func is one preprocessed BOLD per input BOLD. An anat-only unit has an
+    # empty expected set and so carries no func requirement at all — the
+    # expectation *is* the list of files the input tree holds.
+    expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
+    found = _found_keys(
+        root, _fmt("{ss}/**/func/sub-{sub}*_desc-preproc_bold.nii.gz", subject, session)
+    )
+    subtree_exists = _has_match(root, _fmt("{ss}", subject, session))
+
+    if not expected:
+        return Status.COMPLETE if anat_ok else (
+            Status.PARTIAL if subtree_exists else Status.MISSING
         )
-    return _status_from(root, required, _fmt("{ss}", subject, session))
-
-
-def _mriqc_status(paths: dict, subject: str, session: str) -> Status:
-    root = Path(paths["derivatives_dir"]) / "mriqc"
-    if not root.is_dir():
-        return Status.MISSING
-    # MRIQC writes one IQM JSON per BIDS image. A *finished* run therefore has the
-    # anat T1w IQMs and — when the unit has func — the bold IQMs too. Grading
-    # complete on the anat json alone hid a real failure mode: the func synthstrip
-    # node OOM-killed after the anat json had already landed, so the whole func
-    # QC was missing yet the cell read green (all 9 divatten_gui_beta subjects,
-    # 2026-07-10). Mirror _fmriprep_status: anat required, func required only when
-    # the input BIDS actually has func. Check both MRIQC's nested (sub-XX/anat/…)
-    # and flat-root filename layouts.
-    def _any(*pats: str) -> bool:
-        return any(_has_match(root, p) for p in pats)
-
-    has_anat = _any(_fmt("{ss}/**/*_T1w.json", subject, session),
-                    f"sub-{subject}*_T1w.json")
-    has_func = _any(_fmt("{ss}/**/*_bold.json", subject, session),
-                    f"sub-{subject}*_bold.json")
-    needs_func = _bids_has_func(paths, subject, session)
-    if has_anat and (has_func or not needs_func):
+    if anat_ok and expected <= found:
         return Status.COMPLETE
-    if has_anat or has_func or _has_match(root, _fmt("{ss}", subject, session)) \
-            or _has_match(root, f"sub-{subject}*"):
+    if anat_ok or found or subtree_exists:
         return Status.PARTIAL
     return Status.MISSING
 
 
-def _nordic_status(paths: dict, subject: str, session: str) -> Status:
+def _mriqc_status(config: dict, subject: str, session: str) -> Status:
+    paths = config["paths"]
+    root = Path(paths["derivatives_dir"]) / "mriqc"
+    if not root.is_dir():
+        return Status.MISSING
+    # MRIQC writes one IQM JSON per BIDS image. Grading complete on the anat json
+    # alone hid a real failure: the func synthstrip node OOM-killed after the anat
+    # json had landed, so the whole func QC was missing yet the cell read green
+    # (all 9 divatten_gui_beta subjects, 2026-07-10). Requiring *any* func json
+    # fixed that at the anat/func granularity and left the same bug one level
+    # down — an OOM one run later still read green. Count the runs.
+    #
+    # Both of MRIQC's layouts have to be checked: nested (sub-XX/**/…) and flat
+    # filenames at the derivative root.
+    has_anat = any(_has_match(root, p) for p in (
+        _fmt("{ss}/**/*_T1w.json", subject, session), f"sub-{subject}*_T1w.json"))
+
+    expected = _expected_bold_keys(paths["bids_dir"], subject, session)
+    found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | \
+        _found_keys(root, f"sub-{subject}*_bold.json")
+    subtree_exists = _has_match(root, _fmt("{ss}", subject, session)) or \
+        _has_match(root, f"sub-{subject}*")
+
+    if has_anat and (not expected or expected <= found):
+        return Status.COMPLETE
+    if has_anat or found or subtree_exists:
+        return Status.PARTIAL
+    return Status.MISSING
+
+
+def _nordic_status(config: dict, subject: str, session: str) -> Status:
+    paths = config["paths"]
     root = Path(paths["derivatives_dir"]) / "nordic"
     if not root.is_dir():
         return Status.MISSING
-    # Completion = NORDIC-denoised BOLD niftis under the unit's func dir. The `**`
-    # absorbs the optional session (and NORDIC's own hardcoded ``ses-`` for
-    # sessionless data — a known nordic.py path quirk), so one glob serves both
-    # layouts. A ``nordic/sub-XX`` dir with no denoised bold → partial (crashed).
-    required = [_fmt("{ss}/**/func/sub-{sub}*_bold.nii.gz", subject, session)]
-    return _status_from(root, required, _fmt("{ss}", subject, session))
+    # NORDIC denoises one BOLD per array task, keeps the input basename, and
+    # skips any run whose output already exists — so a partial array leaves
+    # exactly the "some runs denoised" state a single wildcard called complete.
+    # This is the stage where the bug was most reachable.
+    expected = _expected_bold_keys(paths["bids_dir"], subject, session)
+    found = _found_keys(
+        root, _fmt("{ss}/**/func/sub-{sub}*_bold.nii.gz", subject, session)
+    )
+    return _grade(expected, found, _has_match(root, _fmt("{ss}", subject, session)))
 
 
 _TRACKERS = {
@@ -269,13 +438,52 @@ def survey_project(config: dict) -> pd.DataFrame:
             if stage == "nordic" and not nordic_applies:
                 row[stage] = Status.NA.value
                 continue
-            row[stage] = tracker(paths, subject, session).value
+            row[stage] = tracker(config, subject, session).value
         rows.append(row)
 
     columns = ["subject", "session", *STAGES]
     if not rows:
         return pd.DataFrame(columns=columns)
     return pd.DataFrame(rows, columns=columns)
+
+
+def run_progress(
+    config: dict, stage: str, subject: str, session: str
+) -> tuple[int, int] | None:
+    """``(runs_done, runs_expected)`` for a run-counted stage, or None.
+
+    A PARTIAL cell with no number is its own silent degrade — it says "not
+    finished" and leaves the operator to go count files. Returns None for stages
+    that aren't one-output-per-run (ingested, converted) and whenever the unit
+    has no BOLD runs to count.
+
+    Shares :func:`_expected_bold_keys` and :func:`_found_keys` with the trackers
+    so the number shown and the status shown cannot disagree.
+    """
+    paths = config["paths"]
+    if stage == "nordic":
+        expected = _expected_bold_keys(paths["bids_dir"], subject, session)
+        found = _found_keys(
+            Path(paths["derivatives_dir"]) / "nordic",
+            _fmt("{ss}/**/func/sub-{sub}*_bold.nii.gz", subject, session),
+        )
+    elif stage == "fmriprep":
+        expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
+        found = _found_keys(
+            Path(paths["derivatives_dir"]) / "fmriprep",
+            _fmt("{ss}/**/func/sub-{sub}*_desc-preproc_bold.nii.gz", subject, session),
+        )
+    elif stage == "mriqc":
+        expected = _expected_bold_keys(paths["bids_dir"], subject, session)
+        root = Path(paths["derivatives_dir"]) / "mriqc"
+        found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | \
+            _found_keys(root, f"sub-{subject}*_bold.json")
+    else:
+        return None
+
+    if not expected:
+        return None
+    return len(expected & found), len(expected)
 
 
 def summarize(matrix: pd.DataFrame) -> dict:

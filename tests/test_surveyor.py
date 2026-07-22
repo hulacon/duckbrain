@@ -274,3 +274,199 @@ def test_na_unit_is_not_runnable_and_counts_as_done(tmp_path):
     # project setting, not a blanket refusal.
     on = _nordic_config(tmp_path)
     assert stage_runnable(survey_project(on).loc[0], "nordic", on)
+
+
+# ---- DB-002: completion counts runs, it doesn't just find one ----------------
+#
+# Every tracker graded COMPLETE off a single wildcard match, so a unit with four
+# BOLD runs where one succeeded read green at every stage — and green unlocks
+# downstream work (`stage_runnable`) and suppresses a real sacct failure
+# (`survey_live`), so the wrong answer propagated instead of merely displaying.
+
+def _seed_bold_runs(root, ss, n, task="rest"):
+    """*n* raw BOLD runs (+ the anat every stage keys off) for one unit.
+
+    Filenames carry the full entity prefix (``sub-01_ses-01_…``), because that is
+    what BIDS requires and what the derivative filenames these are compared
+    against will have.
+    """
+    prefix = "_".join(ss.split("/"))
+    _touch(root / ss / "anat" / f"{prefix}_T1w.nii.gz")
+    for i in range(1, n + 1):
+        _touch(root / ss / "func" / f"{prefix}_task-{task}_run-{i}_bold.nii.gz")
+
+
+def test_entity_key_strips_derivative_entities():
+    """Two representations of one acquisition must key the same, or every
+    output space would read as a separate missing run."""
+    from duckbrain.core.surveyor import _entity_key
+
+    raw = _entity_key("sub-01_ses-02_task-rest_run-1_bold.nii.gz")
+    assert raw == "sub-01_ses-02_task-rest_run-1"
+    assert _entity_key(
+        "sub-01_ses-02_task-rest_run-1_space-MNI152NLin2009cAsym_res-2"
+        "_desc-preproc_bold.nii.gz"
+    ) == raw
+    # ...and two genuinely different runs must not collapse.
+    assert _entity_key("sub-01_task-rest_run-2_bold.nii.gz") != raw
+
+
+def test_nordic_partial_when_only_some_runs_denoised(tmp_path):
+    """The headline case. NORDIC denoises one BOLD per array task and skips any
+    run whose output exists, so a partial array is the expected failure — and it
+    graded COMPLETE off the one run that landed."""
+    _seed_bold_runs(tmp_path, "sub-01", 4)
+    _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
+           / "sub-01_task-rest_run-1_bold.nii.gz")
+
+    df = survey_project(_nordic_config(tmp_path))
+    assert df.loc[0, "nordic"] == Status.PARTIAL
+
+
+def test_nordic_complete_when_every_run_denoised(tmp_path):
+    _seed_bold_runs(tmp_path, "sub-01", 4)
+    for i in range(1, 5):
+        _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
+               / f"sub-01_task-rest_run-{i}_bold.nii.gz")
+
+    df = survey_project(_nordic_config(tmp_path))
+    assert df.loc[0, "nordic"] == Status.COMPLETE
+
+
+def test_fmriprep_partial_when_one_run_is_missing(tmp_path):
+    _seed_bold_runs(tmp_path, "sub-01", 3)
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01.html")
+    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
+    for i in (1, 2):
+        _touch(fp / "sub-01" / "func"
+               / f"sub-01_task-rest_run-{i}_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "fmriprep"] == Status.PARTIAL
+
+
+def test_fmriprep_complete_with_several_output_spaces_per_run(tmp_path):
+    """Superset, not equality: more outputs than expected is still finished."""
+    _seed_bold_runs(tmp_path, "sub-01", 2)
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01.html")
+    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
+    for i in (1, 2):
+        for space in ("MNI152NLin2009cAsym_res-2", "fsaverage6", "func"):
+            _touch(fp / "sub-01" / "func"
+                   / f"sub-01_task-rest_run-{i}_space-{space}_desc-preproc_bold.nii.gz")
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "fmriprep"] == Status.COMPLETE
+
+
+def test_fmriprep_expectation_follows_the_nordic_tree(tmp_path):
+    """With use_nordic, fMRIPrep reads the assembled tree — grade it on that.
+
+    Expecting runs NORDIC never produced would pin fMRIPrep at PARTIAL forever
+    for work it was never given. The shortfall still surfaces once, at NORDIC.
+    """
+    _seed_bold_runs(tmp_path, "sub-01", 4)          # raw has 4
+    nordic = tmp_path / "derivatives" / "nordic"
+    for i in (1, 2, 3):                              # NORDIC produced 3
+        _touch(nordic / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_bold.nii.gz")
+        _touch(nordic / "bids_format" / "sub-01" / "func"
+               / f"sub-01_task-rest_run-{i}_bold.nii.gz")
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01.html")
+    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
+    for i in (1, 2, 3):                              # ...and fMRIPrep did all 3
+        _touch(fp / "sub-01" / "func"
+               / f"sub-01_task-rest_run-{i}_desc-preproc_bold.nii.gz")
+
+    row = survey_project(_nordic_config(tmp_path)).loc[0]
+    assert row["fmriprep"] == Status.COMPLETE
+    assert row["nordic"] == Status.PARTIAL   # reported once, where it happened
+
+
+def test_fmriprep_anat_only_unit_needs_no_func(tmp_path):
+    """An empty expected set is no requirement, not an unmet one."""
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01.html")
+    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "fmriprep"] == Status.COMPLETE
+
+
+def test_mriqc_partial_when_one_runs_iqm_is_missing(tmp_path):
+    """The 2026-07-10 OOM, one granularity down: the func node died after two
+    of three jsons had landed."""
+    _seed_bold_runs(tmp_path, "sub-01", 3)
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01_T1w.json")
+    for i in (1, 2):
+        _touch(mq / f"sub-01_task-rest_run-{i}_bold.json")
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "mriqc"] == Status.PARTIAL
+
+
+def test_mriqc_complete_in_the_nested_layout(tmp_path):
+    _seed_bold_runs(tmp_path, "sub-01/ses-01", 2)
+    mq = tmp_path / "derivatives" / "mriqc" / "sub-01" / "ses-01"
+    _touch(mq / "anat" / "sub-01_ses-01_T1w.json")
+    for i in (1, 2):
+        _touch(mq / "func" / f"sub-01_ses-01_task-rest_run-{i}_bold.json")
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "mriqc"] == Status.COMPLETE
+
+
+def _write_dcm2bids_config(root, ss, n_bold, n_anat=1):
+    import json
+
+    descriptions = [{"datatype": "anat", "suffix": "T1w"} for _ in range(n_anat)]
+    descriptions += [{"datatype": "func", "suffix": "bold"} for _ in range(n_bold)]
+    path = root / "sourcedata" / ss / "dcm2bids_config.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"descriptions": descriptions}))
+
+
+def test_converted_partial_when_fewer_niftis_than_the_reviewed_config(tmp_path):
+    _write_dcm2bids_config(tmp_path, "sub-01", n_bold=4)
+    _seed_bold_runs(tmp_path, "sub-01", 2)   # only 2 of the 4 landed
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "converted"] == Status.PARTIAL
+
+
+def test_converted_complete_when_every_description_produced_a_file(tmp_path):
+    _write_dcm2bids_config(tmp_path, "sub-01", n_bold=3)
+    _seed_bold_runs(tmp_path, "sub-01", 3)
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "converted"] == Status.COMPLETE
+
+
+def test_converted_falls_back_to_presence_without_a_reviewed_config(tmp_path):
+    """External BIDS duckbrain never converted. Presence is the only honest
+    claim; grading it PARTIAL would be a worse lie than the old rule."""
+    _seed_bold_runs(tmp_path, "sub-01", 2)
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "converted"] == Status.COMPLETE
+
+
+def test_run_progress_counts_what_the_status_says(tmp_path):
+    """The number in a partial cell must come from the same comparison as its
+    colour, or the cell and its explanation drift apart."""
+    from duckbrain.core.surveyor import run_progress
+
+    _seed_bold_runs(tmp_path, "sub-01", 4)
+    for i in (1, 2):
+        _touch(tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
+               / f"sub-01_task-rest_run-{i}_bold.nii.gz")
+
+    config = _nordic_config(tmp_path)
+    assert survey_project(config).loc[0, "nordic"] == Status.PARTIAL
+    assert run_progress(config, "nordic", "01", "") == (2, 4)
+    # Stages without a per-run correspondence have no number to give.
+    assert run_progress(config, "converted", "01", "") is None
