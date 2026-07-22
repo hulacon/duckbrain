@@ -881,3 +881,88 @@ def test_a_partial_dependency_blocks_the_downstream_stage(monkeypatch):
     )
     row = survey_live({}).iloc[0]
     assert stage_runnable(row, "fmriprep") is False
+
+
+# ---- DB-012: each attempt's script survives the next attempt ----------------
+
+def _fake_sbatch(job_id):
+    """Stand in for subprocess.run(['sbatch', ...])."""
+    from types import SimpleNamespace
+
+    return lambda *a, **kw: SimpleNamespace(
+        returncode=0, stdout=f"Submitted batch job {job_id}\n", stderr="")
+
+
+def test_each_submission_keeps_its_own_script(tmp_path, monkeypatch):
+    """The staged filename came from the job name alone, and a job name is
+    deterministic per unit and stage — so every retry overwrote the previous
+    attempt's script before submitting. After a re-run with different resources
+    the failed attempt's exact command line was unrecoverable, even though its
+    .out log and its submissions.tsv row both still existed."""
+    import subprocess
+
+    from duckbrain.slurm.submit import archived_script_path, submit_job
+
+    scripts = tmp_path / "logs"
+
+    monkeypatch.setattr(subprocess, "run", _fake_sbatch("1001"))
+    submit_job("#!/bin/bash\n# attempt one, mem=32G\n", "fmriprep_04", scripts_dir=scripts)
+
+    monkeypatch.setattr(subprocess, "run", _fake_sbatch("1002"))
+    submit_job("#!/bin/bash\n# attempt two, mem=64G\n", "fmriprep_04", scripts_dir=scripts)
+
+    first = archived_script_path(scripts, "fmriprep_04", "1001")
+    second = archived_script_path(scripts, "fmriprep_04", "1002")
+    assert "mem=32G" in first.read_text(), "the first attempt's script was overwritten"
+    assert "mem=64G" in second.read_text()
+    # ...and the convenient "latest" copy is still there.
+    assert "mem=64G" in (scripts / "fmriprep_04.sbatch").read_text()
+
+
+def test_a_failed_submission_archives_nothing(tmp_path, monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+
+    from duckbrain.slurm.submit import submit_job
+
+    scripts = tmp_path / "logs"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: SimpleNamespace(
+        returncode=1, stdout="", stderr="Invalid partition"))
+
+    with pytest.raises(RuntimeError):
+        submit_job("#!/bin/bash\n", "fmriprep_04", scripts_dir=scripts)
+
+    assert not list(scripts.glob("fmriprep_04_*.sbatch"))
+
+
+def test_submission_record_points_at_the_archived_script(tmp_path):
+    """The record said which container ran but not what was asked of it."""
+    config = {"paths": {"log_dir": str(tmp_path / "code" / "logs")}}
+    record_submission(config, "fmriprep", "04", "", "1001",
+                      script_path="/logs/fmriprep_04_1001.sbatch")
+
+    log = tmp_path / "code" / "logs" / "submissions.tsv"
+    header, row = log.read_text().strip().splitlines()
+    assert "script_path" in header.split("\t")
+    assert row.split("\t")[header.split("\t").index("script_path")] == \
+        "/logs/fmriprep_04_1001.sbatch"
+
+
+def test_an_older_log_gains_the_script_path_column(tmp_path):
+    """Appending a wider row under a narrower header makes a ragged file that
+    pandas refuses, taking the Job Monitor down with it."""
+    log = tmp_path / "code" / "logs" / "submissions.tsv"
+    log.parent.mkdir(parents=True)
+    log.write_text(
+        "timestamp\tsubject\tsession\tstage\ttool\ttool_version\truntime\t"
+        "code_source\tinput_variant\tjob_id\n"
+        "2026-07-01T10:00:00\t04\t\tfmriprep\tfmriprep\t24.1.1\timg\tsrc\traw\t900\n"
+    )
+    config = {"paths": {"log_dir": str(log.parent)}}
+    record_submission(config, "mriqc", "05", "", "1001", script_path="/s.sbatch")
+
+    lines = log.read_text().strip().splitlines()
+    assert lines[0].split("\t")[-1] == "script_path"
+    assert lines[1].split("\t")[9] == "900"      # the old row kept its job id
+    assert lines[1].split("\t")[-1] == ""        # ...and fills the new field empty
+    assert lines[2].split("\t")[-1] == "/s.sbatch"

@@ -3,9 +3,56 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+
+def archived_script_path(scripts_dir: str | Path, job_name: str, job_id: str) -> Path:
+    """Where the immutable copy of a submitted script lives.
+
+    The job id is only known *after* sbatch returns, so the script is written
+    under its job name, submitted, and then copied here.
+    """
+    return Path(scripts_dir) / f"{job_name}_{job_id}.sbatch"
+
+
+def _stage_script(sbatch_content: str, job_name: str, scripts_dir) -> Path:
+    """Write *sbatch_content* somewhere sbatch can read it."""
+    if scripts_dir:
+        scripts_dir = Path(scripts_dir)
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        script_path = scripts_dir / f"{job_name}.sbatch"
+        script_path.write_text(sbatch_content)
+        return script_path
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".sbatch", prefix=f"{job_name}_", delete=False
+    )
+    tmp.write(sbatch_content)
+    tmp.close()
+    return Path(tmp.name)
+
+
+def _archive_script(script_path: Path, scripts_dir, job_name: str, job_id: str) -> None:
+    """Keep an immutable copy of what was actually submitted.
+
+    The staged filename is derived from the job name alone, and a job name is
+    deterministic per unit and stage — so every retry overwrote the previous
+    attempt's script. The submission log recorded which container ran but not
+    what was asked of it, so after a re-run with different resources or flags the
+    exact command line of the failed attempt was unrecoverable, even though its
+    .out log and its submissions.tsv row both still existed.
+
+    The ``{job_name}.sbatch`` copy stays as the convenient "latest" one. Never
+    let an archiving failure sink a submission that already succeeded.
+    """
+    if not scripts_dir:
+        return
+    try:
+        shutil.copy2(script_path, archived_script_path(scripts_dir, job_name, job_id))
+    except OSError:
+        pass
 
 
 def submit_job(
@@ -34,18 +81,7 @@ def submit_job(
     RuntimeError
         If sbatch submission fails.
     """
-    if scripts_dir:
-        scripts_dir = Path(scripts_dir)
-        scripts_dir.mkdir(parents=True, exist_ok=True)
-        script_path = scripts_dir / f"{job_name}.sbatch"
-        script_path.write_text(sbatch_content)
-    else:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".sbatch", prefix=f"{job_name}_", delete=False
-        )
-        tmp.write(sbatch_content)
-        tmp.close()
-        script_path = Path(tmp.name)
+    script_path = _stage_script(sbatch_content, job_name, scripts_dir)
 
     result = subprocess.run(
         ["sbatch", str(script_path)],
@@ -64,7 +100,9 @@ def submit_job(
     if not match:
         raise RuntimeError(f"Could not parse job ID from sbatch output: {result.stdout}")
 
-    return match.group(1)
+    job_id = match.group(1)
+    _archive_script(script_path, scripts_dir, job_name, job_id)
+    return job_id
 
 
 def submit_with_dependency(
@@ -88,18 +126,7 @@ def submit_with_dependency(
     str
         New SLURM job ID.
     """
-    if scripts_dir:
-        scripts_dir = Path(scripts_dir)
-        scripts_dir.mkdir(parents=True, exist_ok=True)
-        script_path = scripts_dir / f"{job_name}.sbatch"
-        script_path.write_text(sbatch_content)
-    else:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".sbatch", prefix=f"{job_name}_", delete=False
-        )
-        tmp.write(sbatch_content)
-        tmp.close()
-        script_path = Path(tmp.name)
+    script_path = _stage_script(sbatch_content, job_name, scripts_dir)
 
     result = subprocess.run(
         [
@@ -121,7 +148,9 @@ def submit_with_dependency(
     if not match:
         raise RuntimeError(f"Could not parse job ID from sbatch output: {result.stdout}")
 
-    return match.group(1)
+    job_id = match.group(1)
+    _archive_script(script_path, scripts_dir, job_name, job_id)
+    return job_id
 
 
 def export_script(sbatch_content: str, output_path: str | Path) -> Path:

@@ -28,7 +28,7 @@ from typing import Callable
 import pandas as pd
 
 from ..slurm.monitor import job_history, list_jobs
-from ..slurm.submit import export_script, submit_job
+from ..slurm.submit import archived_script_path, export_script, submit_job
 from ..slurm.templates import build_context, render_sbatch
 from .surveyor import STAGES, Status, survey_project
 
@@ -369,7 +369,11 @@ def advance_one(
     # and is independent of the ephemeral Job Monitor. Never let logging failure
     # sink an otherwise-successful submission.
     try:
-        record_submission(config, stage, subject, session, job_id, **run_provenance(config, stage))
+        record_submission(
+            config, stage, subject, session, job_id,
+            script_path=str(archived_script_path(log_dir, job_name, job_id)),
+            **run_provenance(config, stage),
+        )
     except Exception:
         pass
     return job_id
@@ -388,9 +392,15 @@ _SUBMISSION_LOG = "submissions.tsv"
 # For a container stage the image is the runtime and its Docker tag names the code
 # inside; NORDIC has two genuinely distinct artifacts (MATLAB runs it, the toolbox
 # checkout is the code). One pair of columns spans both — see run_provenance.
+# ``script_path`` points at the immutable per-attempt copy of what was actually
+# submitted. Without it the record said which container ran but not what was
+# asked of it — and the on-disk script was overwritten by the next retry, so
+# after a re-run with different resources or flags the exact command line of the
+# failed attempt was unrecoverable even though its log and its row both survived.
 _SUBMISSION_COLUMNS = [
     "timestamp", "subject", "session", "stage",
     "tool", "tool_version", "runtime", "code_source", "input_variant", "job_id",
+    "script_path",
 ]
 
 # Columns renamed since logs were first written. The migration maps rows by *name*,
@@ -585,13 +595,15 @@ def record_submission(
     runtime: str = "",
     code_source: str = "",
     input_variant: str = "",
+    script_path: str = "",
 ) -> Path:
     """Append one launched job to ``<log_dir>/submissions.tsv`` (tab-separated).
 
     Provenance fields (``tool``/``tool_version``/``runtime``/``code_source``/
-    ``input_variant``) are keyword-only with empty defaults, so older/hand callers
-    still work; the cockpit passes them via :func:`run_provenance`. Idempotent
-    header: writes the column row only when creating the file.
+    ``input_variant``/``script_path``) are keyword-only with empty defaults, so
+    older/hand callers still work; the cockpit passes them via
+    :func:`run_provenance`. Idempotent header: writes the column row only when
+    creating the file.
     """
     path = _submission_log_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -599,7 +611,7 @@ def record_submission(
     write_header = not path.exists()
     ts = datetime.now().isoformat(timespec="seconds")
     row = [ts, subject, session, stage, tool, tool_version, runtime,
-           code_source, input_variant, str(job_id)]
+           code_source, input_variant, str(job_id), script_path]
     with open(path, "a") as f:
         if write_header:
             f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
