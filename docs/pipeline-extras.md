@@ -132,8 +132,9 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
   in config; there's a durable submission log (`code/logs/submissions.tsv`) and the
   Nipoppy bagel export (`processing_status.tsv`). This item = extend those into
   proper per-derivative `dataset_description.json` + a project provenance manifest.
-- **PROMOTED to the ★ TOP PRIORITY item in `TODO.md`** (paired with the
-  consistency checker). Provenance isn't just documentation; it's the foundation
+- **SHIPPED 2026-07-16 as the ★ item** (paired with the consistency checker); see
+  the `TODO.md` ledger, and "Provenance / consistency residuals" there for the
+  accepted edges. Provenance isn't just documentation; it's the foundation
   for auto-flagging mismatches. Concrete signals found 2026-07-15: fMRIPrep records
   its input in
   `derivatives/fmriprep/dataset_description.json` → `DatasetLinks.raw` (a NORDIC run

@@ -121,6 +121,16 @@ the next one.
 ## Running it
 
 - **Tests:** `python -m pytest tests/ -v`
+- **The gates CI runs** (`.github/workflows/ci.yml`, on every push and PR against
+  Python 3.10 and 3.12) — run them locally before committing, since every setting
+  lives in `pyproject.toml` and a local run enforces exactly what CI does:
+  ```bash
+  ruff check . && ruff format . && python -m pytest tests/ -q --cov=duckbrain
+  ```
+  The coverage floor (`[tool.coverage.report] fail_under`) is a **ratchet**:
+  raise it when coverage rises, never lower it to green a build. It reads low
+  (60%) because the seven Streamlit pages are scripts no test imports; core,
+  config and slurm run 84–100%.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
   Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.
@@ -177,11 +187,14 @@ Key behaviors to know when editing the app:
 
 ## Start here next session
 
-**Read `TODO.md`** — it's ordered by priority and its top item is the next thing
-to do (currently `#14`, re-converting datasets written with inverted fieldmap
-intent — the code is fixed, the data is not). Item ids there (`#2`, `#5b`, …) are stable
-names referenced from this file, `docs/`, and source comments, so they never get
-renumbered; a closed id keeps its line in the ledger so old references resolve.
+**Read `TODO.md`** — it opens with a priority-ordered index of the open items,
+and the first one is the next thing to do (currently `#14`, re-converting
+datasets written with inverted fieldmap intent — the code is fixed, the data is
+not). Trust the index over this sentence; a named item here goes stale the moment
+priorities move. Item ids (`#2`, `#5b`, …) are stable names referenced from this
+file, `docs/`, and source comments, so they never get renumbered; a closed id
+keeps its line in the ledger, and a sub-id like `#17.4` resolves to its parent's
+row, so old references still land.
 
 `docs/handoff-cluster-session.md` is **fully discharged** as of 2026-07-21 — keep
 it as the record of what was asked and how each hypothesis resolved, but don't

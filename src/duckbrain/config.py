@@ -247,7 +247,7 @@ def _save_sections(
     class of bug one layer down.
 
     *owned* is the escape hatch for a section a form owns only **partly**, which
-    is where TODO #17.1 was still open: the Setup page writes four of ``[slurm]``'s
+    is where TODO #17.1 was reopened (DB-001): the Setup page writes four of ``[slurm]``'s
     keys, so replacing the section wholesale deleted ``[slurm.overrides.*]`` and
     hand-written ``slurm.memory``/``slurm.cpus`` — all of it live config (see
     :func:`slurm_resources`) — while the page reported success. Naming a section
