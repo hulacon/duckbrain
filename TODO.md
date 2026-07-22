@@ -12,6 +12,99 @@ the ledger so an old reference still resolves.
 
 ---
 
+## #17 — GUI/config drift: the interface describes something other than what runs
+
+**Opened 2026-07-22.** Ben asked, after two of these in one day, whether there were
+more. There are. This is a systematic audit of one bug class, not a grab bag:
+**the computation is correct and the interface describes it wrongly** — or a
+control looks live and isn't. Invisible to the whole test suite, because nothing
+asserts on what is *displayed*, and every one of them exits 0.
+
+The two that prompted it are already fixed (`9c65ac8` SBRef bindings, `3a578bd`
+save feedback). The rest are below, and `#17.1` is an active hazard to `#14`'s
+re-run — do it first.
+
+### Verified by direct execution (not inferred)
+
+- 🔴 **`#17.1` — "Save project settings" silently deletes `[task_mapping]` and
+  `[fmap_mapping]`.** `save_project_config`/`save_user_config` are plain
+  whole-file `_dump_toml` (`config.py:209-217`) while `save_project_task_map`/
+  `save_project_fmap_map` are deliberately read-modify-write *and say so in their
+  docstrings*. So the Setup page's save writes only its own four sections and
+  drops everything else — task mapping, fieldmap bindings, `[fmriprep]`,
+  `[nordic]`, `[conversion]`, `[slurm.overrides.*]`, and any hand-written key.
+  Proven: a config with `task_mapping` + `fmap_mapping` retains neither after the
+  button's exact payload. **This destroys the bindings `#13` exists to persist,
+  and the toast says "Saved".** Fix is read-modify-write, matching the sibling
+  savers. Do this before defining bindings on the re-run.
+- 🔴 **`#17.2` — Setup's SLURM partition / long partition / time limit reach no
+  job.** Every stage has `[slurm.overrides.<stage>]` in `base.toml` and
+  `get_slurm_resources` takes the override first, so a project setting
+  `partition=MYPART, time=99:00:00` still yields `compute`/`03:00:00` for
+  dcm2bids and `computelong`/`48:00:00` for fMRIPrep. `partition_long` is read by
+  *nothing at all* outside the page that writes it. `account` and `email` do
+  work, which is what makes the section look functional. Decide: make the
+  project layer override the stage defaults, or drop the fields.
+  Note the Preprocessing page's SLURM expander shows the truth and thus silently
+  contradicts Setup.
+- **`#17.3` — a bold can be bound to a half fieldmap pair after all.**
+  `_assign_fmap_group`'s `groups = complete or list(fieldmaps.groups.keys())`
+  (`dcm2bids_config.py:755`) falls back to incomplete groups when a session has
+  *no* complete pair, so an aborted lone AP gets bound — while the Fieldmap
+  Detection panel says an incomplete pair "isn't offered below". The per-session
+  page then hard-errors on a binding it made itself; the bulk/cockpit path has no
+  such guard and submits it. Contradicts the `#4` fix note that says bolds can no
+  longer pick a half group.
+- **`#17.4` — `Status.NA` is defined, ranked and rendered but never produced.**
+  So `nordic` grades MISSING for every unit of a non-NORDIC project: the overview
+  reads `Nordic 0/N`, the column offers `▶▶ Run all N nordic`, the "hide complete"
+  filter can never hide anything, and "Every subject/session is complete 🎉" is
+  unreachable. Related to the Loose-ideas note about the always-on NORDIC column,
+  but that framed it as cosmetic and it is not — it is a one-click invitation to
+  run days of MATLAB producing a derivative nothing will read.
+
+### Found by audit, plausible, not yet re-verified end to end
+
+- **`#17.5` — the JSON-override path leaves the rest of the page describing the
+  auto-generated config.** With hand-edit on, `task`/`run`/`fieldmap` columns
+  still show (and accept edits to) table state that no longer reaches the
+  submitted config, and the "the table no longer drives the config" warning is
+  *inside* the collapsed expander. Both "Save as project default" buttons persist
+  table-derived rules, not the reviewed JSON. This is the same silently-ignored
+  control `CLAUDE.md` forbids, on the main surface rather than the known
+  SBRef-cell exception. Probably the largest single cluster here.
+- **`#17.6` — the page never reads back a saved `dcm2bids_config.json`**, which is
+  exactly what `_build_dcm2bids` reuses. A reviewed session reopens showing
+  heuristic labels, and submitting overwrites the review without a word.
+- **`#17.7` — `directory_picker` seeds its selection once per session**
+  (`components.py:54`), so after switching projects the DICOM-source and
+  project-dir pickers still show the *previous* project's paths — with a green
+  `✓ Selected:` on them — and a save writes them into the new project.
+- **`#17.8` — "Shared resources (all your projects)" is seeded from the fully
+  merged config** (project layer last) but saved to the *user* layer, so it
+  displays a value other projects don't use and can retarget them on save; the
+  same whole-file write drops `[recent]`.
+- **`#17.9` — ingestion reports "success" for a session it didn't write.**
+  `ingest_session` returns the existing target when present (correctly,
+  idempotently), and the page cannot tell that from a real link — so two folders
+  mapped to one subject/session both show green while only the first is on disk.
+  This is the collision `_flag_duplicate_labels` warns about, confirmed as done.
+- **`#17.10` — QC "Reason" writes a decision.** Typing a note on an undecided run
+  saves `decision="investigate"`; no rerun follows, so the header still reads "no
+  decision" and the table never shows the column at all.
+
+### The rule this suggests, and where it belongs
+
+Every finding is a display or a control, so none of them can be caught by the
+existing tests, which assert on returned values. The cheap general defense is the
+one `#13` already articulated for the conversion preview — **derive the display
+from the artifact that will actually be used, never re-derive it from the
+inputs** — extended from the plan table to config widgets and launch params. The
+detection half belongs with `#16`: "what we asked for versus what we got" and
+"what the screen says versus what the config says" are the same question asked one
+layer apart, and `#16`'s design should cover both rather than growing a second
+mechanism.
+
 ## #16 — A sanity-check layer: did the tool do what we asked, not just exit 0?
 
 **Captured 2026-07-21, Ben's idea, prompted by `#15`'s caveat. Design not settled
