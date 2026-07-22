@@ -107,6 +107,21 @@ class ConversionPlan:
         """Bold runs bound to ``group`` — the task↔fieldmap relation, one way round."""
         return [f for f in self.files if f.is_bold and f.fmap_group == group]
 
+    def corrected_by(self, group: str | None) -> list[PlannedFile]:
+        """Every scan ``group`` corrects — bolds *and* their SBRefs.
+
+        Distinct from :meth:`bolds_for_group`, which answers the narrower
+        "which runs". An SBRef is bound by :func:`~duckbrain.core.dcm2bids_config.
+        generate_config` exactly as its BOLD is, and it is not a detail: fMRIPrep
+        builds the BOLD reference from the SBRef when one exists, so an SBRef
+        missing from this view reads as unbound when it is not.
+        """
+        return [
+            f for f in self.files
+            if f.datatype == "func" and f.suffix in ("bold", "sbref")
+            and f.fmap_group == group
+        ]
+
 
 def _bids_filename(subject: str, session: str, entities: str, suffix: str) -> str:
     """Compose ``sub-X[_ses-Y][_<entities>]_<suffix>.nii.gz``."""

@@ -96,6 +96,41 @@ def test_bold_carries_its_fieldmap_group():
     assert [f.series_number for f in plan.bolds_for_group("")] == [9]
 
 
+def test_sbref_is_bound_to_the_same_pair_as_its_bold():
+    """An SBRef takes its BOLD's fieldmap, and the plan must say so.
+
+    fMRIPrep builds the BOLD reference from the SBRef when one is present, so an
+    SBRef the plan reports as unbound is the one image in the chain nothing
+    corrects. ``corrected_by`` is the accessor the GUI's "which pair corrects
+    which run" view reads; it must include SBRefs, while ``bolds_for_group``
+    stays the narrower "which runs" answer.
+    """
+    series = [
+        _series(3, "se_epi_ap"),
+        _series(4, "se_epi_pa"),
+        _series(8, "div_perFace_r1_SBRef", n=1),
+        _series(9, "div_perFace_r1"),
+    ]
+    plan, _ = _plan(series)
+
+    sbref = next(f for f in plan.files if f.suffix == "sbref")
+    bold = next(f for f in plan.files if f.is_bold)
+    assert sbref.fmap_group == bold.fmap_group == ""
+    assert [f.series_number for f in plan.corrected_by("")] == [9, 8]
+    assert [f.series_number for f in plan.bolds_for_group("")] == [9]
+
+
+def test_unbound_sbref_reported_with_its_unbound_bold():
+    """No fieldmaps at all: both halves read as uncorrected, not just the bold."""
+    series = [
+        _series(8, "div_perFace_r1_SBRef", n=1),
+        _series(9, "div_perFace_r1"),
+    ]
+    plan, _ = _plan(series)
+
+    assert {f.series_number for f in plan.corrected_by(None)} == {8, 9}
+
+
 def test_two_pairs_bind_to_distinct_groups():
     series = [
         _series(3, "se_epi_ap"),

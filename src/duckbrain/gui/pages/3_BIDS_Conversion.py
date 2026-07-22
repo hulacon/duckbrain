@@ -287,8 +287,13 @@ def _seed_fieldmap(series):
     if series.series_number in fmap_group_by_series:
         return _group_token[fmap_group_by_series[series.series_number]]
     entry = seed_by_series.get(series.series_number)
-    if entry is None or entry.role != "bold":
+    if entry is None or entry.role not in ("bold", "sbref"):
         return ""
+    # SBRefs included deliberately. They ARE bound (generate_config gives an SBRef
+    # the same B0FieldSource as its BOLD, keyed on the same (task, run)), but this
+    # column used to blank them, so the page said "unbound" about a scan that isn't
+    # — the reported confusion. The cell is display-only for an SBRef; only a bold
+    # row makes a binding, and an edit here is flagged below rather than obeyed.
     group = seed_binding.get((sanitize_task_label(entry.task), entry.run))
     if group is None or group == "none":
         return _NO_FMAP_TOKEN if fieldmaps.groups else ""
@@ -406,6 +411,32 @@ for _, row in effective_df.iterrows():
         continue
     session_fmap_rules.append(
         FmapRule(task=str(row["task"]), group=group, run=_row_run(row["run"]))
+    )
+
+# An SBRef's cell is seeded from its BOLD and is display-only — it inherits, it
+# does not bind. st.data_editor disables columns rather than cells, so the cell is
+# editable and an edit here would otherwise be dropped without a word. Say so
+# instead: a silently-ignored control is the thing CLAUDE.md forbids, and this one
+# would be ignored precisely where the user thought they were fixing a fieldmap.
+_bold_group = {
+    (str(r["task"]), _row_run(r["run"])): str(r["fieldmap"] or "")
+    for _, r in effective_df.iterrows()
+    if r["Type"] == "func"
+}
+_ignored_sbref = [
+    int(r["Series #"])
+    for _, r in effective_df.iterrows()
+    if r["Type"] == "sbref"
+    and (key := (str(r["task"]), _row_run(r["run"]))) in _bold_group
+    and str(r["fieldmap"] or "") != _bold_group[key]
+]
+if _ignored_sbref:
+    st.warning(
+        "Series "
+        + ", ".join(f"`{n}`" for n in sorted(_ignored_sbref))
+        + " are SBRefs, which always take the fieldmap of the BOLD run they "
+        "reference — the edit to their fieldmap cell will be ignored. Change the "
+        "BOLD row instead and the SBRef follows it."
     )
 
 # A bold pointed at a half pair would hand fMRIPrep a correction it cannot run.
@@ -586,7 +617,7 @@ with _save_fmap_col:
 if fieldmaps.groups:
     with st.expander("🔗 Which pair corrects which run", expanded=len(complete_groups) > 1):
         for group_name, dirs in fieldmaps.groups.items():
-            bound = plan.bolds_for_group(group_name)
+            bound = plan.corrected_by(group_name)
             ap, pa = dirs.get("ap"), dirs.get("pa")
             with st.container(border=True):
                 st.markdown(
@@ -602,7 +633,7 @@ if fieldmaps.groups:
                 else:
                     st.caption("No runs bound to this pair.")
 
-        unbound = [f for f in plan.files if f.is_bold and f.fmap_group is None]
+        unbound = plan.corrected_by(None)
         if unbound:
             with st.container(border=True):
                 st.markdown(
