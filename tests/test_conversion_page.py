@@ -274,3 +274,55 @@ def test_a_saved_config_is_surfaced_because_bulk_convert_uses_it(project):
     assert any("reviewed config" in i.value for i in at.info), (
         "a saved config on disk — the one bulk convert will use — is not mentioned"
     )
+
+
+# ---- DB-005: per-session submit is the same operation as bulk submit ---------
+
+def _button(at, label):
+    for b in at.button:
+        if b.label == label:
+            return b
+    raise AssertionError(f"no button {label!r}; have {[b.label for b in at.button]}")
+
+
+def test_per_session_submit_records_provenance_like_the_bulk_path(project, monkeypatch):
+    """The most-used conversion path wrote no submission record at all.
+
+    This page rendered and submitted its own sbatch, skipping `advance_one` and
+    so `record_submission` — so the run had no provenance row, and the cockpit
+    had no job id to hang a log viewer or a cancel button off. Its cells said
+    "No job id recorded for this unit/stage" for every conversion launched here.
+    """
+    import duckbrain.slurm.submit as S
+
+    monkeypatch.setattr(S, "submit_job", lambda *a, **kw: "424242")
+    import duckbrain.core.pipeline as P
+    monkeypatch.setattr(P, "submit_job", lambda *a, **kw: "424242")
+
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    _button(at, "Submit Conversion Job").click().run()
+    assert not at.exception
+
+    log = project / "code" / "logs" / "submissions.tsv"
+    assert log.exists(), "no durable submission record was written"
+    rows = log.read_text().strip().splitlines()
+    assert len(rows) >= 2                       # header + the run
+    assert "424242" in rows[-1]
+    assert "dcm2bids" in rows[-1]
+
+
+def test_export_only_submits_nothing_and_records_nothing(project, monkeypatch):
+    """Export is a dry run; it must not look like a launch in the record."""
+    import duckbrain.core.pipeline as P
+
+    def _boom(*a, **kw):
+        raise AssertionError("export must not submit")
+
+    monkeypatch.setattr(P, "submit_job", _boom)
+
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    _button(at, "Export SBATCH Script").click().run()
+    assert not at.exception
+
+    assert not (project / "code" / "logs" / "submissions.tsv").exists()
+    assert list((project / "code" / "logs").glob("dcm2bids_*.sbatch"))

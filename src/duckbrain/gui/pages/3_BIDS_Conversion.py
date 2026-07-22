@@ -835,54 +835,37 @@ if save_config_btn and parsed_config:
     save_dcm2bids_config(parsed_config, config_json_path)
     st.success(f"Config saved to: `{config_json_path}`")
 
-# Build sbatch context
-from duckbrain.slurm.templates import render_sbatch, build_context
-from duckbrain.core.conversion import get_container_path
-
-container_path = get_container_path(config)
-ctx = build_context(
-    config,
-    "dcm2bids",
-    subject=subject,
-    session=session,
-    dicom_dir=str(dicom_dir),
-    config_json=str(config_json_path),
-    config_json_dir=str(config_json_path.parent),
-    container_path=str(container_path),
-    force=force,
-)
-
 # Logs + submitted scripts go to the project's shared log_dir (not node-local
 # work_dir=/tmp), so a failed job's log stays reachable from the GUI/login node.
 log_dir = paths.get("log_dir", "") or f"{paths.get('work_dir', '/tmp')}/logs"
-job_tag = f"{subject}_{session}" if session else subject
 
-# Submit conversion
-if convert_btn and parsed_config:
-    # Save config first if not already saved
+# Submit and export both go through `advance_one`, the same controller the bulk
+# button above and the cockpit use. This page used to render and submit its own
+# sbatch, which meant the single most-used conversion path wrote no
+# `record_submission` row at all: no provenance for the run, and no job id for
+# the cockpit to hang a log or a cancel button off — its cells just said "No job
+# id recorded for this unit/stage".
+#
+# No new controller parameter is needed for the reviewed JSON. `_build_dcm2bids`
+# reads `<sourcedata>/<sub[/ses]>/dcm2bids_config.json` and only auto-generates
+# when it is absent, and that is exactly the path saved just below.
+if (convert_btn or export_btn) and parsed_config:
     from duckbrain.core.conversion import save_dcm2bids_config
+    from duckbrain.core.pipeline import advance_one
+
     save_dcm2bids_config(parsed_config, config_json_path)
-
     try:
-        Path(log_dir).mkdir(parents=True, exist_ok=True)  # SLURM won't create --output dir
-        sbatch_content = render_sbatch("dcm2bids", ctx)
-        from duckbrain.slurm.submit import submit_job
-
-        job_id = submit_job(sbatch_content, f"dcm2bids_{job_tag}", scripts_dir=log_dir)
-        st.success(f"Job submitted! Job ID: **{job_id}** — logs will appear in `{log_dir}`")
+        if convert_btn:
+            job_id = advance_one(config, "converted", subject, session, force=force)
+            st.success(
+                f"Job submitted! Job ID: **{job_id}** — logs will appear in `{log_dir}`"
+            )
+        else:
+            export_path = advance_one(
+                config, "converted", subject, session, export_only=True, force=force
+            )
+            st.success(f"Script exported to: `{export_path}`")
+            with st.expander("View script"):
+                st.code(Path(export_path).read_text(), language="bash")
     except Exception as e:
-        st.error(f"Submission failed: {e}")
-
-# Export script
-if export_btn and parsed_config:
-    try:
-        sbatch_content = render_sbatch("dcm2bids", ctx)
-        export_path = Path(log_dir) / f"dcm2bids_{job_tag}.sbatch"
-        from duckbrain.slurm.submit import export_script
-
-        export_script(sbatch_content, export_path)
-        st.success(f"Script exported to: `{export_path}`")
-        with st.expander("View script"):
-            st.code(sbatch_content, language="bash")
-    except Exception as e:
-        st.error(f"Export failed: {e}")
+        st.error(f"{'Submission' if convert_btn else 'Export'} failed: {e}")
