@@ -211,17 +211,27 @@ def _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable,
         else:
             files = find_job_logs(job_id, log_dir)
             logs = job_log(job_id, log_dir)
-            text = logs["stdout"] or logs["stderr"]
             if files:
                 st.caption("log: " + ", ".join(f"`{p.name}`" for p in files))
-            if text:
+            # Both streams, stderr first for a failed job. This used to be
+            # `stdout or stderr`, so stderr appeared only when stdout was
+            # entirely empty — and fMRIPrep always writes a stdout banner, which
+            # made the traceback unreachable from the cell that was reporting the
+            # failure. The Job Monitor tab below has always shown both.
+            order = ("stderr", "stdout") if job_state == "failed" else ("stdout", "stderr")
+            shown = False
+            for stream in order:
+                text = logs[stream]
+                if not text:
+                    continue
+                shown = True
+                st.caption(f"**{stream}**")
                 st.code(text[-4000:], language="text")
-                if len(text) > 4000:
-                    st.caption(f"(tail — {len(text):,} chars total)")
                 st.download_button(
-                    "⬇ Download full log", data=text,
-                    file_name=f"{stage}_{job_id}.log", key=f"dl_{stage}_{sub}_{ses}")
-            else:
+                    f"⬇ Download {stream} tail", data=text,
+                    file_name=f"{stage}_{job_id}.{stream}.log",
+                    key=f"dl_{stream}_{stage}_{sub}_{ses}")
+            if not shown:
                 st.caption(f"No log file yet in `{log_dir}` for job {job_id}.")
     if runnable:  # a failed stage is re-runnable; running/queued are gated
         st.divider()

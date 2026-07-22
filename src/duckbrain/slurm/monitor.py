@@ -261,11 +261,40 @@ def find_job_logs(job_id: str, log_dir: str) -> list["Path"]:
     return [found[name] for name in sorted(found)]
 
 
-def job_log(job_id: str, log_dir: str) -> dict[str, str]:
-    """Read stdout/stderr log files for a job.
+def tail_text(path, max_bytes: int = 64_000) -> str:
+    """The last *max_bytes* of *path*, decoded leniently.
+
+    Seeks rather than reading the whole file. fMRIPrep logs run to tens of
+    megabytes and every caller here displays a few thousand characters of the
+    end, so reading the lot was pure cost — paid, in the cockpit's case, on every
+    render of every failed or running cell.
+
+    Drops the first line after a truncation, since seeking lands mid-line.
+    """
+    from pathlib import Path
+
+    path = Path(path)
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+                raw = f.read()
+                _, _, raw = raw.partition(b"\n")
+                return "…\n" + raw.decode(errors="replace")
+            return f.read().decode(errors="replace")
+    except OSError:
+        return ""
+
+
+def job_log(job_id: str, log_dir: str, max_bytes: int = 64_000) -> dict[str, str]:
+    """Read the tail of a job's stdout/stderr logs.
 
     Resolves files via :func:`find_job_logs` (so array-job / NORDIC logs are
     included), routing ``.err`` to stderr and everything else to stdout.
+
+    Bounded per file — see :func:`tail_text`. Pass a larger *max_bytes* for a
+    caller that genuinely wants more; nothing wants the whole file.
 
     Returns
     -------
@@ -274,7 +303,7 @@ def job_log(job_id: str, log_dir: str) -> dict[str, str]:
     """
     result = {"stdout": "", "stderr": ""}
     for match in find_job_logs(job_id, log_dir):
-        content = match.read_text(errors="replace")
+        content = tail_text(match, max_bytes)
         if match.suffix == ".err":
             result["stderr"] += content
         else:

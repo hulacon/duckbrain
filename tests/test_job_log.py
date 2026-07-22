@@ -75,3 +75,50 @@ def test_cancel_job_raises_on_failure(monkeypatch):
     monkeypatch.setattr(M.subprocess, "run", lambda cmd, **kw: R())
     with pytest.raises(RuntimeError, match="scancel failed"):
         M.cancel_job("999")
+
+
+# ---- DB-010: reads are bounded ----------------------------------------------
+
+def test_job_log_reads_only_the_tail_of_a_large_file(tmp_path):
+    """job_log used read_text() on every matching file and concatenated the lot,
+    to display the last few thousand characters. The cockpit's popover body is
+    evaluated on every render — and the dashboard auto-refreshes every 30s — so
+    a failed fMRIPrep cell re-read tens of megabytes twice a minute."""
+    from duckbrain.slurm.monitor import job_log
+
+    big = tmp_path / "fmriprep_123.out"
+    big.write_text("".join(f"line {i}\n" for i in range(200_000)))
+    assert big.stat().st_size > 1_000_000
+
+    logs = job_log("123", str(tmp_path), max_bytes=8_000)
+
+    assert len(logs["stdout"]) <= 8_200          # tail plus the elision marker
+    assert "line 199999" in logs["stdout"]       # ...and it is the *end*
+    assert "line 0\n" not in logs["stdout"]
+
+
+def test_tail_text_returns_a_short_file_whole(tmp_path):
+    from duckbrain.slurm.monitor import tail_text
+
+    p = tmp_path / "small.out"
+    p.write_text("just a few lines\nand another\n")
+    assert tail_text(p, max_bytes=64_000) == "just a few lines\nand another\n"
+
+
+def test_tail_text_survives_invalid_encoding(tmp_path):
+    from duckbrain.slurm.monitor import tail_text
+
+    p = tmp_path / "binary.out"
+    p.write_bytes(b"before\n\xff\xfe not utf-8 \n after\n")
+    assert "after" in tail_text(p)
+
+
+def test_tail_text_drops_the_partial_first_line(tmp_path):
+    """Seeking lands mid-line; a truncated fragment reads as corrupt output."""
+    from duckbrain.slurm.monitor import tail_text
+
+    p = tmp_path / "log.out"
+    p.write_text("aaaaaaaaaaaaaaaaaaaa\nbbbb\ncccc\n")
+    out = tail_text(p, max_bytes=12)
+    assert out.startswith("…\n")
+    assert "aaaa" not in out

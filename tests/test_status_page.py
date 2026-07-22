@@ -246,7 +246,34 @@ def test_failed_cell_exposes_log_and_rerun(project, monkeypatch):
     assert not at.exception
     # The failed cell's popover surfaces the SLURM log tail…
     assert any("distinctive failure line" in c.value for c in at.code)
-    # …and offers a re-run + a download of the full log.
+    # …and offers a re-run + a download of the log.
     keys = _btn_keys(at)
     assert "rerun_fmriprep_01_" in keys
-    assert any(b.key == "dl_fmriprep_01_" for b in at.download_button if b.key)
+    assert any(b.key == "dl_stdout_fmriprep_01_" for b in at.download_button if b.key)
+
+
+def test_failed_cell_shows_stderr_even_when_stdout_is_not_empty(project, monkeypatch):
+    """The popover chose `stdout or stderr`, so stderr appeared only when stdout
+    was entirely empty — and fMRIPrep always writes a stdout banner. The reason
+    the job died was unreachable from the cell reporting that it died."""
+    from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
+
+    cfg = load_config(project_dir=str(project))
+    record_submission(cfg, "fmriprep", "01", "", "77002")
+    log_dir = project / "code" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "fmriprep_77002.out").write_text("fMRIPrep starting: banner line\n")
+    (log_dir / "fmriprep_77002.err").write_text("Traceback: the actual reason\n")
+    monkeypatch.setattr(
+        P, "job_history",
+        lambda days=7: [JobInfo(job_id="77002", name="fmriprep_01", state="FAILED",
+                                partition="c")],
+    )
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    rendered = [c.value for c in at.code]
+    assert any("the actual reason" in c for c in rendered), "stderr was not shown"
+    assert any("banner line" in c for c in rendered), "stdout was dropped instead"
