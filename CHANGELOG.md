@@ -79,7 +79,7 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ### Fixed
 
 *The block below answers an external code review of 2026-07-22
-(`duckbrain-code-review-260722.md`); see TODO `#18`.*
+(`docs/code-review-260722.md`); see TODO `#18`.*
 
 - **A stage is complete when every run is, not when one output matched a glob.**
   Conversion, NORDIC, fMRIPrep and MRIQC each graded complete off a single

@@ -43,7 +43,8 @@ build history; those drifted out of date every time they were duplicated here.
 | What's left to do? | `TODO.md` (open work; closed items are a one-line ledger) |
 | How did we get here / why does this code look like this? | `git log` — the commit message is the record |
 | What changed for users? | `CHANGELOG.md` |
-| How does subsystem X work? | `docs/` (`pipeline-cockpit.md`, `pipeline-extras.md`, `handoff-cluster-session.md`) |
+| How does subsystem X work? | `docs/` (`pipeline-cockpit.md`, `pipeline-extras.md`, `conversion-legibility.md`, `handoff-cluster-session.md`) |
+| What did the 2026-07-22 external audit say? | `docs/code-review-260722.md` — answered and closed; see the `#18` ledger row |
 | How do I cut a release? | `docs/releasing.md` (incl. why the minor bump is not just bookkeeping) |
 | What did we learn validating on real data? | `memory/` via `MEMORY.md` |
 | Why is this rule here? | the comment on the code that enforces it |
