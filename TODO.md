@@ -14,30 +14,15 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[Licensing](#licensing-follow-ups) · [`#16`](#16) sanity-check layer ·
+[`#16`](#16) sanity-check layer ·
 [`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
+[Licensing](#licensing-follow-ups) ·
 [`#18`](#18) type checking · [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
 stages · [`#8`](#8) branding · [Loose ideas](#loose-ideas-not-scheduled)
 
 ---
-
-<a id="licensing-follow-ups"></a>
-## Licensing follow-ups
-
-- ⚠️ **Open question: confirm with UO/RACS that Ben can license duckbrain** under
-  GPL-3.0-or-later (employee-IP policy). **This is overdue, not pending:** the
-  repo is public (verified 2026-07-20), so the publication the question was about
-  has already happened, and making it private again would not un-publish existing
-  clones or forks.
-- The `surveyor.py` → mmmdata port is **blocked on the copyleft choice** — it
-  would need dual-licensing to land in Apache-2.0 nipreps / MIT nipoppy
-  territory. See `memory/licensing-and-versioning`.
-- **`#12` (mmmdata-agents) hits the same wall and is the more likely one to be
-  tried first.** That repo has no LICENSE file, so today there is nothing to
-  reconcile duckbrain's GPL *against*. Give it a licence before, not after, any
-  code moves between them.
 
 <a id="16"></a>
 ## #16 — A sanity-check layer: did the tool do what we asked, not just exit 0?
@@ -65,8 +50,13 @@ what happened.
 **Outcome — did the tool do the thing?** The highest-value family, and the one
 that has actually caught real bugs.
 
-- fMRIPrep reporting SDC *None* while the session has a complete fieldmap pair —
-  the `#14` detector, and the cheapest one to write.
+- fMRIPrep reporting SDC *None* while the session has a complete fieldmap pair.
+  **Partly answered already, and the gap left is instructive.** `fmap-intent`
+  (2026-07-22, `#14`) catches the *cause* from the sidecars, before fMRIPrep
+  runs — strictly better than catching it after hours of compute. What it cannot
+  see is fMRIPrep declining to use metadata that *is* correct, which is the pure
+  outcome check and still wants the report parsed. So the two are complementary:
+  check the input where you can, and the output where only the tool knows.
 - Requested `output_spaces` vs the spaces actually written.
 - "Reuse anat derivatives" actually reusing (the closed 2026-07-20 bug — it was a
   silent no-op; a check would have caught it without the code fix).
@@ -133,8 +123,12 @@ What remains is the eyeball pass.** Full design in
 - **UNVALIDATED in the browser.** Covered by unit + AppTest tests, but nobody has
   looked at it in the running GUI. The colour tokens in particular are only
   asserted as *strings*; whether the board reads well on a real session (and in
-  the dark theme) is an eyeball question. Do it on `divatten_gui_beta` or
-  `mmm_fmap_check` — the latter has the two-pair case the view exists for.
+  the dark theme) is an eyeball question. Do it on `divatten_beta` — note the
+  projects this used to name (`divatten_gui_beta`, `mmm_fmap_check`) were deleted
+  with `#14`, and with them the two-pair case the view most exists to show. A
+  session with two fieldmap pairs is worth re-converting from
+  `/projects/lcni/dcm/hulacon/mmmdata/` before the eyeball pass, or the hardest
+  case goes unlooked-at.
 - **The anti-drift rule this hangs on**, and the reason the phases were built
   this way: the preview is derived **from the generated config dict**, never
   re-derived from the series list. Same stance `resolve_fmap_assignments` takes.
@@ -179,6 +173,46 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   `custom_entities` per the spec unless `--do_not_reorder_entities` is passed, so
   `_fmap_description`'s manual acq/dir/run ordering might be doing work dcm2bids
   would do anyway. Harmless, but worth checking before adding more of it.
+
+<a id="licensing-follow-ups"></a>
+## Licensing follow-ups
+
+- ⚠️ **Can Ben license duckbrain under GPL-3.0-or-later (employee-IP policy)?
+  Asked; answered informally and encouragingly, but not by anyone who owns the
+  question.** RACS said: *"We are not licensing or legal experts here, but it
+  sounds like sharing the app within the university for academic use should be
+  okay."* Record it as what it is — a friendly read from research computing, who
+  explicitly disclaimed expertise.
+
+  **Two gaps, and the second is the one that matters.** RACS answered *may this
+  be shared*; the question was *who owns it and may Ben apply a licence to it* —
+  employee-IP, which research computing does not administer. And the scope they
+  blessed, "within the university for academic use", is **narrower than what has
+  already happened**: the repo is public on GitHub under GPL-3.0 (verified
+  2026-07-20), which is worldwide distribution to anyone for any purpose,
+  including commercial. GPL grants rights RACS's sentence does not reach.
+
+  **Practically this is low-risk and should not gate anything.** Open-sourcing
+  academic research tooling under GPL is thoroughly ordinary, universities
+  generally permit or encourage it, and the publication is already done — making
+  the repo private again would not un-publish existing clones or forks. So the
+  posture is: stop treating this as a blocker, and get a written answer from the
+  office that actually owns IP (technology transfer / research innovation —
+  Innovation Partnership Services is the likely one at UO — or General Counsel)
+  when convenient. Ask them specifically about *public, non-academic-restricted*
+  release, since that is the fact on the ground.
+- **What RACS's answer does *not* touch: the copyleft question below.** That is
+  licence *compatibility*, not permission — even with UO's blessing, GPL code
+  still cannot land in Apache-2.0 or MIT projects without dual-licensing. The two
+  items look adjacent and are independent; answering one leaves the other exactly
+  where it was.
+- The `surveyor.py` → mmmdata port is **blocked on the copyleft choice** — it
+  would need dual-licensing to land in Apache-2.0 nipreps / MIT nipoppy
+  territory. See `memory/licensing-and-versioning`.
+- **`#12` (mmmdata-agents) hits the same wall and is the more likely one to be
+  tried first.** That repo has no LICENSE file, so today there is nothing to
+  reconcile duckbrain's GPL *against*. Give it a licence before, not after, any
+  code moves between them.
 
 <a id="18"></a>
 ## #18 — Static analysis: type checking, and widening the lint

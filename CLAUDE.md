@@ -120,10 +120,19 @@ the next one.
   `/projects/lcni/dcm/hulacon/mmmdata/` is the **nested** layout: one level of
   protocol folders (`anat_session/`, `func_session_*/`), 104 sessions, several
   with two or three fieldmap pairs.
-- **BIDS projects:** `/projects/hulacon/bhutch/divatten` (sub-001 done),
-  `/projects/hulacon/bhutch/divatten_gui_beta` (GUI dogfooding; `use_nordic` is
-  currently **false** here), and `/projects/hulacon/bhutch/mmm_fmap_check`
-  (two-fieldmap-pair conversion, the `#4` validation).
+- **BIDS project — there is exactly one, `/projects/hulacon/bhutch/divatten_beta`**
+  (sub-015…019; MRIQC and NORDIC derivatives, no fMRIPrep yet). Converted
+  2026-07-22, i.e. *after* the fieldmap-intent fix, and verified correct — it is
+  the only dataset on this filesystem known clean.
+- **The three projects this file used to name are gone** (`divatten`,
+  `divatten_gui_beta`, `mmm_fmap_check`), deleted 2026-07-22 as `#14`'s cleanup.
+  Two capabilities lost their live fixture with them: two-fieldmap-pair
+  conversion (the `#4` validation) and anything wanting a real fMRIPrep
+  derivative. Both are re-creatable from the read-only DICOM sources above —
+  `mmmdata/` is where the multi-pair sessions are.
+- **Source DICOMs are read-only and were never at risk**, which is why this was
+  cheap to recover from. Keep it that way: derived BIDS is reproducible, the
+  exports are not.
 
 ## Environment / setup
 
