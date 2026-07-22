@@ -657,14 +657,37 @@ def _norm_state(state: str) -> str:
     return state.split()[0].upper() if state else ""
 
 
+def _attempt_order(job) -> tuple:
+    """Sort key putting the most recent attempt of a job name last.
+
+    ``submit_time`` is sacct's ``Submit``, ISO-8601 and so lexically ordered;
+    it reads ``Unknown`` or empty for some records, which sorts before any real
+    timestamp — right, since a record we can't date shouldn't outrank one we can.
+    The numeric job id breaks ties (two submissions in the same second) and is
+    monotonic within a cluster. Array tasks arrive as ``12345_3``; the base id is
+    what orders attempts, the task index is noise here.
+    """
+    ts = job.submit_time if job.submit_time and job.submit_time[0].isdigit() else ""
+    base = str(job.job_id).split("_")[0].split(".")[0]
+    return (ts, int(base) if base.isdigit() else 0)
+
+
 def _job_state_maps():
     """Build name→state lookups from squeue (active) and sacct (recent history).
 
-    Returns ``(active, failed, completed, active_jobs, hist)`` — the first three
-    are the name-keyed maps survey_live overlays; the last two are the raw
+    Returns ``(active, latest, active_jobs, hist)`` — the first two are the
+    name-keyed maps survey_live overlays; the last two are the raw
     :class:`JobInfo` lists (so a single squeue/sacct pull can also feed the
     cockpit's per-cell job detail + the all-jobs panel without querying twice).
     Degrades to empty maps/lists when SLURM isn't reachable (e.g. off-cluster).
+
+    History reduces to the **latest attempt per job name**, not to a pair of
+    unordered "has failed" / "has completed" sets. Those sets discarded order
+    entirely, so a name that had ever completed could never show a failure again:
+    attempt 1 completes, attempt 2 fails, and the cell stayed silent for the
+    remaining seven days of the window (DB-006 in the 2026-07-22 review). The
+    test that was supposed to pin this asserted the failed-then-completed case,
+    which an order-insensitive implementation passes either way round.
     """
     try:
         active_jobs = list_jobs()
@@ -680,15 +703,12 @@ def _job_state_maps():
         st = _norm_state(j.state)
         active[j.name] = "queued" if st in _QUEUED_STATES else "running"
 
-    failed: set[str] = set()
-    completed: set[str] = set()
+    latest: dict[str, object] = {}
     for j in hist:
-        st = _norm_state(j.state)
-        if st in _FAILED_STATES:
-            failed.add(j.name)
-        elif st == "COMPLETED":
-            completed.add(j.name)
-    return active, failed, completed, active_jobs, hist
+        prev = latest.get(j.name)
+        if prev is None or _attempt_order(j) >= _attempt_order(prev):
+            latest[j.name] = j
+    return active, latest, active_jobs, hist
 
 
 def survey_live(config: dict, with_jobs: bool = False):
@@ -697,8 +717,8 @@ def survey_live(config: dict, with_jobs: bool = False):
     For each surveyor stage that is SLURM-launchable (converted/fmriprep/mriqc),
     adds a companion ``<stage>_job`` column with one of ``running`` / ``queued``
     / ``failed`` / ``""``. Precedence: an active job wins; else a filesystem
-    COMPLETE is never downgraded by a stale sacct failure; else a recent
-    failed-and-not-completed run reads ``failed``.
+    COMPLETE is never downgraded by a stale sacct failure; else the **latest**
+    recent attempt of that job name reads ``failed`` if it failed.
 
     The base status columns are left untouched — filesystem truth and scheduler
     truth stay separate, debuggable facts.
@@ -709,7 +729,7 @@ def survey_live(config: dict, with_jobs: bool = False):
     all-jobs panel without querying SLURM again. Default returns just the matrix.
     """
     matrix = survey_project(config)
-    active, failed, completed, active_jobs, hist = _job_state_maps()
+    active, latest, active_jobs, hist = _job_state_maps()
 
     overlay_stages = [s for s in STAGES if STAGE_SPECS.get(s) and STAGE_SPECS[s].is_slurm]
     for stage in overlay_stages:
@@ -723,7 +743,8 @@ def survey_live(config: dict, with_jobs: bool = False):
                 vals.append(active[name])
             elif row[stage] == Status.COMPLETE.value:
                 vals.append("")
-            elif name in failed and name not in completed:
+            elif (job := latest.get(name)) is not None and \
+                    _norm_state(job.state) in _FAILED_STATES:
                 vals.append("failed")
             else:
                 vals.append("")

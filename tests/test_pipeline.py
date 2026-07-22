@@ -315,17 +315,79 @@ def test_survey_live_failed_overlay_is_runnable(monkeypatch):
 
 
 def test_survey_live_failed_but_later_completed_is_not_failed(monkeypatch):
+    """A later COMPLETED clears the earlier FAILED — and the sacct rows are given
+    newest-first, so this fails if the reduction is order-insensitive.
+
+    The version of this test that shipped listed them oldest-first, which the
+    old two-unordered-sets implementation passed either way round. It asserted
+    the right answer while proving nothing about chronology.
+    """
     _patch_survey(
         monkeypatch,
         {"subject": "04", "session": "", "ingested": "complete",
          "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
         hist=[
-            JobInfo(job_id="8", name="dcm2bids_04", state="FAILED", partition="c"),
-            JobInfo(job_id="9", name="dcm2bids_04", state="COMPLETED", partition="c"),
+            JobInfo(job_id="9", name="dcm2bids_04", state="COMPLETED", partition="c",
+                    submit_time="2026-07-22T11:00:00"),
+            JobInfo(job_id="8", name="dcm2bids_04", state="FAILED", partition="c",
+                    submit_time="2026-07-22T09:00:00"),
         ],
     )
     row = survey_live({}).iloc[0]
-    assert row["converted_job"] == ""  # a later COMPLETED clears the earlier FAILED
+    assert row["converted_job"] == ""
+
+
+def test_survey_live_completed_then_failed_shows_the_failure(monkeypatch):
+    """The chronology nobody tested (DB-006).
+
+    History reduced to "names that failed" and "names that completed", and a
+    failure was reported only when a name was in the first and not the second.
+    So once a job name had ever completed, no later failure could ever surface —
+    for the remaining seven days of the sacct window the retry's failure was
+    invisible and the cell read as quietly idle.
+    """
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        hist=[
+            JobInfo(job_id="8", name="dcm2bids_04", state="COMPLETED", partition="c",
+                    submit_time="2026-07-22T09:00:00"),
+            JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c",
+                    submit_time="2026-07-22T11:00:00"),
+        ],
+    )
+    row = survey_live({}).iloc[0]
+    assert row["converted_job"] == "failed"
+
+
+def test_survey_live_orders_attempts_by_job_id_without_timestamps(monkeypatch):
+    """sacct can report Submit as 'Unknown'; the numeric job id still orders."""
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        hist=[
+            JobInfo(job_id="120", name="dcm2bids_04", state="FAILED", partition="c",
+                    submit_time="Unknown"),
+            JobInfo(job_id="99", name="dcm2bids_04", state="COMPLETED", partition="c",
+                    submit_time="Unknown"),
+        ],
+    )
+    # 120 > 99 numerically; a string compare would put "99" last and hide the fail.
+    assert survey_live({}).iloc[0]["converted_job"] == "failed"
+
+
+def test_survey_live_an_active_retry_outranks_any_history(monkeypatch):
+    _patch_survey(
+        monkeypatch,
+        {"subject": "04", "session": "", "ingested": "complete",
+         "converted": "missing", "fmriprep": "missing", "mriqc": "missing"},
+        active=[JobInfo(job_id="10", name="dcm2bids_04", state="RUNNING", partition="c")],
+        hist=[JobInfo(job_id="9", name="dcm2bids_04", state="FAILED", partition="c",
+                      submit_time="2026-07-22T09:00:00")],
+    )
+    assert survey_live({}).iloc[0]["converted_job"] == "running"
 
 
 def test_survey_live_with_jobs_returns_single_pull_index(monkeypatch):
