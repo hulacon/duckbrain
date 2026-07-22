@@ -463,6 +463,7 @@ if _override_on and _override_text.strip():
 
 if _override_config is not None:
     _from_json = read_config_into_table(_override_config, series_list)
+    _override_unknown: dict[str, list[int]] = {}
     for _i, _num in enumerate(effective_df["Series #"]):
         _num = int(_num)
         if _num in _from_json.task_by_series:
@@ -475,9 +476,28 @@ if _override_config is not None:
             )
         if _num in _from_json.group_by_series:
             _g = _from_json.group_by_series[_num]
+            # A group this session's DICOMs don't contain has no column value to
+            # land in, and blanking the cell says nothing — while
+            # `session_fmap_rules` below skips an empty token, so "Save fieldmap
+            # bindings as project default" would drop the binding without a word.
+            # The import path above already warns about exactly this; the
+            # override path needs the same warning, not a silent blank.
+            if _g is not None and _g not in _group_token:
+                _override_unknown.setdefault(_g, []).append(_num)
             effective_df.iat[_i, effective_df.columns.get_loc("fieldmap")] = (
                 _NO_FMAP_TOKEN if _g is None else _group_token.get(_g, "")
             )
+    if _override_unknown:
+        st.warning(
+            "**The JSON binds a fieldmap pair this session doesn't have.** The "
+            "conversion still runs from the JSON as written, but the rows below "
+            "show an empty fieldmap and saving the bindings as a project default "
+            "would omit them:\n"
+            + "\n".join(
+                f"- `{g}` (series {', '.join(str(n) for n in nums)})"
+                for g, nums in _override_unknown.items()
+            )
+        )
 
 
 def _row_run(value):

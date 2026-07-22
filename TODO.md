@@ -12,6 +12,58 @@ the ledger so an old reference still resolves.
 
 ---
 
+## #18 — External code review, 2026-07-22: closed, except the quality gates
+
+An outside read-only audit of `c732e9e` (`duckbrain-code-review-260722.md`, 12
+findings, DB-001…DB-012). Every finding is now either fixed with a regression
+test or has a written reason it stays; detail in `CHANGELOG.md` and `git log`.
+**What remains open is only the last section.**
+
+Three things worth keeping from it, none of them a bug:
+
+- **Two findings were already fixed by `#17.5`–`#17.10`** (DB-008, DB-009) and one
+  was already half-fixed (DB-003), because the review read the commit before them.
+  The audit also *reopened* `#17.1` correctly: section-scoped saving stopped the
+  whole-file dump but not a *partial* section, so `[slurm.overrides.*]` was still
+  being deleted on every Setup save. **A closed item can be half-closed.** Second
+  time on `#17` alone — `#17.2`'s partition fix also exposed a bug it had hidden.
+- **The review missed a regression its own subject introduced.** `c45f6ca`'s
+  collision check compared `target.resolve()` to the source, which is meaningless
+  for a copied directory, so every copy-mode re-ingest reported a collision
+  against its own output. A review reads the diff's intent; only running it
+  catches that. Fixed first, ahead of any finding.
+- **Two of its claims were wrong**, and were checked rather than actioned: DB-008's
+  "no rerun follows the reason save" (the rerun predated the reviewed commit), and
+  the caveat that `#17.8` was still open (it isn't). Worth recording because the
+  rest of the document was accurate, and treating an audit as uniformly right is
+  how you "fix" working code.
+
+### 🔴 Open: no quality gates at all
+
+The one finding not addressed, and still true: there is **no
+`.github/workflows/`, no `[tool.ruff]`, no `[tool.mypy]`, no coverage
+configuration or floor** — `pytest-cov` is declared in the dev extras and never
+configured. The suite is green on one machine and nothing stops a regression
+merging. A first workflow needs only: import check, `pytest`, `ruff check`,
+`ruff format --check`, and a non-decreasing coverage floor set to wherever it
+currently lands. Type checking can come later, on new and high-risk core modules
+first rather than repo-wide.
+
+### Deferred with a trigger, not forgotten
+
+DB-002's full recommendation was a **persisted expected-output manifest**, written
+at launch. Counting expected-vs-found covers the reported failure and needs no
+state store, which the surveyor's module docstring names as a virtue. A manifest
+additionally catches only two things: a missing output *space* (stripped by
+`_entity_key`, and overridable per launch, so the filesystem holds no record of
+what was asked for), and config drift between runs. **Revisit when per-launch
+`output_spaces` overrides become common.** Half of it exists for free already —
+`nordic.write_nordic_sidecars` writes one sidecar per intended run at launch, so
+NORDIC could be graded by "every sidecar has a matching NIfTI" without inventing
+anything.
+
+---
+
 ## #17 — GUI/config drift: the interface describes something other than what runs
 
 **Opened 2026-07-22.** Ben asked, after two of these in one day, whether there were
@@ -31,6 +83,12 @@ save feedback), and ✅ **`#17.1`–`#17.4` are closed 2026-07-22** — detail i
   `save_project_task_map` always had. It was destroying `[task_mapping]` /
   `[fmap_mapping]` — the bindings `#13` exists to persist — while reporting
   success.
+  - 🔴 **Reopened and re-closed 2026-07-22** (`#18`/DB-001). Section-scope stopped
+    the whole-file dump but not a *partial* section: the Setup page writes four of
+    `[slurm]`'s keys, so a hand-tuned `[slurm.overrides.fmriprep]` and any
+    hand-written `slurm.memory` were still deleted on any save at all. Each form
+    declares the keys it owns now; unowned keys and nested tables survive, and
+    writing an undeclared key raises rather than saving once and vanishing.
 - ✅ **`#17.2` — the SLURM partition fields now reach jobs.** Stages declare a
   *role* (`long = true` on fMRIPrep) instead of naming a partition, so both
   `[slurm] partition` and `partition_long` resolve for every stage; per-stage
@@ -81,12 +139,24 @@ the whole class ships green otherwise.
   no-op; a target already ingested from a *different* folder raises, and the page
   reports "NOT ingested — collision" naming both sides. Three outcomes where there
   was one green "success".
+  - 🔴 **This fix had a regression, found and fixed 2026-07-22** (`#18`): the
+    same-source test compared `target.resolve()` to the source, which is right for
+    a symlink and meaningless for a copy — a directory resolves to itself — so
+    every copy-mode re-ingest collided with its own output. A copy records its
+    source in `.duckbrain-source` now, and an unmarked legacy copy answers
+    "unknown", which is not the same as "different".
+  - Also completed under `#18`: BIDS labels are validated (the mapping table is
+    free text, so `../../x` used to reach `sub_ses_relpath`), and the whole
+    selection is preflighted for duplicate destinations before anything is
+    written — the collision check alone is reactive, and iteration order rather
+    than the user decided which folder won the slot.
 - ✅ **`#17.10` — the QC reason is carried into the verdict you click**, rather than
   saving `investigate` on its own. Confirmed by a toast.
   - **Left undone deliberately:** the metrics table still doesn't carry a
     `current_decision` column. It renders before decisions are loaded, so showing
     it means reordering the page; the decision is visible in each run's expander
     header meanwhile. Small, cosmetic, and not worth restructuring under this item.
+    The column was being *computed* and never rendered; that dead line is gone.
 
 ### The rule this suggests, and where it belongs
 

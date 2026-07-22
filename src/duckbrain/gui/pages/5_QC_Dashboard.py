@@ -142,11 +142,6 @@ if "sub" in metrics_with_outliers.columns:
         axis=1,
     )
 
-    # Add existing decisions
-    metrics_with_outliers["current_decision"] = metrics_with_outliers["run_key"].map(
-        lambda k: existing_decisions.get(k, {}).get("latest", {}).get("decision", "—")
-    )
-
     for idx, row in metrics_with_outliers.iterrows():
         run_key = row["run_key"]
         current = existing_decisions.get(run_key, {}).get("latest", {})

@@ -65,6 +65,74 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   assumption about that study would inherit.
 
 ### Fixed
+
+*The block below answers an external code review of 2026-07-22
+(`duckbrain-code-review-260722.md`); see TODO `#18`.*
+
+- **A stage is complete when every run is, not when one output matched a glob.**
+  Conversion, NORDIC, fMRIPrep and MRIQC each graded complete off a single
+  wildcard, so a unit with four BOLD runs where one succeeded read green at every
+  stage. Not merely cosmetic: green unlocks the next stage and suppresses a real
+  sacct failure, so one surviving run both hid three failures and let fMRIPrep
+  start on a half-converted unit. Completion now compares the runs a unit has
+  against the outputs they produced. **Expect cells that read green yesterday to
+  turn yellow** — the run popover says "2 of 4 runs present" so a partial cell
+  explains itself.
+- **NORDIC's assembled input tree takes anatomy from every session of a subject.**
+  It took anat only from the current session, contradicting fMRIPrep's own
+  deliberately-unfiltered anat policy — so with `use_nordic`, a subject whose T1w
+  was acquired once in `ses-01` gave fMRIPrep a `ses-02` tree containing no
+  anatomical at all. ⚠️ **This can change anat handling for a NORDIC project
+  already mid-study**, since fMRIPrep now sees every session's anat and makes its
+  own selection, exactly as a non-NORDIC run always has.
+- **That tree also converges now instead of only growing.** Every copy was
+  skip-if-exists and nothing was ever removed, so an edited sidecar (fieldmap
+  intent, task labels) or a deleted run stayed in the tree fMRIPrep reads
+  indefinitely. Staged files are refreshed when their source changes and pruned
+  when it is gone — scoped so concurrent per-unit jobs cannot delete each other's
+  files. Concurrent builds no longer crash on a hardlink collision, and fall back
+  to copying where hardlinks are unavailable (a different filesystem, some NFS).
+- **The Setup page's save no longer deletes hand-written SLURM settings.**
+  Saving replaced the whole `[slurm]` section while writing only four of its keys,
+  so a hand-tuned `[slurm.overrides.fmriprep]` — live config — was deleted by a
+  project rename, and later submissions silently used different resources. Each
+  form now owns named fields; everything else in the section survives.
+- **A failure that follows a success is visible again.** Seven days of job history
+  reduced to "names that failed" and "names that completed", so once a job name
+  had ever completed, no later failure could ever surface. The latest attempt
+  decides.
+- **A failed cell shows stderr.** It displayed stdout and fell back to stderr only
+  when stdout was empty — and fMRIPrep always writes a stdout banner, so the
+  traceback was unreachable from the cell reporting the failure. Log reads are
+  also bounded now; the cockpit re-read complete multi-megabyte logs on every
+  30-second refresh to show their last 4000 characters.
+- **Per-session conversion records what it launched.** The Conversion page
+  submitted its own job instead of going through the pipeline controller, so the
+  most-used conversion path wrote no provenance row and left the cockpit with no
+  job id — its cells read "No job id recorded" for every conversion started there.
+- **Each submitted script is kept.** Retrying a stage overwrote the previous
+  attempt's script, and the submission record held no parameters, so a failed
+  attempt's exact command line was unrecoverable even with its log and its record
+  still on disk. Scripts are archived per job id and referenced from the record.
+- **Paths with spaces or shell metacharacters no longer break the sbatch
+  scripts** — `/projects/lcni/dcm/hulacon/Hutchinson/New Program` is a real
+  export. Paths are quoted as single shell arguments, and the NORDIC templates no
+  longer interpolate them into Python and MATLAB string literals nested inside
+  bash strings, where an apostrophe escaped the literal and a `$` was expanded
+  before Python or MATLAB saw it.
+- **The DICOM sorter no longer builds paths from unchecked scanner metadata.**
+  `PatientName` / `StudyDescription` / `SeriesDescription` went into the
+  destination unmodified: a name of `../../escape` wrote outside the project
+  directory, and an absolute-looking `StudyDescription` part discarded the output
+  root entirely. Components are sanitized and containment is enforced;
+  overlapping input/output roots are refused, since with the default *move* the
+  tool would rearrange the source tree into itself.
+- **Re-ingesting a copied session is a no-op again**, not a collision with its own
+  output — a regression in the previous commit's collision check, which compared
+  resolved paths (right for a symlink, meaningless for a directory). Subject and
+  session labels typed into the mapping table are validated before they become
+  paths, and the whole selection is checked for duplicate destinations before
+  anything is written.
 - **The hand-edited config JSON now drives the whole Conversion page.** With the
   override on, the `task` / `run` / `fieldmap` columns kept showing table state
   and kept accepting edits, while a different config was submitted — three
