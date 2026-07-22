@@ -13,6 +13,7 @@ import streamlit as st
 
 from duckbrain.config import (
     PROJECT_ENV,
+    _load_toml,
     forget_project,
     load_config,
     project_config_path,
@@ -83,6 +84,7 @@ project_dir = directory_picker(
     key="project_dir_pick",
     default=current_project or "/projects",
     allow_create=True,
+    reset_on=current_project,
     help="Browse to (or create) your BIDS project directory. Use the ➕ expander "
     "to make a new folder for a new project.",
 )
@@ -105,6 +107,23 @@ paths = config.get("paths", {})
 
 def _get(section: str, key: str, default: str = "") -> str:
     return str(config.get(section, {}).get(key, default))
+
+
+# The "Shared resources" section below saves to the USER config, so it must be
+# seeded from the user config too. Seeding it from the merged config showed the
+# *project's* override under a heading that says "all your projects", and saving
+# then pushed that project's value onto every other one (TODO #17.8).
+_user_cfg = _load_toml(user_config_path())
+
+
+def _get_user(section: str, key: str, default: str = "") -> str:
+    return str((_user_cfg.get(section) or {}).get(key, default))
+
+
+def _project_overrides(section: str, key: str) -> str | None:
+    """The project-layer value when it differs from the shared one, else None."""
+    effective, shared = _get(section, key), _get_user(section, key)
+    return effective if shared and effective and effective != shared else None
 
 
 # ---- Derived layout (read-only) ----
@@ -150,14 +169,19 @@ st.subheader("LCNI DICOM source")
 # Legacy configs used base_dir/group/project; if one is present, seed from it.
 _legacy_dcm = _get("dcm_source", "dir") or "/".join(
     p for p in (_get("dcm_source", "base_dir"), _get("dcm_source", "group"), _get("dcm_source", "project")) if p
-) or "/projects/lcni/dcm"
+)
+# The picker needs somewhere to start, but the starting point is not a choice the
+# user made: saving it as `dcm_source.dir` pointed Ingestion at the root of every
+# LCNI study and defeated build_dcm_source_path's "set dcm_source.dir" error.
+_DCM_BROWSE_ROOT = "/projects/lcni/dcm"
 dcm_dir = directory_picker(
     "DICOM source directory",
     key="dcm_source_pick",
-    default=_legacy_dcm,
+    default=_legacy_dcm or _DCM_BROWSE_ROOT,
     must_exist=True,
     help="Full path to this study's DICOM export folder (the one containing the "
     "session folders, e.g. .../hulacon/Hutchinson/divatten).",
+    reset_on=active_project,
 )
 
 st.subheader("SLURM (project)")
@@ -195,7 +219,8 @@ if _known:
 if st.button("Save project settings"):
     project_cfg = {
         "project": {"name": project_name, "use_sessions": use_sessions},
-        "dcm_source": {"dir": dcm_dir},
+        # An unchanged browse root is not a DICOM source — see _DCM_BROWSE_ROOT.
+        "dcm_source": {"dir": "" if dcm_dir == _DCM_BROWSE_ROOT else dcm_dir},
         "slurm": {
             "account": slurm_account,
             "partition": slurm_partition,
@@ -218,19 +243,42 @@ st.caption(f"Saved to `{user_config_path()}` — reused across every project.")
 containers_dir = directory_picker(
     "Containers directory",
     key="containers_pick",
-    default=_get("paths", "containers_dir") or str(Path.home() / "containers"),
+    default=_get_user("paths", "containers_dir") or str(Path.home() / "containers"),
     must_exist=True,
     help="Directory holding the Singularity .sif / .simg images.",
+    reset_on=active_project,
 )
 c1, c2 = st.columns(2)
 with c1:
-    fs_license = st.text_input("FreeSurfer license (file)", value=_get("paths", "fs_license"))
-    nordic_toolbox_dir = st.text_input("NORDIC toolbox directory", value=_get("paths", "nordic_toolbox_dir"))
-    slurm_email = st.text_input("SLURM email", value=_get("slurm", "email"))
+    fs_license = st.text_input("FreeSurfer license (file)", value=_get_user("paths", "fs_license"))
+    nordic_toolbox_dir = st.text_input("NORDIC toolbox directory", value=_get_user("paths", "nordic_toolbox_dir"))
+    slurm_email = st.text_input("SLURM email", value=_get_user("slurm", "email"))
 with c2:
-    dcm2bids_ver = st.text_input("dcm2bids version", value=_get("containers", "dcm2bids_version") or "3.2.0")
-    fmriprep_ver = st.text_input("fMRIPrep version", value=_get("containers", "fmriprep_version") or "24.1.1")
-    mriqc_ver = st.text_input("MRIQC version", value=_get("containers", "mriqc_version") or "24.0.2")
+    dcm2bids_ver = st.text_input("dcm2bids version", value=_get_user("containers", "dcm2bids_version") or "3.2.0")
+    fmriprep_ver = st.text_input("fMRIPrep version", value=_get_user("containers", "fmriprep_version") or "24.1.1")
+    mriqc_ver = st.text_input("MRIQC version", value=_get_user("containers", "mriqc_version") or "24.0.2")
+
+# A project may pin a different value on top of any of these. The fields above are
+# the shared ones (that is what they save), so say plainly where this project
+# actually differs rather than quietly displaying one and using the other.
+_overridden = {
+    label: value
+    for label, value in (
+        ("containers directory", _project_overrides("paths", "containers_dir")),
+        ("FreeSurfer license", _project_overrides("paths", "fs_license")),
+        ("NORDIC toolbox", _project_overrides("paths", "nordic_toolbox_dir")),
+        ("dcm2bids version", _project_overrides("containers", "dcm2bids_version")),
+        ("fMRIPrep version", _project_overrides("containers", "fmriprep_version")),
+        ("MRIQC version", _project_overrides("containers", "mriqc_version")),
+    )
+    if value is not None
+}
+if _overridden:
+    st.info(
+        "**This project overrides some of these**, so it will use the value on "
+        "the right regardless of what is saved here:\n"
+        + "\n".join(f"- {label} → `{value}`" for label, value in _overridden.items())
+    )
 
 # Validate shared resources
 issues = []

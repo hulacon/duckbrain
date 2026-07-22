@@ -211,3 +211,66 @@ def test_a_task_run_collision_is_reported_as_an_error(two_pair_project):
     at.run()
     assert not at.exception
     assert any("same file" in e.value for e in at.error)
+
+
+# ---- TODO #17.5 / #17.6: the page must describe the config that will ship -----
+
+def _override_with(at, config_dict):
+    """Turn the hand-edit override on and put *config_dict* in the text area."""
+    import json
+
+    at.session_state["dcm2bids_json_override"] = True
+    at.session_state["dcm2bids_config_editor"] = json.dumps(config_dict)
+    return at.run()
+
+
+def test_override_reconciles_the_table_instead_of_leaving_it_stale(project):
+    """With the JSON driving, the decision columns must show what the JSON says.
+
+    They used to keep showing table state and stayed editable, so `task`, `run`
+    and `fieldmap` were three controls that silently did nothing while a
+    different config shipped.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    baseline = _plan_table(at)
+    assert "perFace" in list(baseline["task"])
+
+    at = _override_with(at, {"descriptions": [{
+        "id": "func-bold-renamed", "datatype": "func", "suffix": "bold",
+        "criteria": {"SeriesNumber": 9},
+        "custom_entities": "task-renamed_run-1",
+        "sidecar_changes": {"TaskName": "renamed"},
+    }]})
+    assert not at.exception
+
+    table = _plan_table(at)
+    assert "renamed" in list(table["task"]), (
+        "the table still shows its own task while the JSON ships a different one"
+    )
+    # And `becomes` agrees with it — both now read from the same config.
+    assert any("task-renamed" in str(b) for b in table["becomes"])
+
+
+def test_override_state_is_announced_above_the_table(project):
+    """The only notice used to live inside a collapsed expander at the bottom."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    at = _override_with(at, {"descriptions": []})
+    assert not at.exception
+    blurb = " ".join(i.value for i in at.info) + " ".join(m.value for m in at.markdown)
+    assert "hand-edited JSON" in blurb
+
+
+def test_a_saved_config_is_surfaced_because_bulk_convert_uses_it(project):
+    """`_build_dcm2bids` reuses a saved dcm2bids_config.json and only generates
+    one when absent, so a saved review is what actually runs. The page wrote that
+    file and never read it, so a reviewed session reopened looking unreviewed."""
+    import json
+
+    saved = (project / "sourcedata" / "sub-001" / "ses-01" / "dcm2bids_config.json")
+    saved.write_text(json.dumps({"descriptions": []}))
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert any("reviewed config" in i.value for i in at.info), (
+        "a saved config on disk — the one bulk convert will use — is not mentioned"
+    )

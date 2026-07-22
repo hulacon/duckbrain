@@ -42,7 +42,14 @@ if not sourcedata_dir:
     st.stop()
 
 # ---- Already ingested sessions ----
-from duckbrain.core.ingestion import discover_sessions, list_ingested_sessions, ingest_session, BidsMapping
+from duckbrain.core.ingestion import (
+    BidsMapping,
+    IngestCollision,
+    discover_sessions,
+    ingest_session,
+    list_ingested_sessions,
+    sub_ses_relpath,
+)
 
 ingested = list_ingested_sessions(sourcedata_dir)
 if ingested:
@@ -167,10 +174,28 @@ if not selected.empty:
                     bids_subject=row["bids_subject"],
                     bids_session=row["bids_session"],
                 )
+                # "success" used to cover the idempotent no-op too, so a session
+                # that was never written reported green (TODO #17.9). The three
+                # outcomes are now distinct, and a collision is called out below
+                # the table because a green-looking row is exactly how the second
+                # of two colliding folders went missing unnoticed.
+                target_path = (
+                    Path(sourcedata_dir)
+                    / sub_ses_relpath(mapping.bids_subject, mapping.bids_session)
+                    / "dicom"
+                )
+                already = target_path.exists()
                 try:
                     target = ingest_session(session, mapping, sourcedata_dir, method=method)
+                    results.append({
+                        "folder": row["folder_name"],
+                        "status": "already ingested" if already else "ingested",
+                        "path": str(target),
+                    })
+                except IngestCollision as e:
                     results.append(
-                        {"folder": row["folder_name"], "status": "success", "path": str(target)}
+                        {"folder": row["folder_name"], "status": "NOT ingested — collision",
+                         "path": str(e)}
                     )
                 except Exception as e:
                     results.append(
@@ -180,6 +205,27 @@ if not selected.empty:
 
             st.subheader("Ingestion Results")
             st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
+            _collisions = [r for r in results if r["status"].startswith("NOT ingested")]
+            _errors = [r for r in results if r["status"] == "error"]
+            _written = [r for r in results if r["status"] == "ingested"]
+            if _collisions:
+                st.error(
+                    f"**{len(_collisions)} session(s) were not ingested** because "
+                    "another folder is already mapped to the same subject/session. "
+                    "Their DICOMs are not in sourcedata:\n"
+                    + "\n".join(f"- `{r['folder']}` — {r['path']}" for r in _collisions)
+                )
+            if _errors:
+                st.error(
+                    f"{len(_errors)} session(s) failed:\n"
+                    + "\n".join(f"- `{r['folder']}` — {r['path']}" for r in _errors)
+                )
+            if not _collisions and not _errors:
+                st.success(
+                    f"{len(_written)} session(s) ingested"
+                    + (f", {len(results) - len(_written)} already present." if
+                       len(results) - len(_written) else ".")
+                )
 
 # ---- BIDS Metadata Generation ----
 st.divider()

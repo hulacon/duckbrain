@@ -53,35 +53,40 @@ save feedback), and ✅ **`#17.1`–`#17.4` are closed 2026-07-22** — detail i
   instead of `0/N`. The Preprocessing page's NORDIC tab still runs it
   deliberately.
 
-### Open — found by audit, plausible, not yet re-verified end to end
+### Also closed 2026-07-22 — `#17.5`–`#17.10`
 
-- **`#17.5` — the JSON-override path leaves the rest of the page describing the
-  auto-generated config.** With hand-edit on, `task`/`run`/`fieldmap` columns
-  still show (and accept edits to) table state that no longer reaches the
-  submitted config, and the "the table no longer drives the config" warning is
-  *inside* the collapsed expander. Both "Save as project default" buttons persist
-  table-derived rules, not the reviewed JSON. This is the same silently-ignored
-  control `CLAUDE.md` forbids, on the main surface rather than the known
-  SBRef-cell exception. Probably the largest single cluster here.
-- **`#17.6` — the page never reads back a saved `dcm2bids_config.json`**, which is
-  exactly what `_build_dcm2bids` reuses. A reviewed session reopens showing
-  heuristic labels, and submitting overwrites the review without a word.
-- **`#17.7` — `directory_picker` seeds its selection once per session**
-  (`components.py:54`), so after switching projects the DICOM-source and
-  project-dir pickers still show the *previous* project's paths — with a green
-  `✓ Selected:` on them — and a save writes them into the new project.
-- **`#17.8` — "Shared resources (all your projects)" is seeded from the fully
-  merged config** (project layer last) but saved to the *user* layer, so it
-  displays a value other projects don't use and can retarget them on save; the
-  same whole-file write drops `[recent]`.
-- **`#17.9` — ingestion reports "success" for a session it didn't write.**
-  `ingest_session` returns the existing target when present (correctly,
-  idempotently), and the page cannot tell that from a real link — so two folders
-  mapped to one subject/session both show green while only the first is on disk.
-  This is the collision `_flag_duplicate_labels` warns about, confirmed as done.
-- **`#17.10` — QC "Reason" writes a decision.** Typing a note on an undecided run
-  saves `decision="investigate"`; no rerun follows, so the header still reads "no
-  decision" and the table never shows the column at all.
+All six fixed in the same pass; detail in `CHANGELOG.md`. Each is pinned by a test
+that was **checked to fail against the old code** — a habit this item earned, since
+the whole class ships green otherwise.
+
+- ✅ **`#17.5` — the hand-edited JSON now drives the whole page.** The override is
+  parsed *above* the table and the decision columns are reconciled from it via
+  `read_config_into_table`, so `task`/`run`/`fieldmap` show what will ship and are
+  read-only while it does. Everything downstream is derived from that same frame,
+  which fixed the save-as-project-default buttons and the spurious half-pair
+  hard-stop for free. The state is announced above the table instead of inside a
+  collapsed expander, and a group the JSON names that this session doesn't have is
+  now reported rather than silently reverted.
+- ✅ **`#17.6` — a saved `dcm2bids_config.json` is surfaced**, with when it was
+  saved, a note that bulk/cockpit convert will use *that file*, a warning that
+  submitting overwrites it, and a one-click load into the table.
+- ✅ **`#17.7` — `directory_picker` takes `reset_on`.** Pass the context a default
+  belongs to (the active project) and the selection re-seeds when it changes.
+  Omitted, behavior is exactly as before.
+- ✅ **`#17.8` — shared resources are seeded from the user config**, which is what
+  they save to, and a project that pins a different value now says so explicitly
+  instead of displaying one value while another is used. The browse root
+  `/projects/lcni/dcm` is also no longer saved as if it were a chosen DICOM source.
+- ✅ **`#17.9` — `IngestCollision`.** Re-ingesting the *same* folder stays a silent
+  no-op; a target already ingested from a *different* folder raises, and the page
+  reports "NOT ingested — collision" naming both sides. Three outcomes where there
+  was one green "success".
+- ✅ **`#17.10` — the QC reason is carried into the verdict you click**, rather than
+  saving `investigate` on its own. Confirmed by a toast.
+  - **Left undone deliberately:** the metrics table still doesn't carry a
+    `current_decision` column. It renders before decisions are loaded, so showing
+    it means reordering the page; the decision is visible in each run's expander
+    header meanwhile. Small, cosmetic, and not worth restructuring under this item.
 
 ### The rule this suggests, and where it belongs
 

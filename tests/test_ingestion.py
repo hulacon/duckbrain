@@ -432,3 +432,57 @@ def test_auto_number_sessions(mock_dcm_source):
     assert sub003[0].bids_session == "01"  # sess05 (earlier date)
     assert sub003[1].bids_session == "02"  # sess06 (later date)
     assert sub004[0].bids_session == "01"
+
+
+# ---- TODO #17.9: a no-op must not be reported as a write ---------------------
+
+def _sess(path):
+    from duckbrain.core.ingestion import SessionInfo
+
+    return SessionInfo(folder_name=path.name, parsed_subject="", parsed_session="",
+                       date="", path=path)
+
+
+def test_reingesting_the_same_folder_is_a_silent_noop(tmp_path):
+    """Idempotent re-ingest of the SAME source stays a no-op, not an error."""
+    from duckbrain.core.ingestion import BidsMapping, SessionInfo, ingest_session
+
+    src = tmp_path / "export" / "STUDY_001_20230101"
+    (src / "Series_01").mkdir(parents=True)
+    sess = _sess(src)
+    mapping = BidsMapping(folder_name=src.name, bids_subject="01", bids_session="")
+
+    first = ingest_session(sess, mapping, tmp_path / "sourcedata")
+    again = ingest_session(sess, mapping, tmp_path / "sourcedata")
+    assert first == again
+    assert again.resolve() == src.resolve()
+
+
+def test_two_folders_mapped_to_one_unit_raises_instead_of_reporting_success(tmp_path):
+    """The collision `_flag_duplicate_labels` warns about, at ingest time.
+
+    ingest_session returned the existing target for ANY existing path, so the
+    caller reported two green rows for two distinct folders while only the first
+    was ever linked — the second session's DICOMs were nowhere on disk.
+    """
+    from duckbrain.core.ingestion import (
+        BidsMapping, IngestCollision, SessionInfo, ingest_session,
+    )
+
+    a = tmp_path / "export" / "STUDY_001_sess04"
+    b = tmp_path / "export" / "STUDY_001_sess04_repeat"
+    for d in (a, b):
+        (d / "Series_01").mkdir(parents=True)
+
+    sourcedata = tmp_path / "sourcedata"
+    ingest_session(_sess(a), BidsMapping(a.name, "003", "04"), sourcedata)
+
+    with pytest.raises(IngestCollision) as exc:
+        ingest_session(_sess(b), BidsMapping(b.name, "003", "04"), sourcedata)
+
+    # The message must name both sides — which folder was refused, and what holds
+    # the slot — or it can't be acted on.
+    assert b.name in str(exc.value)
+    assert a.name in str(exc.value)
+    # And the first folder is still the one on disk, untouched.
+    assert (sourcedata / "sub-003" / "ses-04" / "dicom").resolve() == a.resolve()

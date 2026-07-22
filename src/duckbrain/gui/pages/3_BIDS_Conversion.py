@@ -1,6 +1,7 @@
 """Page 3: BIDS Conversion — DICOM inspection + dcm2bids config generation + submission."""
 
 import json
+from datetime import datetime
 
 import streamlit as st
 import pandas as pd
@@ -229,12 +230,51 @@ from duckbrain.core.dicom_inspect import sanitize_task_label
 EDITOR_KEY = f"conversion_editor_{subject}_{session}"
 IMPORT_KEY = f"conversion_import_{subject}_{session}"
 
-st.subheader("Conversion Plan")
-st.markdown(
-    "One row per DICOM series. **This table is the source of truth** — edit "
-    "`task`, `run` or `fieldmap` and everything downstream regenerates from it. "
-    "`becomes` is the BIDS file that will actually be written."
+# ---- A previously reviewed config on disk -----------------------------------
+# `_build_dcm2bids` reuses <sourcedata>/sub-XX/[ses-YY]/dcm2bids_config.json when
+# it exists and only auto-generates when it doesn't, so THAT file — not this
+# table — is what a bulk or cockpit convert will consume. The page used to write
+# it and never read it, so a reviewed session reopened showing heuristic values
+# with nothing to say a saved review existed, and submitting overwrote it without
+# a word (TODO #17.6).
+_saved_config_path = (
+    Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
 )
+if _saved_config_path.exists():
+    _saved_when = datetime.fromtimestamp(
+        _saved_config_path.stat().st_mtime
+    ).strftime("%Y-%m-%d %H:%M")
+    _c_msg, _c_btn = st.columns([3, 1], vertical_alignment="center")
+    with _c_msg:
+        st.info(
+            f"**A reviewed config for this session already exists** (saved "
+            f"{_saved_when}). Bulk convert and the cockpit will use *that file*, "
+            "not the table below — and submitting here overwrites it."
+        )
+    with _c_btn:
+        if st.button("⇧ Load the saved config", key="load_saved_config",
+                     width="stretch",
+                     help="Read the saved file into the table so you review what "
+                     "will actually run."):
+            st.session_state["_pending_json_import"] = _saved_config_path.read_text()
+            st.rerun()
+
+st.subheader("Conversion Plan")
+# The "source of truth" claim is only true while the hand-edited JSON is off, and
+# stating it unconditionally was half of what made the override confusing — the
+# page asserted the table drove the conversion at the exact moment it didn't.
+if st.session_state.get("dcm2bids_json_override"):
+    st.markdown(
+        "One row per DICOM series. **The hand-edited JSON below is the source of "
+        "truth right now**, so these rows show what it says. `becomes` is the "
+        "BIDS file that will actually be written."
+    )
+else:
+    st.markdown(
+        "One row per DICOM series. **This table is the source of truth** — edit "
+        "`task`, `run` or `fieldmap` and everything downstream regenerates from "
+        "it. `becomes` is the BIDS file that will actually be written."
+    )
 
 template = st.text_input(
     "Naming template (optional)",
@@ -334,6 +374,7 @@ if imported is not None:
         )
 
 seed_rows = []
+_unknown_groups: dict[str, list[int]] = {}
 for s in series_list:
     entry = seed_by_series.get(s.series_number)
     task = entry.task if entry else ""
@@ -344,7 +385,15 @@ for s in series_list:
         run = imported.run_by_series.get(s.series_number, run)
         group = imported.group_by_series.get(s.series_number)
         if group is not None:
-            fieldmap = _group_token.get(group, fieldmap)
+            # A group the detector didn't produce (the JSON renamed a pair, or the
+            # config came from another session) has no column value to land in.
+            # Falling back to the seed silently reverted an edit the user watched
+            # get imported, under a banner saying it had loaded — so collect it and
+            # say so instead (TODO #17.5).
+            if group in _group_token:
+                fieldmap = _group_token[group]
+            else:
+                _unknown_groups.setdefault(group, []).append(s.series_number)
         elif s.series_number in imported.group_by_series and entry and entry.role == "bold":
             fieldmap = _NO_FMAP_TOKEN if fieldmaps.groups else ""
     seed_rows.append(
@@ -359,6 +408,17 @@ for s in series_list:
             "becomes": "",
         }
     )
+if _unknown_groups:
+    st.warning(
+        "**The fieldmap column can't show these bindings** — the JSON names a "
+        "pair this session's DICOMs don't contain, so the rows below fall back to "
+        "the automatic binding. Turn the override back on if you meant them:\n"
+        + "\n".join(
+            f"- `{g}` (series {', '.join(str(n) for n in nums)})"
+            for g, nums in _unknown_groups.items()
+        )
+    )
+
 seed_df = pd.DataFrame(seed_rows)
 
 def _apply_pending_edits(df, key):
@@ -377,6 +437,47 @@ def _apply_pending_edits(df, key):
 
 
 effective_df = _apply_pending_edits(seed_df, EDITOR_KEY)
+
+# ---- The hand-edited JSON, resolved BEFORE anything reads the table ----------
+# When the override is on, the JSON *is* the config, and the table has to describe
+# it rather than describe the edits it has stopped receiving. Previously the table
+# kept showing (and accepting edits to) its own state while the JSON shipped, so
+# `task`/`run`/`fieldmap` were three controls that silently did nothing, the
+# save-as-project-default buttons persisted the table's bindings rather than the
+# reviewed ones, and the half-pair check could hard-stop the page over a binding
+# that wasn't in the submitted config (TODO #17.5).
+#
+# Reconciling here — above `edited_mapping` — fixes all of those at once, because
+# everything downstream is derived from `effective_df`. `read_config_into_table`
+# is the same reader the explicit import uses; the difference is that this is a
+# *display* reconciliation, and the JSON stays the thing that ships.
+_override_on = bool(st.session_state.get("dcm2bids_json_override"))
+_override_text = st.session_state.get("dcm2bids_config_editor") or ""
+_override_error = None
+_override_config = None
+if _override_on and _override_text.strip():
+    try:
+        _override_config = json.loads(_override_text)
+    except json.JSONDecodeError as exc:
+        _override_error = str(exc)
+
+if _override_config is not None:
+    _from_json = read_config_into_table(_override_config, series_list)
+    for _i, _num in enumerate(effective_df["Series #"]):
+        _num = int(_num)
+        if _num in _from_json.task_by_series:
+            effective_df.iat[_i, effective_df.columns.get_loc("task")] = (
+                _from_json.task_by_series[_num]
+            )
+        if _num in _from_json.run_by_series:
+            effective_df.iat[_i, effective_df.columns.get_loc("run")] = (
+                _from_json.run_by_series[_num]
+            )
+        if _num in _from_json.group_by_series:
+            _g = _from_json.group_by_series[_num]
+            effective_df.iat[_i, effective_df.columns.get_loc("fieldmap")] = (
+                _NO_FMAP_TOKEN if _g is None else _group_token.get(_g, "")
+            )
 
 
 def _row_run(value):
@@ -471,18 +572,11 @@ except ValueError as exc:
 auto_json = config_to_json(auto_config)
 
 # The hand-edited JSON override (in the Advanced expander below) is read out of
-# widget state *before* that widget renders, so `becomes`, the preflight and the
-# relation view all describe what will actually be submitted rather than what the
-# table alone would produce. Same trick as the editor's pending edits above.
-_override_on = bool(st.session_state.get("dcm2bids_json_override"))
-_override_text = st.session_state.get("dcm2bids_config_editor") or ""
-effective_config = auto_config
-_override_error = None
-if _override_on and _override_text.strip():
-    try:
-        effective_config = json.loads(_override_text)
-    except json.JSONDecodeError as exc:
-        _override_error = str(exc)
+# widget state *before* that widget renders — up where the table is reconciled
+# against it — so `becomes`, the preflight and the relation view all describe what
+# will actually be submitted rather than what the table alone would produce. Same
+# trick as the editor's pending edits above.
+effective_config = auto_config if _override_config is None else _override_config
 
 # `becomes` is filled from the plan, which reads the config dict dcm2bids will
 # consume — so the column cannot promise a filename the tool won't write.
@@ -520,11 +614,25 @@ with st.container(border=True):
     for w in _notes:
         st.caption(f"ℹ️ {w.message}")
 
+# Under an active override the JSON is the config, so the decision columns are
+# read-only and show what the JSON says. Left editable they were three controls
+# that silently did nothing, and the only notice sat inside a collapsed expander
+# at the bottom of the page (TODO #17.5).
+_locked = ["Series #", "Description", "Type", "# Files", "becomes"]
+if _override_config is not None:
+    _locked += ["task", "run", "fieldmap"]
+    st.info(
+        "**The hand-edited JSON is driving this conversion.** The columns below "
+        "show what that JSON says and are read-only — edit it in ⚙️ Advanced at "
+        "the bottom, or use *Load the JSON into the table* there to go back to "
+        "editing rows."
+    )
+
 st.data_editor(
     effective_df,
     width="stretch",
     hide_index=True,
-    disabled=["Series #", "Description", "Type", "# Files", "becomes"],
+    disabled=_locked,
     column_config={
         "run": st.column_config.NumberColumn("run", min_value=1, step=1, format="%d"),
         "fieldmap": st.column_config.SelectboxColumn(
@@ -718,8 +826,8 @@ if parsed_config is None and (save_config_btn or convert_btn or export_btn):
     st.error("Fix the JSON errors above before proceeding.")
     st.stop()
 
-# Save config
-config_json_path = Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
+# Save config (same file the "already reviewed" notice above reports on).
+config_json_path = _saved_config_path
 
 if save_config_btn and parsed_config:
     from duckbrain.core.conversion import save_dcm2bids_config

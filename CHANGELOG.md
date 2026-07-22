@@ -65,6 +65,36 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   assumption about that study would inherit.
 
 ### Fixed
+- **The hand-edited config JSON now drives the whole Conversion page.** With the
+  override on, the `task` / `run` / `fieldmap` columns kept showing table state
+  and kept accepting edits, while a different config was submitted — three
+  controls that silently did nothing, with the only notice inside a collapsed
+  expander at the bottom of the page. Those columns are now read from the JSON and
+  read-only while it drives, the state is announced above the table, and because
+  everything downstream derives from the same frame, "Save as project default" now
+  persists the bindings you reviewed rather than the table's.
+- **A previously reviewed `dcm2bids_config.json` is surfaced.** That file — not
+  the table — is what a bulk or cockpit convert consumes, but the page only ever
+  wrote it, so a reviewed session reopened showing heuristic values and submitting
+  overwrote the review without a word. It now reports the saved file, when it was
+  saved, that submitting replaces it, and offers to load it into the table.
+- **Pickers follow a project switch.** The directory picker committed its
+  selection once per session, so after switching projects the DICOM-source and
+  project-directory fields still showed the *previous* project's paths — under a
+  green "✓ Selected:" — and saving wrote them into the new project.
+- **"Shared resources" shows the shared value.** The section saves to the user
+  config but was seeded from the fully merged config, so it displayed a project's
+  own override under a heading that says "all your projects", and saving pushed
+  that project's container versions onto every other project. A project that pins
+  something different is now called out explicitly.
+- **Ingestion no longer reports success for a session it didn't write.** Ingest is
+  idempotent, and the page couldn't tell a real link from a no-op — so two scanner
+  folders mapped to one subject/session both showed green while only the first was
+  on disk. Re-ingesting the same folder is still a quiet no-op; a *different*
+  folder colliding on an ingested subject/session is now refused and named.
+- **The QC "Reason" field no longer records a verdict.** Typing a note on an
+  undecided run saved `decision="investigate"` while the heading still read "no
+  decision". The reason is carried into whichever verdict you click.
 - **Saving on the Project Setup page no longer deletes the rest of the project
   config.** It wrote the file whole, so saving a SLURM account silently discarded
   the study's `[task_mapping]` and `[fmap_mapping]` — the task labels and fieldmap

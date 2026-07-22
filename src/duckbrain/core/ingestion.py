@@ -315,6 +315,23 @@ def sub_ses_relpath(subject: str, session: str = "") -> Path:
     return p
 
 
+class IngestCollision(Exception):
+    """Two source folders map onto one subject/session, so one was not ingested.
+
+    Its own type because the caller must not report this as a success and must not
+    report it as an ordinary failure either: the *first* folder is ingested fine,
+    and what needs fixing is the mapping rather than the ingest.
+    """
+
+
+def _describe_target(target: Path) -> str:
+    """What an existing ingested target points at, for a collision message."""
+    try:
+        return str(target.readlink()) if target.is_symlink() else str(target.resolve())
+    except OSError:
+        return str(target)
+
+
 def ingest_session(
     session: SessionInfo,
     mapping: BidsMapping,
@@ -340,11 +357,36 @@ def ingest_session(
     -------
     Path
         The created sourcedata directory.
+
+    Raises
+    ------
+    IngestCollision
+        The target is already ingested *from a different source folder* — two
+        scanner folders mapped onto one subject/session. See below.
     """
     sourcedata_dir = Path(sourcedata_dir)
     target = sourcedata_dir / sub_ses_relpath(mapping.bids_subject, mapping.bids_session) / "dicom"
 
     if target.exists():
+        # Ingestion is idempotent, and re-ingesting the same folder is a genuine
+        # no-op. But an existing target pointing at a *different* source is the
+        # duplicate-label collision `_flag_duplicate_labels` warns about, and
+        # returning quietly let the caller report it as a success: two folders,
+        # two green rows, one of them not on disk anywhere (TODO #17.9). Silence
+        # here is the same class of bug as a silently-degrading option.
+        try:
+            same = target.resolve() == Path(session.path).resolve()
+        except OSError:              # broken link, unreadable mount
+            same = False
+        if not same:
+            raise IngestCollision(
+                f"sub-{mapping.bids_subject}"
+                + (f"/ses-{mapping.bids_session}" if mapping.bids_session else "")
+                + f" is already ingested from '{_describe_target(target)}', so "
+                f"'{session.folder_name}' was NOT ingested. Two source folders are "
+                "mapped to one subject/session — fix the mapping, or remove the "
+                "existing link if this one supersedes it."
+            )
         return target
 
     target.parent.mkdir(parents=True, exist_ok=True)

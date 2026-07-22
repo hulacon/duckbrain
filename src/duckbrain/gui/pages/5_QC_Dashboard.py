@@ -152,24 +152,35 @@ if "sub" in metrics_with_outliers.columns:
         current = existing_decisions.get(run_key, {}).get("latest", {})
 
         with st.expander(f"{run_key} — {current.get('decision', 'no decision')}"):
-            col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+            # The reason is carried into whichever verdict is clicked rather than
+            # saved on its own. Typing a note used to write a decision by itself,
+            # defaulting to "investigate" — so a run the reviewer had only jotted
+            # a reminder against acquired a verdict they never made, while the
+            # header above still read "no decision" (TODO #17.10).
+            reason = st.text_input(
+                "Reason", key=f"reason_{run_key}", value=current.get("reason", ""),
+                help="Saved with the decision you pick — a note on its own is not "
+                "a verdict.",
+            )
+
+            def _record(verdict, _key=run_key, _reason_key=f"reason_{run_key}"):
+                save_decision(decisions_dir, _key, verdict,
+                              reason=st.session_state.get(_reason_key, ""))
+                st.toast(f"{_key}: {verdict}", icon="✅")
+
+            col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("Keep", key=f"keep_{run_key}"):
-                    save_decision(decisions_dir, run_key, "keep")
+                if st.button("Keep", key=f"keep_{run_key}", width="stretch"):
+                    _record("keep")
                     st.rerun()
             with col2:
-                if st.button("Exclude", key=f"excl_{run_key}"):
-                    save_decision(decisions_dir, run_key, "exclude")
+                if st.button("Exclude", key=f"excl_{run_key}", width="stretch"):
+                    _record("exclude")
                     st.rerun()
             with col3:
-                if st.button("Investigate", key=f"inv_{run_key}"):
-                    save_decision(decisions_dir, run_key, "investigate")
+                if st.button("Investigate", key=f"inv_{run_key}", width="stretch"):
+                    _record("investigate")
                     st.rerun()
-            with col4:
-                reason = st.text_input("Reason", key=f"reason_{run_key}", value=current.get("reason", ""))
-                if reason and reason != current.get("reason", ""):
-                    decision = current.get("decision", "investigate")
-                    save_decision(decisions_dir, run_key, decision, reason=reason)
 
             # Show relevant IQMs
             for iqm in available_iqms:

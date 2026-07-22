@@ -31,6 +31,7 @@ def directory_picker(
     must_exist: bool = False,
     allow_create: bool = False,
     help: str | None = None,
+    reset_on: object = None,
 ) -> str:
     """A server-side directory browser that works like a file manager.
 
@@ -44,6 +45,11 @@ def directory_picker(
     committing — clicking folders/breadcrumbs reruns only a fragment, not the
     whole page — until **✓ Use this folder** commits the browsed directory.
     With ``allow_create`` a new folder can be made. Returns the committed path.
+
+    ``reset_on`` is the context the selection belongs to (the active project, say).
+    Pass it whenever ``default`` is derived from something that can change mid
+    session: when its value changes the picker re-seeds from ``default`` instead
+    of holding a selection that now belongs to somewhere else.
     """
     sel_key = f"__dp_{key}"        # committed selection (= text input state)
     cwd_key = f"__dp_{key}_cwd"    # directory the browser is currently showing
@@ -51,8 +57,18 @@ def directory_picker(
     err_key = f"__dp_{key}_err"
     flt_key = f"__dp_{key}_flt"
 
-    if sel_key not in st.session_state:
+    # The committed selection is sticky for the whole session, which is right while
+    # the context holds and wrong the moment it changes: after switching projects
+    # the picker kept showing the PREVIOUS project's path — with a green
+    # "✓ Selected:" on it — and saving wrote it into the new project (TODO #17.7).
+    # `reset_on` is that context. When it changes, re-seed from `default`; when it
+    # is None the behavior is exactly as before (seed once, never again).
+    seed_key = f"__dp_{key}_seed"
+    _stale = seed_key in st.session_state and st.session_state[seed_key] != reset_on
+    if sel_key not in st.session_state or _stale:
         st.session_state[sel_key] = default or str(Path.home())
+        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
+        st.session_state[seed_key] = reset_on
     if cwd_key not in st.session_state:
         st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
 

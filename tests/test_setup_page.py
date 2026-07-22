@@ -112,3 +112,65 @@ def test_no_partition_complaint_when_slurm_cannot_be_queried(project, monkeypatc
     at = _open(project)
     assert not at.exception
     assert not any("Not a partition" in e.value for e in at.error)
+
+
+# ---- TODO #17.7 / #17.8: the page must describe the project it is on ---------
+
+def test_pickers_follow_a_project_switch(project, tmp_path, monkeypatch):
+    """A picker's committed selection is sticky per session; switching projects
+    must re-seed it. It didn't, so the DICOM-source field kept showing the
+    PREVIOUS project's path — with a green "✓ Selected:" on it — and saving wrote
+    that path into the new project."""
+    from duckbrain.config import save_project_config, scaffold_project
+
+    other = tmp_path / "other"
+    scaffold_project(str(other))
+    save_project_config(str(project), {"dcm_source": {"dir": "/dicom/A"}})
+    save_project_config(str(other), {"dcm_source": {"dir": "/dicom/B"}})
+
+    at = AppTest.from_file(PAGE, default_timeout=60)
+    at.session_state["project_dir"] = str(project)
+    at.run()
+    assert any(ti.value == "/dicom/A" for ti in at.text_input)
+
+    # Same session, different project — the picker must not hold /dicom/A.
+    at.session_state["project_dir"] = str(other)
+    at.run()
+    assert not at.exception
+    assert any(ti.value == "/dicom/B" for ti in at.text_input), (
+        "picker still shows the previous project's DICOM source"
+    )
+    assert not any(ti.value == "/dicom/A" for ti in at.text_input)
+
+
+def test_shared_resources_show_the_shared_value_not_the_projects(project, tmp_path):
+    """The section saves to the user config, so it must display the user config.
+
+    Seeded from the merged config it showed the *project's* pin under a heading
+    that says "all your projects", and saving pushed that pin onto every other
+    project.
+    """
+    from duckbrain.config import USER_CONFIG_ENV, save_project_config, save_user_config
+
+    save_user_config({"containers": {"fmriprep_version": "24.1.1"}})
+    save_project_config(str(project), {"containers": {"fmriprep_version": "23.2.0"}})
+
+    at = _open(project)
+    assert not at.exception
+    versions = [ti.value for ti in at.text_input if ti.label == "fMRIPrep version"]
+    assert versions == ["24.1.1"], "shared field must show the shared value"
+    # ...and the project's divergence is stated rather than hidden.
+    assert any("23.2.0" in i.value for i in at.info)
+
+
+def test_saving_shared_resources_keeps_the_recent_projects_list(project, tmp_path):
+    from duckbrain.config import USER_CONFIG_ENV, _load_toml, save_user_config
+    import os
+
+    save_user_config({"recent": {"projects": ["/x", "/y"]}})
+    at = _open(project)
+    _button(at, "Save shared resources").click().run()
+    assert not at.exception
+
+    stored = _load_toml(os.environ[USER_CONFIG_ENV])
+    assert stored["recent"]["projects"] == ["/x", "/y"]
