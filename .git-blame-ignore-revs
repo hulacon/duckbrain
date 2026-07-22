@@ -1,0 +1,10 @@
+# Revisions that only moved whitespace. `git blame --ignore-revs-file` skips
+# them so blame keeps pointing at the commit that wrote the line's *meaning*.
+#
+# Configure it once per checkout:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub applies this file automatically in its blame view.
+
+# Repo-wide `ruff format` when the first lint/format gate landed (TODO #18).
+a95c950d8492e06ad9ec4cba8c3f91a33db00f01

@@ -34,3 +34,9 @@ slurm-*.out
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Coverage artifacts (the floor lives in pyproject; the data file is per-run)
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

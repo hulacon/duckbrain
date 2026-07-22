@@ -12,7 +12,7 @@ the ledger so an old reference still resolves.
 
 ---
 
-## #18 — External code review, 2026-07-22: closed, except the quality gates
+## #18 — External code review, 2026-07-22: closed, except type checking
 
 An outside read-only audit of `c732e9e` (`duckbrain-code-review-260722.md`, 12
 findings, DB-001…DB-012). Every finding is now either fixed with a regression
@@ -38,16 +38,37 @@ Three things worth keeping from it, none of them a bug:
   rest of the document was accurate, and treating an audit as uniformly right is
   how you "fix" working code.
 
-### 🔴 Open: no quality gates at all
+### ✅ #18.1 — quality gates: closed 2026-07-22
 
-The one finding not addressed, and still true: there is **no
-`.github/workflows/`, no `[tool.ruff]`, no `[tool.mypy]`, no coverage
-configuration or floor** — `pytest-cov` is declared in the dev extras and never
-configured. The suite is green on one machine and nothing stops a regression
-merging. A first workflow needs only: import check, `pytest`, `ruff check`,
-`ruff format --check`, and a non-decreasing coverage floor set to wherever it
-currently lands. Type checking can come later, on new and high-risk core modules
-first rather than repo-wide.
+`.github/workflows/ci.yml` runs import check + `compileall`, `ruff check`,
+`ruff format --check` and `pytest --cov` on 3.10 and 3.12, on every push to
+`main` and every PR. `[tool.ruff]` (E/F/W at 100 cols), `[tool.coverage.report]
+fail_under = 60` and `[tool.pytest.ini_options]` all live in `pyproject.toml`.
+
+Worth knowing:
+
+- **The narrow ruleset found two real bugs**, which is the argument for keeping
+  it narrow: a `list["Path"]` annotation with no `Path` import in
+  `slurm/monitor.py`, and a dead series lookup in
+  `dcm2bids_config._fmap_description`. A wider first gate would have buried both
+  under a mechanical diff.
+- **`compileall` is not filler.** The seven Streamlit pages are scripts no test
+  imports — ~1200 statements at 0% coverage — so a syntax error in one ships
+  green. It is the only check in CI that looks at them.
+- **The coverage floor is a ratchet, not a target.** Raise it when coverage
+  rises; never lower it to green a build. It reads low only because of those
+  pages; core/config/slurm run 84–100%.
+- **CI cannot replace live validation.** No SLURM, no Singularity, no
+  `/projects`, no scanner data on a runner. What the suite checks about job
+  submission it checks against *rendered text* — real runs stay a Talapas job
+  and a note in `memory/`.
+
+**Still open from the same finding: no `[tool.mypy]`.** Deliberately deferred,
+as the finding itself suggested — type checking should start on new and
+high-risk core modules (`conversion_plan`, `dcm2bids_config`, `consistency`),
+not repo-wide. Same for widening ruff: bugbear, isort and pyupgrade have 59
+findings between them, each wanting its own commit. `B905`
+(`zip(..., strict=)`) is the one with real bug-catching value; start there.
 
 ### Deferred with a trigger, not forgotten
 

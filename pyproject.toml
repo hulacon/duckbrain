@@ -51,7 +51,7 @@ source = ["duckbrain"]
 # versions can't fail CI on its own. Raise it when coverage rises — never lower
 # it to make a red build green.
 #
-# The number reads low because the six Streamlit pages (~1200 statements) score
+# The number reads low because the seven Streamlit pages (~1200 statements) score
 # 0%: they are scripts, not importable modules, and the tests that cover them
 # assert on their *source* rather than executing them. Core, config and slurm —
 # the code the floor is actually protecting — sit between 84% and 100%.

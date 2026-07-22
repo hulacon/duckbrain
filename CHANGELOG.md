@@ -11,6 +11,18 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **Continuous integration** — `ruff check`, `ruff format --check`, an import
+  check and `pytest --cov` now run on every push and pull request, against
+  Python 3.10 and 3.12. Nothing about duckbrain's behaviour changes; what changes
+  is that a regression can no longer merge on the strength of one machine being
+  green. Lint, formatter and coverage settings live in `pyproject.toml`, so a
+  local run enforces exactly what CI does. The coverage floor starts at 60%
+  (measured 61%) and only ever goes up.
+
+  Two bugs fell out of the first lint run: a return annotation in
+  `slurm/monitor.py` referenced `Path` with no such import (harmless until
+  something introspected it), and `dcm2bids_config._fmap_description` looked up a
+  series description it never used. Both fixed.
 - **The Conversion page is one table.** DICOM Series, Task/Run Mapping and
   Fieldmap Binding were three surfaces that shared a grain but not a table, so
   reviewing a session meant joining series numbers, task labels and group names by
