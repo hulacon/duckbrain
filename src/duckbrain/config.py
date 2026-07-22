@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 if sys.version_info >= (3, 11):
@@ -223,7 +224,11 @@ def _dump_toml(path: str | Path, data: dict) -> Path:
     return path
 
 
-def _save_sections(path: str | Path, data: dict) -> Path:
+def _save_sections(
+    path: str | Path,
+    data: dict,
+    owned: Mapping[str, Sequence[str]] | None = None,
+) -> Path:
     """Write the top-level sections of *data*, preserving every other section.
 
     Read-modify-write at **section** granularity: a section named in *data*
@@ -241,29 +246,81 @@ def _save_sections(path: str | Path, data: dict) -> Path:
     the Setup page's ``_clean_dict``) — under a deep merge a value the user
     cleared would survive in the file and keep taking effect, which is the same
     class of bug one layer down.
+
+    *owned* is the escape hatch for a section a form owns only **partly**, which
+    is where TODO #17.1 was still open: the Setup page writes four of ``[slurm]``'s
+    keys, so replacing the section wholesale deleted ``[slurm.overrides.*]`` and
+    hand-written ``slurm.memory``/``slurm.cpus`` — all of it live config (see
+    :func:`slurm_resources`) — while the page reported success. Naming a section
+    in *owned* switches it to **field**-level reconcile: each listed key is set
+    from *data* or removed when *data* omits it, and every unlisted key, nested
+    table included, survives untouched.
+
+    Two rules that look like edge cases and are not:
+
+    - An owned section absent from *data* entirely is still reconciled, against
+      an empty incoming dict. ``_clean_dict`` drops a sub-dict that became
+      all-empty, so "the user cleared every SLURM field" arrives as no ``slurm``
+      key at all; skipping it would resurrect the cleared values.
+    - Writing a key that *owned* does not list raises. Better a loud error now
+      than a widget whose value saves once and disappears on the next save —
+      which is precisely how this bug stayed invisible.
     """
     stored = _load_toml(path)
-    stored.update(data)
+    owned = owned or {}
+
+    for section, keys in owned.items():
+        incoming = data.get(section, {})
+        undeclared = set(incoming) - set(keys)
+        if undeclared:
+            raise ValueError(
+                f"{path}: [{section}] writes {sorted(undeclared)}, which "
+                f"{section!r} does not declare as owned. Add the key to the "
+                "form's ownership list, or it will be deleted on the next save."
+            )
+        target = stored.get(section)
+        if not isinstance(target, dict):  # absent, or a hand-written scalar
+            target = {}
+        for key in keys:
+            if key in incoming:
+                target[key] = incoming[key]
+            else:
+                target.pop(key, None)
+        if target:
+            stored[section] = target
+        else:
+            stored.pop(section, None)
+
+    for section, value in data.items():
+        if section not in owned:
+            stored[section] = value
+
     return _dump_toml(path, stored)
 
 
-def save_user_config(data: dict) -> Path:
+def save_user_config(
+    data: dict, owned: Mapping[str, Sequence[str]] | None = None
+) -> Path:
     """Update the user-level config (shared machine resources).
 
     Section-scoped; see :func:`_save_sections`. Preserves ``[recent]``, which the
     Setup page renders but never writes.
     """
-    return _save_sections(user_config_path(), data)
+    return _save_sections(user_config_path(), data, owned)
 
 
-def save_project_config(project_dir: str | Path, data: dict) -> Path:
+def save_project_config(
+    project_dir: str | Path,
+    data: dict,
+    owned: Mapping[str, Sequence[str]] | None = None,
+) -> Path:
     """Update a project's own config at ``<project_dir>/code/duckbrain.toml``.
 
     Section-scoped; see :func:`_save_sections`. Preserves the study's
     ``[task_mapping]`` / ``[fmap_mapping]`` — the bindings ``#13`` exists to
     persist — which a whole-file write silently destroyed.
     """
-    return _save_sections(project_config_path(project_dir), data)
+    return _save_sections(project_config_path(project_dir), data, owned)
 
 
 # Recently-opened projects live in the USER config, not a project's own: "which

@@ -355,6 +355,93 @@ def test_a_saved_section_is_replaced_not_merged(tmp_path):
     assert stored["slurm"] == {"account": "new"}
 
 
+# ---- DB-001: a section a form owns only PARTLY needs field-level ownership ----
+
+_SETUP_OWNS = {"slurm": ("account", "partition", "partition_long", "time")}
+
+
+def test_owned_fields_preserve_a_nested_subtable(tmp_path):
+    """The reopened half of TODO #17.1.
+
+    Section-level replace saved the file from a whole-file dump but not from a
+    *partial* section: the Setup page writes four of [slurm]'s keys, so a
+    hand-tuned [slurm.overrides.fmriprep] — live config, read by
+    `slurm_resources` — was deleted on any Setup save, and the page said "Saved".
+    """
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {"slurm": {
+        "account": "hulacon",
+        "memory": "64G",
+        "overrides": {"fmriprep": {"time": "48:00:00", "mem": "96G"}},
+    }})
+    save_project_config(tmp_path, {"slurm": {"partition": "compute"}},
+                        owned=_SETUP_OWNS)
+
+    stored = _load_toml(project_config_path(tmp_path))["slurm"]
+    assert stored["overrides"]["fmriprep"]["time"] == "48:00:00"
+    assert stored["memory"] == "64G"          # hand-written scalar survives too
+    assert stored["partition"] == "compute"
+
+
+def test_owned_fields_are_removed_when_cleared(tmp_path):
+    """Ownership must not resurrect a field the user cleared — the deep-merge trap."""
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {"slurm": {"account": "old", "time": "12:00:00"}})
+    save_project_config(tmp_path, {"slurm": {"time": "24:00:00"}}, owned=_SETUP_OWNS)
+
+    stored = _load_toml(project_config_path(tmp_path))["slurm"]
+    assert "account" not in stored
+    assert stored["time"] == "24:00:00"
+
+
+def test_owned_section_absent_from_data_still_clears(tmp_path):
+    """`_clean_dict` drops an all-empty section, and that must still mean "cleared".
+
+    Otherwise clearing every SLURM field on the form leaves the old values in the
+    file, still taking effect — the exact bug section-replace exists to prevent.
+    """
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {"slurm": {
+        "account": "old", "overrides": {"fmriprep": {"time": "48:00:00"}},
+    }})
+    save_project_config(tmp_path, {"project": {"name": "s"}}, owned=_SETUP_OWNS)
+
+    stored = _load_toml(project_config_path(tmp_path))["slurm"]
+    assert "account" not in stored
+    assert stored["overrides"]["fmriprep"]["time"] == "48:00:00"
+
+
+def test_writing_an_undeclared_key_raises(tmp_path):
+    """A new widget must fail loudly, not save once and vanish on the next save."""
+    from duckbrain.config import save_project_config
+
+    with pytest.raises(ValueError, match="qos"):
+        save_project_config(tmp_path, {"slurm": {"qos": "high"}}, owned=_SETUP_OWNS)
+
+
+def test_an_unowned_section_is_still_replaced_wholesale(tmp_path):
+    """Ownership is opt-in per section; everything else keeps the old contract."""
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {"conversion": {"a": "1", "b": "2"}})
+    save_project_config(tmp_path, {"conversion": {"a": "9"}}, owned=_SETUP_OWNS)
+
+    assert _load_toml(project_config_path(tmp_path))["conversion"] == {"a": "9"}
+
+
+def test_clearing_every_owned_key_drops_the_section(tmp_path):
+    """A section reconciled to nothing shouldn't linger as an empty table."""
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {"dcm_source": {"dir": "/dicom/x"}})
+    save_project_config(tmp_path, {}, owned={"dcm_source": ("dir",)})
+
+    assert "dcm_source" not in _load_toml(project_config_path(tmp_path))
+
+
 def test_project_partition_reaches_every_stage(tmp_path, monkeypatch):
     """A project's partition is site policy and must beat the shipped defaults.
 

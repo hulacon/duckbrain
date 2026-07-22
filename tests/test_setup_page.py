@@ -70,6 +70,58 @@ def test_save_project_settings_persists(project):
     assert load_config(project_dir=str(project))["project"]["name"] == "toast-check"
 
 
+def test_save_project_settings_keeps_hand_written_slurm_overrides(project):
+    """DB-001, end to end through the real button payload.
+
+    The unit test in test_config.py pins `_save_sections`; this pins that the
+    page actually declares its ownership. A project with a hand-tuned
+    [slurm.overrides.fmriprep] lost it to any Setup save — a rename, a DICOM
+    source change — and later submissions silently used different resources.
+    """
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(str(project), {"slurm": {
+        "account": "hulacon",
+        "memory": "64G",
+        "overrides": {"fmriprep": {"time": "48:00:00"}},
+    }})
+
+    at = _open(project)
+    for ti in at.text_input:
+        if ti.label == "Project name":
+            ti.set_value("renamed")
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    stored = _load_toml(project_config_path(str(project)))["slurm"]
+    assert stored["overrides"]["fmriprep"]["time"] == "48:00:00"
+    assert stored["memory"] == "64G"
+
+
+def test_save_shared_resources_keeps_user_level_slurm_keys(project, tmp_path):
+    """The shared-resources button writes only [slurm].email — the rest is not its.
+
+    A user-level `mail_type` or account applies to every project; the button that
+    edits one email address must not be able to delete them.
+    """
+    from duckbrain.config import _load_toml, save_user_config
+
+    save_user_config({"slurm": {"account": "hulacon", "mail_type": "END,FAIL"}})
+
+    at = _open(project)
+    # The email must be non-empty or `_clean_dict` drops [slurm] entirely and the
+    # section is never rewritten — the bug would hide behind an accidental no-op.
+    for ti in at.text_input:
+        if ti.label == "SLURM email":
+            ti.set_value("ben@example.edu")
+    _button(at, "Save shared resources").click().run()
+    assert not at.exception
+
+    stored = _load_toml(tmp_path / "user_config.toml")["slurm"]
+    assert stored["account"] == "hulacon"
+    assert stored["mail_type"] == "END,FAIL"
+
+
 def test_user_config_env_is_respected(project, tmp_path):
     """Guard on the fixture itself: a leaky test here would rewrite a real config."""
     real = Path.home() / ".config" / "duckbrain" / "config.toml"

@@ -13,6 +13,7 @@ import streamlit as st
 
 from duckbrain.config import (
     PROJECT_ENV,
+    _SHARED_PATH_KEYS,
     _load_toml,
     forget_project,
     load_config,
@@ -42,6 +43,29 @@ def _clean_dict(d: dict) -> dict:
         elif v != "":
             out[k] = v
     return out
+
+
+# Which keys each save button OWNS. Everything else in these sections belongs to
+# whoever wrote it — a hand-tuned `[slurm.overrides.fmriprep]`, a `slurm.memory`,
+# a `dcm_source.base_dir` — and must survive a save from this page. Without this
+# the section-level replace in `_save_sections` deleted all of it while the page
+# said "Saved" (TODO #17.1, reopened by the 2026-07-22 review as DB-001).
+#
+# Adding a widget here without adding its key raises on save rather than
+# silently dropping the value one save later. That is the whole point; don't
+# "fix" such an error by widening the list without checking the widget writes
+# what you think it writes.
+_PROJECT_OWNED = {
+    "project": ("name", "use_sessions"),
+    "dcm_source": ("dir",),
+    "slurm": ("account", "partition", "partition_long", "time"),
+}
+
+_USER_OWNED = {
+    "paths": _SHARED_PATH_KEYS,
+    "containers": ("dcm2bids_version", "fmriprep_version", "mriqc_version"),
+    "slurm": ("email",),
+}
 
 # ---- Choose the project directory (the anchor for everything) ----
 st.header("Project directory")
@@ -228,7 +252,8 @@ if st.button("Save project settings"):
             "time": slurm_time,
         },
     }
-    path = save_project_config(active_project, _clean_dict(project_cfg))
+    path = save_project_config(active_project, _clean_dict(project_cfg),
+                               owned=_PROJECT_OWNED)
     # Must be a toast, not st.success: the rerun below restarts the script from the
     # top and wipes any element written before it, so a success box would flash for
     # zero frames. Nothing else on this page changes visibly after a save (the
@@ -311,6 +336,6 @@ if st.button("Save shared resources"):
         },
         "slurm": {"email": slurm_email},
     }
-    path = save_user_config(_clean_dict(user_cfg))
+    path = save_user_config(_clean_dict(user_cfg), owned=_USER_OWNED)
     st.toast(f"Saved shared resources to {path}", icon="✅")  # see note on the save above
     st.rerun()
