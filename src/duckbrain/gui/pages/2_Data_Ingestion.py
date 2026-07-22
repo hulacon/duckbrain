@@ -45,9 +45,11 @@ if not sourcedata_dir:
 from duckbrain.core.ingestion import (
     BidsMapping,
     IngestCollision,
+    InvalidLabel,
     discover_sessions,
     ingest_session,
     list_ingested_sessions,
+    plan_ingest,
     sub_ses_relpath,
 )
 
@@ -159,8 +161,29 @@ if not selected.empty:
 
     if st.button("Ingest Selected Sessions", type="primary"):
         valid = selected[selected["bids_subject"] != ""]
+        _mappings = [
+            BidsMapping(folder_name=r["folder_name"],
+                        bids_subject=r["bids_subject"],
+                        bids_session=r["bids_session"])
+            for _, r in valid.iterrows()
+        ]
+        # Preflight the whole selection before writing anything. ingest_session
+        # also detects collisions, but only after the first of a colliding pair
+        # is already on disk — and iteration order, not the user, decided which
+        # folder won. Nothing is written until the mapping is unambiguous.
+        _dupes = plan_ingest(_mappings, sourcedata_dir)
         if valid.empty:
             st.error("No sessions with a BIDS subject assignment selected.")
+        elif _dupes:
+            st.error(
+                "**Two or more folders are mapped to the same subject/session.** "
+                "Nothing was ingested — fix the mapping first, or only one of "
+                "each pair would end up on disk:\n"
+                + "\n".join(
+                    f"- `{dest}` ← " + ", ".join(f"`{f}`" for f in folders)
+                    for dest, folders in sorted(_dupes.items())
+                )
+            )
         else:
             progress = st.progress(0)
             results = []
@@ -196,6 +219,11 @@ if not selected.empty:
                     results.append(
                         {"folder": row["folder_name"], "status": "NOT ingested — collision",
                          "path": str(e)}
+                    )
+                except InvalidLabel as e:
+                    results.append(
+                        {"folder": row["folder_name"],
+                         "status": "NOT ingested — invalid label", "path": str(e)}
                     )
                 except Exception as e:
                     results.append(

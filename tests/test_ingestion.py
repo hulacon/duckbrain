@@ -553,3 +553,74 @@ def test_copied_target_without_a_marker_is_not_a_collision(tmp_path):
     mapping = BidsMapping(folder_name=src.name, bids_subject="01", bids_session="")
     target = ingest_session(_sess(src), mapping, sourcedata, method="copy")
     assert target == sourcedata / "sub-01" / "dicom"
+
+
+# ---- DB-003 residue: labels and duplicate destinations ----------------------
+
+@pytest.mark.parametrize("subject", ["../../escape", "01/junk", "..", "", "sub 01", "a-b"])
+def test_invalid_subject_labels_are_rejected(tmp_path, subject):
+    """`_sanitize_label` only ever ran on the heuristic's guesses; the mapping
+    table's columns are free text and the only gate was emptiness, so a label
+    like `../../x` built a directory outside the tree it named."""
+    from duckbrain.core.ingestion import BidsMapping, InvalidLabel, ingest_session
+
+    src = tmp_path / "export" / "STUDY_001"
+    (src / "Series_01").mkdir(parents=True)
+
+    with pytest.raises(InvalidLabel):
+        ingest_session(_sess(src), BidsMapping(src.name, subject, ""),
+                       tmp_path / "sourcedata")
+
+
+def test_invalid_session_labels_are_rejected(tmp_path):
+    from duckbrain.core.ingestion import BidsMapping, InvalidLabel, ingest_session
+
+    src = tmp_path / "export" / "STUDY_001"
+    (src / "Series_01").mkdir(parents=True)
+
+    with pytest.raises(InvalidLabel):
+        ingest_session(_sess(src), BidsMapping(src.name, "01", "../.."),
+                       tmp_path / "sourcedata")
+
+
+def test_a_rejected_label_writes_nothing(tmp_path):
+    """The point of rejecting is that nothing lands, not that it lands elsewhere."""
+    from duckbrain.core.ingestion import BidsMapping, InvalidLabel, ingest_session
+
+    src = tmp_path / "export" / "STUDY_001"
+    (src / "Series_01").mkdir(parents=True)
+    sourcedata = tmp_path / "sourcedata"
+
+    with pytest.raises(InvalidLabel):
+        ingest_session(_sess(src), BidsMapping(src.name, "../evil", ""), sourcedata)
+
+    assert not (tmp_path / "evil").exists()
+    assert not list(tmp_path.glob("sub-*"))
+
+
+def test_plan_ingest_flags_two_folders_claiming_one_destination(tmp_path):
+    """Preflight, because ingest_session's own check is reactive: it fires only
+    once the first of a colliding pair is on disk, and iteration order — not the
+    user — decided which folder won."""
+    from duckbrain.core.ingestion import BidsMapping, plan_ingest
+
+    dupes = plan_ingest(
+        [
+            BidsMapping("STUDY_001_a", "003", "04"),
+            BidsMapping("STUDY_001_b", "003", "04"),
+            BidsMapping("STUDY_002", "004", "04"),
+        ],
+        tmp_path / "sourcedata",
+    )
+
+    assert list(dupes) == ["sub-003/ses-04"]
+    assert sorted(dupes["sub-003/ses-04"]) == ["STUDY_001_a", "STUDY_001_b"]
+
+
+def test_plan_ingest_is_empty_for_a_clean_mapping(tmp_path):
+    from duckbrain.core.ingestion import BidsMapping, plan_ingest
+
+    assert plan_ingest(
+        [BidsMapping("a", "001", ""), BidsMapping("b", "002", "")],
+        tmp_path / "sourcedata",
+    ) == {}

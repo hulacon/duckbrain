@@ -307,12 +307,54 @@ class BidsMapping:
     bids_session: str  # e.g., "01"; "" -> no ses- entity
 
 
+class InvalidLabel(ValueError):
+    """A subject/session label that BIDS does not allow, caught before it's a path.
+
+    ``_sanitize_label`` only ever ran on the heuristic's guesses; the mapping
+    table's subject and session columns are free text, and the sole gate was
+    emptiness. A label of ``../../x`` or ``01/junk`` therefore went straight into
+    ``sub_ses_relpath`` and built a directory outside the tree it named.
+    """
+
+
+def validate_label(raw: str, what: str) -> str:
+    """Return *raw* if it is a legal BIDS entity label, else raise.
+
+    BIDS entity labels are alphanumeric — no separators, no dots, no spaces —
+    which rules out traversal (``..``) and absolute paths as a side effect rather
+    than by blocklisting them.
+    """
+    if not raw or not raw.isalnum():
+        raise InvalidLabel(
+            f"{what} label {raw!r} is not a valid BIDS entity: labels must be "
+            "alphanumeric (letters and digits only, no /, .., spaces or dashes)."
+        )
+    return raw
+
+
 def sub_ses_relpath(subject: str, session: str = "") -> Path:
     """Relative ``sub-XX[/ses-YY]`` path fragment; omits ses- when session is empty."""
     p = Path(f"sub-{subject}")
     if session:
         p = p / f"ses-{session}"
     return p
+
+
+def plan_ingest(
+    mappings: list[BidsMapping], sourcedata_dir: str | Path
+) -> dict[str, list[str]]:
+    """Destinations claimed by more than one folder: ``{relpath: [folder, ...]}``.
+
+    Preflight, because the collision check inside :func:`ingest_session` is
+    reactive — it fires only once the first of a colliding pair is already on
+    disk, and iteration order silently decides which folder wins. Empty dict
+    means the whole selection can be written.
+    """
+    by_dest: dict[str, list[str]] = {}
+    for m in mappings:
+        dest = str(sub_ses_relpath(m.bids_subject, m.bids_session))
+        by_dest.setdefault(dest, []).append(m.folder_name)
+    return {d: folders for d, folders in by_dest.items() if len(folders) > 1}
 
 
 class IngestCollision(Exception):
@@ -413,7 +455,23 @@ def ingest_session(
         scanner folders mapped onto one subject/session. See below.
     """
     sourcedata_dir = Path(sourcedata_dir)
+    validate_label(mapping.bids_subject, "subject")
+    if mapping.bids_session:
+        validate_label(mapping.bids_session, "session")
     target = sourcedata_dir / sub_ses_relpath(mapping.bids_subject, mapping.bids_session) / "dicom"
+
+    # Belt and braces on top of the label check: whatever the labels were, the
+    # path we are about to build has to land inside sourcedata. Normalized, not
+    # resolved — an already-ingested target is a symlink *to* the DICOM source,
+    # so resolving it would follow the link straight out of the tree and fail
+    # every legitimate re-ingest.
+    if not Path(os.path.normpath(target.absolute())).is_relative_to(
+        Path(os.path.normpath(sourcedata_dir.absolute()))
+    ):
+        raise InvalidLabel(
+            f"sub-{mapping.bids_subject} builds the path {target}, which is "
+            f"outside {sourcedata_dir}."
+        )
 
     if target.exists():
         # Ingestion is idempotent, and re-ingesting the same folder is a genuine
