@@ -23,8 +23,15 @@ def _paths(root):
     }
 
 
-def _config(root):
-    return {"paths": _paths(root)}
+def _config(root, use_nordic=False):
+    """A loaded-config stand-in. NORDIC is opt-in per project, so the surveyor
+    grades it n/a unless a project asks for it — the nordic tracker tests below
+    turn it on to exercise the tracker itself."""
+    return {"paths": _paths(root), "nordic": {"use_nordic": use_nordic}}
+
+
+def _nordic_config(root):
+    return _config(root, use_nordic=True)
 
 
 def _touch(path, content="x"):
@@ -192,7 +199,7 @@ def test_nordic_complete_with_denoised_bold(tmp_path):
     _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
     nd = tmp_path / "derivatives" / "nordic" / "sub-01" / "func"
     _touch(nd / "sub-01_task-x_bold.nii.gz")
-    df = survey_project(_config(tmp_path))
+    df = survey_project(_nordic_config(tmp_path))
     assert df.loc[0, "nordic"] == Status.COMPLETE
 
 
@@ -200,13 +207,13 @@ def test_nordic_partial_when_dir_but_no_denoised_bold(tmp_path):
     _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
     # NORDIC output dir exists but the denoised bold never landed → crashed/partial.
     (tmp_path / "derivatives" / "nordic" / "sub-01" / "func").mkdir(parents=True)
-    df = survey_project(_config(tmp_path))
+    df = survey_project(_nordic_config(tmp_path))
     assert df.loc[0, "nordic"] == Status.PARTIAL
 
 
 def test_nordic_missing_when_no_derivative(tmp_path):
     _touch(tmp_path / "sub-01" / "func" / "sub-01_task-x_bold.nii.gz")
-    df = survey_project(_config(tmp_path))
+    df = survey_project(_nordic_config(tmp_path))
     assert df.loc[0, "nordic"] == Status.MISSING
 
 
@@ -217,7 +224,7 @@ def test_nordic_sessionless_and_multisession_same_tracker(tmp_path):
     # Multi-session output.
     _touch(tmp_path / "sub-02" / "ses-01" / "func" / "sub-02_ses-01_task-x_bold.nii.gz")
     _touch(tmp_path / "derivatives" / "nordic" / "sub-02" / "ses-01" / "func" / "sub-02_ses-01_task-x_bold.nii.gz")
-    df = survey_project(_config(tmp_path))
+    df = survey_project(_nordic_config(tmp_path))
     assert df.set_index("subject").loc["01", "nordic"] == Status.COMPLETE
     assert df.set_index("subject").loc["02", "nordic"] == Status.COMPLETE
 
@@ -240,3 +247,30 @@ def test_summarize_counts(tmp_path):
     assert summary["ingested"][Status.COMPLETE.value] == 2
     assert summary["converted"][Status.COMPLETE.value] == 1
     assert summary["converted"][Status.MISSING.value] == 1
+
+
+# ---- TODO #17.4: a stage that doesn't apply is n/a, not unfinished ------------
+
+def test_nordic_is_na_without_use_nordic(tmp_path):
+    """NORDIC is opt-in. Grading it MISSING made every non-NORDIC project look
+    like it had N units of outstanding work, and offered a one-click bulk run
+    for a derivative fMRIPrep would never read."""
+    _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "nordic"] == Status.NA
+
+
+def test_na_unit_is_not_runnable_and_counts_as_done(tmp_path):
+    from duckbrain.core.pipeline import stage_runnable
+
+    _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")   # converted
+    config = _config(tmp_path)
+    row = survey_project(config).loc[0]
+
+    assert row["nordic"] == Status.NA
+    assert not stage_runnable(row, "nordic", config)
+    # ...and with use_nordic on, the same unit IS runnable — the gate is the
+    # project setting, not a blanket refusal.
+    on = _nordic_config(tmp_path)
+    assert stage_runnable(survey_project(on).loc[0], "nordic", on)

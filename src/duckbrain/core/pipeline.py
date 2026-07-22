@@ -757,7 +757,10 @@ def stage_runnable(row, stage: str, config: dict | None = None) -> bool:
         return False
     if row.get(f"{stage}_job", "") in ("running", "queued"):
         return False
-    if row[stage] == Status.COMPLETE.value:
+    # COMPLETE: nothing left to do. NA: nothing to do at all — the stage does not
+    # apply to this project (NORDIC without use_nordic), and offering it launched
+    # days of compute for a derivative nothing would read (TODO #17.4).
+    if row[stage] in (Status.COMPLETE.value, Status.NA.value):
         return False
     dep = effective_depends_on(config, stage) if config is not None else spec.depends_on
     if dep is not None and row.get(dep) != Status.COMPLETE.value:

@@ -752,7 +752,16 @@ def _assign_fmap_group(
         assignments[cache_key] = wanted
         return wanted
 
-    groups = complete or list(fieldmaps.groups.keys())
+    # Complete pairs ONLY. This used to read `complete or list(groups)`, which
+    # made every incomplete group a candidate whenever a session had no complete
+    # one — so an aborted lone AP got bound after all (TODO #17.3), contradicting
+    # both the Fieldmap Detection panel ("isn't offered below") and #4's closing
+    # note. A half pair cannot estimate a field, so binding to it buys nothing and
+    # costs a job: the per-session page hard-errored on a binding it had made
+    # itself, and the bulk path submitted it. No complete pair means no binding,
+    # which is an honest "no SDC" that plan_warnings already reports. An explicit
+    # [fmap_mapping] rule naming a half group still raises above, unchanged.
+    groups = complete
     if not groups:
         return None
 

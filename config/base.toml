@@ -50,7 +50,13 @@ excluded_nodes = ""
 use_nordic = false
 
 [slurm]
-partition = "medium"
+# The two partition ROLES. A stage names its role (see `long` below), never a
+# partition directly, so a site with different partition names sets these two
+# keys once — in the user config or the project config — and every stage follows.
+# `partition` was "medium" until 2026-07-22, but every stage overrode it with
+# "compute", so it never reached a job; it is spelled "compute" now so removing
+# those per-stage lines preserves exactly where jobs already land (TODO #17.2).
+partition = "compute"
 partition_long = "computelong"
 time = "12:00:00"
 memory = "16G"
@@ -63,7 +69,6 @@ account = ""
 time = "03:00:00"
 memory = "8G"
 cpus = "1"
-partition = "compute"
 
 [slurm.overrides.mriqc]
 time = "06:00:00"
@@ -71,16 +76,15 @@ time = "06:00:00"
 # _build_mriqc so its synthstrip overshoot stays inside the cgroup limit.
 memory = "32G"
 cpus = "4"
-partition = "compute"
 
 [slurm.overrides.nordic]
 time = "02:00:00"
 memory = "32G"
 cpus = "4"
-partition = "compute"
 
 [slurm.overrides.fmriprep]
 time = "48:00:00"
 memory = "48G"
 cpus = "8"
-partition = "computelong"
+# The one long-running stage: takes [slurm] partition_long rather than partition.
+long = true

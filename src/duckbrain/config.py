@@ -180,12 +180,29 @@ def load_config(
 def get_slurm_resources(config: dict, step: str) -> dict:
     """Get SLURM resource settings for a pipeline step.
 
-    Falls back to global slurm settings if no per-step override exists.
+    ``time``/``memory``/``cpus`` take the per-stage override when there is one:
+    those are tuned engineering values (fMRIPrep needs 48 h and 48 G; dcm2bids
+    needs 3 h and 8 G), and a project-wide "default" should not silently retune
+    them.
+
+    ``partition`` is different in kind and used to be wrong (TODO #17.2). It is
+    site policy, not tuning — the per-stage values only ever named one of two
+    *roles*, normal and long. Naming the partition per stage meant a project or
+    user setting ``[slurm] partition`` was outranked by a shipped default and
+    reached no job at all, while the Setup page displayed it as if it had. So a
+    stage now declares ``long = true`` instead, and the two role names resolve
+    from ``[slurm] partition`` / ``partition_long`` — which is what makes both of
+    those fields live, and ``partition_long`` read by anything at all. An explicit
+    per-stage ``partition`` still wins, so a project can still pin one stage.
     """
     slurm = config.get("slurm", {})
     overrides = slurm.get("overrides", {}).get(step, {})
+    role_default = (
+        slurm.get("partition_long", "computelong") if overrides.get("long")
+        else slurm.get("partition", "compute")
+    )
     return {
-        "partition": overrides.get("partition", slurm.get("partition", "compute")),
+        "partition": overrides.get("partition", role_default),
         "time": overrides.get("time", slurm.get("time", "12:00:00")),
         "memory": overrides.get("memory", slurm.get("memory", "16G")),
         "cpus": overrides.get("cpus", slurm.get("cpus", "4")),
@@ -206,14 +223,47 @@ def _dump_toml(path: str | Path, data: dict) -> Path:
     return path
 
 
+def _save_sections(path: str | Path, data: dict) -> Path:
+    """Write the top-level sections of *data*, preserving every other section.
+
+    Read-modify-write at **section** granularity: a section named in *data*
+    replaces its stored counterpart wholesale, and a section absent from *data*
+    is left untouched. Same contract as :func:`save_project_task_map` and
+    :func:`save_project_fmap_map`, generalized — those two were the only savers
+    that had it, and their absence here was a data-loss bug (TODO #17.1): the
+    Setup page writes four sections, so a plain whole-file dump deleted
+    ``[task_mapping]``, ``[fmap_mapping]``, ``[fmriprep]``, ``[nordic]``,
+    ``[conversion]``, ``[slurm.overrides.*]`` and any hand-written key, while
+    reporting success.
+
+    Section-level *replace* rather than a deep merge, deliberately. A caller
+    passing a section owns it entirely, and its widgets drop cleared fields (see
+    the Setup page's ``_clean_dict``) — under a deep merge a value the user
+    cleared would survive in the file and keep taking effect, which is the same
+    class of bug one layer down.
+    """
+    stored = _load_toml(path)
+    stored.update(data)
+    return _dump_toml(path, stored)
+
+
 def save_user_config(data: dict) -> Path:
-    """Write the user-level config (shared machine resources)."""
-    return _dump_toml(user_config_path(), data)
+    """Update the user-level config (shared machine resources).
+
+    Section-scoped; see :func:`_save_sections`. Preserves ``[recent]``, which the
+    Setup page renders but never writes.
+    """
+    return _save_sections(user_config_path(), data)
 
 
 def save_project_config(project_dir: str | Path, data: dict) -> Path:
-    """Write a project's own config to ``<project_dir>/code/duckbrain.toml``."""
-    return _dump_toml(project_config_path(project_dir), data)
+    """Update a project's own config at ``<project_dir>/code/duckbrain.toml``.
+
+    Section-scoped; see :func:`_save_sections`. Preserves the study's
+    ``[task_mapping]`` / ``[fmap_mapping]`` — the bindings ``#13`` exists to
+    persist — which a whole-file write silently destroyed.
+    """
+    return _save_sections(project_config_path(project_dir), data)
 
 
 # Recently-opened projects live in the USER config, not a project's own: "which

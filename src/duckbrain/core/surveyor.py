@@ -253,10 +253,22 @@ def survey_project(config: dict) -> pd.DataFrame:
     paths = config["paths"]
     units = discover_units(paths)
 
+    # NORDIC is opt-in per project. Without use_nordic nothing consumes its
+    # output — fMRIPrep reads the raw BIDS tree — so grading it MISSING presented
+    # every unit of every non-NORDIC project as unfinished work: the rollup read
+    # "Nordic 0/N", the cockpit offered a one-click "run all", and "every stage
+    # complete" was unreachable (TODO #17.4). NA is what that state means, and it
+    # is why the enum has the member. Launching NORDIC deliberately in such a
+    # project is still possible from the Preprocessing page's NORDIC tab.
+    nordic_applies = bool(config.get("nordic", {}).get("use_nordic", False))
+
     rows = []
     for subject, session in units:
         row = {"subject": subject, "session": session}
         for stage, tracker in _TRACKERS.items():
+            if stage == "nordic" and not nordic_applies:
+                row[stage] = Status.NA.value
+                continue
             row[stage] = tracker(paths, subject, session).value
         rows.append(row)
 

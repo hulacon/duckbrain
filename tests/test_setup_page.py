@@ -79,3 +79,36 @@ def test_user_config_env_is_respected(project, tmp_path):
     assert not at.exception
     assert (tmp_path / "user_config.toml").exists()
     assert (real.read_bytes() if real.exists() else None) == before
+
+
+def test_setup_flags_a_partition_this_cluster_does_not_have(project, monkeypatch):
+    """duckbrain shipped `medium` as its default partition and this cluster has
+    no such partition. It was invisible while a per-stage default outranked it;
+    now that the field reaches jobs, a stale value must be visible before it
+    rejects every submission."""
+    import duckbrain.gui.pages  # noqa: F401  (namespace exists before patching)
+    import duckbrain.slurm.monitor as M
+
+    monkeypatch.setattr(M, "known_partitions", lambda: {"compute", "computelong"})
+    from duckbrain.config import save_project_config
+    save_project_config(str(project), {"slurm": {"partition": "medium"}})
+
+    at = _open(project)
+    assert not at.exception
+    assert any("Not a partition on this cluster" in e.value for e in at.error), (
+        "a partition the cluster does not have must be flagged, not saved quietly"
+    )
+
+
+def test_no_partition_complaint_when_slurm_cannot_be_queried(project, monkeypatch):
+    """Off-cluster, sinfo returns nothing — that is 'cannot validate', not
+    'no partitions exist'. A false accusation would be worse than no check."""
+    import duckbrain.slurm.monitor as M
+
+    monkeypatch.setattr(M, "known_partitions", lambda: set())
+    from duckbrain.config import save_project_config
+    save_project_config(str(project), {"slurm": {"partition": "anything"}})
+
+    at = _open(project)
+    assert not at.exception
+    assert not any("Not a partition" in e.value for e in at.error)

@@ -379,6 +379,12 @@ def dashboard():
     cols = st.columns(len(STAGES))
     for col, stage in zip(cols, STAGES):
         counts = summary[stage]
+        # A stage that applies to no unit reads "—", not "0/N": 0-of-N is a
+        # progress claim, and it was the headline number telling a finished
+        # non-NORDIC project it had N units of work left (TODO #17.4).
+        if counts.get(Status.NA.value, 0) == len(matrix) and len(matrix):
+            col.metric(stage.capitalize(), "—", help="does not apply to this project")
+            continue
         col.metric(stage.capitalize(), f"{counts[Status.COMPLETE.value]}/{len(matrix)}",
                    help="complete / total")
         bits = []
@@ -437,8 +443,13 @@ def dashboard():
 
     view = matrix
     if only_incomplete:
+        # "Unfinished" means there is work left, so a stage that does not apply to
+        # this project (NORDIC without use_nordic) must not keep a finished unit on
+        # the board — that is what made this filter hide nothing, ever, and the
+        # all-complete message unreachable (TODO #17.4).
+        _done = (Status.COMPLETE.value, Status.NA.value)
         mask = matrix[list(STAGES)].apply(
-            lambda r: any(v != Status.COMPLETE.value for v in r), axis=1)
+            lambda r: any(v not in _done for v in r), axis=1)
         view = matrix[mask.values]
 
     if view.empty:

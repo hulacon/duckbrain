@@ -21,49 +21,39 @@ control looks live and isn't. Invisible to the whole test suite, because nothing
 asserts on what is *displayed*, and every one of them exits 0.
 
 The two that prompted it are already fixed (`9c65ac8` SBRef bindings, `3a578bd`
-save feedback). The rest are below, and `#17.1` is an active hazard to `#14`'s
-re-run — do it first.
+save feedback), and ✅ **`#17.1`–`#17.4` are closed 2026-07-22** — detail in
+`CHANGELOG.md`, one-line summaries below. What remains is `#17.5`–`#17.10`.
 
-### Verified by direct execution (not inferred)
+### Closed 2026-07-22
 
-- 🔴 **`#17.1` — "Save project settings" silently deletes `[task_mapping]` and
-  `[fmap_mapping]`.** `save_project_config`/`save_user_config` are plain
-  whole-file `_dump_toml` (`config.py:209-217`) while `save_project_task_map`/
-  `save_project_fmap_map` are deliberately read-modify-write *and say so in their
-  docstrings*. So the Setup page's save writes only its own four sections and
-  drops everything else — task mapping, fieldmap bindings, `[fmriprep]`,
-  `[nordic]`, `[conversion]`, `[slurm.overrides.*]`, and any hand-written key.
-  Proven: a config with `task_mapping` + `fmap_mapping` retains neither after the
-  button's exact payload. **This destroys the bindings `#13` exists to persist,
-  and the toast says "Saved".** Fix is read-modify-write, matching the sibling
-  savers. Do this before defining bindings on the re-run.
-- 🔴 **`#17.2` — Setup's SLURM partition / long partition / time limit reach no
-  job.** Every stage has `[slurm.overrides.<stage>]` in `base.toml` and
-  `get_slurm_resources` takes the override first, so a project setting
-  `partition=MYPART, time=99:00:00` still yields `compute`/`03:00:00` for
-  dcm2bids and `computelong`/`48:00:00` for fMRIPrep. `partition_long` is read by
-  *nothing at all* outside the page that writes it. `account` and `email` do
-  work, which is what makes the section look functional. Decide: make the
-  project layer override the stage defaults, or drop the fields.
-  Note the Preprocessing page's SLURM expander shows the truth and thus silently
-  contradicts Setup.
-- **`#17.3` — a bold can be bound to a half fieldmap pair after all.**
-  `_assign_fmap_group`'s `groups = complete or list(fieldmaps.groups.keys())`
-  (`dcm2bids_config.py:755`) falls back to incomplete groups when a session has
-  *no* complete pair, so an aborted lone AP gets bound — while the Fieldmap
-  Detection panel says an incomplete pair "isn't offered below". The per-session
-  page then hard-errors on a binding it made itself; the bulk/cockpit path has no
-  such guard and submits it. Contradicts the `#4` fix note that says bolds can no
-  longer pick a half group.
-- **`#17.4` — `Status.NA` is defined, ranked and rendered but never produced.**
-  So `nordic` grades MISSING for every unit of a non-NORDIC project: the overview
-  reads `Nordic 0/N`, the column offers `▶▶ Run all N nordic`, the "hide complete"
-  filter can never hide anything, and "Every subject/session is complete 🎉" is
-  unreachable. Related to the Loose-ideas note about the always-on NORDIC column,
-  but that framed it as cosmetic and it is not — it is a one-click invitation to
-  run days of MATLAB producing a derivative nothing will read.
+- ✅ **`#17.1` — the Setup page's save no longer eats the rest of the config.**
+  Both savers are section-scoped read-modify-write now, the contract
+  `save_project_task_map` always had. It was destroying `[task_mapping]` /
+  `[fmap_mapping]` — the bindings `#13` exists to persist — while reporting
+  success.
+- ✅ **`#17.2` — the SLURM partition fields now reach jobs.** Stages declare a
+  *role* (`long = true` on fMRIPrep) instead of naming a partition, so both
+  `[slurm] partition` and `partition_long` resolve for every stage; per-stage
+  `time`/`memory`/`cpus` stay tuned per stage on purpose.
+  - 🔴 **The tail this exposed, and the reason to keep reading:** duckbrain's
+    shipped default partition was `medium`, **which is not a Talapas partition**.
+    It was invisible for months *because* the field was inert — the bug was
+    hiding a second bug. Every project set up before 2026-07-22 carries it;
+    `divatten_beta` was repaired in the same commit. The Setup page now validates
+    both partitions against `sinfo` (`slurm/monitor.known_partitions`), treating
+    "couldn't ask" as "can't validate" rather than accusing. **Generalizable
+    lesson for `#16`: a setting that never took effect was never tested by
+    reality, so activating one is a data-migration problem, not just a fix.**
+- ✅ **`#17.3` — no complete pair now means no fieldmap binding**, rather than
+  falling back to binding a half pair. The pre-existing test *named*
+  `..._leaves_the_bold_uncorrected` asserted only the warnings and never the
+  binding, which is precisely why this survived; it asserts both now.
+- ✅ **`#17.4` — `Status.NA` is produced at last.** NORDIC grades `n/a` without
+  `use_nordic`, is not launchable from the board, and the rollup reads `—`
+  instead of `0/N`. The Preprocessing page's NORDIC tab still runs it
+  deliberately.
 
-### Found by audit, plausible, not yet re-verified end to end
+### Open — found by audit, plausible, not yet re-verified end to end
 
 - **`#17.5` — the JSON-override path leaves the rest of the page describing the
   auto-generated config.** With hand-edit on, `task`/`run`/`fieldmap` columns

@@ -65,6 +65,38 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   assumption about that study would inherit.
 
 ### Fixed
+- **Saving on the Project Setup page no longer deletes the rest of the project
+  config.** It wrote the file whole, so saving a SLURM account silently discarded
+  the study's `[task_mapping]` and `[fmap_mapping]` — the task labels and fieldmap
+  bindings defined on the Conversion page — along with `[fmriprep]`, `[nordic]`,
+  `[conversion]` and any hand-written key, and reported success. Both project and
+  user saves are now section-scoped read-modify-write, the contract
+  `save_project_task_map` already had. The user config likewise keeps its
+  `[recent]` projects.
+- **The SLURM partition set on the Setup page now reaches jobs.** Every stage
+  carried a shipped per-stage partition that outranked it, so the field was inert
+  while looking functional (`account` and `email` did work). Stages now declare
+  *which of two roles* they need — fMRIPrep is the long one — and both role names
+  resolve from `[slurm] partition` / `partition_long`, which is also the first
+  thing that has ever read `partition_long`. Per-stage `time`/`memory`/`cpus` are
+  deliberately unchanged: those are tuned per stage and a project-wide default
+  should not retune them.
+  - ⚠️ **Check your project's partition.** duckbrain's default was `medium`, which
+    is not a Talapas partition; projects created before this carry it, and it was
+    harmless only while the field was inert. The Setup page now validates both
+    partitions against `sinfo` and refuses to let a bad one pass unnoticed.
+- **A BOLD is no longer bound to an incomplete fieldmap pair.** When a session had
+  no complete pair, every incomplete one became a candidate, so an aborted lone AP
+  got bound — contradicting the Fieldmap Detection panel, which says an incomplete
+  pair isn't offered. The per-session page then hard-errored on a binding it had
+  made itself, and the bulk path submitted it. No complete pair now means no
+  binding, which is an honest "no distortion correction".
+- **NORDIC no longer shows as unfinished work in projects that don't use it.**
+  Without `use_nordic` nothing reads NORDIC output, but the stage graded *missing*
+  for every unit: the rollup read `0/N`, the board offered a one-click "run all",
+  and "every stage complete" could never be reached. It reads `—` / `n/a` now and
+  is not launchable from the board. The Preprocessing page's NORDIC tab still runs
+  it deliberately.
 - **duckbrain no longer overwrites `PhaseEncodingDirection`.** It was forced to
   `j-`/`j` from the `_ap`/`_pa` token in the series name, clobbering the value
   dcm2niix derives from the DICOM header. That could only lose information — a

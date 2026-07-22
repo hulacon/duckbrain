@@ -24,6 +24,7 @@ from duckbrain.config import (
     user_config_path,
 )
 from duckbrain.gui.components import directory_picker
+from duckbrain.slurm.monitor import known_partitions
 
 st.set_page_config(page_title="Project Setup — duckbrain", layout="wide")
 st.title("Project Setup")
@@ -160,13 +161,36 @@ dcm_dir = directory_picker(
 )
 
 st.subheader("SLURM (project)")
+st.caption(
+    "Every stage runs on **Default partition** except fMRIPrep, the one long "
+    "stage, which runs on **Long partition**. Per-stage time/memory/CPU stay "
+    "tuned per stage — the time limit here is only the fallback for a stage "
+    "without one."
+)
 c1, c2 = st.columns(2)
 with c1:
     slurm_account = st.text_input("Account / PIRG", value=_get("slurm", "account"))
-    slurm_partition = st.text_input("Default partition", value=_get("slurm", "partition") or "medium")
+    slurm_partition = st.text_input("Default partition", value=_get("slurm", "partition") or "compute")
 with c2:
     slurm_partition_long = st.text_input("Long partition", value=_get("slurm", "partition_long") or "computelong")
     slurm_time = st.text_input("Default time limit", value=_get("slurm", "time") or "12:00:00")
+
+# A partition name is the one SLURM setting duckbrain can't check against itself,
+# and a wrong one is only discovered when sbatch rejects the job. It bites for
+# real: duckbrain shipped `medium` as its default for months — not a partition
+# this cluster has — and the projects set up in that window still carry it.
+# Silent while a per-stage default outranked it; now that the field works
+# (TODO #17.2), a stale value would reject every job.
+_known = known_partitions()
+if _known:
+    _bad = [p for p in (slurm_partition, slurm_partition_long) if p and p not in _known]
+    if _bad:
+        st.error(
+            "Not a partition on this cluster: "
+            + ", ".join(f"`{p}`" for p in _bad)
+            + ". sbatch will reject every job submitted with it. Available: "
+            + ", ".join(f"`{p}`" for p in sorted(_known))
+        )
 
 if st.button("Save project settings"):
     project_cfg = {

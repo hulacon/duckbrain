@@ -208,6 +208,11 @@ def test_half_pair_is_flagged_and_leaves_the_bold_uncorrected():
     series = [_series(3, "se_epi_ap"), _bold(9, "perFace", 1)]
     plan, fieldmaps = _plan(series)
 
+    # The half of this test the name always promised and never checked, which is
+    # why TODO #17.3 survived: the bold WAS bound to the half pair, and only the
+    # warnings were asserted.
+    assert next(f for f in plan.files if f.is_bold).fmap_group is None
+
     warnings = plan_warnings(plan, fieldmaps)
     assert any(w.kind == "half-pair" and w.series == [3] for w in warnings)
     # No complete pair exists, so "uncorrected" would be noise, not a finding.
@@ -385,3 +390,37 @@ def test_plan_reads_the_sbref_binding_back():
     plan, _ = _plan(series)
     by_series = {num: files[0] for num, files in plan.by_series.items()}
     assert by_series[8].fmap_group == by_series[9].fmap_group == ""
+
+
+def test_a_half_fieldmap_pair_binds_nothing_even_when_it_is_the_only_one():
+    """No complete pair means no binding — not a binding to the half pair.
+
+    `_assign_fmap_group` fell back to `list(fieldmaps.groups)` when no group was
+    complete, so an aborted lone AP got bound after all (TODO #17.3). That
+    contradicted the Fieldmap Detection panel, hard-errored the per-session page
+    on a binding it had made itself, and let the bulk path submit a run pointed at
+    a field that cannot be estimated.
+    """
+    series = [
+        _series(3, "se_epi_ap"),          # AP only — the scan was aborted
+        _series(8, "div_perFace_r1_SBRef", n=1),
+        _series(9, "div_perFace_r1"),
+    ]
+    plan, fieldmaps = _plan(series)
+
+    assert not [g for g, d in fieldmaps.groups.items() if "ap" in d and "pa" in d]
+    assert {f.fmap_group for f in plan.files if f.datatype == "func"} == {None}
+    assert {f.series_number for f in plan.corrected_by(None)} == {8, 9}
+
+
+def test_a_complete_pair_still_wins_when_a_half_pair_is_also_present():
+    """The fix must not stop a real pair from binding when both kinds exist."""
+    series = [
+        _series(3, "se_epi_ap_good"),
+        _series(4, "se_epi_pa_good"),
+        _series(5, "se_epi_ap_aborted"),   # half pair, must not be chosen
+        _bold(9, "perFace", 1),
+    ]
+    plan, _ = _plan(series)
+
+    assert next(f for f in plan.files if f.is_bold).fmap_group == "good"

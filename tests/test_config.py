@@ -310,3 +310,100 @@ def test_bidsignore_covers_dcm2bids_working_dir(tmp_path):
     entries = (tmp_path / ".bidsignore").read_text().split()
     assert "tmp_dcm2bids/" in entries
     assert "work/" in entries
+
+
+# ---- TODO #17.1 / #17.2: saving must not destroy, settings must take effect ---
+
+def test_saving_project_settings_preserves_the_studys_mappings(tmp_path):
+    """The Setup page writes four sections; the rest of the file must survive.
+
+    This was a silent data-loss bug: `save_project_config` was a whole-file dump
+    while its siblings `save_project_task_map`/`save_project_fmap_map` were
+    read-modify-write, so saving anything on Setup deleted the task labels and
+    fieldmap bindings the Conversion page had persisted — and said "Saved".
+    """
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {
+        "project": {"name": "study"},
+        "task_mapping": {"rule": [{"description": "rest_bold", "task": "rest"}]},
+        "fmap_mapping": {"rule": [{"task": "rest", "group": "2.5mm"}]},
+        "fmriprep": {"output_spaces": "MNI152NLin2009cAsym:res-2"},
+    })
+    # Exactly what the Setup page's "Save project settings" button writes.
+    save_project_config(tmp_path, {
+        "project": {"name": "study"},
+        "dcm_source": {"dir": "/dicom/study"},
+        "slurm": {"account": "hulacon"},
+    })
+
+    stored = _load_toml(project_config_path(tmp_path))
+    assert stored["task_mapping"]["rule"][0]["task"] == "rest"
+    assert stored["fmap_mapping"]["rule"][0]["group"] == "2.5mm"
+    assert stored["fmriprep"]["output_spaces"] == "MNI152NLin2009cAsym:res-2"
+    assert stored["dcm_source"]["dir"] == "/dicom/study"
+
+
+def test_a_saved_section_is_replaced_not_merged(tmp_path):
+    """Clearing a field must remove it, or the cleared value keeps taking effect."""
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {"slurm": {"account": "old", "partition": "gone"}})
+    save_project_config(tmp_path, {"slurm": {"account": "new"}})
+
+    stored = _load_toml(project_config_path(tmp_path))
+    assert stored["slurm"] == {"account": "new"}
+
+
+def test_project_partition_reaches_every_stage(tmp_path, monkeypatch):
+    """A project's partition is site policy and must beat the shipped defaults.
+
+    It did not: base.toml named a partition on every stage override, and
+    `get_slurm_resources` reads overrides first, so the value the Setup page
+    displayed reached no job at all. Stages declare `long` now; the two role
+    names resolve from [slurm].
+    """
+    from duckbrain.config import load_config, save_project_config, scaffold_project
+    from duckbrain.config import get_slurm_resources
+
+    proj = tmp_path / "p"
+    scaffold_project(str(proj))
+    save_project_config(str(proj), {"slurm": {"partition": "mypart",
+                                              "partition_long": "mylong"}})
+    cfg = load_config(project_dir=str(proj))
+
+    assert get_slurm_resources(cfg, "dcm2bids")["partition"] == "mypart"
+    assert get_slurm_resources(cfg, "mriqc")["partition"] == "mypart"
+    assert get_slurm_resources(cfg, "nordic")["partition"] == "mypart"
+    # fMRIPrep is the long stage, so it follows partition_long.
+    assert get_slurm_resources(cfg, "fmriprep")["partition"] == "mylong"
+    # ...while the tuned per-stage values are NOT retuned by a project default.
+    assert get_slurm_resources(cfg, "fmriprep")["time"] == "48:00:00"
+    assert get_slurm_resources(cfg, "dcm2bids")["memory"] == "8G"
+
+
+def test_shipped_partition_defaults_are_unchanged(tmp_path):
+    """Removing the per-stage partition lines must not move where jobs land."""
+    from duckbrain.config import get_slurm_resources, load_config, scaffold_project
+
+    proj = tmp_path / "p"
+    scaffold_project(str(proj))
+    cfg = load_config(project_dir=str(proj))
+    landed = {s: get_slurm_resources(cfg, s)["partition"]
+              for s in ("dcm2bids", "mriqc", "nordic", "fmriprep")}
+    assert landed == {"dcm2bids": "compute", "mriqc": "compute",
+                      "nordic": "compute", "fmriprep": "computelong"}
+
+
+def test_an_explicit_per_stage_partition_still_wins(tmp_path):
+    from duckbrain.config import (get_slurm_resources, load_config,
+                                  save_project_config, scaffold_project)
+
+    proj = tmp_path / "p"
+    scaffold_project(str(proj))
+    save_project_config(str(proj), {
+        "slurm": {"partition": "mypart",
+                  "overrides": {"mriqc": {"partition": "pinned"}}}})
+    cfg = load_config(project_dir=str(proj))
+    assert get_slurm_resources(cfg, "mriqc")["partition"] == "pinned"
+    assert get_slurm_resources(cfg, "dcm2bids")["partition"] == "mypart"

@@ -41,6 +41,33 @@ def cancel_job(job_id: str) -> None:
         )
 
 
+def known_partitions() -> set[str]:
+    """Partition names this cluster actually has (``sinfo``), or an empty set.
+
+    Best-effort by design: an empty set means "could not ask" (no SLURM on this
+    machine, sinfo missing, a timeout) and callers must treat that as "cannot
+    validate" rather than "no partitions exist". Validation that turns into a
+    false accusation off-cluster would be worse than none.
+
+    Exists because a partition name is the one SLURM setting duckbrain cannot
+    check by looking at itself, and a wrong one is only discovered when sbatch
+    rejects the job. duckbrain shipped ``medium`` as a default for months — not a
+    Talapas partition at all — which was invisible only because a per-stage
+    default silently outranked it (TODO #17.2).
+    """
+    try:
+        result = subprocess.run(
+            ["sinfo", "-h", "-o", "%P"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if result.returncode != 0:
+        return set()
+    # sinfo marks the cluster default with a trailing '*'.
+    return {p.strip().rstrip("*") for p in result.stdout.split() if p.strip()}
+
+
 def list_jobs(user: str | None = None) -> list[JobInfo]:
     """List pending/running jobs from squeue.
 
