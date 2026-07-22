@@ -180,7 +180,11 @@ if st.button("Save project settings"):
         },
     }
     path = save_project_config(active_project, _clean_dict(project_cfg))
-    st.success(f"Saved project settings to `{path}`")
+    # Must be a toast, not st.success: the rerun below restarts the script from the
+    # top and wipes any element written before it, so a success box would flash for
+    # zero frames. Nothing else on this page changes visibly after a save (the
+    # widgets already show what you typed), so without this the button looked inert.
+    st.toast(f"Saved project settings to {path}", icon="✅")
     st.rerun()
 
 # ---- Shared machine resources (saved to the USER config) ----
@@ -236,5 +240,5 @@ if st.button("Save shared resources"):
         "slurm": {"email": slurm_email},
     }
     path = save_user_config(_clean_dict(user_cfg))
-    st.success(f"Saved shared resources to `{path}`")
+    st.toast(f"Saved shared resources to {path}", icon="✅")  # see note on the save above
     st.rerun()
