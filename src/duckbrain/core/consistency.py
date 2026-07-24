@@ -73,6 +73,7 @@ from pathlib import Path
 
 from .bids_metadata import duckbrain_version
 from .containers import container_build_tag
+from .dcm2niix_probe import PE_FOR_DIR as _PE_FOR_DIR
 from .pipeline import (
     matlab_module,
     nordic_toolbox_dir,
@@ -770,9 +771,9 @@ def _check_presence(config: dict) -> list[ConsistencyIssue]:
 
 # ---- public API -------------------------------------------------------------
 
-# Expected phase-encoding direction for each ``dir-`` entity duckbrain emits.
-# AP is anterior->posterior, which for an axial acquisition is -j.
-_PE_FOR_DIR = {"AP": "j-", "PA": "j"}
+# The expected phase-encoding direction per ``dir-`` entity is `_PE_FOR_DIR`,
+# imported from dcm2niix_probe because that module runs the same comparison
+# *before* conversion. Two copies would let a plan pass preflight and fail here.
 
 _DIR_ENTITY_RE = re.compile(r"_dir-([A-Za-z0-9]+)")
 

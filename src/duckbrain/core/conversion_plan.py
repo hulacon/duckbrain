@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .dcm2niix_probe import PE_FOR_DIR, SeriesProbe
 from .dicom_inspect import FieldmapDetection, SeriesInfo, is_complete_group
 
 # Classifications dcm2bids is *supposed* to leave behind. Everything else that
@@ -271,6 +272,29 @@ def plan_conversion(
     return ConversionPlan(files=files, dropped=dropped)
 
 
+_DIR_ENTITY_RE = re.compile(r"(?:^|_)dir-([A-Za-z0-9]+)")
+
+
+def _fmap_halves(
+    plan: ConversionPlan, probes: dict[int, "SeriesProbe"] | None
+) -> dict[str | None, dict[int, "SeriesProbe"]]:
+    """Probed fieldmap files per group, keyed by series number.
+
+    Only files that are both planned as a fieldmap *and* were probed appear, so
+    a session with no probes yields nothing and every check over this is skipped
+    rather than guessing.
+    """
+    if not probes:
+        return {}
+    halves: dict[str | None, dict[int, SeriesProbe]] = {}
+    for f in plan.files:
+        probe = probes.get(f.series_number)
+        if f.datatype != "fmap" or probe is None:
+            continue
+        halves.setdefault(f.fmap_group, {})[f.series_number] = probe
+    return halves
+
+
 @dataclass
 class PlanWarning:
     """One preflight finding about a plan.
@@ -288,13 +312,22 @@ class PlanWarning:
 
 
 def plan_warnings(
-    plan: ConversionPlan, fieldmaps: FieldmapDetection | None = None
+    plan: ConversionPlan,
+    fieldmaps: FieldmapDetection | None = None,
+    probes: dict[int, "SeriesProbe"] | None = None,
 ) -> list[PlanWarning]:
     """Preflight a plan: what will go wrong, or is worth confirming, before submitting.
 
     Reports; never repairs. That is `TODO` ``#5``'s standing rule — a bad guess
     made *visible* is the job, and quietly rewriting a mapping here would be the
     silently-degrading behavior ``CLAUDE.md`` forbids.
+
+    ``probes`` is what dcm2niix says about each series, keyed on series number
+    (:func:`~duckbrain.core.dcm2niix_probe.by_series_number`). Optional, and its
+    absence costs only the phase-encoding checks — everything else reads the
+    plan. Callers that can afford the ~0.5 s should pass it: the phase-encoding
+    direction is the one thing in a fieldmap plan that duckbrain otherwise takes
+    entirely on the operator's word.
 
     Ordered most severe first, so a caller can render them as-is.
     """
@@ -342,6 +375,38 @@ def plan_warnings(
                 )
             )
 
+    # --- Pepolar pairs that don't oppose. A pepolar fieldmap estimates the field
+    # from two acquisitions traversed in *opposite* directions; two halves with
+    # the same phase-encoding direction carry the same distortion and estimate
+    # nothing. dcm2bids converts them happily, fMRIPrep accepts the pair, and the
+    # correction it computes is meaningless — so this is an error, not a warning.
+    #
+    # Orientation-free, unlike the ``dir-`` label check below: it asks only that
+    # the two signs differ on a shared axis, so it holds for an oblique or
+    # coronal acquisition where the AP/PA convention does not.
+    for group, halves in sorted(_fmap_halves(plan, probes).items()):
+        directions = {half: probe.phase_encoding_direction for half, probe in halves.items()}
+        if len(directions) < 2 or "" in directions.values():
+            continue
+        if len(set(directions.values())) > 1:
+            continue
+        nums = sorted(f for f in halves)
+        out.append(
+            PlanWarning(
+                kind="pe-collinear",
+                severity="error",
+                message=(
+                    f"Both halves of fieldmap group **{group or '(unnamed)'}** were "
+                    f"acquired with phase encoding `{next(iter(directions.values()))}`. "
+                    "A pepolar pair has to traverse k-space in opposing directions; "
+                    "these two carry the same distortion, so the field estimated "
+                    "from them is meaningless and the runs bound to this group "
+                    "would be *mis*-corrected rather than left alone."
+                ),
+                series=nums,
+            )
+        )
+
     # --- Half pairs: a group missing one of its two halves cannot be used for
     # distortion correction. detect_fieldmaps already warns; repeated here so
     # everything blocking a good conversion is in one panel.
@@ -377,6 +442,43 @@ def plan_warnings(
                     series=sorted(dirs.values()),
                 )
             )
+
+    # --- The ``dir-`` label against what the scanner actually did. Everything
+    # duckbrain knows about AP vs PA comes from the ``_ap``/``_pa`` token in the
+    # operator's series name: the raw tag ``InPlanePhaseEncodingDirection`` gives
+    # ROW/COL with no polarity, and on XA30 it is absent altogether. dcm2niix
+    # resolves the sign, so this is the first point where the guess can be
+    # checked. `consistency._check_fmap_pe_direction` asks the same question of
+    # the emitted sidecars; asking it here is what makes the answer actionable,
+    # since after conversion the mislabelled pair has already been written.
+    #
+    # A mismatch is reported, never repaired — forcing the sidecar to match the
+    # name is what duckbrain used to do, and it can only lose information.
+    for f in sorted(plan.files, key=lambda f: f.series_number):
+        probe = (probes or {}).get(f.series_number)
+        match = _DIR_ENTITY_RE.search(f.entities)
+        if probe is None or f.datatype != "fmap" or not match:
+            continue
+        expected = PE_FOR_DIR.get(match.group(1).upper())
+        actual = probe.phase_encoding_direction
+        if expected is None or not actual or actual == expected:
+            continue
+        out.append(
+            PlanWarning(
+                kind="pe-direction",
+                severity="warning",
+                message=(
+                    f"Series {f.series_number} `{f.description}` is planned as "
+                    f"`{f.filename}`, but dcm2niix reads its phase encoding as "
+                    f"`{actual}` where `dir-{match.group(1)}` implies `{expected}`. "
+                    "Either the series is named for the wrong direction, or it "
+                    "isn't an axial acquisition — the label convention assumes "
+                    "one. Check before converting: a mis-signed direction applies "
+                    "distortion correction backwards rather than skipping it."
+                ),
+                series=[f.series_number],
+            )
+        )
 
     # --- Series nothing claims. Unexpected ones first: an anat whose suffix
     # vocabulary didn't match is a real bug and looks exactly like a scout here.

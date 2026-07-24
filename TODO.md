@@ -18,6 +18,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
+[`#22`](#22) wire up the dcm2niix probe ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
@@ -251,6 +252,53 @@ filesystem holds no record of what was asked for), and config drift between runs
 exists for free already — `nordic.write_nordic_sidecars` writes one sidecar per
 intended run at launch, so NORDIC could be graded by "every sidecar has a
 matching NIfTI" without inventing anything.
+
+<a id="22"></a>
+## #22 — The dcm2niix probe: wire it into the Conversion page
+
+**The probe itself landed 2026-07-24** (`core/dcm2niix_probe.py`, ledger row), and
+`plan_warnings` takes an optional `probes=` and grows two checks from it. What is
+open is the last mile: **nothing calls it yet**, so the checks are dead code in
+practice. Read the module docstring first — it carries the measurements, and they
+are the reason the shape is what it is.
+
+**The one-line case for it.** `dicom_header` normalises the two Siemens dialects
+by hand, and the two fields the conversion plan most wants are ones it cannot
+reach at all: the *signed* phase-encoding direction (the raw tag is `ROW`/`COL`
+with no polarity, and absent on XA30) and `ShimSetting`. dcm2niix has both, is
+the tool that will do the conversion anyway, and is Chris Rorden's to maintain.
+
+**Cost is settled, and it is the objection people will raise first.** `dcm2niix
+-b o` over a session *directory* is 90 s for REV055 — 2155 files, 2.5 GB, and 1.2 s
+of that is CPU. One file per series is enough, so the probe stages a directory of
+symlinks and makes a single call: **0.15 s warm, 0.7 s cold, per session**, host
+or container. Validated one-file-vs-whole-series on REV055 at 259/272 key/value
+pairs identical, every difference confined to multi-echo GRE fieldmaps and
+sub-second `AcquisitionTime` jitter.
+
+Open work, in order:
+
+- **Call it from `3_BIDS_Conversion.py`** and pass `probes=` into `plan_warnings`.
+  Resolve the container from `containers_dir` + the `dcm2bids_version` pin —
+  **prefer the container over a host `dcm2niix`**, because it holds the same build
+  that will convert, so the preview cannot disagree with the result for a reason
+  duckbrain can't see. (Verified identical on REV055: same v1.0.20240202, zero key
+  differences, +0.2 s of apptainer startup.)
+- **Say when it didn't run.** `probe_unavailable_reason()` exists for exactly
+  this and currently has no caller. A skipped check that renders as a clean panel
+  is the silently-degrading behaviour `CLAUDE.md` forbids, and it is the specific
+  way this item could ship broken.
+- **Cache per session** keyed on the session directory + its newest mtime. 0.7 s
+  is fine once and not fine on every Streamlit rerun. Note this is the same
+  shape `#16.2` needs and has been deferred twice — if that cache gets built
+  first, use it rather than adding a second one.
+- **The bulk/SLURM path too.** It skipped `plan_warnings` entirely once already
+  and submitted the collisions the GUI refused (2026-07-24 ledger). Same trap.
+
+Not in scope, deliberately: replacing anything in `dicom_header`. The probe reads
+one file, so it cannot count volumes or see a second echo — which is precisely
+what `dicom_header`'s three-file read exists to do. They are complementary, and a
+migration would trade a validated classifier for an unvalidated one.
 
 <a id="21"></a>
 ## #21 — The shared `fsaverage` race: N concurrent fMRIPrep jobs, one SUBJECTS_DIR
@@ -754,24 +802,57 @@ patch.
 ### `#19.2` — Phase-encoding directions other than AP/PA
 
 `dir-` is AP/PA only, hardcoded in three places (`dicom_inspect._DIRECTION_TOKEN`,
-the `_fmap_description` call sites, and `consistency._PE_FOR_DIR`, whose `j-`/`j`
+the `_fmap_description` call sites, and `dcm2niix_probe.PE_FOR_DIR`, whose `j-`/`j`
 table also assumes an axial acquisition). LR/RL is ordinary at non-Siemens sites.
-**Deliberately not done speculatively**: this corpus has no LR/RL fieldmap, so
-there is nothing to validate against, and `_PE_FOR_DIR` would need the
+**Deliberately not done speculatively**: this corpus has no LR/RL *fieldmap*, so
+there is nothing to validate the emission against, and `PE_FOR_DIR` would need the
 acquisition plane to stay correct rather than just wider.
+
+**What changed 2026-07-24 (`#22`): the direction is no longer a guess we can't
+check.** dcm2niix reports a *signed* `PhaseEncodingDirection`; the raw tag
+`InPlanePhaseEncodingDirection` gives `ROW`/`COL` with no polarity and is absent
+on XA30 entirely, so the `_ap`/`_pa` name token was genuinely all duckbrain had.
+It is right for all 32 name-tokened fieldmaps in the corpus — but that is now
+*measured* rather than assumed, and `plan_warnings` says so per session. Two
+consequences for this item: LR/RL does exist in the corpus after all
+(`RL_diff…_rl` reads `i`, `LR_diff…_lr` reads `i-`), as diffusion, so it is
+entangled with `#19.1` rather than absent; and when this is built, the general
+case should read the probe's direction instead of widening `PE_FOR_DIR` — the
+table can then be deleted rather than taught about oblique acquisitions.
 
 ### `#19.3` — Which fieldmap pair, when a session has more than one
 
-**Bold→fmap binding now uses acquisition time** (2026-07-24, in the ledger): a
-run binds to the pair it was shot nearest in time, which is the portable proxy
-for heudiconv's shim-based `populate_intended_for`. That settles the common case
-— fieldmap, run block, second fieldmap, second run block — and is validated on
+**Bold→fmap binding uses acquisition time** (2026-07-24, in the ledger): a run
+binds to the pair it was shot nearest in time. That settles the common case —
+fieldmap, run block, second fieldmap, second run block — and is validated on
 REV055. What it does *not* settle is a session that shoots **two pairs
 back-to-back** and expects a policy ("keep the last"): the times are then nearly
 equal and a tie falls through to first-group. That residue is genuinely a
 declaration, and belongs with `#16`'s `[expected]`, not a heuristic. duckbrain
 converts both pairs, which is at least visible — for gradient-echo as well as
 spin-echo since `#19.6`.
+
+**Correction, 2026-07-24 — acquisition time is not a fallback for shim, it is
+better.** This item and `memory/fieldmap-binding-and-heudiconv` both used to say
+that heudiconv's shim criterion is the physically correct one and that duckbrain
+approximates it only because shim is unreachable before dcm2niix runs. Both
+halves of that are wrong, and it matters because it framed the current binding as
+a compromise to be undone later.
+
+*Reachable:* the `#22` probe reads `ShimSetting` for **383 of the corpus's 385**
+readable series, XA30 included — dcm2niix reconstructs it from the enhanced
+structures even where there is no CSA blob at all.
+
+*And useless for this question:* in **all 18** sampled sessions holding more than
+one fieldmap group, every group shares one identical shim. On REV055 — the
+session this binding was validated on — `fieldmap1`, `fieldmap2` and all six BOLD
+runs carry the same eight values, so a shim match says everything corrects
+everything. It is worse than uninformative in DEV102, where the fieldmap pair's
+shim is shared by **no** BOLD run, so a strict shim match leaves every run
+unbound. LCNI re-shims per prescription, and the fieldmap shot at the end of a
+session gets its own group. Pinned by
+`test_probe_reads_a_real_dicom_when_dcm2niix_is_available`, which fails if a pair
+ever *does* differ. So: don't "upgrade" this to shim later.
 
 ### `#19.6` — Gradient-echo (GRE) fieldmaps — the two defects are DONE (2026-07-24, see ledger)
 
@@ -871,6 +952,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-24 | #22 | **A dcm2niix probe, and the correction it forced.** `core/dcm2niix_probe.py` stages one symlink per series and makes a single `dcm2niix -b o` call — **0.15 s warm per session** against 90 s for the same flag over the session directory, which is the invocation the "too slow to preview with" objection was actually about. It buys two fields `dicom_header` cannot reach by any amount of pydicom: the **signed** `PhaseEncodingDirection` (the raw tag is `ROW`/`COL`, no polarity, and absent on XA30) and `ShimSetting`. `plan_warnings` grows `pe-collinear` (error — both halves of a pepolar pair encoded the same way estimate nothing, and it is orientation-free so it holds for oblique acquisitions) and `pe-direction` (warning — the `_ap`/`_pa` name token disagrees with what the scanner did). The second is `consistency._check_fmap_pe_direction` moved to where it can still change the outcome; both now import one `PE_FOR_DIR` so a plan cannot pass preflight and fail after. **The correction: shim is reachable and useless.** dcm2niix reports it for 383/385 corpus series including 100% of XA30 — but in all 18 sampled multi-fieldmap sessions every group shares one shim, and in DEV102 the pair's shim matches *no* BOLD run. So the acquisition-time binding is not a compromise awaiting a shim upgrade; it is strictly better, and `#19.3` and `memory/fieldmap-binding-and-heudiconv` said the opposite until now. Also measured: the `_ap`/`_pa` token is correct 32/32 on the corpus, and LR/RL exists there after all (as diffusion). Wiring it into the GUI is open as `#22` |
 | 2026-07-24 | #19.6 | **Two gradient-echo fieldmap defects, prompted by LCNI** flagging that older fieldmaps are gradient double-echo and that converters mispair them when the halves aren't neighbouring. **That concern was unfounded** — pairing is header `ImageType` + identical description + ordering, never `SeriesNumber + 1`; a magnitude at 5 and a phase at 12 pair fine (all 38 GRE pairs the corpus holds happen to be `+1`, so the robustness is by design, not validation). What checking it *did* find: (a) `plan_warnings`'s half-pair check tested `ap`/`pa` membership rather than calling `is_complete_group`, so **every** GRE session was told its complete fieldmap "can't correct anything and isn't offered for binding" — false in both halves, since the runs were bound to it. `is_complete_group` exists to be the one predicate and the GUI had already moved onto it; this call site had not. (b) `group_entities` was populated only on the pepolar path, so two GRE pairs both wrote `sub-X_ses-Y_{magnitude1,magnitude2,phasediff}`. The collision check caught it as an *error* so nothing was overwritten, but the session could not convert at all and the message advised "distinct task or run values", which a fieldmap has none of. GRE groups now take the same `acq-`/`run-` entities. Fixed on all 6 affected corpus sessions (REV055/REV074/REV126, both sessions each) with binding unchanged; corpus-wide re-run confirms no duplicate fmap filename and no false half-pair anywhere. The 6 are also where duckbrain finds a **second** pair the canonical tree lost — the curator hit this same collision and silently kept the last |
 | 2026-07-24 | #19.3 #19.4 | **Three heudiconv ideas borrowed after comparing against its canonical DIVATTEN run on this filesystem.** (1) **Bold→fmap binding by acquisition time** — heudiconv's real criterion is shim settings (a fieldmap corrects only what shares its shim group), but Siemens keeps the shim in a CSA blob not populated until dcm2niix runs, and 36% of the corpus is XA30 with no CSA; AcquisitionTime is the portable proxy and is standard in both dialects. The old "first complete group" bound every run to whichever pair sorted first — wrong for every run after the second pair. Validated on REV055 (fieldmap1 binds GNG/BART, fieldmap2 binds SST/React). Explicit rule and name-match still outrank it; the preview path takes the same time lookup so it can't drift. (2) **Empty source directories flagged** — `plan_warnings` now carries each planned file's source file count and raises when zero, instead of predicting a file dcm2bids silently can't make. (3) Persisting the seqinfo table (heudiconv's `dicominfo.tsv`) not done — `classified_by` already surfaces the same on the Conversion page. heudiconv is Apache-2.0, so borrowing is one-way |
 | 2026-07-24 | — | **Two latent bugs the borrowing exposed.** (a) sbref-vs-bold was decided by `len(files) == 1`, a volume count only for a Siemens mosaic or enhanced series — a non-mosaic/GE/Philips single-volume reference arrives as one file per slice and read as a multi-volume BOLD; now settled by counting distinct slice positions, and an undetermined count defers to the name. The scan runs only for a 2D gradient-echo EPI. (b) an `_ND` copy was demoted whenever a same-named twin existed, without looking inside it — Crave_control/CC056 has the corrected mprage folder present but *empty* beside a populated `_ND` copy, so the session got no anatomical; the twin must now be non-empty |

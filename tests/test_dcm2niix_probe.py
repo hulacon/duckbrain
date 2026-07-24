@@ -1,0 +1,229 @@
+"""The dcm2niix probe, and the plan-time phase-encoding checks it enables.
+
+The probe shells out, so these tests split in two: the parsing and mapping logic
+is exercised against synthetic sidecars with no dcm2niix at all, and a single
+guarded test runs the real binary when one is present. That split is the point —
+the plan checks have to keep working on a machine with no dcm2niix, and "no
+probe" has to read as "not checked" rather than "checked and clean".
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from duckbrain.core.dcm2niix_probe import (
+    PE_FOR_DIR,
+    SeriesProbe,
+    by_series_number,
+    probe_session,
+    probe_unavailable_reason,
+)
+
+
+# ---- the probe itself ----
+
+
+def test_pe_axis_strips_the_sign():
+    assert SeriesProbe(phase_encoding_direction="j-").pe_axis == "j"
+    assert SeriesProbe(phase_encoding_direction="j").pe_axis == "j"
+    assert SeriesProbe().pe_axis == ""
+
+
+def test_by_series_number_drops_probes_with_no_number():
+    """A ``None`` key is worse than a missing one — nothing can look it up."""
+    probes = {
+        "Series_7_fieldmap": SeriesProbe(series_number=7),
+        "Series_x_broken": SeriesProbe(series_number=None),
+    }
+    assert set(by_series_number(probes)) == {7}
+
+
+def test_probe_reports_why_it_cannot_run(tmp_path, monkeypatch):
+    """Absence must be *reportable*. A silent empty result reads as 'all clear'."""
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    assert "not on PATH" in probe_unavailable_reason()
+    assert "not found" in probe_unavailable_reason(tmp_path / "missing.sif")
+
+
+def test_probe_returns_nothing_when_dcm2niix_is_absent(tmp_path, monkeypatch):
+    series = tmp_path / "Series_1_thing"
+    series.mkdir()
+    (series / "0001.dcm").write_bytes(b"not really a dicom")
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    assert probe_session([series]) == {}
+
+
+def test_probe_never_raises_on_an_empty_series_directory(tmp_path):
+    """0.43% of the LCNI corpus is empty directories; they are a miss, not a crash."""
+    empty = tmp_path / "Series_1_empty"
+    empty.mkdir()
+    assert probe_session([empty]) == {}
+    assert probe_session([]) == {}
+
+
+# ---- the plan-time checks, driven by synthetic probes ----
+
+
+def _probes(**by_number):
+    return {int(n): p for n, p in by_number.items()}
+
+
+def test_a_pepolar_pair_encoded_the_same_way_is_an_error():
+    """Two halves with one direction estimate nothing, and dcm2bids won't notice."""
+    from duckbrain.core.conversion_plan import plan_warnings
+
+    from test_conversion_plan import _bold, _plan, _series
+
+    series = [
+        _series(5, "se_epi_fieldmap_ap", n=3),
+        _series(6, "se_epi_fieldmap_pa", n=3),
+        _bold(9, "food", 1),
+    ]
+    plan, fieldmaps = _plan(series)
+    # The scanner ran both halves anterior->posterior despite the naming.
+    probes = _probes(
+        **{
+            "5": SeriesProbe(series_number=5, phase_encoding_direction="j-"),
+            "6": SeriesProbe(series_number=6, phase_encoding_direction="j-"),
+        }
+    )
+    warnings = plan_warnings(plan, fieldmaps, probes=probes)
+
+    collinear = [w for w in warnings if w.kind == "pe-collinear"]
+    assert len(collinear) == 1
+    assert collinear[0].severity == "error"
+    assert collinear[0].series == [5, 6]
+
+
+def test_an_opposing_pair_raises_nothing():
+    from duckbrain.core.conversion_plan import plan_warnings
+
+    from test_conversion_plan import _bold, _plan, _series
+
+    series = [
+        _series(5, "se_epi_fieldmap_ap", n=3),
+        _series(6, "se_epi_fieldmap_pa", n=3),
+        _bold(9, "food", 1),
+    ]
+    plan, fieldmaps = _plan(series)
+    probes = _probes(
+        **{
+            "5": SeriesProbe(series_number=5, phase_encoding_direction=PE_FOR_DIR["AP"]),
+            "6": SeriesProbe(series_number=6, phase_encoding_direction=PE_FOR_DIR["PA"]),
+        }
+    )
+    warnings = plan_warnings(plan, fieldmaps, probes=probes)
+    assert not [w for w in warnings if w.kind in ("pe-collinear", "pe-direction")]
+
+
+def test_a_dir_label_contradicting_the_scanner_is_reported():
+    """The ``_ap``/``_pa`` token is the *only* thing duckbrain has; check it."""
+    from duckbrain.core.conversion_plan import plan_warnings
+
+    from test_conversion_plan import _bold, _plan, _series
+
+    series = [
+        _series(5, "se_epi_fieldmap_ap", n=3),
+        _series(6, "se_epi_fieldmap_pa", n=3),
+        _bold(9, "food", 1),
+    ]
+    plan, fieldmaps = _plan(series)
+    # Named _ap but acquired posterior->anterior: the halves still oppose, so
+    # only the label check can catch this one.
+    probes = _probes(
+        **{
+            "5": SeriesProbe(series_number=5, phase_encoding_direction="j"),
+            "6": SeriesProbe(series_number=6, phase_encoding_direction="j-"),
+        }
+    )
+    warnings = plan_warnings(plan, fieldmaps, probes=probes)
+
+    mismatches = [w for w in warnings if w.kind == "pe-direction"]
+    assert len(mismatches) == 2
+    assert all(w.severity == "warning" for w in mismatches)
+
+
+def test_no_probes_means_the_pe_checks_are_skipped_not_passed():
+    """The checks must be absent without a probe, not silently satisfied."""
+    from duckbrain.core.conversion_plan import plan_warnings
+
+    from test_conversion_plan import _bold, _plan, _series
+
+    series = [
+        _series(5, "se_epi_fieldmap_ap", n=3),
+        _series(6, "se_epi_fieldmap_pa", n=3),
+        _bold(9, "food", 1),
+    ]
+    plan, fieldmaps = _plan(series)
+    assert not [
+        w for w in plan_warnings(plan, fieldmaps) if w.kind in ("pe-collinear", "pe-direction")
+    ]
+
+
+def test_the_plan_and_post_conversion_checks_share_one_convention():
+    """Two copies of this table would let a plan pass preflight and fail after."""
+    from duckbrain.core.consistency import _PE_FOR_DIR
+
+    assert _PE_FOR_DIR is PE_FOR_DIR
+
+
+# ---- against the real binary, when there is one ----
+
+
+@pytest.mark.skipif(probe_unavailable_reason() != "", reason="no dcm2niix on PATH to probe with")
+def test_probe_reads_a_real_dicom_when_dcm2niix_is_available(tmp_path):
+    """One file per series is enough for the fields the plan checks read.
+
+    Uses the LCNI repository when it is mounted; skips rather than fails
+    elsewhere, since the corpus is Talapas-only and read-only.
+    """
+    corpus = Path("/projects/lcni/dcm/repository/dicoms/REV/REV055_20150811_135636")
+    if not corpus.is_dir():
+        pytest.skip("LCNI repository corpus not mounted")
+
+    series_dirs = sorted(p for p in corpus.iterdir() if p.is_dir())
+    probes = by_series_number(probe_session(series_dirs))
+
+    # The BOLD runs: signed phase encoding, which no raw tag carries.
+    assert probes[9].phase_encoding_direction == "j-"
+    assert probes[9].multiband_factor == 3
+    # ShimSetting, which pydicom cannot reach — it lives in the CSA ASCCONV blob.
+    assert len(probes[9].shim_setting) == 8
+    # And the finding that settled TODO #19.3: both fieldmap pairs in this
+    # session share one shim, so shim cannot tell them apart. If this ever
+    # fails, the acquisition-time binding rationale needs revisiting.
+    assert probes[7].shim_setting == probes[13].shim_setting
+
+
+def test_sidecar_suffixes_still_map_back_to_their_series(tmp_path, monkeypatch):
+    """dcm2niix appends ``_e2_ph`` to a phase image; equality matching drops it.
+
+    That would silently exclude exactly the gradient-echo fieldmaps the checks
+    exist to look at, so the mapping is longest-prefix rather than equality.
+    """
+    from duckbrain.core import dcm2niix_probe
+
+    series = tmp_path / "Series_8_fieldmap1"
+    series.mkdir()
+    (series / "0001.dcm").write_bytes(b"x")
+
+    def fake_run(cmd, **kwargs):
+        out = Path(cmd[cmd.index("-o") + 1])
+        (out / "Series_8_fieldmap1_e2_ph.json").write_text(
+            json.dumps({"SeriesNumber": 8, "PhaseEncodingDirection": "i", "ImageType": ["P"]})
+        )
+
+        class Done:
+            returncode = 0
+
+        return Done()
+
+    monkeypatch.setattr(dcm2niix_probe.shutil, "which", lambda _: "/usr/bin/dcm2niix")
+    monkeypatch.setattr(dcm2niix_probe.subprocess, "run", fake_run)
+
+    probes = dcm2niix_probe.probe_session([series])
+    assert set(probes) == {"Series_8_fieldmap1"}
+    assert probes["Series_8_fieldmap1"].phase_encoding_direction == "i"
