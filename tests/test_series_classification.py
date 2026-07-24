@@ -583,3 +583,46 @@ def test_the_report_path_matches_the_written_binding():
     # and without the lookup it would silently disagree — the first group
     report_no_times = dcm2bids_config.resolve_fmap_assignments(mapping, detection, None)
     assert report_no_times[("SST", 1)] == "fieldmap1"
+
+
+# --- empty source directories ----------------------------------------------
+def test_nd_copy_is_kept_when_its_twin_is_present_but_empty():
+    """Crave_control/CC056: the corrected mprage folder exists but is empty, and
+    the populated copy is the _ND one. Demoting on the name alone would leave the
+    session with no anatomical at all — the loss the ND condition exists to stop,
+    one level less obvious."""
+    from duckbrain.core.dicom_inspect import SeriesInfo
+
+    # the real folder is empty, the ND copy is the one with data
+    series = [
+        SeriesInfo(1009, "mprage_p2_ND_defaced", Path("/nonexistent"), file_count=176),
+        SeriesInfo(1010, "mprage_p2_defaced", Path("/nonexistent"), file_count=0),
+    ]
+    dicom_inspect.classify_series(series)
+    by_num = {s.series_number: s for s in series}
+    assert by_num[1009].classification == "anat", "the only populated anatomical"
+
+
+def test_a_planned_file_with_an_empty_source_is_flagged():
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+
+    series = _series((5, "mprage_p2_defaced"))
+    series[0].file_count = 0
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="X", session="")
+    plan = plan_conversion(config, series, subject="X", session="")
+    empty = [w for w in plan_warnings(plan, detection) if w.kind == "empty-source"]
+    assert len(empty) == 1
+    assert empty[0].severity == "error"
+    assert "no DICOM files" in empty[0].message
+
+
+def test_a_populated_source_is_not_flagged():
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+
+    series = _series((5, "mprage_p2_defaced"))
+    series[0].file_count = 176
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="X", session="")
+    plan = plan_conversion(config, series, subject="X", session="")
+    assert not any(w.kind == "empty-source" for w in plan_warnings(plan, detection))

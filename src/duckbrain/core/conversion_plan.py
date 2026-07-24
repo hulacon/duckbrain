@@ -76,6 +76,10 @@ class PlannedFile:
     path: str
     description_id: str
     fmap_group: str | None = None
+    # Files in the source series directory. Zero means the plan predicts a file
+    # dcm2bids cannot produce — an empty series directory reads as source data
+    # by name, then converts to nothing. 0.43% of the LCNI corpus.
+    source_file_count: int = -1
 
     @property
     def is_bold(self) -> bool:
@@ -210,6 +214,7 @@ def plan_conversion(
     descriptions = config.get("descriptions") or []
     group_by_id = _group_by_identifier(descriptions)
     desc_by_series = {s.series_number: s.description for s in series_list}
+    files_by_series = {s.series_number: s.file_count for s in series_list}
 
     ses_dir = f"ses-{session}/" if session else ""
     sub_dir = f"sub-{subject}/" if subject else ""
@@ -248,6 +253,7 @@ def plan_conversion(
                 path=f"{sub_dir}{ses_dir}{datatype}/{filename}",
                 description_id=str(d.get("id", "")),
                 fmap_group=fmap_group,
+                source_file_count=files_by_series.get(series_number, -1),
             )
         )
 
@@ -293,6 +299,27 @@ def plan_warnings(
     Ordered most severe first, so a caller can render them as-is.
     """
     out: list[PlanWarning] = []
+
+    # --- Empty source: a planned file whose series directory holds no DICOM.
+    # An empty directory still classifies by name ("mprage" -> anat) and gets a
+    # description, so the plan predicts a file — but dcm2bids finds nothing to
+    # convert and exits 0, and the table of inputs looks complete. This is the
+    # one failure a preview of *outputs* can't show without checking the source.
+    for f in sorted(plan.files, key=lambda f: f.series_number):
+        if f.source_file_count == 0:
+            out.append(
+                PlanWarning(
+                    kind="empty-source",
+                    severity="error",
+                    message=(
+                        f"Series {f.series_number} `{f.description}` is planned as "
+                        f"`{f.path}`, but its directory holds no DICOM files. "
+                        "dcm2bids will convert nothing for it and report success — "
+                        "the file will simply be absent."
+                    ),
+                    series=[f.series_number],
+                )
+            )
 
     # --- Collisions: two descriptions writing the same file. dcm2bids writes one
     # and the other is simply lost, which is invisible in a table of inputs.

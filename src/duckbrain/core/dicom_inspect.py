@@ -273,20 +273,30 @@ _ND_TOKEN = re.compile(r"(?<![A-Za-z0-9])ND(?=[_-]|$)")
 
 
 def _demote_nd_duplicates(series_list: list[SeriesInfo]) -> None:
-    """Drop an '_ND_' copy only when its corrected twin is also present.
+    """Drop an '_ND_' copy only when its corrected twin is present *and has data*.
 
     Conditional on purpose. Dropping every ND series unconditionally would throw
     away the only anatomical at a site that acquires ND alone — a silent
     degradation, which this project treats as worse than a failure. So the ND
     copy is dropped only when removing the token yields a sibling that is
     actually in the session; otherwise it converts normally.
+
+    The twin must also be *non-empty*. A real occurrence in the LCNI repository:
+    Crave_control/CC056 has the corrected `mprage_p2_defaced` folder present but
+    empty, beside a populated `mprage_p2_ND_defaced`. Demoting the ND copy on the
+    strength of a twin that will convert nothing leaves the session with no
+    anatomical at all — the exact silent loss this function's condition exists to
+    prevent, just one level less obvious.
     """
     by_name = {s.description.lower(): s for s in series_list}
     for s in series_list:
         if not _ND_TOKEN.search(s.description):
             continue
         twin = re.sub(r"[_-]?(?<![A-Za-z0-9])ND(?=[_-]|$)", "", s.description, count=1)
-        if twin.lower() != s.description.lower() and twin.lower() in by_name:
+        if twin.lower() == s.description.lower():
+            continue
+        sibling = by_name.get(twin.lower())
+        if sibling is not None and sibling.file_count != 0:
             s.classification = "derived"
 
 
