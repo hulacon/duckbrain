@@ -535,7 +535,20 @@ existing duckbrain/mmmdata work, open questions per item — in
    at the console" rule in concrete form. Open: does duckbrain also read the
    `ses-` entity (it currently takes session from the ingestion mapping), and is a
    ReproIn-named study worth acquiring as a test case.
-7. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
+7. **External FreeSurfer 8 feeding fMRIPrep 25** instead of fMRIPrep's bundled
+   recon — **asked for by LCNI**, who already run it this way. Cheaper than it
+   looks: **FS 8.2.0 is already installed on Talapas and on the default `PATH`**,
+   so this is the one candidate stage with nothing to build, and NORDIC is the
+   precedent for an `--array` stage that shells out. Writing to
+   `<derivatives>/fmriprep/sourcedata/freesurfer/` means fMRIPrep finds it with
+   **no flag at all** (that is its default `fs_subjects_dir` under
+   `--output-layout bids`). Two traps and the real cost — including why
+   `--fs-subjects-dir` without `--fs-no-resume` re-creates the anat-reuse silent
+   no-op, and why fMRIPrep-25-against-FS-8 is a question for LCNI/nipreps and not
+   for us — in `docs/pipeline-extras.md` §9. **If taken, it forces `#5b` Case 3's
+   DAG decision**: fMRIPrep would depend on two producers and
+   `effective_depends_on` is a single string with one special case already.
+8. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
    actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
    path off raw/minimal data. Low demand, unique requirements.
 

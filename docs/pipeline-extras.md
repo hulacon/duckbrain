@@ -208,3 +208,81 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
   warning about? And the social half is untouched: do we *recommend* the
   convention to LCNI users so exports arrive BIDS-ready? No ReproIn-named study
   exists locally to test against, so the implementation is unit-tested only.
+
+## 9. External FreeSurfer (8.x) feeding fMRIPrep, instead of fMRIPrep's own recon
+- **What:** run `recon-all` from FreeSurfer 8 as its own stage, then have fMRIPrep
+  (25.x) import that reconstruction rather than building its own with the
+  FreeSurfer bundled in its container. **Asked for by LCNI** (relayed 2026-07-24),
+  whose pipeline already does this; the stated reason is that FS 8 is materially
+  better than 7.
+- **Role / placement:** a **producer upstream of fMRIPrep**, structurally the same
+  shape as NORDIC — a second thing fMRIPrep waits for.
+- **The plumbing is cheaper than it looks, and the facts below were checked on
+  Talapas 2026-07-24 rather than assumed.**
+  - **FreeSurfer 8.2.0 is already installed system-wide** (8.1.0 too, alongside
+    6.0 through 7.4.1), and **there is nothing to build** — which means this one
+    candidate stage sidesteps `#2`'s container-distribution blocker entirely.
+    Precisely: it is *itself* an Apptainer image
+    (`/packages/freesurfer/8.2.0/freesurfer-8.2.0.sif`) fronted by thin bash
+    wrappers in `bin/` that `apptainer exec` into it, and that `bin/` is already on
+    the default `PATH`. So `recon-all` is callable as a plain command from an
+    sbatch running on the host — but note it is a container underneath, so it must
+    never be invoked from *inside* another container. NORDIC is the precedent for
+    a module-style `--array` sbatch stage; a FreeSurfer stage is close to a copy
+    of it. The existing `fs_license` config key already covers it.
+  - **fMRIPrep has the flags for it**, verified against the 24.1.1 image on disk:
+    `--fs-subjects-dir PATH` ("Path to existing FreeSurfer subjects directory to
+    reuse") and `--fs-no-resume` ("EXPERT: Import pre-computed FreeSurfer
+    reconstruction without resuming. The user is responsible for ensuring that
+    all necessary files are present").
+  - **Better than either flag: write to the path fMRIPrep already looks in.** With
+    the default `--output-layout bids`, `fs_subjects_dir` defaults to
+    `<output_dir>/sourcedata/freesurfer` (`fmriprep/cli/parser.py`). So a stage
+    that writes `<derivatives>/fmriprep/sourcedata/freesurfer/sub-XX/` is found
+    with **no flag at all**, inside a directory the template already bind-mounts
+    read-write. Checked against the surveyor: that subtree does not match
+    `_fmriprep_status`'s globs (`sub-XX.html`, `sub-XX/**/anat/…`,
+    `_has_match(root, "sub-XX")`), so pre-creating it does not flip the fMRIPrep
+    cell off MISSING.
+  - **It can be driven from `extra_flags` today with zero code changes** — that
+    field is deliberately unquoted and word-splits — **but see the two traps
+    below.** Good as a one-off experiment, not as the shipped answer.
+- 🔴 **Trap 1: `--fs-subjects-dir` without `--fs-no-resume` is the anat-reuse bug
+  again.** If fMRIPrep judges the imported recon incomplete it *resumes* it using
+  the FreeSurfer inside its own container — you get a partly-FS7 surface while
+  believing you got FS8, and nothing says so. That is exactly the
+  silently-degrading-option rule in `CLAUDE.md`. A real stage must gate on the
+  recon actually being complete (`scripts/recon-all.done`) and raise otherwise —
+  the same shape as `has_anat_derivatives`. `extra_flags` is the one field with no
+  validation, which is why the stopgap should not become the feature.
+- 🔴 **Trap 2: spell container-visible paths `/projects/…`, never
+  `/gpfs/projects/…`.** Talapas's `apptainer.conf` default-binds `/projects`,
+  `/tmp` and `/scratch`, and `/projects` is a symlink to `/gpfs/projects`.
+  Verified: inside a container `/projects/hulacon/bhutch` resolves and
+  `/gpfs/projects/hulacon/bhutch` does not exist. duckbrain's own paths are saved
+  by the template's explicit `-B`; anything arriving through `extra_flags` gets no
+  bind and only works by way of that default mount.
+- **What it would actually cost inside duckbrain** (the stage model is well
+  factored, so this is mostly a checklist): `STAGES` + one `_freesurfer_status`
+  tracker + one arm in the expectations branch (`surveyor.py`); one
+  `_build_freesurfer` + one `STAGE_SPECS` row + a `_STAGE_TOOL` entry, with
+  `resolve_container` returning `None` as it does for NORDIC (`pipeline.py`); one
+  sbatch template; a `[slurm.overrides]` block; one row in `consistency.py`'s
+  provenance tuple. **The GUI needs nothing** — the cockpit iterates
+  `STAGES`/`SLURM_STAGES` and renders a new column itself.
+- 🔴 **The one structural stretch is the dependency graph.** `StageSpec.depends_on`
+  is a single string, and fMRIPrep already needs `effective_depends_on` to special
+  -case NORDIC. A FreeSurfer stage makes fMRIPrep depend on *two* producers, and
+  stacking a second special case is how that function stops being readable. This
+  is precisely the DAG that TODO `#5b` Case 3 parks — if this item is taken, it is
+  the forcing function for that decision, and it should be made deliberately
+  rather than by adding one more `elif`.
+- **The real cost is outside duckbrain, and it is not ours to settle.** (a) An
+  fMRIPrep 25 image has to be built — one more instance of `#2`'s container
+  problem. (b) `recon-all` is hours per subject, a scheduling change, not just a
+  stage. (c) **Whether nipreps considers fMRIPrep 25 valid against FS 8 outputs is
+  an open question we cannot answer from here**: fMRIPrep ships its own FreeSurfer
+  and runs some of its binaries against the imported surfaces, so "FS 8 is better"
+  does not by itself establish that the hybrid is sound. Ask LCNI what they
+  validated, and check the nipreps position, *before* building the stage — the
+  plumbing is a week, the wrong answer here is a re-run of every subject.
