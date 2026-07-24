@@ -255,3 +255,26 @@ def test_a_real_wms_session_emits_one_t1w_and_no_collisions():
     ids = [d["id"] for d in config["descriptions"]]
     assert ids == ["anat-T1w"]
     assert len(ids) == len(set(ids))
+
+
+# --- the bulk path preflights too ------------------------------------------
+def test_bulk_convert_refuses_a_config_that_would_overwrite_a_file(tmp_path):
+    """The GUI reported collisions; the bulk/cockpit path submitted anyway.
+
+    Two series carrying the same explicit run token resolve to one filename.
+    dcm2bids writes whichever it reaches last and says nothing, so the refusal
+    has to happen here.
+    """
+    from duckbrain.core.conversion import generate_session_config
+
+    series = _series((5, "encoding_bold_r1"), (9, "encoding_bold_r1"))
+    with pytest.raises(ValueError, match="same file"):
+        generate_session_config(tmp_path, "001", "01", series_list=series)
+
+
+def test_bulk_convert_accepts_a_clean_session(tmp_path):
+    from duckbrain.core.conversion import generate_session_config
+
+    series = _series((3, "mprage_p2_defaced"), (5, "encoding_bold_r1"), (9, "encoding_bold_r2"))
+    config = generate_session_config(tmp_path, "001", "01", series_list=series)
+    assert len(config["descriptions"]) == 3

@@ -198,9 +198,17 @@ def generate_session_config(
     ``series_list`` lets a caller that has *already* inspected the session hand
     the result in rather than paying for a second walk of the DICOM tree. It is
     classified in place, exactly as a freshly-listed one would be.
+
+    Raises ``ValueError`` if two series would be written to the same BIDS file.
+    The interactive page renders that as an error and lets a human resolve it,
+    but nothing rendered warnings on this path, so a bulk or cockpit convert
+    submitted the job and dcm2bids kept whichever series it wrote last — a
+    silent partial conversion, which is the failure mode this project treats as
+    worse than a refusal.
     """
     from .dicom_inspect import list_series, classify_series, detect_fieldmaps
     from .dcm2bids_config import build_task_run_mapping, generate_config
+    from .conversion_plan import plan_conversion, plan_warnings
 
     if series_list is None:
         series_list = list_series(dicom_dir)
@@ -209,7 +217,7 @@ def generate_session_config(
     classify_series(series_list)
     fieldmaps = detect_fieldmaps(series_list)
     mapping = build_task_run_mapping(series_list, template=template or None, rules=rules)
-    return generate_config(
+    config = generate_config(
         series_list,
         fieldmaps,
         subject=subject,
@@ -217,6 +225,17 @@ def generate_session_config(
         mapping=mapping,
         fmap_rules=fmap_rules,
     )
+
+    plan = plan_conversion(config, series_list, subject=subject, session=session)
+    blocking = [w for w in plan_warnings(plan, fieldmaps) if w.severity == "error"]
+    if blocking:
+        raise ValueError(
+            f"Cannot convert sub-{subject}"
+            + (f"/ses-{session}" if session else "")
+            + ": "
+            + " ".join(w.message for w in blocking)
+        )
+    return config
 
 
 @dataclass
