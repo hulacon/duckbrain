@@ -81,7 +81,11 @@ with st.expander(
     )
 
     bulk_force = st.checkbox(
-        "Reconvert already-converted sessions (dcm2bids --force)", value=False, key="bulk_force"
+        "Reconvert already-converted sessions (overwrites their BIDS output)",
+        value=False,
+        key="bulk_force",
+        help="Passes dcm2bids `--force_dcm2bids --clobber`, so existing NIfTIs "
+        "and sidecars are rewritten rather than skipped.",
     )
     target = [s for s in ingested if bulk_force or not converted_map[(s["subject"], s["session"])]]
 
@@ -238,6 +242,10 @@ from duckbrain.core.conversion_plan import (
     plan_warnings,
     read_config_into_table,
 )
+from duckbrain.core.conversion import (
+    compare_dcm2bids_configs,
+    generate_session_config,
+)
 from duckbrain.core.dicom_inspect import sanitize_task_label
 
 # The editor's pending edits live in session_state *before* it renders, which is
@@ -277,6 +285,46 @@ if _saved_config_path.exists():
         ):
             st.session_state["_pending_json_import"] = _saved_config_path.read_text()
             st.rerun()
+
+    # Is that saved file still what duckbrain would produce for this session?
+    # Reuse is right when the file records a review and wrong when the generator
+    # has moved on, and the file says nothing about which it is. Silence defaults
+    # to "the saved plan wins", which is how the B0 identifier fix failed to
+    # reach any already-reviewed session: the stale plan kept re-supplying the
+    # very identifier the fix corrected, and the reconvert reported success.
+    #
+    # Compared against generate_session_config — what the *bulk/cockpit* path
+    # would build — rather than the edited table below, because that is the plan
+    # this notice is about. series_list is handed in so this costs no second walk
+    # of the DICOM tree.
+    try:
+        _fresh_config = generate_session_config(
+            dicom_dir,
+            subject,
+            session,
+            rules=task_rules_from_config(config),
+            fmap_rules=fmap_rules_from_config(config),
+            series_list=series_list,
+        )
+        _drift = compare_dcm2bids_configs(json.loads(_saved_config_path.read_text()), _fresh_config)
+    except Exception as _e:  # noqa: BLE001 — a broken saved file is a finding, not a crash
+        st.warning(
+            f"Couldn't compare the saved config with a freshly generated one: {_e}. "
+            "It will still be used as-is by bulk convert and the cockpit."
+        )
+    else:
+        if _drift:
+            st.warning(
+                "**The saved config no longer matches what duckbrain would "
+                "generate for this session.** This is either a review you made "
+                "on purpose or a change in duckbrain the saved file predates — "
+                "nothing on disk distinguishes them, so it is reported rather "
+                "than resolved. Until the file is replaced, *the saved plan is "
+                "what runs*.\n\n"
+                + "\n".join(f"- {line}" for line in _drift.describe(limit=8))
+                + "\n\nTo take the newly generated plan, delete the saved file "
+                "or press **Save Config** below to overwrite it with the table."
+            )
 
 st.subheader("Conversion Plan")
 # The "source of truth" claim is only true while the hand-edited JSON is off, and
@@ -852,7 +900,13 @@ with col2:
 with col3:
     export_btn = st.button("Export SBATCH Script")
 
-force = st.checkbox("Force overwrite existing BIDS output", value=False)
+force = st.checkbox(
+    "Force overwrite existing BIDS output",
+    value=False,
+    help="Passes dcm2bids `--force_dcm2bids --clobber`. Without it dcm2bids "
+    "skips every file that already exists, so re-running over a converted "
+    "session leaves it exactly as it was.",
+)
 
 if parsed_config is None and (save_config_btn or convert_btn or export_btn):
     st.error("Fix the JSON errors above before proceeding.")

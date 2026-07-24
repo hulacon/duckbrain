@@ -120,3 +120,20 @@ def test_dcm2bids_template_requests_validation_by_default(tmp_path):
 
     cfg["conversion"] = {"bids_validate": False}
     assert "--bids_validate" not in render(cfg)
+
+
+def test_build_dcm2bids_command_force_includes_clobber():
+    """The subprocess path needs the same two flags as the sbatch template.
+
+    Two call sites build the dcm2bids invocation and they must agree, or `force`
+    means one thing from the cockpit and another from a direct call.
+    """
+    from duckbrain.core.conversion import build_dcm2bids_command
+
+    cmd = build_dcm2bids_command("01", "", "/d", "/b", "/c.json", "/x.sif", force=True)
+    assert "--clobber" in cmd
+    assert "--force_dcm2bids" in cmd
+
+    unforced = build_dcm2bids_command("01", "", "/d", "/b", "/c.json", "/x.sif", force=False)
+    assert "--clobber" not in unforced
+    assert "--force_dcm2bids" not in unforced

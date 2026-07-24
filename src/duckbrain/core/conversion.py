@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import dataclass
+from dataclasses import field as dataclasses_field
 from pathlib import Path
 
 
@@ -79,7 +81,18 @@ def build_dcm2bids_command(
     ]
 
     if force:
-        cmd.append("--force_dcm2bids")
+        # BOTH flags, because they clobber different things and only the second
+        # one is what "force" means to a user. --force_dcm2bids overwrites the
+        # *temporary* dcm2niix output under tmp_dcm2bids/; --clobber overwrites
+        # the BIDS output. dcm2bids skips any destination file that already
+        # exists unless --clobber is given (dcm2bids_gen.py logs "already exists
+        # / Use --clobber option to overwrite" and moves on).
+        #
+        # With only the first, a reconversion re-ran dcm2niix, wrote nothing, and
+        # exited 0 — so a fix to the generated config could never reach a subject
+        # that had been converted once. Found when the B0 identifier fix wouldn't
+        # take on divatten_beta.
+        cmd += ["--force_dcm2bids", "--clobber"]
 
     return cmd
 
@@ -166,6 +179,7 @@ def generate_session_config(
     template: str | None = None,
     rules: list | None = None,
     fmap_rules: list | None = None,
+    series_list: list | None = None,
 ) -> dict:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
@@ -180,11 +194,16 @@ def generate_session_config(
     quietly fall back to automatic fieldmap assignment while the GUI path honored
     the project's bindings, which is exactly the kind of divergence the mapping
     exists to close.
+
+    ``series_list`` lets a caller that has *already* inspected the session hand
+    the result in rather than paying for a second walk of the DICOM tree. It is
+    classified in place, exactly as a freshly-listed one would be.
     """
     from .dicom_inspect import list_series, classify_series, detect_fieldmaps
     from .dcm2bids_config import build_task_run_mapping, generate_config
 
-    series_list = list_series(dicom_dir)
+    if series_list is None:
+        series_list = list_series(dicom_dir)
     if not series_list:
         raise ValueError(f"No series directories found in {dicom_dir}")
     classify_series(series_list)
@@ -198,6 +217,92 @@ def generate_session_config(
         mapping=mapping,
         fmap_rules=fmap_rules,
     )
+
+
+@dataclass
+class ConfigDrift:
+    """How a saved dcm2bids config differs from one generated for it now.
+
+    A saved ``dcm2bids_config.json`` is the source of truth for a session:
+    ``pipeline._build_converted`` reuses it and only generates when it is absent.
+    That is right when the file records a human review — and wrong in a way
+    nothing announced when the *generator* has since changed, because then the
+    saved plan silently overrides the new code. That is not hypothetical: the B0
+    identifier fix could not reach any already-reviewed session, since the stale
+    plan kept re-supplying the identifier the fix existed to correct.
+
+    Reporting the difference rather than resolving it is deliberate. A drift can
+    equally mean "you edited this on purpose" or "duckbrain changed underneath
+    you", and nothing on disk distinguishes them — the file records no
+    provenance. Regenerating would silently discard a real review; ignoring it
+    silently discards a real fix. Only the operator knows which, so both plans
+    are described and the choice is theirs.
+    """
+
+    added: list[str] = dataclasses_field(default_factory=list)
+    removed: list[str] = dataclasses_field(default_factory=list)
+    changed: dict[str, list[str]] = dataclasses_field(default_factory=dict)
+
+    def __bool__(self) -> bool:
+        return bool(self.added or self.removed or self.changed)
+
+    def describe(self, limit: int | None = None) -> list[str]:
+        """One human-readable line per difference.
+
+        A single changed field can touch every functional run in a session — the
+        B0 identifier drift on divatten_beta is 28 descriptions — so *limit*
+        caps the list. The cap states itself in a final line rather than
+        trailing off, because a list that silently stops reads as a complete one.
+        """
+        lines = []
+        for desc_id in self.removed:
+            lines.append(f"`{desc_id}` — in the saved config, no longer generated")
+        for desc_id in self.added:
+            lines.append(f"`{desc_id}` — newly generated, absent from the saved config")
+        for desc_id, fields in self.changed.items():
+            lines.append(f"`{desc_id}` — differs at {', '.join(f'`{f}`' for f in fields)}")
+        if limit is not None and len(lines) > limit:
+            hidden = len(lines) - limit
+            lines = lines[:limit] + [
+                f"…and {hidden} more description(s) with the same kind of change"
+            ]
+        return lines
+
+
+def _flatten(desc: dict) -> dict[str, object]:
+    """One level of nesting flattened to ``section.key``, so a diff can name the
+    field that moved rather than dumping two dicts at the reader."""
+    out: dict[str, object] = {}
+    for key, value in desc.items():
+        if isinstance(value, dict):
+            for sub, inner in value.items():
+                out[f"{key}.{sub}"] = inner
+        else:
+            out[key] = value
+    return out
+
+
+def compare_dcm2bids_configs(saved: dict, fresh: dict) -> ConfigDrift:
+    """Differences between a saved dcm2bids config and a freshly generated one.
+
+    Descriptions are matched on ``id``, which is what dcm2bids itself uses to
+    identify them and what stays stable when only a sidecar value changes.
+    """
+    saved_by_id = {str(d.get("id", "")): d for d in saved.get("descriptions", [])}
+    fresh_by_id = {str(d.get("id", "")): d for d in fresh.get("descriptions", [])}
+
+    drift = ConfigDrift(
+        removed=[i for i in saved_by_id if i not in fresh_by_id],
+        added=[i for i in fresh_by_id if i not in saved_by_id],
+    )
+    for desc_id in saved_by_id:
+        if desc_id not in fresh_by_id:
+            continue
+        old, new = _flatten(saved_by_id[desc_id]), _flatten(fresh_by_id[desc_id])
+        fields = sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k))
+        if fields:
+            drift.changed[desc_id] = fields
+    return drift
 
 
 def get_container_path(config: dict) -> Path:

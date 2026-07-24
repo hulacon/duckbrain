@@ -22,7 +22,7 @@ def _cfg():
     }
 
 
-def _dcm2bids(session):
+def _dcm2bids(session, force=False):
     ctx = build_context(
         _cfg(),
         "dcm2bids",
@@ -32,9 +32,32 @@ def _dcm2bids(session):
         config_json="/projects/study/sourcedata/sub-04/dcm2bids_config.json",
         config_json_dir="/projects/study/sourcedata/sub-04",
         container_path="/c/dcm2bids.sif",
-        force=False,
+        force=force,
     )
     return render_sbatch("dcm2bids", ctx)
+
+
+def test_dcm2bids_force_passes_clobber_so_it_overwrites_bids_output():
+    """force has to carry --clobber, not just --force_dcm2bids.
+
+    The two flags clobber different things: --force_dcm2bids overwrites the
+    temporary dcm2niix output, --clobber overwrites the BIDS output. dcm2bids
+    skips any destination file that already exists unless --clobber is given, so
+    with only the first flag a reconvert re-ran dcm2niix, wrote nothing, and
+    exited 0 — the checkbox said "Force overwrite existing BIDS output" and
+    overwrote none of it.
+    """
+    script = _dcm2bids("", force=True)
+    assert "--clobber" in script, (
+        "without --clobber dcm2bids skips existing outputs and the reconvert is a no-op"
+    )
+    assert "--force_dcm2bids" in script
+
+
+def test_dcm2bids_without_force_clobbers_nothing():
+    script = _dcm2bids("", force=False)
+    assert "--clobber" not in script
+    assert "--force_dcm2bids" not in script
 
 
 def test_dcm2bids_omits_session_flag_when_single_session():

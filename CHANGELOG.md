@@ -116,6 +116,30 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **"Force overwrite existing BIDS output" overwrote nothing.** duckbrain passed
+  dcm2bids `--force_dcm2bids`, which only overwrites the *temporary* dcm2niix
+  output under `tmp_dcm2bids/`. The flag that overwrites the BIDS output is
+  `--clobber`, and it was never passed — so dcm2bids skipped every destination
+  file that already existed and exited 0. Reconverting an already-converted
+  session re-ran dcm2niix, wrote nothing, and reported success. Both flags are
+  now sent, in the sbatch template and the subprocess path alike.
+
+  The practical consequence: no fix to the generated config could reach a
+  subject that had been converted once. That is how the B0 identifier fix above
+  failed to take.
+- **A stale saved conversion config is now reported instead of silently
+  winning.** `<sourcedata>/sub-XX/[ses-YY]/dcm2bids_config.json` is reused by
+  bulk convert and the cockpit, and only regenerated when absent — right when
+  the file records a review you made, wrong when duckbrain's generator has
+  changed since. The Conversion page now compares the saved file against what
+  would be generated for that session today and names the descriptions and
+  fields that differ.
+
+  Reported, not resolved. A difference can equally mean "I edited this
+  deliberately" or "duckbrain changed underneath me", and the file records no
+  provenance to tell them apart — regenerating would discard a real review,
+  ignoring it discards a real fix. A config that still matches says nothing, so
+  a reviewed session stays quiet.
 - **NORDIC could disappear from the Project Status board with no way to bring it
   back.** The cockpit marks the NORDIC stage **n/a** — and offers no run control
   — for any project that hasn't set `use_nordic`, which is right: NORDIC is

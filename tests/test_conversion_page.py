@@ -342,3 +342,83 @@ def test_export_only_submits_nothing_and_records_nothing(project, monkeypatch):
 
     assert not (project / "code" / "logs" / "submissions.tsv").exists()
     assert list((project / "code" / "logs").glob("dcm2bids_*.sbatch"))
+
+
+# ---- Stale saved config -----------------------------------------------------
+#
+# `_build_converted` reuses <sourcedata>/sub-XX/[ses-YY]/dcm2bids_config.json and
+# only generates when it is absent. Right when the file records a review, wrong
+# when the generator has moved on — and the file records no provenance, so
+# nothing distinguished the two. Silence meant the saved plan won: the B0
+# identifier fix could not reach any already-reviewed session, because the stale
+# plan kept re-supplying the identifier the fix corrected, and the reconvert
+# reported success.
+
+
+def _saved_config_path(project):
+    return project / "sourcedata" / "sub-001" / "ses-01" / "dcm2bids_config.json"
+
+
+def _write_saved_config(project, mutate):
+    """Persist the config the page would generate, with *mutate* applied."""
+    import json
+
+    from duckbrain.core.conversion import generate_session_config
+
+    cfg = generate_session_config(
+        project / "sourcedata" / "sub-001" / "ses-01" / "dicom", "001", "01"
+    )
+    mutate(cfg)
+    path = _saved_config_path(project)
+    path.write_text(json.dumps(cfg, indent=2))
+    return cfg
+
+
+def _warnings(at):
+    return "\n".join(w.value for w in at.warning)
+
+
+def test_saved_config_matching_the_generator_raises_no_drift_warning(project):
+    """Opt-out by silence: an up-to-date saved config must stay quiet.
+
+    A warning on every reviewed session is one people learn to scroll past.
+    """
+    _write_saved_config(project, lambda cfg: None)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert "no longer matches" not in _warnings(at)
+
+
+def test_stale_sidecar_value_in_a_saved_config_is_surfaced(project):
+    """The exact shape that hid the B0 fix: same descriptions, changed value."""
+
+    def _staleify(cfg):
+        for desc in cfg["descriptions"]:
+            for key in ("B0FieldIdentifier", "B0FieldSource"):
+                if key in (desc.get("sidecar_changes") or {}):
+                    desc["sidecar_changes"][key] = "B0map_2.5mm"
+
+    _write_saved_config(project, _staleify)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    warned = _warnings(at)
+    assert "no longer matches" in warned
+    assert "sidecar_changes.B0FieldIdentifier" in warned
+    # It must say which plan actually runs; that is the actionable part.
+    assert "the saved plan is what runs" in warned.lower()
+
+
+def test_saved_config_missing_a_description_is_surfaced(project):
+    _write_saved_config(project, lambda cfg: cfg["descriptions"].pop())
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert "newly generated, absent from the saved config" in _warnings(at)
+
+
+def test_unparseable_saved_config_reports_instead_of_crashing(project):
+    _saved_config_path(project).parent.mkdir(parents=True, exist_ok=True)
+    _saved_config_path(project).write_text("{not json")
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception, "a corrupt saved config must not take the page down"
+    assert "Couldn't compare the saved config" in _warnings(at)
