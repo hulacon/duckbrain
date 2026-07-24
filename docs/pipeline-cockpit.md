@@ -50,8 +50,8 @@ resuming after significant drift.
 2. **Every SLURM stage's submit action is the same trio**, differing only in how
    the context is assembled:
    ```python
-   ctx    = build_context(config, step, subject=sub, session=ses, **stage_specifics)
-   script = render_sbatch(step, ctx)          # slurm/templates.py
+   ctx = build_context(config, step, subject=sub, session=ses, **stage_specifics)
+   script = render_sbatch(step, ctx)  # slurm/templates.py
    job_id = submit_job(script, f"{step}_{tag}", scripts_dir=log_dir)  # slurm/submit.py
    ```
    So a per-cell controller is a mechanical extraction of existing loop bodies.
@@ -120,19 +120,23 @@ but submit logic lives in one place.
 # Sketch — refine against actual page code when implementing.
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class StageSpec:
-    name: str                 # "converted" | "fmriprep" | "mriqc" | "nordic"
-    step: str                 # render_sbatch/build_context step key ("dcm2bids", ...)
-    job_prefix: str           # "dcm2bids" | "fmriprep" | "mriqc" | "nordic"
-    depends_on: str | None    # prior stage that must be COMPLETE (surveyor stage name)
+    name: str  # "converted" | "fmriprep" | "mriqc" | "nordic"
+    step: str  # render_sbatch/build_context step key ("dcm2bids", ...)
+    job_prefix: str  # "dcm2bids" | "fmriprep" | "mriqc" | "nordic"
+    depends_on: str | None  # prior stage that must be COMPLETE (surveyor stage name)
     is_slurm: bool = True
 
+
 # NB: surveyor STAGES use "converted"; the step/template key is "dcm2bids".
-STAGE_SPECS = { ... }  # keyed by surveyor stage name
+STAGE_SPECS = {...}  # keyed by surveyor stage name
+
 
 def tag_for(sub: str, ses: str) -> str:
     return f"{sub}_{ses}" if ses else sub
+
 
 def advance_one(config, stage, subject, session, *, export_only=False, **overrides) -> str | None:
     """Submit (or export) the job that advances one unit through `stage`.
@@ -189,8 +193,8 @@ def survey_live(config) -> pd.DataFrame:
     f"{prefix}_{tag}" against list_jobs() (active) and job_history() (recent).
     """
     matrix = survey_project(config)
-    active = { j.name: j for j in list_jobs() }          # squeue
-    recent = { j.name: j for j in job_history(days=7) }  # sacct
+    active = {j.name: j for j in list_jobs()}  # squeue
+    recent = {j.name: j for j in job_history(days=7)}  # sacct
     # for each row/stage: key = f"{spec.job_prefix}_{tag}"
     #   in active & state RUNNING/PENDING  -> overlay "running"/"queued"
     #   in recent & state FAILED/CANCELLED/TIMEOUT -> overlay "failed"
