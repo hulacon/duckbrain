@@ -319,6 +319,202 @@ def test_a_demoted_copy_records_why():
     assert not series[0].drop_reason
 
 
+# --- choosing which reconstruction converts --------------------------------
+def _nd_anat_pair() -> list[SeriesInfo]:
+    """Crave_control/CC052: both copies populated, the ordinary case."""
+    return [
+        SeriesInfo(1009, "mprage_p2_ND_defaced", Path("/nonexistent"), file_count=176),
+        SeriesInfo(1010, "mprage_p2_defaced", Path("/nonexistent"), file_count=176),
+    ]
+
+
+def test_the_uncorrected_policy_keeps_the_nd_copy():
+    series = dicom_inspect.classify_series(_nd_anat_pair(), nd_duplicates="uncorrected")
+    by_num = {s.series_number: s.classification for s in series}
+    assert by_num == {1009: "anat", 1010: "derived"}
+
+
+def test_the_both_policy_labels_each_copy():
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    series = dicom_inspect.classify_series(_nd_anat_pair(), nd_duplicates="both")
+    assert {s.series_number: s.acq_label for s in series} == {1009: "nd", 1010: "dis"}
+
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    entities = {
+        d["criteria"]["SeriesNumber"]: d.get("custom_entities", "")
+        for d in generate_config(series, fmaps, subject="X")["descriptions"]
+    }
+    assert entities == {1009: "acq-nd", 1010: "acq-dis"}
+
+
+def test_the_both_policy_falls_back_when_one_copy_is_empty():
+    """One survivor keeps the plain filename — an acq- entity distinguishing it
+    from nothing is noise, and the degradation has to be reported instead."""
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    series = _nd_anat_pair()
+    series[1].file_count = 0
+    dicom_inspect.classify_series(series, nd_duplicates="both")
+    assert [s.acq_label for s in series] == ["", ""]
+
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    plan = plan_conversion(generate_config(series, fmaps, subject="X"), series, subject="X")
+    assert [f.filename for f in plan.files] == ["sub-X_T1w.nii.gz"]
+    assert any(w.kind == "nd-duplicate" for w in plan_warnings(plan, fmaps))
+
+
+def test_the_both_policy_gives_two_independent_b0_groups():
+    """Both pairs convert, neither collides, and a bold binds to the corrected one.
+
+    The two groups are acquired at the same instant, so nearest-in-time cannot
+    separate them and would otherwise fall through to insertion order — which
+    puts the uncorrected copy first.
+    """
+    from duckbrain.core.conversion_plan import plan_conversion
+    from duckbrain.core.dcm2bids_config import build_task_run_mapping, generate_config
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    series = _lcni_nd_fieldmap()
+    series.append(
+        SeriesInfo(
+            31,
+            "food",
+            Path("/nonexistent"),
+            250,
+            header=SeriesHeader(
+                modality="MR",
+                image_type=("ORIGINAL", "PRIMARY", "M", "ND", "MOSAIC"),
+                mr_acquisition_type="2D",
+                is_epi=True,
+                is_spin_echo=False,
+                volumes=250,
+                single_volume=False,
+            ),
+        )
+    )
+    dicom_inspect.classify_series(series, nd_duplicates="both")
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    assert len(fmaps.groups) == 2
+    assert fmaps.deprioritized == {"fieldmap2mmNd"}
+
+    config = generate_config(series, fmaps, subject="X", mapping=build_task_run_mapping(series))
+    plan = plan_conversion(config, series, subject="X")
+    paths = [f.path for f in plan.files]
+    assert len(paths) == len(set(paths)), "two reconstructions collided on one filename"
+
+    identifiers = {
+        d["sidecar_changes"]["B0FieldIdentifier"]
+        for d in config["descriptions"]
+        if d["datatype"] == "fmap"
+    }
+    assert len(identifiers) == 2
+
+    bold = next(f for f in plan.files if f.is_bold)
+    assert bold.fmap_group == "fieldmap2mm"
+
+
+def test_an_explicit_rule_can_still_bind_the_uncorrected_pair():
+    """Deprioritizing narrows the *automatic* candidates only — a rule states."""
+    from duckbrain.core.dcm2bids_config import FmapRule, build_task_run_mapping, generate_config
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    series = _lcni_nd_fieldmap()
+    series.append(
+        SeriesInfo(
+            31,
+            "food",
+            Path("/nonexistent"),
+            250,
+            header=SeriesHeader(
+                modality="MR",
+                image_type=("ORIGINAL", "PRIMARY", "M", "ND", "MOSAIC"),
+                mr_acquisition_type="2D",
+                is_epi=True,
+                is_spin_echo=False,
+                volumes=250,
+                single_volume=False,
+            ),
+        )
+    )
+    dicom_inspect.classify_series(series, nd_duplicates="both")
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    config = generate_config(
+        series,
+        fmaps,
+        subject="X",
+        mapping=build_task_run_mapping(series),
+        fmap_rules=[FmapRule("food", "fieldmap2mmNd", None)],
+    )
+    bold = next(d for d in config["descriptions"] if d["suffix"] == "bold")
+    assert "fieldmap2mmNd" in bold["sidecar_changes"]["B0FieldSource"]
+
+
+def test_two_reconstructions_get_acq_and_not_run():
+    """`run-` means the scan was *acquired* twice. These are one acquisition."""
+    from duckbrain.core.conversion_plan import plan_conversion
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    series = dicom_inspect.classify_series(_nd_anat_pair(), nd_duplicates="both")
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    plan = plan_conversion(generate_config(series, fmaps, subject="X"), series, subject="X")
+    names = sorted(f.filename for f in plan.files)
+    assert names == ["sub-X_acq-dis_T1w.nii.gz", "sub-X_acq-nd_T1w.nii.gz"]
+    assert not any("run-" in n for n in names)
+
+
+def test_two_genuine_repeats_of_one_acquisition_still_get_run():
+    """The bucketing change must not disable the collision fix it sits inside."""
+    from duckbrain.core.conversion_plan import plan_conversion
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    series = _series((5, "T1_mprage"), (9, "T1_mprage_repeat"))
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    plan = plan_conversion(generate_config(series, fmaps, subject="X"), series, subject="X")
+    assert sorted(f.filename for f in plan.files) == [
+        "sub-X_run-1_T1w.nii.gz",
+        "sub-X_run-2_T1w.nii.gz",
+    ]
+
+
+def test_two_twin_pairs_sharing_one_description_are_paired_off():
+    """pMAP/pMAP101: the mprage is shot twice and both copies saved of each.
+
+    One base description covers 1005/1007 (ND) and 1006/1008 (corrected). With
+    each ND choosing its own nearest twin, both picked 1006 and nothing claimed
+    1008 — which then converted as a third anatomical beside the pair the policy
+    had chosen, under every policy.
+    """
+    from duckbrain.core.conversion_plan import plan_conversion
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    def session():
+        return [
+            SeriesInfo(1005, "mprage_p3_fast_ND_defaced", Path("/nonexistent"), 176),
+            SeriesInfo(1006, "mprage_p3_fast_defaced", Path("/nonexistent"), 176),
+            SeriesInfo(1007, "mprage_p3_fast_ND_defaced", Path("/nonexistent"), 176),
+            SeriesInfo(1008, "mprage_p3_fast_defaced", Path("/nonexistent"), 176),
+        ]
+
+    def converted(policy):
+        series = dicom_inspect.classify_series(session(), nd_duplicates=policy)
+        fmaps = dicom_inspect.detect_fieldmaps(series)
+        plan = plan_conversion(generate_config(series, fmaps, subject="X"), series, subject="X")
+        return sorted(f.filename for f in plan.files)
+
+    assert converted("corrected") == ["sub-X_run-1_T1w.nii.gz", "sub-X_run-2_T1w.nii.gz"]
+    assert converted("uncorrected") == ["sub-X_run-1_T1w.nii.gz", "sub-X_run-2_T1w.nii.gz"]
+    # Two acquisitions x two reconstructions: run- separates the acquisitions,
+    # acq- the reconstructions, and neither entity does the other's job.
+    assert converted("both") == [
+        "sub-X_acq-dis_run-1_T1w.nii.gz",
+        "sub-X_acq-dis_run-2_T1w.nii.gz",
+        "sub-X_acq-nd_run-1_T1w.nii.gz",
+        "sub-X_acq-nd_run-2_T1w.nii.gz",
+    ]
+
+
 def test_the_empty_twin_flip_is_reported_rather_than_silent():
     """CC056 again, from the other end.
 

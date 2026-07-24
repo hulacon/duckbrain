@@ -117,3 +117,60 @@ def test_describe_states_its_own_cap():
     capped = drift.describe(limit=8)
     assert len(capped) == 9
     assert "and 4 more" in capped[-1]
+
+
+# ---- the project's ND choice must reach the non-interactive path ----
+
+
+def _nd_session(root):
+    """A session holding both reconstructions of one mprage."""
+    import pydicom
+    from pydicom.dataset import Dataset, FileMetaDataset
+    from pydicom.uid import ExplicitVRLittleEndian
+
+    for number, name, image_type in (
+        (1009, "mprage_p2_ND_defaced", ["DERIVED", "SECONDARY", "M", "ND", "NORM"]),
+        (1010, "mprage_p2_defaced", ["DERIVED", "SECONDARY", "M", "NORM", "DIS3D", "DIS2D"]),
+    ):
+        directory = root / f"Series_{number}_{name}"
+        directory.mkdir(parents=True)
+        for index in range(2):
+            ds = Dataset()
+            ds.file_meta = FileMetaDataset()
+            ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+            ds.file_meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.4"
+            ds.file_meta.MediaStorageSOPInstanceUID = f"1.2.3.{number}.{index}"
+            ds.SOPClassUID = "1.2.840.10008.5.1.4.1.1.4"
+            ds.SOPInstanceUID = f"1.2.3.{number}.{index}"
+            ds.Modality = "MR"
+            ds.ImageType = image_type
+            ds.MRAcquisitionType = "3D"
+            ds.ScanningSequence = ["GR", "IR"]
+            ds.SequenceName = "*tfl3d1_16ns"
+            ds.SeriesDescription = name
+            ds.EchoNumbers = 1
+            pydicom.dcmwrite(directory / f"{index:04d}.dcm", ds, enforce_file_format=True)
+    return root
+
+
+def test_the_bulk_path_honours_the_project_nd_choice(tmp_path):
+    """`generate_session_config` is what bulk and every cockpit convert run.
+
+    A control that lived only on the Conversion page would leave this path on the
+    default, so the session a user reviewed and the session bulk converted would
+    hold different images — with nothing saying so.
+    """
+    from duckbrain.core.conversion import generate_session_config
+    from duckbrain.core.dicom_inspect import nd_policy_from_config
+
+    dicom_dir = _nd_session(tmp_path / "dicom")
+    project = {"conversion": {"nd_duplicates": "both"}}
+
+    config = generate_session_config(
+        dicom_dir, "01", "", nd_duplicates=nd_policy_from_config(project)
+    )
+    entities = sorted(d.get("custom_entities", "") for d in config["descriptions"])
+    assert entities == ["acq-dis", "acq-nd"]
+
+    default = generate_session_config(dicom_dir, "01", "")
+    assert [d["criteria"]["SeriesNumber"] for d in default["descriptions"]] == [1010]

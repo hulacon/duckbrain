@@ -180,6 +180,7 @@ def generate_session_config(
     rules: list | None = None,
     fmap_rules: list | None = None,
     series_list: list | None = None,
+    nd_duplicates: str = "corrected",
 ) -> dict:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
@@ -199,6 +200,11 @@ def generate_session_config(
     the result in rather than paying for a second walk of the DICOM tree. It is
     classified in place, exactly as a freshly-listed one would be.
 
+    ``nd_duplicates`` is the project's choice of reconstruction where Siemens
+    saved a series twice; it must reach here for the same reason ``fmap_rules``
+    does — a bulk convert that fell back to the default while the GUI honoured
+    the project's setting would ship a different image than the one reviewed.
+
     Raises ``ValueError`` if two series would be written to the same BIDS file.
     The interactive page renders that as an error and lets a human resolve it,
     but nothing rendered warnings on this path, so a bulk or cockpit convert
@@ -214,7 +220,7 @@ def generate_session_config(
         series_list = list_series(dicom_dir)
     if not series_list:
         raise ValueError(f"No series directories found in {dicom_dir}")
-    classify_series(series_list)
+    classify_series(series_list, nd_duplicates=nd_duplicates)
     fieldmaps = detect_fieldmaps(series_list)
     mapping = build_task_run_mapping(series_list, template=template or None, rules=rules)
     config = generate_config(

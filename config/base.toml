@@ -29,6 +29,25 @@ project = ""               # e.g., "mmmdata"
 # not check semantic intent, so a clean run is not an all-clear (see TODO #15).
 bids_validate = true
 
+# Which reconstruction to convert where Siemens saved a series twice — once
+# distortion-corrected and once with 'ND' (No Distortion correction) added to the
+# name. Both are the same acquisition, so converting both collides on one BIDS
+# filename unless they are told apart.
+#
+#   "corrected"    the distortion-corrected copy (the default, and what
+#                  duckbrain has always done)
+#   "uncorrected"  the _ND copy
+#   "both"         both, distinguished by an acq-dis / acq-nd entity
+#
+# A project-level choice rather than a per-series one: whoever set the console to
+# save both copies did it for the whole study, and a fieldmap's magnitude and
+# phase must come from the same reconstruction, so the decision is not per series
+# in the first place. Override in a project's own code/duckbrain.toml.
+#
+# Whatever is asked for, a copy that holds no DICOM files is never chosen over
+# one that does — the preference flips and plan_warnings says so.
+nd_duplicates = "corrected"
+
 # [expected] — what a session of this study is SUPPOSED to contain.
 #
 # Deliberately absent here and shipped commented-out: absent means the

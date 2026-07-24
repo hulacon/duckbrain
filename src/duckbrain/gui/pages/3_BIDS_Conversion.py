@@ -1,5 +1,6 @@
 """Page 3: BIDS Conversion — DICOM inspection + dcm2bids config generation + submission."""
 
+import dataclasses
 import json
 from datetime import datetime
 
@@ -155,11 +156,14 @@ if not dicom_dir.exists():
         st.stop()
 
 from duckbrain.core.dicom_inspect import (
+    ND_POLICIES,
     list_series,
     classify_series,
     detect_fieldmaps,
     is_complete_group,
     is_reproin_name,
+    nd_policy_from_config,
+    nd_twin_bases,
 )
 
 series_list = list_series(dicom_dir)
@@ -169,7 +173,48 @@ if not series_list:
     )
     st.stop()
 
-classify_series(series_list)
+# ---- Which reconstruction to convert ----
+# Shown only where the session actually holds both, so the control never appears
+# as an abstract question about data that isn't there. Grouped under "both",
+# which demotes nothing, so every series still carries the role the twin match
+# is made on.
+_project_nd_policy = nd_policy_from_config(config)
+_nd_twins = nd_twin_bases(series_list)
+nd_policy = _project_nd_policy
+
+if _nd_twins:
+    _ND_LABELS = {
+        "corrected": "Distortion-corrected",
+        "uncorrected": "Uncorrected (`_ND`)",
+        "both": "Both, as `acq-dis` / `acq-nd`",
+    }
+    _twins = ", ".join(f"`{base}`" for base in _nd_twins)
+    st.markdown("##### Duplicate reconstructions")
+    st.caption(
+        f"This session saved {len(_nd_twins)} series twice — {_twins} — once "
+        "distortion-corrected and once with `ND` (No Distortion correction) in "
+        "the name. They are the same acquisition, so converting both needs an "
+        "`acq-` entity to keep them off one filename."
+    )
+    nd_policy = st.radio(
+        "Convert",
+        ND_POLICIES,
+        index=ND_POLICIES.index(_project_nd_policy),
+        format_func=lambda p: _ND_LABELS[p],
+        horizontal=True,
+        key="nd_duplicates_choice",
+    )
+    if nd_policy != _project_nd_policy:
+        # Otherwise this is a control that silently doesn't apply to the path
+        # most conversions take — the divergence the project config exists to
+        # close.
+        st.caption(
+            f":orange[Preview only.] Bulk convert and the cockpit build from the "
+            f"**project** setting, still `{_project_nd_policy}`. Save it below to "
+            "change what they do."
+        )
+
+classify_series(series_list, nd_duplicates=nd_policy)
 
 # ReproIn-named sequences carry their BIDS entities explicitly, so duckbrain uses
 # those instead of inferring them. Worth saying out loud: it tells the user the
@@ -303,8 +348,13 @@ if _saved_config_path.exists():
     #
     # Compared against generate_session_config — what the *bulk/cockpit* path
     # would build — rather than the edited table below, because that is the plan
-    # this notice is about. series_list is handed in so this costs no second walk
-    # of the DICOM tree.
+    # this notice is about. So it uses the *project's* ND policy, not the radio
+    # above: the radio is a preview, and this notice is about the other path.
+    #
+    # Copies of the series are handed in, not the list itself. That still costs
+    # no second walk of the DICOM tree (the headers are already read), but
+    # generate_session_config classifies in place — handing it the shared list
+    # under a different policy would silently re-decide the table below.
     try:
         _fresh_config = generate_session_config(
             dicom_dir,
@@ -312,7 +362,8 @@ if _saved_config_path.exists():
             session,
             rules=task_rules_from_config(config),
             fmap_rules=fmap_rules_from_config(config),
-            series_list=series_list,
+            series_list=[dataclasses.replace(s) for s in series_list],
+            nd_duplicates=_project_nd_policy,
         )
         _drift = compare_dcm2bids_configs(json.loads(_saved_config_path.read_text()), _fresh_config)
     except Exception as _e:  # noqa: BLE001 — a broken saved file is a finding, not a crash
@@ -758,6 +809,34 @@ if fixups:
     )
 
 # ---- Promote this session's review to project-wide defaults ----
+if _nd_twins:
+    if st.button(
+        "⭑ Save duplicate-reconstruction choice as project default",
+        key="save_project_nd_policy",
+        width="stretch",
+        disabled=nd_policy == _project_nd_policy,
+        help="Writes [conversion] nd_duplicates to the project config, so bulk "
+        "convert and the cockpit build the same image this page is previewing.",
+    ):
+        from duckbrain.config import resolve_project_dir, save_project_config
+
+        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
+        if not project_dir:
+            st.error("No project directory resolved — can't save the default.")
+        else:
+            # owned= is mandatory: [conversion] also holds bids_validate, and a
+            # section-wide write replaces the whole table (DB-001).
+            save_project_config(
+                project_dir,
+                {"conversion": {"nd_duplicates": nd_policy}},
+                owned={"conversion": ("nd_duplicates",)},
+            )
+            st.success(
+                f'Saved `nd_duplicates = "{nd_policy}"` to '
+                f"`{project_dir}/code/duckbrain.toml`. Sessions already converted "
+                "keep whatever they were converted with — re-run them to change it."
+            )
+
 _save_task_col, _save_fmap_col = st.columns(2)
 
 with _save_task_col:

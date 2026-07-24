@@ -521,3 +521,41 @@ def test_an_explicit_per_stage_partition_still_wins(tmp_path):
     cfg = load_config(project_dir=str(proj))
     assert get_slurm_resources(cfg, "mriqc")["partition"] == "pinned"
     assert get_slurm_resources(cfg, "dcm2bids")["partition"] == "mypart"
+
+
+# --- [conversion] nd_duplicates -------------------------------------------
+def test_an_absent_nd_policy_is_the_historical_behaviour():
+    from duckbrain.core.dicom_inspect import nd_policy_from_config
+
+    assert nd_policy_from_config({}) == "corrected"
+    assert nd_policy_from_config({"conversion": {}}) == "corrected"
+
+
+def test_an_unknown_nd_policy_raises():
+    """Unlike a malformed task rule, which is skipped and then reported.
+
+    A skipped rule falls back to a heuristic duckbrain states out loud. A
+    mistyped policy would silently ship the other image, and both convert
+    cleanly — nothing downstream could notice.
+    """
+    import pytest
+
+    from duckbrain.core.dicom_inspect import nd_policy_from_config
+
+    with pytest.raises(ValueError, match="nd_duplicates"):
+        nd_policy_from_config({"conversion": {"nd_duplicates": "uncorected"}})
+
+
+def test_saving_the_nd_choice_preserves_bids_validate(tmp_path):
+    """[conversion] is shared, so a section-wide write would delete its neighbour."""
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(tmp_path, {"conversion": {"bids_validate": False}})
+    save_project_config(
+        tmp_path,
+        {"conversion": {"nd_duplicates": "both"}},
+        owned={"conversion": ("nd_duplicates",)},
+    )
+    stored = _load_toml(project_config_path(tmp_path))["conversion"]
+    assert stored["nd_duplicates"] == "both"
+    assert stored["bids_validate"] is False

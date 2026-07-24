@@ -422,3 +422,67 @@ def test_unparseable_saved_config_reports_instead_of_crashing(project):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception, "a corrupt saved config must not take the page down"
     assert "Couldn't compare the saved config" in _warnings(at)
+
+
+# ---- duplicate reconstructions ----
+
+
+@pytest.fixture
+def nd_project(tmp_path):
+    """A session that saved its mprage twice, corrected and _ND."""
+    proj = tmp_path / "ndproj"
+    scaffold_project(str(proj))
+    dicom = proj / "sourcedata" / "sub-001" / "ses-01" / "dicom"
+    # The plain mprage is dropped: with it there are three T1w and the run-
+    # disambiguation muddies exactly what this fixture is here to show.
+    others = [(num, desc) for num, desc in SERIES if desc != "t1w_mprage"]
+    twins = [("1009", "mprage_p2_ND_defaced"), ("1010", "mprage_p2_defaced")]
+    for num, desc in others + twins:
+        d = dicom / f"Series_{num}_{desc}"
+        d.mkdir(parents=True)
+        (d / "0001.dcm").touch()
+    save_project_config(str(proj), {"project": {"name": "nd", "use_sessions": "auto"}})
+    os.environ["DUCKBRAIN_PROJECT_DIR"] = str(proj)
+    yield proj
+    os.environ.pop("DUCKBRAIN_PROJECT_DIR", None)
+
+
+def test_the_nd_choice_appears_only_where_there_is_something_to_choose(project, nd_project):
+    """An abstract control about data that isn't there is worse than none."""
+    os.environ["DUCKBRAIN_PROJECT_DIR"] = str(project)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert not [r for r in at.radio if r.key == "nd_duplicates_choice"]
+
+    os.environ["DUCKBRAIN_PROJECT_DIR"] = str(nd_project)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert [r for r in at.radio if r.key == "nd_duplicates_choice"]
+
+
+def test_the_nd_choice_is_seeded_from_the_project_config(nd_project):
+    save_project_config(
+        str(nd_project),
+        {"conversion": {"nd_duplicates": "uncorrected"}},
+        owned={"conversion": ("nd_duplicates",)},
+    )
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert at.radio(key="nd_duplicates_choice").value == "uncorrected"
+
+    plan = _plan_table(at)
+    becomes = dict(zip(plan["Series #"], plan["becomes"]))
+    assert becomes[1009] == "sub-001_ses-01_T1w.nii.gz"
+    assert becomes[1010] == "— not converted"
+
+
+def test_choosing_both_shows_two_anatomicals_in_becomes(nd_project):
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    at.radio(key="nd_duplicates_choice").set_value("both").run()
+    assert not at.exception
+
+    plan = _plan_table(at)
+    becomes = dict(zip(plan["Series #"], plan["becomes"]))
+    assert becomes[1009] == "sub-001_ses-01_acq-nd_T1w.nii.gz"
+    assert becomes[1010] == "sub-001_ses-01_acq-dis_T1w.nii.gz"

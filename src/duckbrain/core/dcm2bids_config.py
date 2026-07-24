@@ -498,10 +498,11 @@ def generate_config(
         task = sanitize_task_label(entry.task if entry else extract_task_label(s.description))
         run = entry.run if entry else None
         run_suffix = f"-run{run}" if run is not None else ""
-        custom_entities = f"task-{task}" + (f"_run-{run}" if run is not None else "")
+        acq_suffix = f"-{s.acq_label}" if s.acq_label else ""
+        custom_entities = _func_entities(task, s.acq_label, run)
 
         desc = {
-            "id": f"func-bold-{task}{run_suffix}",
+            "id": f"func-bold-{task}{acq_suffix}{run_suffix}",
             "datatype": "func",
             "suffix": "bold",
             # Match on SeriesNumber, not a SeriesDescription wildcard: a bold's
@@ -546,9 +547,10 @@ def generate_config(
         task = sanitize_task_label(entry.task if entry else extract_task_label(s.description))
         run = entry.run if entry else None
         run_suffix = f"-run{run}" if run is not None else ""
-        custom_entities = f"task-{task}" + (f"_run-{run}" if run is not None else "")
+        acq_suffix = f"-{s.acq_label}" if s.acq_label else ""
+        custom_entities = _func_entities(task, s.acq_label, run)
         desc = {
-            "id": f"func-sbref-{task}{run_suffix}",
+            "id": f"func-sbref-{task}{acq_suffix}{run_suffix}",
             "datatype": "func",
             "suffix": "sbref",
             "criteria": {
@@ -698,12 +700,7 @@ def _anat_description(series: SeriesInfo) -> dict | None:
     if reproin.get("seqtype") == "anat":
         suffix = _BIDS_ANAT_SUFFIXES.get(reproin.get("suffix", "").lower())
         if suffix:
-            return {
-                "id": f"anat-{suffix}",
-                "datatype": "anat",
-                "suffix": suffix,
-                "criteria": {"SeriesNumber": series.series_number},
-            }
+            return _anat_entry(series, suffix)
 
     desc_lower = series.description.lower()
 
@@ -721,14 +718,41 @@ def _anat_description(series: SeriesInfo) -> dict | None:
         if not suffix:
             return None
 
-    return {
+    return _anat_entry(series, suffix)
+
+
+def _func_entities(task: str, acq_label: str, run: int | None) -> str:
+    """Compose a func/sbref ``custom_entities`` string in BIDS entity order.
+
+    ``acq-`` sits between ``task-`` and ``run-``; BIDS fixes that order, and
+    dcm2bids writes ``custom_entities`` through verbatim.
+    """
+    parts = [f"task-{task}"]
+    if acq_label:
+        parts.append(f"acq-{acq_label}")
+    if run is not None:
+        parts.append(f"run-{run}")
+    return "_".join(parts)
+
+
+def _anat_entry(series: SeriesInfo, suffix: str) -> dict:
+    """One anat description, carrying an ``acq-`` entity when it needs one.
+
+    ``acq_label`` is set only where two reconstructions of the same acquisition
+    both convert, which is the one case where an anat would otherwise write two
+    images to a single filename. A lone survivor keeps the plain name — same
+    stance as a single fieldmap pair keeping the bare ``dir-<X>_epi``.
+    """
+    entry = {
         "id": f"anat-{suffix}",
         "datatype": "anat",
         "suffix": suffix,
-        "criteria": {
-            "SeriesNumber": series.series_number,
-        },
+        "criteria": {"SeriesNumber": series.series_number},
     }
+    if series.acq_label:
+        entry["custom_entities"] = f"acq-{series.acq_label}"
+        entry["id"] = f"anat-{suffix}-{series.acq_label}"
+    return entry
 
 
 _ANAT_T1 = re.compile(r"(?<![a-z0-9])t1(?:w|[_-])")
@@ -748,13 +772,20 @@ def _disambiguate_anat(descriptions: list[dict]) -> None:
     ``run-`` is added only when a suffix actually repeats, so the common
     single-anatomical session keeps its plain ``sub-X_T1w`` name. Numbering is by
     acquisition order, which is what the ``SeriesNumber`` criteria already sort by.
+
+    Grouped by ``(suffix, custom_entities)`` and not by suffix alone, so two
+    reconstructions of one acquisition — ``acq-nd`` and ``acq-dis`` — are not
+    treated as repeats. They are already distinct filenames, and ``run-`` would
+    be a false claim about them: it means the scan was *acquired* more than once.
+    Two genuine repeats within one ``acq-`` still number normally.
     """
-    by_suffix: dict[str, list[dict]] = {}
+    by_suffix: dict[tuple[str, str], list[dict]] = {}
     for d in descriptions:
         if d.get("datatype") == "anat":
-            by_suffix.setdefault(d["suffix"], []).append(d)
+            key = (d["suffix"], d.get("custom_entities", ""))
+            by_suffix.setdefault(key, []).append(d)
 
-    for suffix, group in by_suffix.items():
+    for group in by_suffix.values():
         if len(group) < 2:
             continue
         group.sort(key=lambda d: d["criteria"]["SeriesNumber"])
@@ -975,7 +1006,13 @@ def _assign_fmap_group(
     # itself, and the bulk path submitted it. No complete pair means no binding,
     # which is an honest "no SDC" that plan_warnings already reports. An explicit
     # [fmap_mapping] rule naming a half group still raises above, unchanged.
-    groups = complete
+    # Two reconstructions of one fieldmap are both complete and both bindable,
+    # and they were acquired at the same instant — so the timing below cannot
+    # separate them and would fall through to insertion order, which puts the
+    # uncorrected copy first. Prefer the corrected one for *automatic* binding
+    # while leaving `complete` intact, so an explicit rule naming the ND group
+    # still validates and still wins.
+    groups = [g for g in complete if g not in fieldmaps.deprioritized] or complete
     if not groups:
         return None
 

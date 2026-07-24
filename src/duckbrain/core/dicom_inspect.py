@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 
@@ -54,6 +54,11 @@ class FieldmapDetection:
     # actually shot next to rather than whichever pair sorts first; see
     # dcm2bids_config._assign_fmap_group. Empty when the DICOMs weren't read.
     group_times: dict = field(default_factory=dict)
+    # Groups that are valid and bindable but should not be chosen *automatically*
+    # — the distortion-uncorrected reconstruction, when both were converted. An
+    # explicit [fmap_mapping] rule naming one still binds; only the heuristic
+    # skips them.
+    deprioritized: set = field(default_factory=set)
 
 
 # --- ReproIn ---------------------------------------------------------------
@@ -266,6 +271,12 @@ def classify_series(
     from .dicom_header import classify_from_header
 
     for s in series_list:
+        # Reset what a previous pass derived. The Conversion page classifies the
+        # same list twice — once to discover the duplicate reconstructions, then
+        # again under the policy the user picked — so a stale acq_label would
+        # survive into a policy that doesn't want one.
+        s.drop_reason = ""
+        s.acq_label = ""
         classification, suffix = ("", "")
         if s.header is not None:
             classification, suffix = classify_from_header(s.header)
@@ -291,6 +302,24 @@ _ND_STRIP = re.compile(r"[_-]?(?<![A-Za-z0-9])ND(?=[_-]|$)")
 # What may be asked of a twinned pair. "corrected" is the historical behaviour
 # and the default.
 ND_POLICIES = ("corrected", "uncorrected", "both")
+
+
+def nd_policy_from_config(config: dict) -> str:
+    """Read ``[conversion] nd_duplicates`` from a merged config.
+
+    Raises on an unrecognised value, unlike :func:`~duckbrain.core.dcm2bids_config.
+    task_rules_from_config` and its neighbours, which skip malformed rows. The
+    asymmetry is deliberate: a skipped rule falls back to a heuristic duckbrain
+    then *states*, so the user can see what happened. A mistyped policy would
+    silently change which of two images ships, and both convert cleanly — there
+    is nothing downstream that could notice.
+    """
+    value = str((config.get("conversion") or {}).get("nd_duplicates", "corrected")).strip()
+    if value not in ND_POLICIES:
+        raise ValueError(
+            f"[conversion] nd_duplicates = {value!r} is not one of {', '.join(ND_POLICIES)}"
+        )
+    return value
 
 
 @dataclass
@@ -320,14 +349,22 @@ def _nd_twin_groups(series_list: list[SeriesInfo]) -> list[_NDGroup]:
     of 28/29 came last and demoted the ND *magnitude* on the strength of a
     *phase* sibling.
 
+    Within a role the two sides are paired in acquisition order rather than each
+    ND series independently choosing its nearest twin. pMAP/pMAP101 is why: it
+    shoots the mprage twice and saves both reconstructions of each, so one base
+    description covers 1005/1007 (ND) and 1006/1008 (corrected). Letting each ND
+    pick its nearest left 1008 claimed by nobody, and it then converted as a
+    third anatomical alongside the pair the policy had chosen.
+
     An ND-named series with no role-matched counterpart is left out entirely, so
-    a site that acquires ND alone keeps converting.
+    a site that acquires ND alone keeps converting — as is a surplus on either
+    side when the two do not come in equal numbers.
     """
     by_name: dict[str, list[SeriesInfo]] = {}
     for s in series_list:
         by_name.setdefault(s.description.lower(), []).append(s)
 
-    groups: dict[str, _NDGroup] = {}
+    buckets: dict[tuple[str, str, str], list[SeriesInfo]] = {}
     for s in series_list:
         if not _ND_TOKEN.search(s.description):
             continue
@@ -342,19 +379,37 @@ def _nd_twin_groups(series_list: list[SeriesInfo]) -> list[_NDGroup]:
         base = _ND_STRIP.sub("", s.description, count=1)
         if base.lower() == s.description.lower():
             continue
+        buckets.setdefault((base, s.classification, s.suffix_hint), []).append(s)
+
+    groups: dict[str, _NDGroup] = {}
+    for (base, classification, suffix_hint), nd_members in buckets.items():
         candidates = [
             t
             for t in by_name.get(base.lower(), [])
-            if (t.classification, t.suffix_hint) == (s.classification, s.suffix_hint)
+            if (t.classification, t.suffix_hint) == (classification, suffix_hint)
         ]
         if not candidates:
             continue
-        twin = min(candidates, key=lambda t: abs(t.series_number - s.series_number))
+        nd_members.sort(key=lambda s: s.series_number)
+        candidates.sort(key=lambda s: s.series_number)
         group = groups.setdefault(base.lower(), _NDGroup(base=base))
-        group.nd.append(s)
-        if twin not in group.corrected:
-            group.corrected.append(twin)
+        for nd, corrected in zip(nd_members, candidates):
+            group.nd.append(nd)
+            group.corrected.append(corrected)
     return list(groups.values())
+
+
+def nd_twin_bases(series_list: list[SeriesInfo]) -> list[str]:
+    """Base descriptions this session saved in both reconstructions.
+
+    Answers "is there anything to choose between here", which a caller needs
+    *before* it can pick a policy. Classifies a throwaway pass under ``both``,
+    which demotes nothing, so every series still carries the role the twin match
+    is made on.
+    """
+    probe = [replace(s) for s in series_list]
+    classify_series(probe, nd_duplicates="both")
+    return sorted(g.base for g in _nd_twin_groups(probe))
 
 
 def _resolve_nd_duplicates(series_list: list[SeriesInfo], policy: str = "corrected") -> None:
@@ -708,12 +763,21 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
         if times:
             group_times[gname] = sum(times) / len(times)
 
+    # A group built from the uncorrected reconstruction is bindable but should
+    # not be picked automatically over its corrected twin — see
+    # FieldmapDetection.deprioritized.
+    nd_series = {s.series_number for s in series_list if s.acq_label == "nd"}
+    deprioritized = {
+        gname for gname, members in groups.items() if set(members.values()) & nd_series
+    }
+
     return FieldmapDetection(
         strategy=strategy,
         groups=groups,
         warnings=warnings,
         group_entities=group_entities,
         group_times=group_times,
+        deprioritized=deprioritized,
     )
 
 

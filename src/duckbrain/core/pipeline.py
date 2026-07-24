@@ -86,12 +86,18 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
     # bulk/cockpit convert honors the study's once-defined task labels.
     if not cfg_path.exists():
         from .dcm2bids_config import fmap_rules_from_config, task_rules_from_config
+        from .dicom_inspect import nd_policy_from_config
 
         rules = task_rules_from_config(config)
         fmap_rules = fmap_rules_from_config(config)
         save_dcm2bids_config(
             generate_session_config(
-                dicom_dir, subject, session, rules=rules, fmap_rules=fmap_rules
+                dicom_dir,
+                subject,
+                session,
+                rules=rules,
+                fmap_rules=fmap_rules,
+                nd_duplicates=nd_policy_from_config(config),
             ),
             cfg_path,
         )
