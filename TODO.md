@@ -598,22 +598,22 @@ acquisition plane to stay correct rather than just wider.
 
 ### `#19.3` — Which fieldmap pair, when a session has more than one
 
-Two REV sessions acquire `fieldmap1`+`fieldmap3` and `fieldmap2`+`fieldmap4`; the
-curator kept the second pair of each. The headers of the two pairs are
-*identical*, so this is not header-derivable — it is a policy ("keep the last")
-or a declaration. It belongs with `#16`'s `[expected]` rather than with a
-heuristic, and duckbrain currently converts both, which is at least visible.
-Same family as `#5`'s standing note that bold→fmap linking has no
-temporal-proximity logic.
+**Bold→fmap binding now uses acquisition time** (2026-07-24, in the ledger): a
+run binds to the pair it was shot nearest in time, which is the portable proxy
+for heudiconv's shim-based `populate_intended_for`. That settles the common case
+— fieldmap, run block, second fieldmap, second run block — and is validated on
+REV055. What it does *not* settle is a session that shoots **two pairs
+back-to-back** and expects a policy ("keep the last"): the times are then nearly
+equal and a tie falls through to first-group. That residue is genuinely a
+declaration, and belongs with `#16`'s `[expected]`, not a heuristic. duckbrain
+converts both pairs, which is at least visible.
 
-### `#19.4` — An empty series directory reads as a missing file, not a finding
+### `#19.4` — DONE (2026-07-24, see ledger)
 
-6 of the corpus's 1384 series directories (0.43%) are empty. `read_series_header`
-returns `None` for them, so classification falls back to the name, which happily
-says "T1w" — and then dcm2bids produces nothing and the plan predicted a file
-that never appears. The two residual extra `anat/T1w` in the scorecard are
-exactly this. Wants a `plan_warnings` check: a planned file whose source series
-has no readable DICOM.
+An empty series directory now raises an `empty-source` error in `plan_warnings`
+instead of silently predicting a file dcm2bids can't produce. Finding it exposed
+and fixed a worse bug: an `_ND` copy dropped because its corrected twin existed
+*but was empty*, leaving the session with no anatomical.
 
 ### `#19.5` — Subject labels the corpus contains but BIDS forbids
 
@@ -672,6 +672,8 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-24 | #19.3 #19.4 | **Three heudiconv ideas borrowed after comparing against its canonical DIVATTEN run on this filesystem.** (1) **Bold→fmap binding by acquisition time** — heudiconv's real criterion is shim settings (a fieldmap corrects only what shares its shim group), but Siemens keeps the shim in a CSA blob not populated until dcm2niix runs, and 36% of the corpus is XA30 with no CSA; AcquisitionTime is the portable proxy and is standard in both dialects. The old "first complete group" bound every run to whichever pair sorted first — wrong for every run after the second pair. Validated on REV055 (fieldmap1 binds GNG/BART, fieldmap2 binds SST/React). Explicit rule and name-match still outrank it; the preview path takes the same time lookup so it can't drift. (2) **Empty source directories flagged** — `plan_warnings` now carries each planned file's source file count and raises when zero, instead of predicting a file dcm2bids silently can't make. (3) Persisting the seqinfo table (heudiconv's `dicominfo.tsv`) not done — `classified_by` already surfaces the same on the Conversion page. heudiconv is Apache-2.0, so borrowing is one-way |
+| 2026-07-24 | — | **Two latent bugs the borrowing exposed.** (a) sbref-vs-bold was decided by `len(files) == 1`, a volume count only for a Siemens mosaic or enhanced series — a non-mosaic/GE/Philips single-volume reference arrives as one file per slice and read as a multi-volume BOLD; now settled by counting distinct slice positions, and an undetermined count defers to the name. The scan runs only for a 2D gradient-echo EPI. (b) an `_ND` copy was demoted whenever a same-named twin existed, without looking inside it — Crave_control/CC056 has the corrected mprage folder present but *empty* beside a populated `_ND` copy, so the session got no anatomical; the twin must now be non-empty |
 | 2026-07-24 | — | **Conversion hardened against the LCNI repository** (`/projects/lcni/dcm/repository` — 15 studies, 189 series descriptions, 112 sessions paired with canonical BIDS). Agreement with the curator went from **109 of 494 series** to **391 of 392 files (99.7%)**. Four things were wrong rather than merely narrow: the anat vocabulary matched as bare substrings so `BART1_`/`SST2_`/`React2_` classified as *anatomicals* and overwrote the real MPRAGE on one filename; `\bscout\b` can never match `aa_scout` because `_` is a word character, so `AAHScout` (300+ series) fell through to unknown; `_extract_fmap_group` stripped `ap`/`pa` anywhere in the string, splitting one pair into two groups; and the bulk/SLURM path never called `plan_warnings`, so it submitted the collisions the GUI refused. Also: the vNav setter and Siemens' `_ND` copy each converted as a second and third colliding T1w, and `MAB1`/`MAB2`/`MAB3` read as three tasks rather than three runs of one. Remaining gaps are `#19` |
 | 2026-07-24 | — | **Classification reads DICOM headers** (`core/dicom_header.py`). It ran entirely on the console operator's free text, which across that corpus is frequently silent about datatype — `food`, `Whack`, `Resting1`, `WMS_R1`, `EPI196` are all ordinary BOLD runs, all classified unknown, all converted to nothing. `ImageType` + `MRAcquisitionType` + is-EPI + is-spin-echo + volume count is a 100%-pure key: **359/359 of the curator's converted series get the right datatype**, 1195 of 1384 decided by header. The finding that shaped it: **two MR dialects**, and 36% of that corpus is Siemens XA30 enhanced-MR with *no* `ScanningSequence`/`EchoNumbers`/`EchoTime` at the top level — a rule keyed on those doesn't misfire, it sees nothing. Absence is never evidence: unreadable or non-decisive falls back to the name path, `classified_by` records which decided, and the defaced-anatomical rule may only promote |
 | 2026-07-24 | — | **Gradient-echo fieldmaps convert** — 96 of the corpus's 404 canonical files, and *more* common there than the pepolar pair. Two consecutive series with the same description; `EchoNumber` joins `SeriesNumber` in the criteria because one magnitude series becomes two files, and `'P'` in `ImageType` is the only thing separating the halves. `EchoTime1`/`EchoTime2` deliberately not injected — dcm2niix writes them. Validated end to end against dcm2bids 3.2.0 on real data, and the result is *better* than the canonical, whose fieldmaps carry no `B0FieldIdentifier` at all so fMRIPrep skips SDC on them |

@@ -11,6 +11,29 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **A run now binds to the fieldmap it was acquired next to**, when a session
+  has more than one fieldmap pair. Previously every run bound to whichever pair
+  sorted first, so a session that shot one fieldmap, ran some tasks, then shot a
+  second fieldmap and ran more, corrected every run with the first pair. An
+  explicit `[fmap_mapping]` rule and a matching name still take precedence — this
+  only changes the automatic fallback.
+- **An empty series directory is now flagged** instead of silently producing no
+  file. An empty folder still looks like source data by name, so the conversion
+  plan predicted a file that dcm2bids then couldn't create; the plan now checks
+  the source and reports it.
+
+### Fixed
+- **A single-volume reference is no longer mistaken for a functional run on
+  non-mosaic data.** Telling a single-band reference from its BOLD relied on the
+  file count, which equals the volume count only for Siemens mosaic exports. With
+  mosaic disabled, or on GE/Philips, a one-volume reference is one file per slice
+  and read as a multi-volume run; it is now settled by the slice geometry.
+- **A distortion-uncorrected `_ND` copy is no longer dropped when its corrected
+  twin is present but empty.** One real session had the corrected anatomical
+  folder present yet empty beside a populated `_ND` copy, and dropping the copy
+  left it with no anatomical at all.
+
+### Added
 - **Conversion now reads the DICOM header, not just the sequence name.** Which
   datatype a series is — anatomical, functional, fieldmap, single-band reference
   — is decided by what the scanner recorded, falling back to the name only when
