@@ -330,6 +330,83 @@ def _classify_one(description: str) -> str:
     return "unknown"
 
 
+def _detect_gre_fieldmaps(
+    fmap_series: list[SeriesInfo],
+) -> tuple[dict, list[str], set[int]]:
+    """Pair the magnitude and phase halves of a gradient-echo fieldmap.
+
+    A Siemens ``gre_field_mapping`` arrives as **two consecutive series** with
+    the same description: the first holds both echoes of the magnitude (which
+    dcm2niix splits into ``magnitude1``/``magnitude2``), the second the phase
+    difference. Across the LCNI repository the phase series is at
+    ``SeriesNumber + 1`` in 32 of 32 cases.
+
+    Which half is which comes from the header (``'P'`` in ImageType marks phase),
+    never from the name — both halves carry the *same* description, so there is
+    nothing in the name to tell them apart. A session whose DICOMs weren't read
+    therefore yields no GRE groups rather than a guess.
+
+    Returns ``(groups, warnings, claimed_series_numbers)``.
+    """
+    magnitudes = [s for s in fmap_series if s.suffix_hint == "magnitude"]
+    phases = [s for s in fmap_series if s.suffix_hint == "phasediff"]
+    if not magnitudes and not phases:
+        return {}, [], set()
+
+    groups: dict[str, dict[str, int]] = {}
+    warnings: list[str] = []
+    claimed: set[int] = set()
+    used_phase: set[int] = set()
+
+    for magnitude in sorted(magnitudes, key=lambda s: s.series_number):
+        partner = next(
+            (
+                p
+                for p in sorted(phases, key=lambda s: s.series_number)
+                if p.series_number not in used_phase
+                and p.series_number > magnitude.series_number
+                and p.description.lower() == magnitude.description.lower()
+            ),
+            None,
+        )
+        if partner is None:
+            warnings.append(
+                f"Series_{magnitude.series_number}_{magnitude.description} looks like "
+                "the magnitude half of a gradient-echo fieldmap but no phase series "
+                "follows it; it will not be converted."
+            )
+            continue
+        name = _sanitize_task_label(_extract_fmap_group(magnitude.description.lower()) or "gre")
+        key = name
+        suffix = 2
+        while key in groups:
+            key = f"{name}-{suffix}"
+            suffix += 1
+        groups[key] = {"magnitude": magnitude.series_number, "phasediff": partner.series_number}
+        used_phase.add(partner.series_number)
+        claimed |= {magnitude.series_number, partner.series_number}
+
+    for phase in phases:
+        if phase.series_number not in used_phase:
+            warnings.append(
+                f"Series_{phase.series_number}_{phase.description} is a phase image "
+                "with no matching magnitude series; it will not be converted."
+            )
+
+    return groups, warnings, claimed
+
+
+def is_complete_group(members: dict) -> bool:
+    """True when a fieldmap group has everything it needs to estimate a field.
+
+    Both flavours live in one ``groups`` namespace so that binding, naming and
+    collision checks don't have to know which is which — only this predicate does.
+    """
+    return ("ap" in members and "pa" in members) or (
+        "magnitude" in members and "phasediff" in members
+    )
+
+
 def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
     """Find SE-EPI AP/PA fieldmap pairs.
 
@@ -352,6 +429,12 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
 
     if not fmap_series:
         return FieldmapDetection(strategy="none")
+
+    # The gradient-echo flavour is a different shape and is separated out first:
+    # it has no phase-encoding direction to read, and its two halves are two
+    # *series*, not two images. Everything below this is pepolar.
+    gre_groups, gre_warnings, gre_claimed = _detect_gre_fieldmaps(fmap_series)
+    fmap_series = [s for s in fmap_series if s.series_number not in gre_claimed]
 
     # Fieldmaps are bucketed by group name — the label a description carries
     # (``se_epi_ap_encoding`` → "encoding"), or "" for a plain
@@ -449,6 +532,17 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
             warnings.append(f"Group '{gname}' missing AP fieldmap")
         if "pa" not in dirs:
             warnings.append(f"Group '{gname}' missing PA fieldmap")
+
+    # The two flavours share one namespace so that binding, entity naming and
+    # the collision checks work on both without knowing which is which.
+    for gname, members in gre_groups.items():
+        key = gname
+        suffix = 2
+        while key in groups:
+            key = f"{gname}-{suffix}"
+            suffix += 1
+        groups[key] = members
+    warnings.extend(gre_warnings)
 
     if not groups:
         return FieldmapDetection(strategy="none", warnings=warnings)

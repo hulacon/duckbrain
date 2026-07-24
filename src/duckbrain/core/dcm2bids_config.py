@@ -64,6 +64,7 @@ from .dicom_inspect import (
     extract_task_label,
     parse_task_run,
     reproin_entities,
+    is_complete_group,
     sanitize_task_label,
     split_trailing_index,
 )
@@ -599,6 +600,16 @@ def generate_config(
             descriptions.append(
                 _fmap_description(group_dirs["pa"], "PA", group_id, group_name, extra_entity)
             )
+        if "magnitude" in group_dirs and "phasediff" in group_dirs:
+            descriptions.extend(
+                _gre_fmap_descriptions(
+                    group_dirs["magnitude"],
+                    group_dirs["phasediff"],
+                    group_id,
+                    group_name,
+                    extra_entity,
+                )
+            )
 
     _disambiguate_anat(descriptions)
 
@@ -749,6 +760,57 @@ def _b0_identifier(group_name: str, sub_ses: str) -> str:
     return _B0_ILLEGAL.sub("", composed)
 
 
+def _gre_fmap_descriptions(
+    magnitude_series: int,
+    phase_series: int,
+    b0_field_id: str,
+    group_name: str = "",
+    extra_entity: str = "",
+) -> list[dict]:
+    """Build the three descriptions a gradient-echo fieldmap produces.
+
+    One magnitude *series* holds two echoes, and dcm2niix splits it into
+    ``magnitude1`` and ``magnitude2``; the phase series becomes ``phasediff``.
+    So ``SeriesNumber`` alone — the only criteria key duckbrain otherwise uses —
+    cannot separate the two magnitudes, and ``EchoNumber`` has to join it. That
+    key is present in every sidecar dcm2niix writes for a multi-echo series.
+
+    ``EchoTime1``/``EchoTime2`` are deliberately not written: BIDS requires them
+    on a phasediff, and dcm2niix already computes both from the two echoes and
+    puts them in the sidecar. Injecting a second copy from a header duckbrain
+    read separately could only disagree with the data — the same trap as
+    forcing PhaseEncodingDirection, described in _fmap_description below.
+
+    All three carry ``B0FieldIdentifier``: sdcflows treats the files sharing one
+    identifier as the inputs to a single field estimator, and a phasediff
+    estimator needs its magnitude to mask with.
+    """
+    parts = [p for p in extra_entity.split("_") if p]
+    acq = next((p for p in parts if p.startswith("acq-")), "")
+    run = next((p for p in parts if p.startswith("run-")), "")
+    custom_entities = "_".join(p for p in (acq, run) if p)
+
+    id_suffix = f"-{group_name}" if group_name else ""
+
+    def entry(suffix: str, criteria: dict) -> dict:
+        description = {
+            "id": f"fmap-{suffix.lower()}{id_suffix}",
+            "datatype": "fmap",
+            "suffix": suffix,
+            "criteria": criteria,
+            "sidecar_changes": {"B0FieldIdentifier": b0_field_id},
+        }
+        if custom_entities:
+            description["custom_entities"] = custom_entities
+        return description
+
+    return [
+        entry("magnitude1", {"SeriesNumber": magnitude_series, "EchoNumber": 1}),
+        entry("magnitude2", {"SeriesNumber": magnitude_series, "EchoNumber": 2}),
+        entry("phasediff", {"SeriesNumber": phase_series}),
+    ]
+
+
 def _fmap_description(
     series_number: int,
     direction: str,
@@ -834,7 +896,7 @@ def _assign_fmap_group(
         group = assignments[cache_key]
         return None if group == _NO_FMAP else group
 
-    complete = [g for g, dirs in fieldmaps.groups.items() if "ap" in dirs and "pa" in dirs]
+    complete = [g for g, dirs in fieldmaps.groups.items() if is_complete_group(dirs)]
 
     # An explicit binding wins outright, and is matched exactly rather than by
     # prefix — the heuristic below infers, a rule states. This is checked *before

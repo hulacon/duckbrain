@@ -31,7 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .dicom_inspect import FieldmapDetection, SeriesInfo
+from .dicom_inspect import FieldmapDetection, SeriesInfo, is_complete_group
 
 # Classifications dcm2bids is *supposed* to leave behind. Everything else that
 # goes unclaimed is worth surfacing: an anat whose suffix vocabulary didn't match
@@ -165,8 +165,15 @@ def _group_by_identifier(descriptions: list[dict]) -> dict[str, str]:
             continue
         desc_id = str(d.get("id", ""))
         group = ""
-        for direction in ("ap", "pa"):
-            prefix = f"fmap-epi-{direction}"
+        # 'fmap-epi-ap-<group>' for a pepolar half, 'fmap-phasediff-<group>' and
+        # 'fmap-magnitude1-<group>' for the gradient-echo trio.
+        for prefix in (
+            "fmap-epi-ap",
+            "fmap-epi-pa",
+            "fmap-magnitude1",
+            "fmap-magnitude2",
+            "fmap-phasediff",
+        ):
             if desc_id.startswith(prefix):
                 group = desc_id[len(prefix) :].lstrip("-")
                 break
@@ -353,7 +360,7 @@ def plan_warnings(
     # deliberate 'none' looks identical, so this states the outcome rather than
     # calling it wrong.
     complete = (
-        [g for g, dirs in fieldmaps.groups.items() if "ap" in dirs and "pa" in dirs]
+        [g for g, dirs in fieldmaps.groups.items() if is_complete_group(dirs)]
         if fieldmaps is not None
         else []
     )

@@ -323,3 +323,128 @@ def test_the_plan_says_why_an_unconvertible_datatype_was_dropped():
     messages = " ".join(w.message for w in plan_warnings(plan, detection))
     assert "gradient-echo" in messages
     assert "bval/bvec" in messages
+
+
+# --- gradient-echo fieldmaps -----------------------------------------------
+# Validated end to end against dcm2bids 3.2.0 on
+# Crave_control/CC0523_20180202_113414: the six descriptions below produce
+# magnitude1 <- _e1, magnitude2 <- _e2, phasediff <- _e2_ph, and dcm2niix writes
+# EchoTime1/EchoTime2 into the phasediff sidecar itself.
+
+
+def _gre_session():
+    """A real Crave_control session: magnitude at N, phase at N+1, same name."""
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    def header(**kwargs):
+        base = dict(
+            modality="MR",
+            mr_acquisition_type="2D",
+            is_epi=False,
+            is_spin_echo=False,
+            dialect="classic",
+        )
+        base.update(kwargs)
+        return SeriesHeader(**base)
+
+    series = [
+        SeriesInfo(
+            series_number=5,
+            description="fieldmap_2mm",
+            path=Path("/nonexistent"),
+            file_count=144,
+            header=header(
+                image_type=("ORIGINAL", "PRIMARY", "M", "ND", "NORM"),
+                echo_numbers=(1, 2),
+                volumes=144,
+            ),
+        ),
+        SeriesInfo(
+            series_number=6,
+            description="fieldmap_2mm",
+            path=Path("/nonexistent"),
+            file_count=72,
+            header=header(
+                image_type=("ORIGINAL", "PRIMARY", "P", "ND"),
+                echo_numbers=(2,),
+                volumes=72,
+            ),
+        ),
+        SeriesInfo(
+            series_number=7,
+            description="food",
+            path=Path("/nonexistent"),
+            file_count=250,
+            header=header(
+                image_type=("ORIGINAL", "PRIMARY", "M", "ND", "MOSAIC"),
+                is_epi=True,
+                volumes=250,
+            ),
+        ),
+    ]
+    dicom_inspect.classify_series(series)
+    return series
+
+
+def test_gre_fieldmap_is_paired_across_two_consecutive_series():
+    series = _gre_session()
+    detection = dicom_inspect.detect_fieldmaps(series)
+    assert len(detection.groups) == 1
+    (group,) = detection.groups.values()
+    assert group == {"magnitude": 5, "phasediff": 6}
+    assert detection.warnings == []
+
+
+def test_gre_fieldmap_emits_magnitude1_magnitude2_and_phasediff():
+    series = _gre_session()
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="CC052", session="1")
+    fmaps = {d["suffix"]: d for d in config["descriptions"] if d["datatype"] == "fmap"}
+    assert set(fmaps) == {"magnitude1", "magnitude2", "phasediff"}
+
+    # One magnitude *series* holds both echoes, so SeriesNumber alone cannot
+    # separate them and EchoNumber has to join the criteria.
+    assert fmaps["magnitude1"]["criteria"] == {"SeriesNumber": 5, "EchoNumber": 1}
+    assert fmaps["magnitude2"]["criteria"] == {"SeriesNumber": 5, "EchoNumber": 2}
+    assert fmaps["phasediff"]["criteria"] == {"SeriesNumber": 6}
+
+    identifiers = {d["sidecar_changes"]["B0FieldIdentifier"] for d in fmaps.values()}
+    assert len(identifiers) == 1, "all three are inputs to one field estimator"
+
+
+def test_a_bold_binds_to_a_gradient_echo_fieldmap():
+    """The whole point — without this the fieldmap converts and corrects nothing.
+
+    The LCNI curator's own BIDS has these fieldmaps with no B0FieldIdentifier
+    and no IntendedFor, so fMRIPrep silently skips distortion correction on
+    them.
+    """
+    series = _gre_session()
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="CC052", session="1")
+    bold = next(d for d in config["descriptions"] if d["suffix"] == "bold")
+    phasediff = next(d for d in config["descriptions"] if d["suffix"] == "phasediff")
+    assert (
+        bold["sidecar_changes"]["B0FieldSource"]
+        == phasediff["sidecar_changes"]["B0FieldIdentifier"]
+    )
+
+
+def test_echo_times_are_not_injected_into_the_phasediff():
+    """BIDS requires EchoTime1/EchoTime2 there, and dcm2niix already writes them.
+
+    A second copy derived from a header duckbrain read separately could only
+    disagree with the data.
+    """
+    series = _gre_session()
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="X", session="")
+    phasediff = next(d for d in config["descriptions"] if d["suffix"] == "phasediff")
+    assert set(phasediff["sidecar_changes"]) == {"B0FieldIdentifier"}
+
+
+def test_a_magnitude_with_no_phase_partner_is_reported_not_guessed():
+    series = _gre_session()[:1]
+    detection = dicom_inspect.detect_fieldmaps(series)
+    assert detection.groups == {}
+    assert any("no phase series follows" in w for w in detection.warnings)
