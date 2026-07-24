@@ -100,6 +100,10 @@ class DroppedSeries:
     description: str
     classification: str
     expected: bool
+    # Why something deliberately demoted this series, when something did. An
+    # expected drop is otherwise reported only as a count, which is right for a
+    # scout but not for a choice the project made on the user's behalf.
+    reason: str = ""
 
 
 @dataclass
@@ -264,6 +268,7 @@ def plan_conversion(
             description=s.description,
             classification=s.classification,
             expected=s.classification in _EXPECTED_DROPS,
+            reason=s.drop_reason,
         )
         for s in series_list
         if s.series_number not in claimed
@@ -524,6 +529,25 @@ def plan_warnings(
                     series=nums,
                 )
             )
+
+    # --- Drops duckbrain chose, rather than drops the data implies. These are
+    # expected, so the count below would swallow them — but a scout the scanner
+    # produced and a reconstruction the project picked between are not the same
+    # kind of "expected", and only one of them is a decision the user may want to
+    # revisit.
+    for d in sorted(plan.dropped, key=lambda d: d.series_number):
+        if not d.reason:
+            continue
+        out.append(
+            PlanWarning(
+                kind="nd-duplicate",
+                severity="info",
+                message=(
+                    f"Series {d.series_number} `{d.description}` will not be converted: {d.reason}."
+                ),
+                series=[d.series_number],
+            )
+        )
 
     expected = [d for d in plan.dropped if d.expected]
     if expected:

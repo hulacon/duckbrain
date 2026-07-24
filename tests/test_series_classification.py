@@ -189,6 +189,161 @@ def test_nd_copy_converts_when_it_is_the_only_anatomical():
     assert series[0].classification == "anat"
 
 
+# --- ND fieldmaps: the one shape the corpus cannot pin ---------------------
+# Every other description in this file is verbatim from the LCNI repository.
+# These are not: the repository holds ND *anatomicals* only, and no ND fieldmap
+# at all. The layout below is the one LCNI described from a session outside it,
+# and these tests are the only oracle for it.
+def _lcni_nd_fieldmap(corrected_magnitude_files: int = 144) -> list[SeriesInfo]:
+    """LCNI's layout: 27 ND magnitude, 28 magnitude, 29 phase, 30 ND phase.
+
+    Four series, two descriptions, two roles. Built with real headers so
+    ``suffix_hint`` is decided by classify_from_header exactly as in production —
+    the roles are what the resolver has to match on.
+    """
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    def header(image_type, echo_numbers):
+        return SeriesHeader(
+            modality="MR",
+            image_type=image_type,
+            mr_acquisition_type="2D",
+            is_epi=False,
+            is_spin_echo=False,
+            echo_numbers=echo_numbers,
+            sequence_name="*fm2d2r",
+            dialect="classic",
+        )
+
+    magnitude = ("ORIGINAL", "PRIMARY", "M", "ND", "NORM")
+    phase = ("ORIGINAL", "PRIMARY", "P", "ND")
+    return [
+        SeriesInfo(
+            27, "fieldmap_2mm_ND", Path("/nonexistent"), 144, header=header(magnitude, (1, 2))
+        ),
+        SeriesInfo(
+            28,
+            "fieldmap_2mm",
+            Path("/nonexistent"),
+            corrected_magnitude_files,
+            header=header(magnitude, (1, 2)),
+        ),
+        SeriesInfo(29, "fieldmap_2mm", Path("/nonexistent"), 72, header=header(phase, (2,))),
+        SeriesInfo(30, "fieldmap_2mm_ND", Path("/nonexistent"), 72, header=header(phase, (2,))),
+    ]
+
+
+def test_an_nd_magnitude_is_not_demoted_by_a_phase_sibling_of_the_same_name():
+    """The corrected magnitude is empty, so the ND pair is the only usable one.
+
+    A name-only twin lookup resolved `fieldmap_2mm` to whichever of series 28/29
+    came last — the *phase* — so the ND magnitude was demoted on the strength of
+    a sibling in the wrong role. Both ND series went, and the group was then
+    built on series 28, an empty directory, discarding a complete pair.
+    """
+    series = _lcni_nd_fieldmap(corrected_magnitude_files=0)
+    dicom_inspect.classify_series(series)
+    by_num = {s.series_number: s for s in series}
+    assert by_num[27].classification == "fmap"
+    assert by_num[30].classification == "fmap"
+
+    detection = dicom_inspect.detect_fieldmaps([s for s in series if s.classification == "fmap"])
+    assert list(detection.groups.values()) == [{"magnitude": 27, "phasediff": 30}]
+
+
+def test_the_nd_decision_is_taken_across_the_whole_pair_never_split():
+    """A magnitude and a phase from different reconstructions is worse than either.
+
+    The pairing requires identical descriptions, so a group holding the ND
+    magnitude and the corrected phase produces no fieldmap at all.
+    """
+    series = _lcni_nd_fieldmap(corrected_magnitude_files=0)
+    dicom_inspect.classify_series(series)
+    by_num = {s.series_number: s for s in series}
+    assert (by_num[27].classification == "derived") == (by_num[30].classification == "derived")
+    assert (by_num[28].classification == "derived") == (by_num[29].classification == "derived")
+
+
+def test_the_corrected_pair_wins_when_it_is_populated():
+    series = _lcni_nd_fieldmap()
+    dicom_inspect.classify_series(series)
+    by_num = {s.series_number: s for s in series}
+    assert by_num[27].classification == "derived"
+    assert by_num[30].classification == "derived"
+
+    detection = dicom_inspect.detect_fieldmaps([s for s in series if s.classification == "fmap"])
+    assert list(detection.groups.values()) == [{"magnitude": 28, "phasediff": 29}]
+
+
+def test_a_repeated_description_does_not_collapse_the_twin_lookup():
+    """Series 28 and 29 share a description; a dict keyed on it keeps only one.
+
+    Grouped under `both`, which demotes nothing, so every series still carries
+    the role the twin match is made on.
+    """
+    series = dicom_inspect.classify_series(_lcni_nd_fieldmap(), nd_duplicates="both")
+    groups = dicom_inspect._nd_twin_groups(series)
+    assert len(groups) == 1
+    assert sorted(s.series_number for s in groups[0].nd) == [27, 30]
+    assert sorted(s.series_number for s in groups[0].corrected) == [28, 29]
+
+
+def test_an_nd_named_series_whose_header_denies_it_is_left_alone():
+    """If the header carries no ND token the name means something else here."""
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    corrected = ("DERIVED", "SECONDARY", "M", "NORM", "DIS3D", "DIS2D")
+    series = [
+        SeriesInfo(
+            1009,
+            "mprage_p2_ND_defaced",
+            Path("/nonexistent"),
+            176,
+            header=SeriesHeader(modality="MR", image_type=corrected, mr_acquisition_type="3D"),
+        ),
+        SeriesInfo(
+            1010,
+            "mprage_p2_defaced",
+            Path("/nonexistent"),
+            176,
+            header=SeriesHeader(modality="MR", image_type=corrected, mr_acquisition_type="3D"),
+        ),
+    ]
+    dicom_inspect.classify_series(series)
+    assert [s.classification for s in series] == ["anat", "anat"]
+
+
+def test_a_demoted_copy_records_why():
+    series = _series((6, "mprage_p2_defaced"), (7, "mprage_p2_ND_defaced"))
+    assert "Series_6" in series[1].drop_reason
+    assert not series[0].drop_reason
+
+
+def test_the_empty_twin_flip_is_reported_rather_than_silent():
+    """CC056 again, from the other end.
+
+    Preferring the copy that holds data is right, but it is a decision made on
+    the user's behalf about which image ships — so it cannot vanish into the
+    'left unconverted as expected' count beside the scouts.
+    """
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    series = [
+        SeriesInfo(1009, "mprage_p2_ND_defaced", Path("/nonexistent"), file_count=176),
+        SeriesInfo(1010, "mprage_p2_defaced", Path("/nonexistent"), file_count=0),
+    ]
+    dicom_inspect.classify_series(series)
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    plan = plan_conversion(generate_config(series, fmaps, subject="X"), series, subject="X")
+
+    # the populated copy converts, and without a spurious run- entity
+    assert [f.filename for f in plan.files] == ["sub-X_T1w.nii.gz"]
+    told = [w for w in plan_warnings(plan, fmaps) if w.kind == "nd-duplicate"]
+    assert len(told) == 1
+    assert "holds no DICOM files" in told[0].message
+
+
 # --- fieldmap direction and grouping ---------------------------------------
 def test_fmap_group_does_not_eat_ap_pa_inside_words():
     # 'ap' inside 'fieldmap' was stripped, so the two halves of one pair got

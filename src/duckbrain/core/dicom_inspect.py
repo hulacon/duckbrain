@@ -27,6 +27,15 @@ class SeriesInfo:
     # Where ``classification`` came from: "header" or "name". Carried so the
     # Conversion page can show the user which series were guessed from a string.
     classified_by: str = ""
+    # Why a series was demoted out of conversion, when something chose to demote
+    # it. Empty for series nothing dropped on purpose. Surfaced by plan_warnings
+    # so a deliberate drop is visible rather than folded into an "expected" count.
+    drop_reason: str = ""
+    # ``acq-`` entity label this series must carry to avoid colliding with
+    # another reconstruction of the same acquisition ("nd" / "dis"). Set only
+    # when both reconstructions actually convert; a lone survivor keeps the
+    # plain filename.
+    acq_label: str = ""
 
 
 @dataclass
@@ -227,7 +236,9 @@ def list_series(dicom_session_dir: str | Path, read_headers: bool = True) -> lis
 _SBREF_SUFFIX = re.compile(r"_SBRef$", re.IGNORECASE)
 
 
-def classify_series(series_list: list[SeriesInfo]) -> list[SeriesInfo]:
+def classify_series(
+    series_list: list[SeriesInfo], nd_duplicates: str = "corrected"
+) -> list[SeriesInfo]:
     """Classify each series as anat/func/fmap/sbref/physio/scout/derived/dwi/unknown.
 
     The DICOM header decides where it can. What the scanner recorded is a fact;
@@ -246,6 +257,10 @@ def classify_series(series_list: list[SeriesInfo]) -> list[SeriesInfo]:
     which the description pass would otherwise treat as a scanner localizer) and
     runs with study-specific names (e.g. DIVATTEN's ``div_perFace_perTone_r1``).
 
+    ``nd_duplicates`` chooses which reconstruction survives where Siemens saved
+    both a distortion-corrected series and an ``_ND`` copy of it — one of
+    :data:`ND_POLICIES`. See :func:`_resolve_nd_duplicates`.
+
     Modifies series in-place and returns the list.
     """
     from .dicom_header import classify_from_header
@@ -263,7 +278,7 @@ def classify_series(series_list: list[SeriesInfo]) -> list[SeriesInfo]:
             s.suffix_hint = ""
             s.classified_by = "name"
     _recover_func_from_sbref(series_list)
-    _demote_nd_duplicates(series_list)
+    _resolve_nd_duplicates(series_list, nd_duplicates)
     return series_list
 
 
@@ -271,34 +286,122 @@ def classify_series(series_list: list[SeriesInfo]) -> list[SeriesInfo]:
 # Distortion correction) added to the name. Converting both puts two images on
 # one BIDS filename.
 _ND_TOKEN = re.compile(r"(?<![A-Za-z0-9])ND(?=[_-]|$)")
+_ND_STRIP = re.compile(r"[_-]?(?<![A-Za-z0-9])ND(?=[_-]|$)")
+
+# What may be asked of a twinned pair. "corrected" is the historical behaviour
+# and the default.
+ND_POLICIES = ("corrected", "uncorrected", "both")
 
 
-def _demote_nd_duplicates(series_list: list[SeriesInfo]) -> None:
-    """Drop an '_ND_' copy only when its corrected twin is present *and has data*.
+@dataclass
+class _NDGroup:
+    """One base description's distortion-corrected / uncorrected reconstructions.
 
-    Conditional on purpose. Dropping every ND series unconditionally would throw
-    away the only anatomical at a site that acquires ND alone — a silent
-    degradation, which this project treats as worse than a failure. So the ND
-    copy is dropped only when removing the token yields a sibling that is
-    actually in the session; otherwise it converts normally.
-
-    The twin must also be *non-empty*. A real occurrence in the LCNI repository:
-    Crave_control/CC056 has the corrected `mprage_p2_defaced` folder present but
-    empty, beside a populated `mprage_p2_ND_defaced`. Demoting the ND copy on the
-    strength of a twin that will convert nothing leaves the session with no
-    anatomical at all — the exact silent loss this function's condition exists to
-    prevent, just one level less obvious.
+    Grouped rather than paired one series at a time because a gradient-echo
+    fieldmap's magnitude and phase must come from the *same* reconstruction —
+    deciding per series can keep the ND magnitude and the corrected phase, and
+    since the pairing requires identical descriptions the session then gets no
+    fieldmap at all.
     """
-    by_name = {s.description.lower(): s for s in series_list}
+
+    base: str
+    nd: list[SeriesInfo] = field(default_factory=list)
+    corrected: list[SeriesInfo] = field(default_factory=list)
+
+
+def _nd_twin_groups(series_list: list[SeriesInfo]) -> list[_NDGroup]:
+    """Find the ND-named series that genuinely have a corrected counterpart.
+
+    A twin must match on *role* — ``(classification, suffix_hint)`` — and not
+    merely on the name with the token removed. LCNI's fieldmap layout is why:
+    series 27 ``fieldmap_2mm_ND`` (magnitude), 28 ``fieldmap_2mm`` (magnitude),
+    29 ``fieldmap_2mm`` (phase), 30 ``fieldmap_2mm_ND`` (phase). Four series,
+    two descriptions. A name-only lookup resolved ``fieldmap_2mm`` to whichever
+    of 28/29 came last and demoted the ND *magnitude* on the strength of a
+    *phase* sibling.
+
+    An ND-named series with no role-matched counterpart is left out entirely, so
+    a site that acquires ND alone keeps converting.
+    """
+    by_name: dict[str, list[SeriesInfo]] = {}
+    for s in series_list:
+        by_name.setdefault(s.description.lower(), []).append(s)
+
+    groups: dict[str, _NDGroup] = {}
     for s in series_list:
         if not _ND_TOKEN.search(s.description):
             continue
-        twin = re.sub(r"[_-]?(?<![A-Za-z0-9])ND(?=[_-]|$)", "", s.description, count=1)
-        if twin.lower() == s.description.lower():
+        # The name says ND; if the header is readable and disagrees, the token
+        # means something else at this site. One-sided on purpose: the corrected
+        # twin is not required to carry DIS2D/DIS3D, because requiring an
+        # unmeasured cross-site assumption would turn a working session into an
+        # error. Those tokens are only used for labelling.
+        image_type = tuple(getattr(s.header, "image_type", ()) or ())
+        if image_type and "ND" not in image_type:
             continue
-        sibling = by_name.get(twin.lower())
-        if sibling is not None and sibling.file_count != 0:
+        base = _ND_STRIP.sub("", s.description, count=1)
+        if base.lower() == s.description.lower():
+            continue
+        candidates = [
+            t
+            for t in by_name.get(base.lower(), [])
+            if (t.classification, t.suffix_hint) == (s.classification, s.suffix_hint)
+        ]
+        if not candidates:
+            continue
+        twin = min(candidates, key=lambda t: abs(t.series_number - s.series_number))
+        group = groups.setdefault(base.lower(), _NDGroup(base=base))
+        group.nd.append(s)
+        if twin not in group.corrected:
+            group.corrected.append(twin)
+    return list(groups.values())
+
+
+def _resolve_nd_duplicates(series_list: list[SeriesInfo], policy: str = "corrected") -> None:
+    """Keep the reconstruction the project asked for, and say what was dropped.
+
+    The choice degrades toward whatever will actually convert rather than
+    honouring a preference that produces nothing. A real occurrence in the LCNI
+    repository: Crave_control/CC056 has the corrected ``mprage_p2_defaced``
+    folder present but *empty*, beside a populated ``mprage_p2_ND_defaced``.
+    Preferring the corrected copy there leaves the session with no anatomical at
+    all, so the preference flips.
+
+    Applied per group, never per series — see :class:`_NDGroup`.
+    """
+    for group in _nd_twin_groups(series_list):
+        has_corrected = bool(group.corrected) and all(t.file_count for t in group.corrected)
+        has_nd = bool(group.nd) and all(t.file_count for t in group.nd)
+
+        keep = policy
+        if keep == "both" and not (has_corrected and has_nd):
+            keep = "corrected" if has_corrected else "uncorrected"
+        if keep == "corrected" and not has_corrected and has_nd:
+            keep = "uncorrected"
+        if keep == "uncorrected" and not has_nd and has_corrected:
+            keep = "corrected"
+        overridden = keep != policy
+
+        if keep == "both":
+            for s in group.nd:
+                s.acq_label = "nd"
+            for s in group.corrected:
+                s.acq_label = "dis"
+            continue
+
+        losers, winners = (group.nd, group.corrected)
+        if keep == "uncorrected":
+            losers, winners = (group.corrected, group.nd)
+        label = "uncorrected" if keep == "uncorrected" else "distortion-corrected"
+        kept = ", ".join(f"Series_{w.series_number}" for w in winners)
+        reason = (
+            f"it holds no DICOM files, so the {label} copy ({kept}) is used instead"
+            if overridden
+            else f"the project asks for the {label} copy of `{group.base}` ({kept})"
+        )
+        for s in losers:
             s.classification = "derived"
+            s.drop_reason = reason
 
 
 # A matching SBRef sibling is definitive: whatever the description pass guessed,
