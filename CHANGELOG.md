@@ -116,6 +116,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **NORDIC could disappear from the Project Status board with no way to bring it
+  back.** The cockpit marks the NORDIC stage **n/a** — and offers no run control
+  — for any project that hasn't set `use_nordic`, which is right: NORDIC is
+  opt-in, and grading it missing made every non-NORDIC project show unfinished
+  work forever. But `use_nordic` had no control anywhere in the GUI. It existed
+  only as a default in `config/base.toml`, so a project could not state that it
+  *did* use NORDIC, and the stage simply vanished from the board unless you
+  hand-edited the project's `code/duckbrain.toml`.
+
+  Project Setup now carries the toggle. Off, fMRIPrep reads the raw BIDS tree and
+  the board shows NORDIC as n/a; on, fMRIPrep reads
+  `derivatives/nordic/bids_format` and waits for the NORDIC stage. NORDIC runs as
+  a producer either way — the setting only decides whether anything consumes what
+  it produces — and launching it deliberately from Preprocessing → NORDIC works
+  regardless, as it did throughout.
 - **A voxel size in a fieldmap's series name aborted every fMRIPrep run.** The
   B0 identifier is composed from the fieldmap group name, which comes straight
   off the scanner's SeriesDescription — `se_epi_2.5mm_ap` yields the group

@@ -58,6 +58,9 @@ def _clean_dict(d: dict) -> dict:
 _PROJECT_OWNED = {
     "project": ("name", "use_sessions"),
     "dcm_source": ("dir",),
+    # One key of [nordic] only. The rest (magnitude_only, matlab_module,
+    # excluded_nodes) is shared machine config a project may override by hand.
+    "nordic": ("use_nordic",),
     "slurm": ("account", "partition", "partition_long", "time"),
 }
 
@@ -131,6 +134,12 @@ paths = config.get("paths", {})
 
 def _get(section: str, key: str, default: str = "") -> str:
     return str(config.get(section, {}).get(key, default))
+
+
+def _get_bool(section: str, key: str) -> bool:
+    """A toggle's stored value. Not ``_get``: that stringifies, and ``"False"``
+    is truthy, so a toggle seeded through it would read *on* when it is off."""
+    return bool(config.get(section, {}).get(key, False))
 
 
 # The "Shared resources" section below saves to the USER config, so it must be
@@ -216,6 +225,22 @@ dcm_dir = directory_picker(
     reset_on=active_project,
 )
 
+st.subheader("NORDIC")
+use_nordic = st.toggle(
+    "fMRIPrep reads NORDIC-denoised data",
+    value=_get_bool("nordic", "use_nordic"),
+    help="Off: fMRIPrep reads the raw BIDS tree, and the Project Status board "
+    "marks NORDIC **n/a** — launch it deliberately from Preprocessing → NORDIC. "
+    "On: fMRIPrep reads derivatives/nordic/bids_format instead and waits for the "
+    "NORDIC stage to finish for each subject.",
+)
+st.caption(
+    "NORDIC runs as a producer either way; this only decides whether anything "
+    "**consumes** what it produces. The setting is what the cockpit reads to "
+    "decide the stage applies to this project at all, which is why it lives "
+    "here rather than only in the config file."
+)
+
 st.subheader("SLURM (project)")
 st.caption(
     "Every stage runs on **Default partition** except fMRIPrep, the one long "
@@ -257,6 +282,13 @@ if st.button("Save project settings"):
         "project": {"name": project_name, "use_sessions": use_sessions},
         # An unchanged browse root is not a DICOM source — see _DCM_BROWSE_ROOT.
         "dcm_source": {"dir": "" if dcm_dir == _DCM_BROWSE_ROOT else dcm_dir},
+        # Written even when false. It reads as noise next to _clean_dict's
+        # drop-the-empties rule, but "off" here is a statement, not an absence:
+        # off is what makes the board show NORDIC as n/a, and a project that
+        # can't say so in its own config is the state this toggle exists to
+        # escape. Omitting it would also *delete* the key on save — an owned
+        # section reconciles field by field against what it is handed.
+        "nordic": {"use_nordic": use_nordic},
         "slurm": {
             "account": slurm_account,
             "partition": slurm_partition,

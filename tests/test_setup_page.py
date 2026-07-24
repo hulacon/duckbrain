@@ -234,3 +234,109 @@ def test_saving_shared_resources_keeps_the_recent_projects_list(project, tmp_pat
 
     stored = _load_toml(os.environ[USER_CONFIG_ENV])
     assert stored["recent"]["projects"] == ["/x", "/y"]
+
+
+# ---- use_nordic ----
+#
+# The cockpit marks the NORDIC stage n/a, and refuses to offer it, whenever
+# use_nordic is off (surveyor.survey_project, pipeline.stage_runnable). That gate
+# is right, but the flag it reads had no control anywhere in the GUI — it existed
+# only as a default in config/base.toml — so a project could never say it *did*
+# use NORDIC, and the stage simply vanished from the board with no way back.
+
+
+def _toggle(at, label):
+    for t in at.toggle:
+        if t.label == label:
+            return t
+    raise AssertionError(f"no toggle labelled {label!r}; have {[t.label for t in at.toggle]}")
+
+
+_USE_NORDIC = "fMRIPrep reads NORDIC-denoised data"
+
+
+def test_use_nordic_can_be_turned_on_and_reads_back_on(project):
+    at = _open(project)
+    assert not at.exception
+    assert _toggle(at, _USE_NORDIC).value is False, "a fresh project should default to off"
+
+    _toggle(at, _USE_NORDIC).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    # The value the cockpit actually reads, through the full config layering.
+    assert load_config(project_dir=str(project))["nordic"]["use_nordic"] is True
+    # ...and the widget reseeds from it, rather than resetting to the base default.
+    assert _toggle(_open(project), _USE_NORDIC).value is True
+
+
+def test_use_nordic_off_is_written_rather_than_dropped(project):
+    """Off is a statement the project config has to be able to make.
+
+    `_clean_dict` strips empty values, and an owned section reconciles field by
+    field against what it is handed — so a `use_nordic` omitted when false would
+    be *deleted* on save, leaving the project unable to record that the toggle
+    was ever considered.
+    """
+    from duckbrain.config import _load_toml, project_config_path
+
+    at = _open(project)
+    _toggle(at, _USE_NORDIC).set_value(True)
+    _button(at, "Save project settings").click().run()
+
+    at = _open(project)
+    _toggle(at, _USE_NORDIC).set_value(False)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    stored = _load_toml(project_config_path(project))
+    assert stored["nordic"]["use_nordic"] is False
+    assert load_config(project_dir=str(project))["nordic"]["use_nordic"] is False
+
+
+def test_saving_setup_keeps_the_rest_of_the_nordic_section(project):
+    """This page owns one key of [nordic]; the others are not its to delete.
+
+    Same shape as DB-001, one section over: a form that owns part of a section
+    and replaces the whole thing wipes live config while reporting success.
+    """
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(
+        str(project),
+        {"nordic": {"magnitude_only": False, "matlab_module": "matlab/R2023b"}},
+    )
+
+    at = _open(project)
+    _toggle(at, _USE_NORDIC).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    stored = _load_toml(project_config_path(project))["nordic"]
+    assert stored["use_nordic"] is True
+    assert stored["magnitude_only"] is False
+    assert stored["matlab_module"] == "matlab/R2023b"
+
+
+def test_use_nordic_toggle_puts_nordic_back_on_the_board(project):
+    """The point of the toggle: it reaches the surveyor and un-hides the stage.
+
+    Asserting the round-trip through survey_project rather than the config key,
+    because the complaint was never about a config value — it was that NORDIC had
+    no run control anywhere on the cockpit.
+    """
+    from duckbrain.core.surveyor import survey_project
+
+    (project / "sub-01" / "func").mkdir(parents=True, exist_ok=True)
+
+    def _nordic_cells():
+        return list(survey_project(load_config(project_dir=str(project)))["nordic"])
+
+    assert _nordic_cells() == ["n/a"], "precondition: NORDIC is off the board"
+
+    at = _open(project)
+    _toggle(at, _USE_NORDIC).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    assert _nordic_cells() and "n/a" not in _nordic_cells()
