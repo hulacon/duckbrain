@@ -158,6 +158,7 @@ from duckbrain.core.dicom_inspect import (
     list_series,
     classify_series,
     detect_fieldmaps,
+    is_complete_group,
     is_reproin_name,
 )
 
@@ -189,6 +190,13 @@ if _reproin_count:
 from duckbrain.gui.components import fmap_badge, fmap_swatches, fmap_token
 
 fieldmaps = detect_fieldmaps(series_list)
+# Acquisition time per series, for the nearest-in-time fieldmap binding — so the
+# seed column shows what generate_config will actually write.
+series_times = {
+    s.series_number: s.header.series_time
+    for s in series_list
+    if getattr(s.header, "series_time", None) is not None
+}
 fmap_colors = fmap_swatches(fieldmaps.groups)
 
 st.subheader("Fieldmap Detection")
@@ -369,20 +377,22 @@ fmap_group_by_series = {
     num: group for group, dirs in fieldmaps.groups.items() for num in dirs.values()
 }
 
-complete_groups = [g for g, d in fieldmaps.groups.items() if "ap" in d and "pa" in d]
+complete_groups = [g for g, d in fieldmaps.groups.items() if is_complete_group(d)]
 _NO_FMAP_TOKEN = fmap_token(None, fmap_colors)
 _group_token = {g: fmap_token(g, fmap_colors) for g in fieldmaps.groups}
 _token_group = {tok: g for g, tok in _group_token.items()}
 
 # The automatic binding, used only to seed the column.
 try:
-    seed_binding = resolve_fmap_assignments(seed_mapping, fieldmaps, project_fmap_rules)
+    seed_binding = resolve_fmap_assignments(
+        seed_mapping, fieldmaps, project_fmap_rules, series_times
+    )
 except ValueError as exc:
     # A project rule this session can't honor. Show it, then seed from the
     # automatic binding so the page stays usable and the row can be corrected
     # here rather than locking the user out.
     st.error(f"{exc}")
-    seed_binding = resolve_fmap_assignments(seed_mapping, fieldmaps, None)
+    seed_binding = resolve_fmap_assignments(seed_mapping, fieldmaps, None, series_times)
 
 
 def _seed_fieldmap(series):

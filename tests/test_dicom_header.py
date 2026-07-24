@@ -29,6 +29,7 @@ def classic(**kwargs) -> SeriesHeader:
         volumes=200,
     )
     base.update(kwargs)
+    base.setdefault("single_volume", base["volumes"] == 1)
     return SeriesHeader(**base)
 
 
@@ -44,6 +45,7 @@ def enhanced(**kwargs) -> SeriesHeader:
         volumes=200,
     )
     base.update(kwargs)
+    base.setdefault("single_volume", base["volumes"] == 1)
     return SeriesHeader(**base)
 
 
@@ -269,13 +271,20 @@ def _write_classic(directory: Path, count: int, **overrides) -> None:
         ds.SOPClassUID = "1.2.840.10008.5.1.4.1.1.4"
         ds.SOPInstanceUID = f"1.2.3.4.{index}"
         ds.Modality = "MR"
-        ds.ImageType = list(overrides.get("image_type", ["ORIGINAL", "PRIMARY", "M", "ND"]))
+        ds.ImageType = list(
+            overrides.get("image_type", ["ORIGINAL", "PRIMARY", "M", "ND", "MOSAIC"])
+        )
         ds.MRAcquisitionType = overrides.get("mr_acquisition_type", "2D")
         ds.ScanningSequence = overrides.get("scanning_sequence", ["EP"])
         ds.SequenceName = overrides.get("sequence_name", "epfid2d1_116")
         ds.SeriesDescription = overrides.get("description", "whatever")
+        if "acquisition_time" in overrides:
+            ds.AcquisitionTime = overrides["acquisition_time"]
         echoes = overrides.get("echo_numbers", [1] * count)
         ds.EchoNumbers = echoes[index % len(echoes)]
+        positions = overrides.get("positions")
+        if positions is not None:
+            ds.ImagePositionPatient = [0.0, 0.0, float(positions[index % len(positions)])]
         pydicom.dcmwrite(directory / f"{index:04d}.dcm", ds, enforce_file_format=True)
 
 
@@ -388,3 +397,90 @@ def test_a_non_dicom_file_does_not_crash_the_reader(tmp_path):
     (directory / "notes.txt").write_text("not a dicom")
     header = read_series_header(directory)
     assert header is None or header.unreadable
+
+
+# --- volume count vs file count --------------------------------------------
+# `len(files) == 1` is a volume test only for a mosaic or an enhanced series.
+# Every EPI series in the LCNI repository is mosaic (936x936 tiles of 104x104),
+# which is why the file count held there — and why the gap was invisible.
+
+
+def test_a_non_mosaic_reference_is_not_mistaken_for_a_bold_run(tmp_path):
+    """One volume, one file per slice — the case the file count gets wrong.
+
+    A site with mosaic disabled, or a GE/Philips classic export, writes 60 files
+    for a single-volume reference. Counting files calls that a 60-volume BOLD.
+    """
+    from duckbrain.core.dicom_header import read_series_header
+
+    directory = tmp_path / "Series_8_task_SBRef"
+    _write_classic(
+        directory,
+        60,
+        image_type=["ORIGINAL", "PRIMARY", "M", "ND"],  # no MOSAIC
+        positions=[float(i) for i in range(60)],  # each slice visited once
+    )
+    header = read_series_header(directory)
+    assert header.volumes == 60
+    assert header.single_volume is True
+    assert classify_from_header(header) == ("sbref", "")
+
+
+def test_a_non_mosaic_time_series_is_a_bold_run(tmp_path):
+    """Revisited slice positions mean more than one volume."""
+    from duckbrain.core.dicom_header import read_series_header
+
+    directory = tmp_path / "Series_9_task"
+    _write_classic(
+        directory,
+        60,
+        image_type=["ORIGINAL", "PRIMARY", "M", "ND"],
+        positions=[float(i) for i in range(10)],  # 10 slices x 6 volumes
+    )
+    header = read_series_header(directory)
+    assert header.single_volume is False
+    assert classify_from_header(header) == ("func", "bold")
+
+
+def test_a_mosaic_series_does_not_pay_for_the_position_scan(tmp_path):
+    """One mosaic file is one whole volume, so the file count is exact."""
+    from duckbrain.core.dicom_header import read_series_header
+
+    _write_classic(tmp_path / "Series_9_food", 250)  # MOSAIC by default
+    header = read_series_header(tmp_path / "Series_9_food")
+    assert header.single_volume is False
+    _write_classic(tmp_path / "Series_8_food_SBRef", 1)
+    assert read_series_header(tmp_path / "Series_8_food_SBRef").single_volume is True
+
+
+def test_an_undetermined_volume_count_defers_to_the_name(tmp_path):
+    """Claiming 'bold' on an unknown count would convert a reference as a run."""
+    from duckbrain.core.dicom_header import read_series_header
+    from duckbrain.core.dicom_inspect import classify_series
+
+    directory = tmp_path / "Series_8_task_SBRef"
+    _write_classic(directory, 20, image_type=["ORIGINAL", "PRIMARY", "M", "ND"])
+    header = read_series_header(directory)
+    assert header.single_volume is None, "no ImagePositionPatient to settle it"
+    assert classify_from_header(header) == ("", "")
+
+    series = [
+        SeriesInfo(
+            series_number=8,
+            description="task_SBRef",
+            path=directory,
+            file_count=20,
+            header=header,
+        )
+    ]
+    classify_series(series)
+    assert series[0].classification == "sbref"
+    assert series[0].classified_by == "name"
+
+
+def test_acquisition_time_is_read_for_fieldmap_binding(tmp_path):
+    from duckbrain.core.dicom_header import read_series_header
+
+    _write_classic(tmp_path / "Series_7_fieldmap1", 4, acquisition_time="141550.020000")
+    header = read_series_header(tmp_path / "Series_7_fieldmap1")
+    assert header.series_time == pytest.approx(14 * 3600 + 15 * 60 + 50.02)

@@ -345,6 +345,7 @@ def _gre_session():
             dialect="classic",
         )
         base.update(kwargs)
+        base.setdefault("single_volume", base.get("volumes", 0) == 1)
         return SeriesHeader(**base)
 
     series = [
@@ -448,3 +449,137 @@ def test_a_magnitude_with_no_phase_partner_is_reported_not_guessed():
     detection = dicom_inspect.detect_fieldmaps(series)
     assert detection.groups == {}
     assert any("no phase series follows" in w for w in detection.warnings)
+
+
+# --- nearest-in-time fieldmap binding --------------------------------------
+# Verbatim acquisition order from REV/REV055_20150811_135636: two gradient-echo
+# fieldmap pairs bracket the run blocks, and the curator's intent is that each
+# run uses the pair it was shot next to. The old "first complete group" bound
+# all seven runs to fieldmap1.
+
+
+def _timed(series_number, description, seconds, classification=None, suffix=None, volumes=200):
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    info = SeriesInfo(
+        series_number=series_number,
+        description=description,
+        path=Path("/nonexistent"),
+        file_count=volumes,
+        header=SeriesHeader(series_time=seconds, volumes=volumes, single_volume=volumes == 1),
+    )
+    if classification:
+        info.classification = classification
+        info.suffix_hint = suffix or ""
+        info.classified_by = "header"
+    return info
+
+
+def _rev_two_pair_session():
+    def hms(h, m, s):
+        return h * 3600 + m * 60 + s
+
+    return [
+        _timed(6, "GNG1_bold", hms(14, 9, 0), "func", "bold"),
+        _timed(7, "fieldmap1", hms(14, 15, 0), "fmap", "magnitude"),
+        _timed(8, "fieldmap1", hms(14, 15, 1), "fmap", "phasediff", volumes=72),
+        _timed(9, "BART1_bold", hms(14, 20, 0), "func", "bold"),
+        _timed(11, "SST1_bold", hms(14, 36, 0), "func", "bold"),
+        _timed(12, "SST2_bold", hms(14, 45, 0), "func", "bold"),
+        _timed(13, "fieldmap2", hms(14, 53, 0), "fmap", "magnitude"),
+        _timed(14, "fieldmap2", hms(14, 53, 1), "fmap", "phasediff", volumes=72),
+        _timed(15, "React1_bold", hms(14, 56, 0), "func", "bold"),
+    ]
+
+
+def _binding(series):
+    detection = dicom_inspect.detect_fieldmaps(series)
+    mapping = dcm2bids_config.build_task_run_mapping(series)
+    config = dcm2bids_config.generate_config(
+        series, detection, subject="REV055", session="1", mapping=mapping
+    )
+    id_to_group = {
+        d["sidecar_changes"]["B0FieldIdentifier"]: d["id"].rsplit("-", 1)[-1]
+        for d in config["descriptions"]
+        if d["datatype"] == "fmap"
+    }
+    out = {}
+    for d in config["descriptions"]:
+        if d.get("suffix") == "bold":
+            source = d["sidecar_changes"].get("B0FieldSource")
+            out[d["custom_entities"]] = id_to_group.get(source)
+    return out
+
+
+def test_each_run_binds_to_the_nearer_fieldmap_pair():
+    binding = _binding(_rev_two_pair_session())
+    # runs before/near the first pair
+    assert binding["task-GNG1_run-1"] == "fieldmap1"
+    assert binding["task-BART1_run-1"] == "fieldmap1"
+    # runs nearer the second pair (SST straddles; the pair shot right after it
+    # is closer than the one 20+ minutes before). SST1/SST2 collapse to one task.
+    assert binding["task-SST_run-1"] == "fieldmap2"
+    assert binding["task-SST_run-2"] == "fieldmap2"
+    assert binding["task-React1_run-1"] == "fieldmap2"
+
+
+def test_timing_does_not_override_an_explicit_rule():
+    from duckbrain.core.dcm2bids_config import FmapRule
+
+    series = _rev_two_pair_session()
+    detection = dicom_inspect.detect_fieldmaps(series)
+    mapping = dcm2bids_config.build_task_run_mapping(series)
+    config = dcm2bids_config.generate_config(
+        series,
+        detection,
+        subject="REV055",
+        session="1",
+        mapping=mapping,
+        fmap_rules=[FmapRule(task="SST", group="fieldmap1")],
+    )
+    sst = next(d for d in config["descriptions"] if d["custom_entities"] == "task-SST_run-1")
+    id_to_group = {
+        d["sidecar_changes"]["B0FieldIdentifier"]: d["id"].rsplit("-", 1)[-1]
+        for d in config["descriptions"]
+        if d["datatype"] == "fmap"
+    }
+    assert id_to_group[sst["sidecar_changes"]["B0FieldSource"]] == "fieldmap1"
+
+
+def test_without_times_binding_falls_back_to_first_group():
+    """No headers (name-only path) → the stable first-group choice, unchanged."""
+    series = [
+        SeriesInfo(4, "se_epi_ap_a", Path("/x"), 3),
+        SeriesInfo(5, "se_epi_pa_a", Path("/x"), 3),
+        SeriesInfo(20, "se_epi_ap_b", Path("/x"), 3),
+        SeriesInfo(21, "se_epi_pa_b", Path("/x"), 3),
+        SeriesInfo(9, "food_bold", Path("/x"), 200),
+    ]
+    dicom_inspect.classify_series(series)
+    detection = dicom_inspect.detect_fieldmaps(series)
+    assert detection.group_times == {}
+    mapping = dcm2bids_config.build_task_run_mapping(series)
+    config = dcm2bids_config.generate_config(
+        series, detection, subject="X", session="", mapping=mapping
+    )
+    bold = next(d for d in config["descriptions"] if d.get("suffix") == "bold")
+    # first complete group, deterministic
+    assert "B0FieldSource" in bold["sidecar_changes"]
+
+
+def test_the_report_path_matches_the_written_binding():
+    """resolve_fmap_assignments must agree with generate_config, or the preview
+    lies. It needs the same series-time lookup to reach the same decision."""
+    series = _rev_two_pair_session()
+    detection = dicom_inspect.detect_fieldmaps(series)
+    mapping = dcm2bids_config.build_task_run_mapping(series)
+    series_times = {
+        s.series_number: s.header.series_time for s in series if s.header.series_time is not None
+    }
+    report = dcm2bids_config.resolve_fmap_assignments(mapping, detection, None, series_times)
+    assert report[("SST", 1)] == "fieldmap2"
+    assert report[("GNG1", 1)] == "fieldmap1"
+
+    # and without the lookup it would silently disagree — the first group
+    report_no_times = dcm2bids_config.resolve_fmap_assignments(mapping, detection, None)
+    assert report_no_times[("SST", 1)] == "fieldmap1"

@@ -39,6 +39,11 @@ class FieldmapDetection:
     # the same ``dir-<X>`` filename, e.g. "run-1" (order) or "acq-encoding"
     # (named). Empty/absent means no extra entity (the single-pair case).
     group_entities: dict = field(default_factory=dict)
+    # group_name → acquisition time (seconds since midnight), averaged over the
+    # group's members. This is what lets a bold bind to the fieldmap it was
+    # actually shot next to rather than whichever pair sorts first; see
+    # dcm2bids_config._assign_fmap_group. Empty when the DICOMs weren't read.
+    group_times: dict = field(default_factory=dict)
 
 
 # --- ReproIn ---------------------------------------------------------------
@@ -547,8 +552,23 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
     if not groups:
         return FieldmapDetection(strategy="none", warnings=warnings)
 
+    time_by_series = {
+        s.series_number: s.header.series_time
+        for s in series_list
+        if getattr(s.header, "series_time", None) is not None
+    }
+    group_times = {}
+    for gname, members in groups.items():
+        times = [time_by_series[n] for n in members.values() if n in time_by_series]
+        if times:
+            group_times[gname] = sum(times) / len(times)
+
     return FieldmapDetection(
-        strategy=strategy, groups=groups, warnings=warnings, group_entities=group_entities
+        strategy=strategy,
+        groups=groups,
+        warnings=warnings,
+        group_entities=group_entities,
+        group_times=group_times,
     )
 
 

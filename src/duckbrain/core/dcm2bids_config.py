@@ -523,7 +523,12 @@ def generate_config(
         # group still gets to fail instead of being skipped along with everything
         # else. That guard is what let an unhonorable rule pass silently.
         fmap_group = _assign_fmap_group(
-            task, run, fieldmaps, fmap_group_assignments, fmap_rule_lookup
+            task,
+            run,
+            fieldmaps,
+            fmap_group_assignments,
+            fmap_rule_lookup,
+            series_time=getattr(s.header, "series_time", None),
         )
         if fmap_group is not None:
             desc["sidecar_changes"]["B0FieldSource"] = _b0_identifier(fmap_group, sub_ses)
@@ -560,7 +565,12 @@ def generate_config(
         # corrects. This runs after the BOLD loop, so the (task, run) assignment
         # is already cached and the pair is guaranteed to match the BOLD's.
         fmap_group = _assign_fmap_group(
-            task, run, fieldmaps, fmap_group_assignments, fmap_rule_lookup
+            task,
+            run,
+            fieldmaps,
+            fmap_group_assignments,
+            fmap_rule_lookup,
+            series_time=getattr(s.header, "series_time", None),
         )
         if fmap_group is not None:
             desc["sidecar_changes"] = {"B0FieldSource": _b0_identifier(fmap_group, sub_ses)}
@@ -620,6 +630,7 @@ def resolve_fmap_assignments(
     mapping: list[TaskRunEntry],
     fieldmaps: FieldmapDetection,
     fmap_rules: list[FmapRule] | None = None,
+    series_times: dict[int, float] | None = None,
 ) -> dict[tuple[str, int | None], str]:
     """Report ``(task, run) -> fieldmap group`` exactly as :func:`generate_config` binds it.
 
@@ -636,14 +647,27 @@ def resolve_fmap_assignments(
     A task bound to ``"none"`` is reported as such rather than omitted: opting a
     run out of distortion correction is a decision worth seeing in the table, not
     an absence. Tasks with no binding and no fieldmaps to assign are absent.
+
+    ``series_times`` (``{series_number: acquisition seconds}``) must be supplied
+    for the report to match a nearest-in-time binding — without it the timing
+    tier can't fire here and the preview would show the old first-group choice
+    while generate_config wrote the time-matched one. generate_config reads the
+    time straight off each series' header; this path only has the mapping, so
+    the caller passes the lookup.
     """
     assignments: dict[tuple[str, int | None], str] = {}
     lookup = _fmap_rule_lookup(fmap_rules)
+    times = series_times or {}
     for entry in mapping:
         if entry.role != "bold":
             continue
         _assign_fmap_group(
-            sanitize_task_label(entry.task), entry.run, fieldmaps, assignments, lookup
+            sanitize_task_label(entry.task),
+            entry.run,
+            fieldmaps,
+            assignments,
+            lookup,
+            series_time=times.get(entry.series_number),
         )
     return assignments
 
@@ -871,14 +895,16 @@ def _assign_fmap_group(
     fieldmaps: FieldmapDetection,
     assignments: dict[tuple[str, int | None], str],
     rules: dict[tuple[str, int | None], str] | None = None,
+    series_time: float | None = None,
 ) -> str | None:
     """Assign a fieldmap group to one run of a task.
 
-    Three sources, each overriding the one after it:
+    Four sources, each overriding the one after it:
 
       1. an explicit project-wide :class:`FmapRule` binding (``rules``),
       2. a name match — the task label prefixed by the group's base name,
-      3. the first complete group.
+      3. the complete group acquired nearest this run in time,
+      4. the first complete group.
 
     Only groups holding *both* directions are candidates. An aborted fieldmap
     leaves a lone AP that pairs with nothing, and it sorts first — real sessions
@@ -947,18 +973,54 @@ def _assign_fmap_group(
         return None
 
     # Try matching by name. A group reacquired within one session is keyed
-    # "<name>-2", "<name>-3", … so match on the base name; the first pair wins,
-    # which is the documented no-temporal-proximity limitation (TODO #5) and the
-    # case an explicit rule above exists to settle.
+    # "<name>-2", "<name>-3", … so match on the base name. A name match is the
+    # console operator saying outright which pair goes with which task, so it
+    # still outranks the timing below, which only infers it.
     for g in groups:
         base = re.sub(r"-\d+$", "", g)
         if base and task.lower().startswith(base.lower()):
             assignments[cache_key] = g
             return g
 
+    # Nearest in acquisition time. A fieldmap is re-shot when the prescription
+    # or the shim changes, so the pair a run belongs to is the one it was
+    # acquired next to — before or after, whichever is closer. This replaces
+    # "whichever pair sorts first", which was arbitrary and, on a session with
+    # two pairs, wrong for every run after the second one: REV055 shoots
+    # fieldmap1, then BART and SST, then fieldmap2, then React, and bound all
+    # five runs to fieldmap1. Standard DICOM timing, so it works on both MR
+    # dialects and every vendor — unlike the shim settings that are the actual
+    # physical cause, which live in a Siemens private blob and aren't readable
+    # before dcm2niix runs. TODO #5's standing note about no temporal proximity.
+    nearest = _nearest_group_in_time(groups, fieldmaps.group_times, series_time)
+    if nearest is not None:
+        assignments[cache_key] = nearest
+        return nearest
+
     # Default to first group
     assignments[cache_key] = groups[0]
     return groups[0]
+
+
+def _nearest_group_in_time(
+    groups: list[str], group_times: dict, series_time: float | None
+) -> str | None:
+    """The complete group acquired closest to ``series_time``.
+
+    ``None`` when the timing can't decide — no time on this run, none on the
+    groups, or a tie. A tie is deliberately not broken here: falling through to
+    the caller's stable first-group choice is better than picking arbitrarily
+    while looking principled.
+    """
+    if series_time is None or not group_times:
+        return None
+    timed = [(abs(group_times[g] - series_time), g) for g in groups if g in group_times]
+    if not timed:
+        return None
+    timed.sort()
+    if len(timed) > 1 and timed[0][0] == timed[1][0]:
+        return None
+    return timed[0][1]
 
 
 def config_to_json(config: dict, indent: int = 2) -> str:

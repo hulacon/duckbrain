@@ -68,7 +68,15 @@ class SeriesHeader:
     protocol_name: str = ""
     series_description: str = ""
     dialect: str = ""  # "classic" | "enhanced"
-    volumes: int = 0  # files in the series dir; 1 volume per file in both dialects
+    volumes: int = 0  # best-effort volume count; see single_volume for the exact test
+    # Whether this series is a single volume. ``None`` when it could not be
+    # determined, which callers must not read as "no". Kept separate from
+    # ``volumes`` because the file count is only a volume count under conditions
+    # that have to be checked — see _single_volume.
+    single_volume: bool | None = None
+    # Seconds since midnight, from AcquisitionTime (else SeriesTime). Standard in
+    # both dialects and every vendor, which is why fieldmap binding uses it.
+    series_time: float | None = None
     unreadable: bool = False
 
     @property
@@ -148,6 +156,73 @@ def _read_one(path: Path):
     return dataset
 
 
+def _dicom_time(dataset) -> float | None:
+    """DICOM ``HHMMSS.FFFFFF`` as seconds since midnight."""
+    for attr in ("AcquisitionTime", "SeriesTime"):
+        raw = str(getattr(dataset, attr, "") or "").strip()
+        if len(raw) < 6:
+            continue
+        try:
+            return int(raw[0:2]) * 3600 + int(raw[2:4]) * 60 + float(raw[4:])
+        except ValueError:
+            continue
+    return None
+
+
+# How many files to inspect when counting distinct slice positions. A repeated
+# position appears within one slice-group of the start under either DICOM
+# ordering (slice-major repeats immediately, time-major after n_slices), so this
+# only has to exceed a plausible slice count — not the series length.
+_POSITION_SCAN_LIMIT = 192
+
+
+def _single_volume(files: list[Path], image_type: tuple[str, ...], enhanced: bool) -> bool | None:
+    """Is this series one volume? The question that separates an SBRef from a BOLD.
+
+    ``len(files) == 1`` is *not* the general answer, and treating it as one is a
+    real trap. It holds for a Siemens mosaic (the whole volume is tiled into one
+    image) and for the enhanced-MR series in the LCNI repository (one file per
+    volume) — but a site with mosaic disabled, or a GE/Philips classic export,
+    writes one file *per slice*. A single-volume reference then arrives as 60
+    files and reads as a BOLD run, silently.
+
+    So: trust the file count only where it is a volume count, and otherwise
+    settle it by looking at the slice positions. A single volume visits each
+    position once; a time series revisits them. Returns ``None`` when neither
+    test applies, which the caller must not read as "no".
+    """
+    if not files:
+        return None
+    if "MOSAIC" in image_type or enhanced:
+        return len(files) == 1
+    if len(files) == 1:
+        return True
+
+    import pydicom
+
+    seen: set[tuple] = set()
+    for path in files[:_POSITION_SCAN_LIMIT]:
+        try:
+            ds = pydicom.dcmread(
+                str(path),
+                stop_before_pixels=True,
+                force=True,
+                specific_tags=["ImagePositionPatient"],
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        position = getattr(ds, "ImagePositionPatient", None)
+        if position is None:
+            return None
+        key = tuple(round(float(v), 3) for v in position)
+        if key in seen:
+            return False  # a revisited slice position means more than one volume
+        seen.add(key)
+    # Every position distinct across everything we looked at. Only conclusive if
+    # that was the whole series; otherwise we genuinely do not know.
+    return True if len(files) <= _POSITION_SCAN_LIMIT else None
+
+
 def _dicom_files(series_dir: Path) -> list[Path]:
     try:
         entries = sorted(p for p in series_dir.iterdir() if p.is_file())
@@ -213,10 +288,23 @@ def read_series_header(series_dir: str | Path) -> SeriesHeader | None:
             is_spin_echo = None
         dialect = "classic"
 
+    image_type = tuple(t.upper() for t in _as_tuple(getattr(head, "ImageType", None)))
+    mr_acquisition_type = str(getattr(head, "MRAcquisitionType", "") or "")
+
+    # The volume count separates a single-band reference from its BOLD, which is
+    # the *only* thing it decides — and settling it can cost a per-slice position
+    # scan (see _single_volume). So compute it only where it could matter: a 2D
+    # gradient-echo EPI. An anat or a fieldmap is never an SBRef, and running the
+    # scan over its 176 files would be pure waste.
+    could_be_reference = (
+        mr_acquisition_type.upper() == "2D" and is_epi is True and is_spin_echo is False
+    )
+    single_volume = _single_volume(files, image_type, enhanced) if could_be_reference else None
+
     return SeriesHeader(
         modality=str(getattr(head, "Modality", "") or ""),
-        image_type=tuple(t.upper() for t in _as_tuple(getattr(head, "ImageType", None))),
-        mr_acquisition_type=str(getattr(head, "MRAcquisitionType", "") or ""),
+        image_type=image_type,
+        mr_acquisition_type=mr_acquisition_type,
         is_epi=is_epi,
         is_spin_echo=is_spin_echo,
         echo_numbers=tuple(sorted(echo_numbers)),
@@ -224,6 +312,8 @@ def read_series_header(series_dir: str | Path) -> SeriesHeader | None:
         series_description=str(getattr(head, "SeriesDescription", "") or ""),
         dialect=dialect,
         volumes=len(files),
+        single_volume=single_volume,
+        series_time=_dicom_time(head),
     )
 
 
@@ -258,11 +348,19 @@ def classify_from_header(header: SeriesHeader) -> tuple[str, str]:
             # fieldmap; the BOLD runs beside it are gradient-echo.
             return "fmap", "epi"
         # Nothing in the header distinguishes a single-band reference from its
-        # parent BOLD — same ImageType, TR, flip angle and sequence. The volume
-        # count is the only separator, and it is exact: 34/34 sbref are one
-        # volume, 130/130 bold are more.
-        if header.volumes == 1:
+        # parent BOLD — same ImageType, TR, flip angle and sequence. Being one
+        # volume is the only separator, and it is exact: 34/34 sbref are one
+        # volume, 130/130 bold are more. Note this asks single_volume rather
+        # than `volumes == 1`: the file count is a volume count only for a
+        # mosaic or an enhanced series, and a non-mosaic reference arrives as
+        # one file per slice.
+        if header.single_volume:
             return "sbref", ""
+        if header.single_volume is None:
+            # Undetermined. Claiming "bold" here would silently convert a
+            # reference as a run, so leave it to the name pass, where Siemens'
+            # own _SBRef suffix settles it.
+            return "", ""
         return "func", "bold"
 
     if acquisition == "2D" and header.is_epi is False and header.is_spin_echo is False:
