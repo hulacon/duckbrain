@@ -18,6 +18,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
+[`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
@@ -250,6 +251,81 @@ filesystem holds no record of what was asked for), and config drift between runs
 exists for free already — `nordic.write_nordic_sidecars` writes one sidecar per
 intended run at launch, so NORDIC could be graded by "every sidecar has a
 matching NIfTI" without inventing anything.
+
+<a id="21"></a>
+## #21 — The shared `fsaverage` race: N concurrent fMRIPrep jobs, one SUBJECTS_DIR
+
+**Flagged by LCNI (2026-07-24) from their own runs, then traced to the code in the
+24.1.1 image on disk. duckbrain has this exposure today** — it is not something
+the FreeSurfer-8 plan (`#7` item 7) would introduce, though that plan makes it
+sharper. Unobserved locally, but every precondition is true, so treat it as latent
+rather than hypothetical.
+
+**The mechanism, read from
+`niworkflows/interfaces/bids.py::BIDSFreeSurferDir`.** At the start of *every*
+fMRIPrep run it copies `fsaverage`, and any `fsaverageN` in `--output-spaces`,
+from `$FREESURFER_HOME/subjects` into SUBJECTS_DIR. The copy is check-then-act:
+
+```python
+if not dest.exists():
+    try:
+        shutil.copytree(source, dest, copy_function=shutil.copy)
+    except FileExistsError:
+        LOGGER.warning(
+            "%s exists; if multiple jobs are running in parallel, this can be safely ignored", dest
+        )
+```
+
+Two jobs both see `dest` missing and both start copying. The loser raises
+`FileExistsError`, **which is caught and downgraded to a warning whose text tells
+you to ignore it** — and then proceeds while the winner is still copying. In FS
+8.2.0 `fsaverage` is 482 MB and `fsaverage6` 113 MB, so the window is seconds to
+minutes on GPFS, not microseconds. The loser's downstream `mri_surf2surf
+--trgsubject fsaverage6` then reads a half-populated tree, so the failure surfaces
+somewhere else entirely and the one log line that would explain it says to ignore
+it. 🔴 **Two paths in the same function are worse**: `overwrite_fsaverage`, and a
+staleness check keyed on an FS7-era label, both `shutil.rmtree(dest)` — deleting
+fsaverage out from under jobs currently reading it.
+
+**Why duckbrain is exposed right now.** Four things, all true today: every unit's
+fMRIPrep writes to the same `<derivatives>/fmriprep`; `fs_subjects_dir` defaults
+to `<output_dir>/sourcedata/freesurfer` (`fmriprep/cli/parser.py`), so **one
+SUBJECTS_DIR is shared by every concurrent job**; the shipped default
+`output_spaces` includes `fsaverage6`; and the cockpit's column-header bulk
+submits every runnable unit at once. It has likely just never been run at the
+scale that triggers it — the projects that held fMRIPrep derivatives were deleted
+under `#14`.
+
+**This is the third instance of one bug shape, and duckbrain already fixed the
+first.** The TemplateFlow race in `templates/sbatch/fmriprep.sbatch.j2` is the
+same thing down to the exception type, fixed by giving each job its own
+`SINGULARITYENV_TEMPLATEFLOW_HOME` under `$WORK_DIR`. **That fix does not transfer
+here**: TemplateFlow is a pure cache, so isolating it costs nothing, whereas
+SUBJECTS_DIR holds the recon outputs whose whole value is being shared and reused.
+Per-job isolation would close the race by throwing away the feature.
+
+**The fix: seed once, before fan-out.** Copy `fsaverage`/`fsaverage5`/`fsaverage6`
+into the shared SUBJECTS_DIR serially, then submit. Every job's
+`BIDSFreeSurferDir` then sees `dest.exists()` and skips the copy entirely — the
+window closes because nobody races. `_build_fmriprep` is the right home: it
+already does synchronous filesystem prep at submit time
+(`build_nordic_bids_input`, `write_session_filter`), and the cockpit's bulk loop
+runs in a single process, so the first unit seeds and the rest no-op. Small and
+contained.
+
+- 🔴 **Seed from inside the fMRIPrep container (`$FREESURFER_HOME` in the `.sif`),
+  not from the FreeSurfer 8 module.** The two trees differ, and the staleness
+  check's failure mode is a destructive `rmtree` under concurrency. Checked: FS
+  8.2.0's `fsaverage` *does* carry `label/rh.FG1.mpm.vpnl.label`, so seeding from
+  it would not trip that path today — but that is luck, not a guarantee, and
+  copying from the image gives exactly what fMRIPrep would have produced itself.
+- **Add a check, not just a fix.** This is `#16`'s shape: a cheap consistency check
+  that every `fsaverageN` named in `output_spaces` exists in SUBJECTS_DIR and is
+  complete before a bulk launch. The failure it guards is one whose only symptom
+  today is a log line advertising itself as ignorable.
+- **Ties to `#7` item 7:** an external FreeSurfer 8 stage makes a shared
+  SUBJECTS_DIR the entire point *and* adds a second writer to it, so seeding stops
+  being a nicety and becomes a precondition of that plan.
 
 <a id="20"></a>
 ## #20 — Ship a conda environment, not a `.venv`

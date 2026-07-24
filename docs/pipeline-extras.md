@@ -243,7 +243,11 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
     read-write. Checked against the surveyor: that subtree does not match
     `_fmriprep_status`'s globs (`sub-XX.html`, `sub-XX/**/anat/…`,
     `_has_match(root, "sub-XX")`), so pre-creating it does not flip the fMRIPrep
-    cell off MISSING.
+    cell off MISSING. 🔴 **But that directory is also the shared SUBJECTS_DIR every
+    concurrent fMRIPrep job writes `fsaverage` into — see TODO `#21`.** Seeding it
+    once before fan-out is a precondition of this item, not an optional extra: an
+    external FreeSurfer stage adds a *second* writer to a directory that already
+    races against itself.
   - **It can be driven from `extra_flags` today with zero code changes** — that
     field is deliberately unquoted and word-splits — **but see the two traps
     below.** Good as a one-off experiment, not as the shipped answer.
