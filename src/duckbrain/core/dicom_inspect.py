@@ -15,7 +15,17 @@ class SeriesInfo:
     description: str
     path: Path
     file_count: int = 0
-    classification: str = ""  # anat, func, fmap, sbref, physio, scout, unknown
+    classification: str = ""  # anat, func, fmap, sbref, physio, scout, derived, dwi, unknown
+    # Header evidence, when the DICOMs were readable. ``None`` means classify
+    # from the name alone — which is all duckbrain ever did, and is still the
+    # fallback for a site whose export the reader can't parse.
+    header: object | None = None
+    # BIDS suffix the header pinned (``T1w``, ``epi``, ``phasediff``, …), or ""
+    # when only the datatype is known.
+    suffix_hint: str = ""
+    # Where ``classification`` came from: "header" or "name". Carried so the
+    # Conversion page can show the user which series were guessed from a string.
+    classified_by: str = ""
 
 
 @dataclass
@@ -158,13 +168,18 @@ _CLASSIFICATION_PATTERNS = [
 ]
 
 
-def list_series(dicom_session_dir: str | Path) -> list[SeriesInfo]:
+def list_series(dicom_session_dir: str | Path, read_headers: bool = True) -> list[SeriesInfo]:
     """Enumerate all Series_NN_description/ dirs in a DICOM session.
 
     Parameters
     ----------
     dicom_session_dir : path
         Path to a single session's DICOM directory.
+    read_headers : bool
+        Read a few DICOM headers per series so classification can use what the
+        scanner recorded rather than what the operator typed. Costs up to three
+        ``dcmread(stop_before_pixels=True)`` per series. Set False only where
+        the names are known to be authoritative and the I/O matters.
 
     Returns
     -------
@@ -194,6 +209,10 @@ def list_series(dicom_session_dir: str | Path) -> list[SeriesInfo]:
             path=entry,
             file_count=file_count,
         )
+        if read_headers:
+            from .dicom_header import read_series_header
+
+            info.header = read_series_header(entry)
         series.append(info)
 
     return sorted(series, key=lambda s: s.series_number)
@@ -203,21 +222,40 @@ _SBREF_SUFFIX = re.compile(r"_SBRef$", re.IGNORECASE)
 
 
 def classify_series(series_list: list[SeriesInfo]) -> list[SeriesInfo]:
-    """Classify each series as anat/func/fmap/sbref/physio/scout/unknown.
+    """Classify each series as anat/func/fmap/sbref/physio/scout/derived/dwi/unknown.
 
-    A first pass classifies each series by its description alone. A second pass
+    The DICOM header decides where it can. What the scanner recorded is a fact;
+    the series description is the console operator's free text, and across the
+    LCNI repository it is frequently silent about datatype — `food`, `Whack`,
+    `Resting1`, `WMS_R1` and `EPI196` are all ordinary BOLD runs. See
+    :mod:`duckbrain.core.dicom_header` for the evidence and the ordered rules.
+
+    Where the header is absent (no readable DICOM, or ``read_headers=False``) or
+    not decisive, the name heuristics run exactly as before, so a session that
+    never reaches a DICOM still classifies as well as it used to. A second pass
     then treats the single-band reference as authoritative: a matching
     ``<name>_SBRef`` sibling means ``<name>`` is a functional run, so it is
-    promoted to ``func`` even if the first pass guessed ``scout`` or ``anat``.
-    This makes classification naming-agnostic and, in particular, rescues
-    functional *localizer* tasks (e.g. MMM's ``localizer_prf_run1``, which the
-    description pass would otherwise treat as a scanner localizer) and runs with
-    study-specific names (e.g. DIVATTEN's ``div_perFace_perTone_r1``).
+    promoted to ``func`` even if the name pass guessed ``scout`` or ``anat``.
+    This rescues functional *localizer* tasks (e.g. MMM's ``localizer_prf_run1``,
+    which the description pass would otherwise treat as a scanner localizer) and
+    runs with study-specific names (e.g. DIVATTEN's ``div_perFace_perTone_r1``).
 
     Modifies series in-place and returns the list.
     """
+    from .dicom_header import classify_from_header
+
     for s in series_list:
-        s.classification = _classify_one(s.description)
+        classification, suffix = ("", "")
+        if s.header is not None:
+            classification, suffix = classify_from_header(s.header)
+        if classification:
+            s.classification = classification
+            s.suffix_hint = suffix
+            s.classified_by = "header"
+        else:
+            s.classification = _classify_one(s.description)
+            s.suffix_hint = ""
+            s.classified_by = "name"
     _recover_func_from_sbref(series_list)
     _demote_nd_duplicates(series_list)
     return series_list
@@ -263,8 +301,14 @@ def _recover_func_from_sbref(series_list: list[SeriesInfo]) -> None:
     if not sbref_bases:
         return
     for s in series_list:
+        # Only a name-derived guess is overridden. The SBRef signal exists to
+        # rescue a series whose *name* said nothing useful; it cannot outrank
+        # what the scanner recorded about the acquisition itself.
+        if s.classified_by == "header":
+            continue
         if s.classification in _SBREF_PROMOTABLE and s.description.lower() in sbref_bases:
             s.classification = "func"
+            s.suffix_hint = "bold"
 
 
 def _classify_one(description: str) -> str:
