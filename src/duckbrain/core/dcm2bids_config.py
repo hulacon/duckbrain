@@ -688,6 +688,11 @@ def _anat_description(series: SeriesInfo) -> dict | None:
     ahead of the vocabulary matching below. Without this, an anat whose label
     isn't in that vocabulary (``anat-PDw``, ``anat-UNIT1``) returned None and the
     series was dropped from the conversion silently.
+
+    The header's ``suffix_hint`` is the *last* resort, after the name vocabulary
+    rather than before it, so a hint can only rescue a series the name would have
+    dropped — never relabel one the name already named. A ``mprage``-named series
+    stays ``T1w`` whatever the header hints.
     """
     reproin = reproin_entities(series.description)
     if reproin.get("seqtype") == "anat":
@@ -712,7 +717,9 @@ def _anat_description(series: SeriesInfo) -> dict | None:
     elif "flair" in desc_lower:
         suffix = "FLAIR"
     else:
-        return None
+        suffix = _BIDS_ANAT_SUFFIXES.get((series.suffix_hint or "").lower())
+        if not suffix:
+            return None
 
     return {
         "id": f"anat-{suffix}",

@@ -59,6 +59,35 @@ def test_anat_suffix_selection_is_token_anchored_too():
     assert dcm2bids_config._anat_description(series) is None
 
 
+def test_a_header_pinned_suffix_rescues_an_anatomical_the_name_cannot_name():
+    """A 3D SPACE is a T2w, and 'spcR_282ns' says nothing the vocabulary knows.
+
+    Without the hint the vocabulary returns None and the series is dropped from
+    the conversion — an anatomical lost because the console named it after the
+    pulse sequence.
+    """
+    series = SeriesInfo(
+        series_number=6,
+        description="spcR_282ns",
+        path=Path("/x"),
+        file_count=176,
+        suffix_hint="T2w",
+    )
+    assert dcm2bids_config._anat_description(series)["suffix"] == "T2w"
+
+
+def test_the_name_outranks_the_header_suffix_hint():
+    """The hint is a last resort, so it can rescue but never relabel."""
+    series = SeriesInfo(
+        series_number=1,
+        description="mprage_p2_defaced",
+        path=Path("/x"),
+        file_count=176,
+        suffix_hint="T2w",
+    )
+    assert dcm2bids_config._anat_description(series)["suffix"] == "T1w"
+
+
 # --- scanner localizers ----------------------------------------------------
 # r"\bscout\b" never matches 'aa_scout': '_' is a word character, so there is no
 # boundary before 's'. Nor 'AAHScout', where the words run together.

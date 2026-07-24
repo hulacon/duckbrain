@@ -278,12 +278,15 @@ def read_series_header(series_dir: str | Path) -> SeriesHeader | None:
         scanning = {s.upper() for s in _as_tuple(getattr(head, "ScanningSequence", None))}
         sequence_name = str(getattr(head, "SequenceName", "") or "")
         is_epi = ("EP" in scanning) if scanning else None
-        if sequence_name:
-            # Siemens: 'epse…' spin echo, 'epfid…' gradient echo (free induction
-            # decay). 16 vs 277 series in the corpus, no overlap.
-            is_spin_echo = sequence_name.lower().startswith("epse")
-        elif scanning:
-            is_spin_echo = "SE" in scanning
+        # Two witnesses, and neither subsumes the other — measured on the corpus:
+        # the pepolar spin-echo EPI ('epse2d1_104') reports ScanningSequence
+        # ('EP',) with no 'SE' in it, so only the name sees it; the turbo spin
+        # echo ('*tse2d1_18') reports ('SE',) and its name doesn't start 'epse',
+        # so only ScanningSequence sees it. Every gradient-echo family is false
+        # under both: epfid2d1 ('EP',), fl3d1 ('GR',), tfl3d1 ('GR','IR'),
+        # fm2d2r ('GR',), ep_b0 ('EP',).
+        if sequence_name or scanning:
+            is_spin_echo = sequence_name.lower().startswith("epse") or "SE" in scanning
         else:
             is_spin_echo = None
         dialect = "classic"
@@ -383,6 +386,10 @@ def classify_from_header(header: SeriesHeader) -> tuple[str, str]:
 
     if acquisition == "2D" and header.is_spin_echo and not header.is_epi:
         # Turbo/fast spin echo — the T2w in this corpus (TR 11–15 s, FA 150°).
+        # Reached in both dialects: enhanced via RFEchoTrainLength, classic via
+        # ScanningSequence 'SE'. The classic half was unreachable until the
+        # is_spin_echo union above, because a '*tse2d1_18' name doesn't start
+        # 'epse' — those series only classified because their *name* said 't2'.
         return "anat", "T2w"
 
     return "", ""

@@ -337,6 +337,85 @@ def test_reads_a_classic_spin_echo_fieldmap(tmp_path):
     assert classify_from_header(header) == ("fmap", "epi")
 
 
+def test_a_classic_turbo_spin_echo_reads_as_spin_echo(tmp_path):
+    """'*tse2d1_18' does not start 'epse', but ScanningSequence says 'SE'.
+
+    Until both witnesses were consulted this read as gradient echo, so the T2w
+    rule was unreachable in the classic dialect and these series classified only
+    because their *name* happened to contain 't2'.
+    """
+    from duckbrain.core.dicom_header import read_series_header
+
+    directory = tmp_path / "Series_11_survey_cor"
+    _write_classic(
+        directory,
+        30,
+        sequence_name="*tse2d1_18",
+        scanning_sequence=["SE"],
+        image_type=["ORIGINAL", "PRIMARY", "M", "NORM", "DIS2D"],
+    )
+    header = read_series_header(directory)
+    assert header.is_spin_echo is True
+    assert classify_from_header(header) == ("anat", "T2w")
+
+
+def test_a_pepolar_fieldmap_is_spin_echo_without_se_in_its_scanning_sequence(tmp_path):
+    """The other half of the union, and the reason it cannot be simplified away.
+
+    Siemens reports ScanningSequence ('EP',) for the spin-echo pepolar fieldmap —
+    no 'SE' anywhere in it. Only the sequence name sees this one.
+    """
+    from duckbrain.core.dicom_header import read_series_header
+
+    directory = tmp_path / "Series_20_se_epi_fieldmap_ap"
+    _write_classic(directory, 3, sequence_name="epse2d1_104", scanning_sequence=["EP"])
+    header = read_series_header(directory)
+    assert header.is_spin_echo is True
+    assert classify_from_header(header) == ("fmap", "epi")
+
+
+@pytest.mark.parametrize(
+    ("sequence_name", "scanning_sequence"),
+    [
+        ("epfid2d1_104", ["EP"]),  # BOLD
+        ("*fl3d1_ns", ["GR"]),  # scout
+        ("*tfl3d1_16ns", ["GR", "IR"]),  # mprage
+        ("*fm2d2r", ["GR"]),  # gradient-echo fieldmap
+        ("ep_b0", ["EP"]),  # diffusion
+    ],
+)
+def test_gradient_echo_families_are_not_spin_echo(tmp_path, sequence_name, scanning_sequence):
+    """Every family measured in the corpus that must stay false under the union."""
+    from duckbrain.core.dicom_header import read_series_header
+
+    directory = tmp_path / "Series_3_whatever"
+    _write_classic(directory, 4, sequence_name=sequence_name, scanning_sequence=scanning_sequence)
+    assert read_series_header(directory).is_spin_echo is False
+
+
+def test_a_dual_echo_turbo_spin_echo_is_not_a_gre_fieldmap_magnitude(tmp_path):
+    """A PD+T2 turbo spin echo is an ordinary Siemens protocol.
+
+    Read as gradient echo it reached the gradient-echo fieldmap branch, where
+    two echo numbers are the whole test for a magnitude — so a perfectly good
+    anatomical converted as half a fieldmap.
+    """
+    from duckbrain.core.dicom_header import read_series_header
+
+    directory = tmp_path / "Series_12_pd_t2_tse"
+    _write_classic(
+        directory,
+        8,
+        sequence_name="*tse2d1_18",
+        scanning_sequence=["SE"],
+        image_type=["ORIGINAL", "PRIMARY", "M", "NORM", "DIS2D"],
+        echo_numbers=[1, 1, 1, 1, 2, 2, 2, 2],
+    )
+    header = read_series_header(directory)
+    assert header.echo_numbers == (1, 2)
+    assert classify_from_header(header) == ("anat", "T2w")
+
+
 def test_reads_an_enhanced_bold_series(tmp_path):
     """The XA30 path: no ScanningSequence, no SequenceName, no EchoNumbers."""
     from duckbrain.core.dicom_header import read_series_header
