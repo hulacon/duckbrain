@@ -88,18 +88,52 @@ def reproin_entities(description: str) -> dict[str, str]:
     return entities
 
 
+# Every vocabulary token below is anchored to a token start with this guard.
+# Without it the anat tokens match mid-word and silently steal functional runs:
+# 'BART1_mb3_g2_2mm_te27' contains 'T1_' and 'SST2_...'/'React2_...' contain
+# 'T2_', so three real tasks in the LCNI repository classified as anatomicals —
+# and because anat descriptions collide on one filename, they overwrote each
+# other. `_` is deliberately a separator here and NOT part of the guard, which
+# is also why plain \b is wrong: \w includes '_', so r"\bscout\b" never matches
+# 'aa_scout'. Pinned by tests/test_series_classification.py.
+_TOKEN_START = r"(?<![A-Za-z0-9])"
+
+# Siemens scanner localizers, whose console names run the words together
+# ('AAHScout') or separate them ('AAhead_scout', 'AAHead_Scout', 'aa_scout'),
+# plus the _MPR_cor/sag/tra reformats derived from them.
+_AASCOUT = r"aa[_-]?(?:head|h)?[_-]?scout"
+
 # Classification patterns, tried in order (first match wins). Definitive
 # suffixes (_SBRef, _PhysioLog) come first so a functional run's single-band
-# reference or physio log isn't swallowed by a broader token. 'scout'/'localizer'
-# match only as whole words, so a *functional* localizer task like
-# 'localizer_prf_run1' is NOT mistaken for the scanner localizer — it falls
-# through and is recovered as func by SBRef pairing (see _recover_func_from_sbref).
+# reference or physio log isn't swallowed by a broader token. Bare
+# 'scout'/'localizer' still match only as whole words, so a *functional*
+# localizer task like 'localizer_prf_run1' is NOT mistaken for the scanner
+# localizer — it falls through and is recovered as func by SBRef pairing (see
+# _recover_func_from_sbref).
 _CLASSIFICATION_PATTERNS = [
     ("sbref", re.compile(r"_SBRef$", re.IGNORECASE)),
     ("physio", re.compile(r"(PhysioLog|physio)", re.IGNORECASE)),
+    # Scanner-derived series that are never source data: the inline evaluation
+    # maps, the motion-corrected copy, the Phoenix report, and the vNav
+    # navigator *setter* (which carries 'mprage' in its name and so was
+    # converted as a second, colliding T1w).
+    (
+        "derived",
+        re.compile(
+            _TOKEN_START + r"(?:PhoenixZIPReport|MoCo(?:Series)?|"
+            r"t[-_]?Maps?|EvaSeries|setter)",
+            re.IGNORECASE,
+        ),
+    ),
     ("fmap", re.compile(r"(se_epi|SpinEchoFieldMap|SEfieldmap)", re.IGNORECASE)),
-    ("anat", re.compile(r"(T1w|T1_|MPRAGE|T2w|T2_|SPC|FLAIR)", re.IGNORECASE)),
-    ("scout", re.compile(r"(AAhead_scout|\bscout\b|\blocalizer\b)", re.IGNORECASE)),
+    ("scout", re.compile(_TOKEN_START + _AASCOUT + r"|\bscout\b|\blocalizer\b", re.IGNORECASE)),
+    (
+        "anat",
+        re.compile(
+            _TOKEN_START + r"(?:T1w|T1[_-]|MPRAGE|T2w|T2[_-]|SPC|FLAIR)",
+            re.IGNORECASE,
+        ),
+    ),
     ("func", re.compile(r"(bold|task-|cmrr_mbep2d)", re.IGNORECASE)),
 ]
 
@@ -165,7 +199,32 @@ def classify_series(series_list: list[SeriesInfo]) -> list[SeriesInfo]:
     for s in series_list:
         s.classification = _classify_one(s.description)
     _recover_func_from_sbref(series_list)
+    _demote_nd_duplicates(series_list)
     return series_list
+
+
+# Siemens writes a second, distortion-uncorrected copy of a series with 'ND' (No
+# Distortion correction) added to the name. Converting both puts two images on
+# one BIDS filename.
+_ND_TOKEN = re.compile(r"(?<![A-Za-z0-9])ND(?=[_-]|$)")
+
+
+def _demote_nd_duplicates(series_list: list[SeriesInfo]) -> None:
+    """Drop an '_ND_' copy only when its corrected twin is also present.
+
+    Conditional on purpose. Dropping every ND series unconditionally would throw
+    away the only anatomical at a site that acquires ND alone — a silent
+    degradation, which this project treats as worse than a failure. So the ND
+    copy is dropped only when removing the token yields a sibling that is
+    actually in the session; otherwise it converts normally.
+    """
+    by_name = {s.description.lower(): s for s in series_list}
+    for s in series_list:
+        if not _ND_TOKEN.search(s.description):
+            continue
+        twin = re.sub(r"[_-]?(?<![A-Za-z0-9])ND(?=[_-]|$)", "", s.description, count=1)
+        if twin.lower() != s.description.lower() and twin.lower() in by_name:
+            s.classification = "derived"
 
 
 # A matching SBRef sibling is definitive: whatever the description pass guessed,
@@ -252,13 +311,25 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
 
         # Extract direction (AP/PA). ReproIn states it as a ``dir-`` entity;
         # otherwise fall back to the bare suffix conventions.
+        # The token match is deliberate: a plain ``"_ap" in desc`` test read
+        # 'se_epi_pa_apex' as AP, because '_ap' occurs inside '_apex' and the AP
+        # branch is tested first. Prefer the *last* direction token, so a name
+        # that leads with the direction and repeats it at the end
+        # ('AP_fieldmap_se_epi_2mm_ap') still resolves, and a group label that
+        # merely contains the letters does not.
         direction = None
         if reproin.get("dir"):
             direction = reproin["dir"].lower()
-        elif "_ap" in desc_lower or "accel_ap" in desc_lower:
-            direction = "ap"
-        elif "_pa" in desc_lower or "accel_pa" in desc_lower:
-            direction = "pa"
+        else:
+            hits = _DIRECTION_TOKEN.findall(desc_lower)
+            if hits and len({h for h in hits}) == 1:
+                direction = hits[-1]
+            elif hits:
+                warnings.append(
+                    f"Ambiguous phase-encoding direction "
+                    f"({'/'.join(sorted(set(hits)))}) in "
+                    f"Series_{s.series_number}_{s.description}"
+                )
 
         if direction not in ("ap", "pa"):
             warnings.append(
@@ -362,6 +433,11 @@ def _pair_by_acquisition(directed: list[tuple[int, str]]) -> list[dict[str, int]
     return pairs
 
 
+# A phase-encoding direction standing as its own token, so 'apex'/'paradigm'
+# don't read as directions.
+_DIRECTION_TOKEN = re.compile(r"(?<![a-z0-9])(ap|pa)(?![a-z0-9])", re.IGNORECASE)
+
+
 def _is_fieldmap(description: str) -> bool:
     """Check if a description looks like a fieldmap."""
     desc = description.lower()
@@ -378,12 +454,19 @@ def _extract_fmap_group(desc_lower: str) -> str:
     E.g., 'se_epi_ap_encoding' → 'encoding'
           'se_epi_pa_retrieval' → 'retrieval'
           'se_epi_ap' → '' (unnamed group)
+
+    The direction token is removed only where it stands as its own token. The
+    unanchored ``re.sub(r"_?(ap|pa)", ...)`` this replaces stripped *every*
+    occurrence of those two letters anywhere in the string, so
+    'AP_fieldmap_se_epi_2mm_ap' grouped as 'AP_fieldm_se_epi_2mm' and
+    'se_epi_ap_capture' grouped as 'cture' — two names for what is one pair.
     """
-    # Remove direction suffix first
-    cleaned = re.sub(r"_?(ap|pa)", "", desc_lower)
+    # Direction token only where it is a whole token (start, end, or _-delimited)
+    cleaned = re.sub(r"(?<![a-z0-9])(?:ap|pa)(?![a-z0-9])", "", desc_lower)
     # Remove common prefixes
-    cleaned = re.sub(r"^(se_epi|spinecho|sefieldmap)_?", "", cleaned)
-    cleaned = cleaned.strip("_ ")
+    cleaned = re.sub(r"^[_-]*(se_epi|spinecho|sefieldmap)[_-]?", "", cleaned)
+    cleaned = re.sub(r"[_-]{2,}", "_", cleaned)
+    cleaned = cleaned.strip("_- ")
     return cleaned
 
 
@@ -421,6 +504,49 @@ _TASK_NOISE = [
     re.compile(r"[_-]?bold$", re.IGNORECASE),
     re.compile(r"[_-]?sbref$", re.IGNORECASE),
 ]
+
+# Acquisition parameters that sites append to the console protocol name —
+# 'GNG1_mb3_g2_2mm_te27' is task GNG, not a task called 'Gng1Mb3G22mmTe27'.
+# Stripped only as whole trailing tokens, so a parameter-looking fragment in the
+# middle of a study's own name survives.
+_ACQ_PARAM_TOKEN = re.compile(
+    r"(?:(?:mb|sms|g|p|te|tr|ti|fa|acc)\d+(?:\.\d+)?|"
+    r"[\d.]+mm|[\d.]+iso|iso|\d+ch|grappa)$",
+    re.IGNORECASE,
+)
+
+
+def _strip_acq_params(label: str) -> str:
+    """Drop a trailing run of acquisition-parameter tokens from a description."""
+    parts = re.split(r"([_-])", label)
+    tokens = parts[::2]
+    while len(tokens) > 1 and _ACQ_PARAM_TOKEN.fullmatch(tokens[-1]):
+        tokens.pop()
+    seps = parts[1::2][: max(len(tokens) - 1, 0)]
+    out = tokens[0]
+    for sep, tok in zip(seps, tokens[1:]):
+        out += sep + tok
+    return out
+
+
+# A task label ending in a bare index, e.g. 'MAB3' -> ('MAB', 3), 'route6' ->
+# ('route', 6). Only meaningful when a sibling shares the stem; see
+# dcm2bids_config.build_task_run_mapping.
+_TRAILING_INDEX = re.compile(r"^(?P<stem>.*?[A-Za-z])[_-]?(?P<index>\d{1,3})$")
+
+
+def split_trailing_index(label: str) -> tuple[str, int | None]:
+    """Split a bare trailing index off a task label: 'MAB3' → ('MAB', 3).
+
+    Returns ``(label, None)`` when there is no trailing index. The caller must
+    decide whether the index is a *run* — on its own a trailing number is just
+    as likely to be a matrix size or an echo time ('EPI196'), which is why this
+    only reports the split and never applies it.
+    """
+    m = _TRAILING_INDEX.match(label)
+    if not m:
+        return label, None
+    return m.group("stem").rstrip("_-"), int(m.group("index"))
 
 
 def _sanitize_task_label(raw: str) -> str:
@@ -514,6 +640,7 @@ def parse_task_run(
         task_raw = core
         for noise in _TASK_NOISE:
             task_raw = noise.sub("", task_raw)
+        task_raw = _strip_acq_params(task_raw)
 
     return _sanitize_task_label(task_raw), run
 

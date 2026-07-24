@@ -36,7 +36,7 @@ from .dicom_inspect import FieldmapDetection, SeriesInfo
 # Classifications dcm2bids is *supposed* to leave behind. Everything else that
 # goes unclaimed is worth surfacing: an anat whose suffix vocabulary didn't match
 # used to vanish silently, which is exactly the failure this list must not hide.
-_EXPECTED_DROPS = frozenset({"scout", "physio"})
+_EXPECTED_DROPS = frozenset({"scout", "physio", "derived"})
 
 # dcm2bids writes a sidecar beside each of these; the image is the representative.
 _IMAGE_EXT = ".nii.gz"

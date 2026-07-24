@@ -65,6 +65,7 @@ from .dicom_inspect import (
     parse_task_run,
     reproin_entities,
     sanitize_task_label,
+    split_trailing_index,
 )
 
 
@@ -160,6 +161,46 @@ def _rule_lookup(rules: list[TaskRule] | None) -> dict[str, TaskRule]:
     return {r.description.strip().lower(): r for r in rules} if rules else {}
 
 
+def _shared_task_stems(
+    parsed: dict[int, tuple[str, int | None]],
+) -> dict[int, tuple[str, int]]:
+    """Find task labels that are really one task plus a bare run index.
+
+    LCNI protocols overwhelmingly name repeats by suffixing the console name
+    ('MAB1', 'MAB2', 'MAB3'; 'route1'…'route6'). Read one at a time those are
+    three unrelated tasks, and duckbrain emitted ``task-MAB1_run-1``,
+    ``task-MAB2_run-1``, … — the run entity meaningless and the task label
+    different for every repeat of the same paradigm.
+
+    The evidence that a trailing number is a run index is that *another series in
+    the same session shares the stem and carries a different index*. That is a
+    fact about the session, not a guess about vocabulary, so a lone 'EPI196'
+    (matrix size, no sibling) is left alone. Requiring distinct indices also
+    keeps a genuinely repeated acquisition of one name from being collapsed.
+
+    Returns ``{series_number: (stem, run_index)}`` for the series it claims.
+    """
+    groups: dict[str, list[tuple[int, int]]] = {}
+    for series_number, (task, run_token) in parsed.items():
+        if run_token is not None:
+            continue
+        stem, index = split_trailing_index(task)
+        if index is None or not stem:
+            continue
+        groups.setdefault(stem.lower(), []).append((series_number, index))
+
+    claimed: dict[int, tuple[str, int]] = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        if len({index for _, index in members}) != len(members):
+            continue
+        for series_number, index in members:
+            stem, _ = split_trailing_index(parsed[series_number][0])
+            claimed[series_number] = (sanitize_task_label(stem), index)
+    return claimed
+
+
 def build_task_run_mapping(
     series_list: list[SeriesInfo],
     template: str | None = None,
@@ -192,12 +233,25 @@ def build_task_run_mapping(
         (s for s in series_list if s.classification == "func"),
         key=lambda s: s.series_number,
     )
+    parsed = {}
+    for s in func:
+        parsed[s.series_number] = parse_task_run(s.description, template)
+    shared = _shared_task_stems(parsed)
+
     for s in func:
         # A rule overrides only the task; the run still comes from the name token
         # (else acquisition-order counting), so repeats never collide.
-        parsed_task, run_token = parse_task_run(s.description, template)
+        parsed_task, run_token = parsed[s.series_number]
         rule = lookup.get(s.description.strip().lower())
-        task = rule.task if rule is not None else parsed_task
+        if rule is not None:
+            task = rule.task
+        elif run_token is None and s.series_number in shared:
+            # 'MAB1'/'MAB2'/'MAB3' is one task acquired three times, not three
+            # tasks. Only trusted because siblings in this session share the
+            # stem — see _shared_task_stems.
+            task, run_token = shared[s.series_number]
+        else:
+            task = parsed_task
         if run_token is None:
             counters[task] = counters.get(task, 0) + 1
             run = counters[task]
@@ -546,6 +600,8 @@ def generate_config(
                 _fmap_description(group_dirs["pa"], "PA", group_id, group_name, extra_entity)
             )
 
+    _disambiguate_anat(descriptions)
+
     return {"descriptions": descriptions}
 
 
@@ -611,9 +667,12 @@ def _anat_description(series: SeriesInfo) -> dict | None:
 
     desc_lower = series.description.lower()
 
-    if "t1w" in desc_lower or "t1_" in desc_lower or "mprage" in desc_lower:
+    # Token-anchored for the same reason as the classifier's vocabulary: a bare
+    # ``"t1_" in desc`` also fires on 'BART1_…' and 'SST2_…'. The two must agree,
+    # or a series routes here as anat and then picks the wrong suffix.
+    if _ANAT_T1.search(desc_lower) or "mprage" in desc_lower:
         suffix = "T1w"
-    elif "t2w" in desc_lower or "t2_" in desc_lower:
+    elif _ANAT_T2.search(desc_lower):
         suffix = "T2w"
     elif "flair" in desc_lower:
         suffix = "FLAIR"
@@ -628,6 +687,39 @@ def _anat_description(series: SeriesInfo) -> dict | None:
             "SeriesNumber": series.series_number,
         },
     }
+
+
+_ANAT_T1 = re.compile(r"(?<![a-z0-9])t1(?:w|[_-])")
+_ANAT_T2 = re.compile(r"(?<![a-z0-9])t2(?:w|[_-])")
+
+
+def _disambiguate_anat(descriptions: list[dict]) -> None:
+    """Give repeated anatomicals a ``run-`` entity so they stop colliding.
+
+    An anat description carried no entities at all, so every T1w in a session
+    resolved to the same ``id`` *and* the same output filename. A protocol that
+    reshoots a moved MPRAGE, or acquires a fast localiser-quality T1 alongside
+    the full one, therefore wrote two or three images to one path and kept
+    whichever dcm2bids happened to write last — with the plan's collision check
+    the only signal, and only on the interactive page.
+
+    ``run-`` is added only when a suffix actually repeats, so the common
+    single-anatomical session keeps its plain ``sub-X_T1w`` name. Numbering is by
+    acquisition order, which is what the ``SeriesNumber`` criteria already sort by.
+    """
+    by_suffix: dict[str, list[dict]] = {}
+    for d in descriptions:
+        if d.get("datatype") == "anat":
+            by_suffix.setdefault(d["suffix"], []).append(d)
+
+    for suffix, group in by_suffix.items():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda d: d["criteria"]["SeriesNumber"])
+        for index, d in enumerate(group, start=1):
+            existing = d.get("custom_entities", "")
+            d["custom_entities"] = f"{existing}_run-{index}" if existing else f"run-{index}"
+            d["id"] = f"{d['id']}-run{index}"
 
 
 _B0_ILLEGAL = re.compile(r"[^A-Za-z0-9_-]+")
