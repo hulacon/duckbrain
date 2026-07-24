@@ -18,7 +18,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
-[`#18`](#18) type checking · [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
+[`#18`](#18) type checking · [`#20`](#20) conda environment ·
+[`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
 stages · [`#8`](#8) branding · [Loose ideas](#loose-ideas-not-scheduled)
@@ -249,6 +250,80 @@ filesystem holds no record of what was asked for), and config drift between runs
 exists for free already — `nordic.write_nordic_sidecars` writes one sidecar per
 intended run at launch, so NORDIC could be graded by "every sidecar has a
 matching NIfTI" without inventing anything.
+
+<a id="20"></a>
+## #20 — Ship a conda environment, not a `.venv`
+
+**Asked for by RACS and LCNI** (relayed 2026-07-24). It is the same institutional
+argument as `#2`'s distribution question: conda is what neuroimaging users on
+Talapas already have and what RACS supports, `module load miniconda3` needs no
+build node, and `environment.yml` pins the *interpreter* as well as the packages
+— which `pip install -e ".[dev]"` cannot, so today a new user's Python version is
+whatever `python3` happened to be.
+
+**Checked on-cluster 2026-07-24, before designing anything.** Four findings, two
+of which change the shape of the work:
+
+- 🔴 **`~/.condarc` is FSL's, and it is hostile.** The `fslinstaller` wrote it and
+  says in the file that it *rewrites it without warning*. It pins
+  `channel_priority: strict` with the FSL channel `#!top` and conda-forge
+  `#!bottom`, and pins `pkgs_dirs` to the read-only `/packages/fsl/.../pkgs` — all
+  marked `#!final`, so a lower-priority condarc cannot override them. This is not
+  a local quirk: **any user who ran `fslinstaller` has it**, which on an fMRI
+  cluster is most of them. So the env file must carry
+  `--override-channels -c conda-forge` semantics explicitly, and setup docs must
+  set `CONDA_PKGS_DIRS`. The first `conda env create` on a stock account will
+  otherwise resolve against FSL's channel and fail to write its package cache.
+  Also note `conda` on a bare `$PATH` here is *FSL's* conda, not a module's.
+- 🔴 **`ruff>=0.16,<0.17` does not exist on conda-forge** — it tops out at
+  0.15.22. That pin is a deliberate gate (see the comment on it in
+  `pyproject.toml`: unpinned, CI re-resolves the formatter and the same commit
+  goes red with nothing changed). So the dev extra **must** stay pip-installed
+  inside the conda env; conda cannot own the whole dependency set. Don't
+  "simplify" this away by relaxing the pin — that re-opens the bug the pin closed.
+- ✅ **Every runtime dependency solves cleanly from conda-forge on Python 3.11**,
+  verified by dry-run solve, and at essentially the versions the working `.venv`
+  already has: streamlit 1.60.0 (venv 1.59.1), pandas 3.0.3 (same), nibabel 5.4.2
+  (same), pydicom 3.0.2 (same), plotly 6.9.0 (venv 6.8.0), jinja2 3.1.6, tomli-w
+  1.2.0. So there is **no version-jump risk** — this is a packaging change, not a
+  dependency upgrade, and it should be kept that way.
+- ✅ Modules available: `miniconda3/20260319` and `miniconda3/20240410` (the
+  module's own `conda` is 23.11.0). `mamba`/`micromamba` are **not** on `$PATH`.
+
+**`neuroconda3` is not reusable — build a fresh one.** The existing env
+(`~/.conda/envs/neuroconda3`, Python 3.10.15, 359 packages, 2.2 GB) was created
+2024-10-08 for the mmmdata era and is missing four of duckbrain's eight runtime
+deps (streamlit, plotly, tomli-w — plus ruff). It carries a lot duckbrain never
+uses (gtk3, graphviz, nipype, h5py, dcm2niix), the `conda env create` source file
+it was built from (`~/tmp/neuroconda-20241006.yml`) **is gone**, so it is not
+reproducible except by `conda env export`, which would pin 2024 builds. And it
+lives under `~/.conda` — personal, un-shareable, which defeats the point.
+Its one useful property: it still imports fine, so it is a working fallback while
+this is built, not something to delete in a hurry.
+
+The work, then:
+
+- Add `environment.yml` (name `duckbrain`, conda-forge only, `python=3.11`, the
+  runtime deps) with a `pip:` section for `-e ".[dev]"` — which is what pulls the
+  pinned ruff and duckbrain itself. One file, and `pyproject.toml` stays the
+  single source of the dependency list as far as possible.
+- Decide **coexist or replace**. Coexisting is the cheap, honest answer:
+  `scripts/launch.sh` and `ondemand/template/script.sh.erb` already probe for
+  `.venv` and fall through, so they gain a conda branch ahead of it and nobody's
+  working checkout breaks. `#2`'s `UNVALIDATED` new-user walk should then be
+  walked on the **conda** path, since that becomes the documented one.
+- Decide **where the env lives**. `~/.conda/envs` is per-user and invisible to
+  others (`/home/bhutch` is `drwx------` — the same wall `#2` hit with the
+  containers). A shared `--prefix` under `/projects/hulacon/shared` would let one
+  build serve the PIRG, and there is no shared env there today. That is a
+  distribution decision, not a packaging one, and it belongs with `#2`.
+- CI (`.github/workflows/ci.yml`) is a separate call: GitHub runners have no FSL
+  condarc and pip works fine there, so switching CI to conda buys little and
+  costs solve time on every push. Leaving CI on pip while users get conda means
+  the gate no longer tests the path users take — say which trade-off was taken,
+  in the commit.
+- Update `README.md`, `QUICKSTART.md` and `CLAUDE.md` together; five places
+  currently instruct `python -m venv .venv`.
 
 <a id="2"></a>
 ## #2 — Onboarding for external users
