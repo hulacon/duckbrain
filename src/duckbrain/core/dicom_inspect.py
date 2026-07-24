@@ -125,7 +125,27 @@ _CLASSIFICATION_PATTERNS = [
             re.IGNORECASE,
         ),
     ),
-    ("fmap", re.compile(r"(se_epi|SpinEchoFieldMap|SEfieldmap)", re.IGNORECASE)),
+    # 'distortion_ap'/'distortion_pa' and 'fieldmap_2mm' are LCNI's own fieldmap
+    # names and matched none of these, so they classified unknown and were
+    # dropped with a generic warning. Recognising them does not by itself make
+    # them convertible — the GRE flavour still isn't expressible — but a
+    # fieldmap duckbrain names and refuses is worth far more to the user than a
+    # fieldmap it never saw. plan_warnings says which is which.
+    (
+        "fmap",
+        re.compile(
+            r"(se_epi|SpinEchoFieldMap|SEfieldmap|distortion|topup|pepolar"
+            r"|gre_field|field_?map|b0_?map)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "dwi",
+        re.compile(
+            _TOKEN_START + r"(?:dwi|dti|diffusion|diff)(?![A-Za-z0-9])",
+            re.IGNORECASE,
+        ),
+    ),
     ("scout", re.compile(_TOKEN_START + _AASCOUT + r"|\bscout\b|\blocalizer\b", re.IGNORECASE)),
     (
         "anat",
@@ -445,7 +465,7 @@ def _is_fieldmap(description: str) -> bool:
         return False
     if reproin_entities(description).get("seqtype") == "fmap":
         return True
-    return bool(re.search(r"se_epi|spinecho.*field|sefieldmap", desc))
+    return bool(re.search(r"se_epi|spinecho.*field|sefieldmap|distortion|topup|pepolar", desc))
 
 
 def _extract_fmap_group(desc_lower: str) -> str:

@@ -38,6 +38,21 @@ from .dicom_inspect import FieldmapDetection, SeriesInfo
 # used to vanish silently, which is exactly the failure this list must not hide.
 _EXPECTED_DROPS = frozenset({"scout", "physio", "derived"})
 
+# A datatype duckbrain *recognises* but cannot yet express. Naming the limit is
+# the point: dropped with "classified unknown" reads as a naming problem the
+# user could fix on the console, and they cannot. Both of these are common in
+# the LCNI repository — the gradient-echo fieldmap is the single most frequent
+# fieldmap flavour there, ahead of the pepolar pair duckbrain does support.
+_UNSUPPORTED_HINT = {
+    "fmap": (
+        " If this is a gradient-echo fieldmap (magnitude + phase difference),"
+        " duckbrain can only express the spin-echo AP/PA pair — the scans it"
+        " would have corrected will be preprocessed without distortion"
+        " correction."
+    ),
+    "dwi": " duckbrain does not convert diffusion series (no bval/bvec handling).",
+}
+
 # dcm2bids writes a sidecar beside each of these; the image is the representative.
 _IMAGE_EXT = ".nii.gz"
 
@@ -328,6 +343,7 @@ def plan_warnings(
                     f"Series {d.series_number} `{d.description}` "
                     f"(classified *{d.classification or 'unknown'}*) matches no "
                     "description and will not be converted."
+                    + _UNSUPPORTED_HINT.get(d.classification, "")
                 ),
                 series=[d.series_number],
             )

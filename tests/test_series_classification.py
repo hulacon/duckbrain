@@ -278,3 +278,48 @@ def test_bulk_convert_accepts_a_clean_session(tmp_path):
     series = _series((3, "mprage_p2_defaced"), (5, "encoding_bold_r1"), (9, "encoding_bold_r2"))
     config = generate_session_config(tmp_path, "001", "01", series_list=series)
     assert len(config["descriptions"]) == 3
+
+
+# --- recognised but not convertible ----------------------------------------
+@pytest.mark.parametrize(
+    "description",
+    ["distortion_ap", "distortion_pa", "fieldmap_2mm", "fieldmap1", "gre_field_mapping"],
+)
+def test_fieldmap_vocabulary_covers_the_names_lcni_actually_uses(description):
+    assert dicom_inspect._classify_one(description) == "fmap"
+
+
+def test_distortion_named_pairs_are_detected_as_pepolar():
+    """LCNI's DEV/Dissonance protocols name the AP/PA pair 'distortion_*'.
+
+    These matched nothing, so a real usable fieldmap pair was invisible.
+    """
+    series = _series((20, "distortion_ap"), (21, "distortion_pa"))
+    detection = dicom_inspect.detect_fieldmaps(series)
+    assert len(detection.groups) == 1
+    (group,) = detection.groups.values()
+    assert group == {"ap": 20, "pa": 21}
+
+
+@pytest.mark.parametrize(
+    "description", ["RL_diff_m2p2_64_2mm_rl", "ep2d_diff_mddw", "DTI_64dir", "dwi_b1000"]
+)
+def test_diffusion_series_are_named_even_though_they_cannot_be_converted(description):
+    assert dicom_inspect._classify_one(description) == "dwi"
+
+
+def test_the_plan_says_why_an_unconvertible_datatype_was_dropped():
+    """'classified unknown' reads as a naming problem the user could fix.
+
+    A gradient-echo fieldmap and a diffusion series are not that: duckbrain
+    recognises both and cannot express either, and the warning has to say so.
+    """
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+
+    series = _series((3, "mprage_p2_defaced"), (10, "fieldmap_2mm"), (12, "DTI_64dir"))
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="X", session="")
+    plan = plan_conversion(config, series, subject="X", session="")
+    messages = " ".join(w.message for w in plan_warnings(plan, detection))
+    assert "gradient-echo" in messages
+    assert "bval/bvec" in messages

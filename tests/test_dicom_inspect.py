@@ -111,9 +111,15 @@ def test_classify_recovers_func_via_sbref(descriptive_naming_session):
     }
 
 
-def test_classify_no_sbref_leaves_unknown(tmp_path):
-    """Without SBRef siblings, unrecognized series stay 'unknown' (no blind
-    volume-count promotion that could mislabel DWI/ASL as func)."""
+def test_classify_no_sbref_never_promotes_on_volume_count(tmp_path):
+    """A high-volume series is not a functional run just because it is long.
+
+    The rule this guards is that nothing is promoted to ``func`` from volume
+    count alone, which would mislabel DWI and ASL. A diffusion series now
+    classifies as ``dwi`` rather than ``unknown`` — duckbrain still cannot
+    convert it, but naming it is what lets the plan say *why* it was dropped
+    instead of reporting it as an unrecognised name the user could fix.
+    """
     session_dir = tmp_path / "session"
     session_dir.mkdir()
     for name, n in [("Series_1_diff_mb3_98dir", 98), ("Series_2_mprage", 176)]:
@@ -122,7 +128,7 @@ def test_classify_no_sbref_leaves_unknown(tmp_path):
         (d / "f.dcm").touch()
     series = classify_series(list_series(session_dir))
     by_desc = {s.description: s.classification for s in series}
-    assert by_desc["diff_mb3_98dir"] == "unknown"
+    assert by_desc["diff_mb3_98dir"] == "dwi"
     assert by_desc["mprage"] == "anat"
 
 
