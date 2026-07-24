@@ -27,7 +27,14 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
-    "ruff>=0.6",
+    # Bounded to one minor, because the formatter is a *gate*: unpinned, CI
+    # re-resolves it on every run, so the same commit passes one day and fails
+    # the next with nothing in the repo having changed. That is not hypothetical
+    # — 0.16 promoted Markdown formatting out of preview, picked up the Python
+    # blocks in docs/*.md for the first time, and turned main red on three
+    # commits that touched none of them. Raise the bound deliberately, in its own
+    # commit, so a restyle is reviewed rather than discovered.
+    "ruff>=0.16,<0.17",
 ]
 
 [tool.hatch.version]

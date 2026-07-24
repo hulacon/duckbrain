@@ -8,3 +8,7 @@
 
 # Repo-wide `ruff format` when the first lint/format gate landed (TODO #18).
 a95c950d8492e06ad9ec4cba8c3f91a33db00f01
+
+# `ruff format` on docs/pipeline-cockpit.md's Python blocks, which ruff 0.16
+# started formatting when Markdown came out of preview.
+84a9876a992f0df39d6373638dc9cccf2e0d0725

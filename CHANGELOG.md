@@ -117,8 +117,11 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   Python 3.10 and 3.12. Nothing about duckbrain's behaviour changes; what changes
   is that a regression can no longer merge on the strength of one machine being
   green. Lint, formatter and coverage settings live in `pyproject.toml`, so a
-  local run enforces exactly what CI does. The coverage floor starts at 60%
-  (measured 61%) and only ever goes up.
+  local run enforces exactly what CI does — and the formatter is version-bounded
+  so that keeps being true. An unpinned gate re-resolves itself on every run and
+  can turn a passing commit red with nothing in the repo having changed, which is
+  what ruff 0.16 did the day it began formatting Python inside Markdown. The
+  coverage floor starts at 60% (measured 61%) and only ever goes up.
 
   Two bugs fell out of the first lint run: a return annotation in
   `slurm/monitor.py` referenced `Path` with no such import (harmless until
