@@ -67,6 +67,11 @@ class SeriesHeader:
     echo_numbers: tuple[int, ...] = ()
     protocol_name: str = ""
     series_description: str = ""
+    # PulseSequenceName (enhanced) else SequenceName (classic) — the two are
+    # strictly complementary across the corpus, so one merged read covers both
+    # dialects. This is the console's name for the pulse sequence, not the
+    # operator's name for the series, so it says what was *run*.
+    sequence_name: str = ""
     dialect: str = ""  # "classic" | "enhanced"
     volumes: int = 0  # best-effort volume count; see single_volume for the exact test
     # Whether this series is a single volume. ``None`` when it could not be
@@ -265,6 +270,12 @@ def read_series_header(series_dir: str | Path) -> SeriesHeader | None:
             except (TypeError, ValueError):
                 continue
 
+    # XA30 renamed the tag rather than moving it into a functional group, and no
+    # series carries both, so one merged read serves both dialects.
+    sequence_name = str(
+        getattr(head, "PulseSequenceName", "") or getattr(head, "SequenceName", "") or ""
+    )
+
     if enhanced:
         epi_flag = getattr(head, "EchoPlanarPulseSequence", None)
         is_epi = None if epi_flag is None else str(epi_flag).upper() == "YES"
@@ -276,7 +287,6 @@ def read_series_header(series_dir: str | Path) -> SeriesHeader | None:
         dialect = "enhanced"
     else:
         scanning = {s.upper() for s in _as_tuple(getattr(head, "ScanningSequence", None))}
-        sequence_name = str(getattr(head, "SequenceName", "") or "")
         is_epi = ("EP" in scanning) if scanning else None
         # Two witnesses, and neither subsumes the other — measured on the corpus:
         # the pepolar spin-echo EPI ('epse2d1_104') reports ScanningSequence
@@ -313,6 +323,7 @@ def read_series_header(series_dir: str | Path) -> SeriesHeader | None:
         echo_numbers=tuple(sorted(echo_numbers)),
         protocol_name=str(getattr(head, "ProtocolName", "") or ""),
         series_description=str(getattr(head, "SeriesDescription", "") or ""),
+        sequence_name=sequence_name,
         dialect=dialect,
         volumes=len(files),
         single_volume=single_volume,
@@ -382,7 +393,9 @@ def classify_from_header(header: SeriesHeader) -> tuple[str, str]:
         # must still reach the name heuristics rather than be dropped here.
         if tuple(header.image_type[:2]) == ("DERIVED", "SECONDARY"):
             return "anat", ""
-        return "", ""
+        # Falls through to the sequence-name tier rather than returning here: an
+        # undefaced 3D series is where the scout and the SPACE both live, and the
+        # tier is the only evidence that separates them.
 
     if acquisition == "2D" and header.is_spin_echo and not header.is_epi:
         # Turbo/fast spin echo — the T2w in this corpus (TR 11–15 s, FA 150°).
@@ -392,4 +405,47 @@ def classify_from_header(header: SeriesHeader) -> tuple[str, str]:
         # 'epse' — those series only classified because their *name* said 't2'.
         return "anat", "T2w"
 
+    return _classify_from_sequence_name(header)
+
+
+# What the console called the pulse sequence, for the two classes nothing else
+# reaches. Deliberately small: every other family LCNI documents is already
+# decided above, and a second path could only disagree with a validated one.
+_SEQUENCE_CLASSES = {
+    # 3D FLASH non-selective — the AAHScout. Keyed on the full 'fl3d1_ns' token
+    # and not the bare 'fl3d1' family, because plain 3D FLASH (a VIBE) is a real
+    # anatomical elsewhere and must keep falling through.
+    "fl3d1_ns": ("scout", ""),
+    # SPACE. Matched exactly, not as a 'spc' prefix: 'spcir' is SPACE-FLAIR and
+    # would be mislabelled T2w, and there is no local data to validate a FLAIR
+    # rule against.
+    "spcr": ("anat", "T2w"),
+}
+
+
+def _classify_from_sequence_name(header: SeriesHeader) -> tuple[str, str]:
+    """Last tier — corroborates where nothing else decided, never overrules.
+
+    Three properties keep this safe, and they are properties of *where* it is
+    called rather than of the table:
+
+    * It runs after ``is_derived``, so a scout's MPR reformat is already
+      ``derived`` and never reaches the scout rule. That is what makes the
+      ``fl3d1`` family usable at all — half of it is those reformats.
+    * It cannot reach the deliberate ``("", "")`` returned for an SBRef whose
+      volume count is undetermined, which is an explicit early return. That
+      deferral exists so Siemens' own ``_SBRef`` suffix settles it in the name
+      pass.
+    * An unrecognised sequence name returns ``("", "")`` and the series lands in
+      the name heuristics exactly as before.
+
+    Siemens prefixes the non-EPI families with ``*`` (``*fl3d1_ns``,
+    ``*tfl3d1_16ns``, ``*fm2d2r``, ``*tse2d1_18``) and the EPI ones with nothing
+    (``epfid2d1_104``, ``epse2d1_104``, ``ep_b0``), so the asterisk carries no
+    signal here and is stripped before matching.
+    """
+    raw = header.sequence_name.lstrip("*").lower()
+    for token, verdict in _SEQUENCE_CLASSES.items():
+        if raw == token or raw.startswith(f"{token}_"):
+            return verdict
     return "", ""

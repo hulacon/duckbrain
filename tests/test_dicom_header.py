@@ -308,6 +308,7 @@ def _write_enhanced(directory: Path, count: int, **overrides) -> None:
         )
         ds.MRAcquisitionType = overrides.get("mr_acquisition_type", "2D")
         ds.EchoPlanarPulseSequence = overrides.get("epi", "YES")
+        ds.PulseSequenceName = overrides.get("sequence_name", "epfid2d1_116")
         timing = Dataset()
         timing.RFEchoTrainLength = overrides.get("echo_train", 0)
         shared = Dataset()
@@ -414,6 +415,90 @@ def test_a_dual_echo_turbo_spin_echo_is_not_a_gre_fieldmap_magnitude(tmp_path):
     header = read_series_header(directory)
     assert header.echo_numbers == (1, 2)
     assert classify_from_header(header) == ("anat", "T2w")
+
+
+def test_the_enhanced_dialect_carries_its_sequence_name_under_a_different_tag(tmp_path):
+    """XA30 renamed SequenceName to PulseSequenceName. No series carries both."""
+    from duckbrain.core.dicom_header import read_series_header
+
+    _write_classic(tmp_path / "Series_1_classic", 2, sequence_name="*tfl3d1_16ns")
+    _write_enhanced(tmp_path / "Series_2_enhanced", 2, sequence_name="*tfl3d1_16ns")
+    assert read_series_header(tmp_path / "Series_1_classic").sequence_name == "*tfl3d1_16ns"
+    assert read_series_header(tmp_path / "Series_2_enhanced").sequence_name == "*tfl3d1_16ns"
+
+
+def test_a_scout_is_recognised_from_its_sequence_name_when_the_name_says_nothing():
+    """The localizer vocabulary only knows 'scout'/'localizer'/'aa_scout'.
+
+    A site that calls its localizer anything else classified 'unknown' and the
+    user got a warning about a series duckbrain should have known to drop.
+    """
+    header = classic(
+        mr_acquisition_type="3D",
+        is_epi=False,
+        image_type=("ORIGINAL", "PRIMARY", "M", "ND", "NORM"),
+        sequence_name="*fl3d1_ns",
+        volumes=128,
+    )
+    assert classify_from_header(header) == ("scout", "")
+
+
+def test_a_scout_reformat_is_derived_before_the_sequence_tier_sees_it():
+    """The ordering guard, and the reason the fl3d1 rule is usable at all.
+
+    Half of that family in the corpus is the scout's own MPR reformats, which
+    carry the same sequence name. They are claimed by is_derived one tier
+    earlier — if the tier ran first they would classify 'scout' and the
+    distinction between a localizer and its reformats would be lost.
+    """
+    header = classic(
+        mr_acquisition_type="3D",
+        is_epi=False,
+        image_type=("DERIVED", "PRIMARY", "MPR", "ND"),
+        sequence_name="*fl3d1_ns",
+    )
+    assert classify_from_header(header) == ("derived", "")
+
+
+def test_a_3d_space_is_a_t2w_from_its_sequence_name():
+    """WMS/WMS179 Series_21 't2_space_sag_p2_iso', verbatim.
+
+    Undefaced, so it is ORIGINAL\\PRIMARY and the 3D DERIVED\\SECONDARY rule
+    never reaches it; enhanced, so the sequence name arrives as
+    PulseSequenceName with no ScanningSequence beside it. The tier is the only
+    header evidence that names this one.
+    """
+    header = enhanced(
+        mr_acquisition_type="3D",
+        is_epi=False,
+        image_type=("ORIGINAL", "PRIMARY", "M", "NONE"),
+        sequence_name="*spcR_282ns",
+        volumes=176,
+    )
+    assert classify_from_header(header) == ("anat", "T2w")
+
+
+@pytest.mark.parametrize("sequence_name", ["*spcir_282ns", "*fl3d1_16ns", "wibble2d1_9", ""])
+def test_an_unrecognised_sequence_name_falls_through_to_the_name_pass(sequence_name):
+    """Narrow keying is the contract: 'spcir' is SPACE-FLAIR, not a T2w, and a
+    bare 'fl3d1' is a VIBE anatomical rather than a scout."""
+    header = classic(
+        mr_acquisition_type="3D",
+        is_epi=False,
+        image_type=("ORIGINAL", "PRIMARY", "M", "NORM"),
+        sequence_name=sequence_name,
+    )
+    assert classify_from_header(header) == ("", "")
+
+
+def test_the_sequence_tier_does_not_claim_an_undetermined_reference():
+    """The other ordering guard, against anyone later adding epfid2d1 to the table.
+
+    A 2D gradient-echo EPI whose volume count could not be settled returns early
+    on purpose, so Siemens' own _SBRef suffix decides it in the name pass.
+    """
+    header = classic(single_volume=None, sequence_name="epfid2d1_116")
+    assert classify_from_header(header) == ("", "")
 
 
 def test_reads_an_enhanced_bold_series(tmp_path):

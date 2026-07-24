@@ -88,6 +88,38 @@ def test_the_name_outranks_the_header_suffix_hint():
     assert dcm2bids_config._anat_description(series)["suffix"] == "T1w"
 
 
+def test_a_localizer_with_an_unfamiliar_name_is_still_dropped():
+    """End to end: the sequence name is what saves this one.
+
+    'survey' is what other vendors call a localizer and duckbrain's vocabulary
+    does not know it, so this classified 'unknown' and was reported as a series
+    duckbrain could not place.
+    """
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    series = [
+        SeriesInfo(
+            series_number=1,
+            description="survey",
+            path=Path("/nonexistent"),
+            file_count=128,
+            header=SeriesHeader(
+                modality="MR",
+                image_type=("ORIGINAL", "PRIMARY", "M", "ND", "NORM"),
+                mr_acquisition_type="3D",
+                is_epi=False,
+                is_spin_echo=False,
+                sequence_name="*fl3d1_ns",
+                dialect="classic",
+                volumes=128,
+            ),
+        )
+    ]
+    dicom_inspect.classify_series(series)
+    assert series[0].classification == "scout"
+    assert series[0].classified_by == "header"
+
+
 # --- scanner localizers ----------------------------------------------------
 # r"\bscout\b" never matches 'aa_scout': '_' is a word character, so there is no
 # boundary before 's'. Nor 'AAHScout', where the words run together.
