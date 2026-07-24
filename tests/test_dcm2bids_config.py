@@ -1,5 +1,7 @@
 """Tests for the task/run mapping + dcm2bids config generation."""
 
+import re
+
 from duckbrain.core.dicom_inspect import (
     SeriesInfo,
     parse_task_run,
@@ -16,7 +18,7 @@ from duckbrain.core.dcm2bids_config import (
     fmap_rules_to_config_section,
     resolve_fmap_assignments,
 )
-from duckbrain.core.dicom_inspect import FieldmapDetection
+from duckbrain.core.dicom_inspect import FieldmapDetection, detect_fieldmaps
 
 
 def _series(num, desc, cls, n=300):
@@ -208,6 +210,87 @@ def test_generate_config_bold_skips_incomplete_fmap_group():
     cfg = generate_config(series, fmaps)
     bold = [d for d in cfg["descriptions"] if d["suffix"] == "bold"][0]
     assert bold["sidecar_changes"]["B0FieldSource"] == "B0map_2"
+
+
+# ---- B0 identifiers must survive nipype ----
+#
+# sdcflows names a nipype node after the B0FieldIdentifier it reads, and nipype
+# validates node names against this. A group name off the scanner ("2.5mm")
+# reached the sidecar verbatim and aborted every fMRIPrep run on divatten_beta
+# at workflow-build time: `Node name "out_B0map_2.5mm" is not valid`.
+_NIPYPE_NODE_NAME = re.compile(r"^[\w-]+$")
+
+
+def test_b0_identifier_from_a_real_series_name_is_a_legal_node_name():
+    """`se_epi_2.5mm_ap` must not put a period in B0FieldIdentifier.
+
+    Driven from the series descriptions rather than a hand-built
+    FieldmapDetection, because the period enters at group *detection* — a test
+    that skips that step passes while the pipeline it stands for fails. These
+    are the literal series names under
+    /projects/lcni/dcm/hulacon/Hutchinson/divatten.
+    """
+    series = [
+        _series(6, "se_epi_2.5mm_ap", "fmap", n=3),
+        _series(7, "se_epi_2.5mm_pa", "fmap", n=3),
+        _series(9, "div_perFace_perTone_r1", "func", n=200),
+    ]
+    cfg = generate_config(series, detect_fieldmaps(series))
+
+    fmaps = [d for d in cfg["descriptions"] if d["datatype"] == "fmap"]
+    bold = [d for d in cfg["descriptions"] if d["suffix"] == "bold"][0]
+    identifiers = {d["sidecar_changes"]["B0FieldIdentifier"] for d in fmaps}
+
+    assert identifiers == {"B0map_25mm"}
+    # Both halves of the pair, and the bold that consumes them, or fMRIPrep
+    # estimates a field it then applies to nothing.
+    assert len(fmaps) == 2
+    assert bold["sidecar_changes"]["B0FieldSource"] == "B0map_25mm"
+
+    for value in identifiers | {bold["sidecar_changes"]["B0FieldSource"]}:
+        assert _NIPYPE_NODE_NAME.match(f"out_{value}"), f"nipype rejects out_{value}"
+
+
+def test_b0_identifier_keeps_hyphens_and_underscores():
+    """Only *illegal* characters go; the repeat-pair suffix must survive.
+
+    nipype accepts `-` and `_`, and they carry meaning here: `encoding-2` is the
+    second pair of a reacquired group, and sub_ses distinguishes subjects.
+    Reaching for sanitize_task_label (which enforces BIDS-entity rules, strictly
+    alphanumeric) would collapse `encoding-2` onto `encoding` and merge two
+    distinct fieldmaps.
+    """
+    series, fmaps, mapping = _two_pair_session()
+    cfg = generate_config(series, fmaps, mapping=mapping, subject="001", session="01")
+    written = {
+        d["sidecar_changes"]["B0FieldIdentifier"]
+        for d in cfg["descriptions"]
+        if d["datatype"] == "fmap"
+    }
+    assert written == {"B0map_encoding_sub001ses01", "B0map_encoding-2_sub001ses01"}
+    for value in written:
+        assert _NIPYPE_NODE_NAME.match(f"out_{value}")
+
+
+def test_b0_identifiers_colliding_after_stripping_raise():
+    """Two groups differing only in punctuation must fail, not silently merge.
+
+    `2.5mm` and `25mm` both reduce to `B0map_25mm`; fMRIPrep would take the four
+    images as one estimator and correct every bold from the wrong pair — output
+    that looks processed and is deformed. The rule this repo runs on: a thing
+    that cannot do what it says raises.
+    """
+    series = [
+        _series(6, "se_epi_2.5mm_ap", "fmap", n=3),
+        _series(7, "se_epi_2.5mm_pa", "fmap", n=3),
+        _series(8, "se_epi_25mm_ap", "fmap", n=3),
+        _series(9, "se_epi_25mm_pa", "fmap", n=3),
+    ]
+    fmaps = detect_fieldmaps(series)
+    assert set(fmaps.groups) == {"2.5mm", "25mm"}
+
+    with pytest.raises(ValueError, match="reduce to the B0 identifier 'B0map_25mm'"):
+        generate_config(series, fmaps)
 
 
 def test_generate_config_reproin_anat_label_sets_the_suffix():

@@ -471,8 +471,7 @@ def generate_config(
             task, run, fieldmaps, fmap_group_assignments, fmap_rule_lookup
         )
         if fmap_group is not None:
-            group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
-            desc["sidecar_changes"]["B0FieldSource"] = group_id
+            desc["sidecar_changes"]["B0FieldSource"] = _b0_identifier(fmap_group, sub_ses)
 
         descriptions.append(desc)
 
@@ -509,14 +508,31 @@ def generate_config(
             task, run, fieldmaps, fmap_group_assignments, fmap_rule_lookup
         )
         if fmap_group is not None:
-            group_id = f"B0map_{fmap_group}_{sub_ses}" if sub_ses else f"B0map_{fmap_group}"
-            desc["sidecar_changes"] = {"B0FieldSource": group_id}
+            desc["sidecar_changes"] = {"B0FieldSource": _b0_identifier(fmap_group, sub_ses)}
 
         descriptions.append(desc)
 
     # --- Fieldmaps ---
+    # Stripping illegal characters can map two group names onto one identifier
+    # ("2.5mm" and "25mm"), which would hand fMRIPrep two pairs as a single
+    # estimator and correct every bold from the wrong images — processed-looking
+    # output, silently deformed. Fail instead; the group names come from series
+    # descriptions, so the fix is to rename a sequence on the console.
+    by_identifier: dict[str, str] = {}
+    for group_name in fieldmaps.groups:
+        gid = _b0_identifier(group_name, sub_ses)
+        if gid in by_identifier:
+            raise ValueError(
+                f"Fieldmap groups '{by_identifier[gid]}' and '{group_name}' both "
+                f"reduce to the B0 identifier '{gid}' once characters illegal in "
+                f"a nipype node name are removed. fMRIPrep would treat the two "
+                f"pairs as one fieldmap. Rename one of the source series so the "
+                f"groups differ by more than punctuation."
+            )
+        by_identifier[gid] = group_name
+
     for group_name, group_dirs in fieldmaps.groups.items():
-        group_id = f"B0map_{group_name}_{sub_ses}" if sub_ses else f"B0map_{group_name}"
+        group_id = _b0_identifier(group_name, sub_ses)
         # Extra entity (acq-/run-) that keeps multiple pairs from colliding on the
         # same dir-<X> filename; empty for the lone-pair case.
         extra_entity = fieldmaps.group_entities.get(group_name, "")
@@ -612,6 +628,33 @@ def _anat_description(series: SeriesInfo) -> dict | None:
             "SeriesNumber": series.series_number,
         },
     }
+
+
+_B0_ILLEGAL = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def _b0_identifier(group_name: str, sub_ses: str) -> str:
+    """Compose the ``B0map_…`` string binding a fieldmap to the scans it corrects.
+
+    The group name arrives straight off the scanner's series description
+    (``se_epi_2.5mm_ap`` yields the group ``2.5mm``), and sdcflows names a nipype
+    node after whatever it reads from ``B0FieldIdentifier``. nipype accepts only
+    ``[\\w-]`` in a node name, so a period aborts fMRIPrep at workflow-build time
+    with ``Node name "out_B0map_2.5mm" is not valid`` — before a single volume is
+    processed. Dropping the illegal characters is the whole fix.
+
+    Hyphens and underscores are legal and are deliberately **kept**: the
+    repeat-pair suffix (``encoding-2``) and ``sub_ses`` both need them to stay
+    distinguishable, which is why this is narrower than
+    :func:`~duckbrain.core.dicom_inspect.sanitize_task_label` — that one targets
+    BIDS entity values, which must be strictly alphanumeric, and would collapse
+    ``encoding-2`` into ``encoding2``.
+
+    An empty group name stays empty (``B0map_``). The lone unnamed pair is the
+    common case and was always valid.
+    """
+    composed = f"B0map_{group_name}_{sub_ses}" if sub_ses else f"B0map_{group_name}"
+    return _B0_ILLEGAL.sub("", composed)
 
 
 def _fmap_description(

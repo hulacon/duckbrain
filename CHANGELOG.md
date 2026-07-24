@@ -116,6 +116,32 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **A voxel size in a fieldmap's series name aborted every fMRIPrep run.** The
+  B0 identifier is composed from the fieldmap group name, which comes straight
+  off the scanner's SeriesDescription — `se_epi_2.5mm_ap` yields the group
+  `2.5mm` and the identifier `B0map_2.5mm`. sdcflows names a nipype node after
+  whatever it reads from `B0FieldIdentifier`, and nipype accepts only `[\w-]`,
+  so the period killed the run at workflow-build time (`Node name
+  "out_B0map_2.5mm" is not valid`) before a single volume was processed.
+  Characters illegal in a node name are now stripped, giving `B0map_25mm`;
+  hyphens and underscores are kept, because the repeat-pair suffix
+  (`encoding-2`) and the subject/session suffix need them to stay distinct.
+
+  This is the fieldmap-intent fix surfacing a second bug underneath it. While
+  `B0FieldIdentifier` and `B0FieldSource` were inverted, sdcflows found no
+  estimator, never built a node named after the identifier, and fMRIPrep ran
+  happily without distortion correction. Correcting the intent made PEPOLAR
+  estimation genuinely fire, and the malformed identifier was read for the first
+  time. Every test fixture had used group names that were already alphanumeric,
+  which is why nothing caught it. Datasets converted before this fix keep the
+  old identifier and need their `B0Field*` sidecar values rewritten (or the
+  subject reconverted) before fMRIPrep will run.
+
+  Two group names that differ only in punctuation (`2.5mm` and `25mm`) would
+  reduce to one identifier and hand fMRIPrep both pairs as a single estimator —
+  distortion correction built from the wrong images, which looks processed. That
+  now raises at config-generation time instead.
+
 *The block below answers an external code review of 2026-07-22
 (`docs/code-review-260722.md`); see TODO `#18`.*
 
