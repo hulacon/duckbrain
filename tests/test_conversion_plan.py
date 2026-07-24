@@ -429,3 +429,131 @@ def test_a_complete_pair_still_wins_when_a_half_pair_is_also_present():
     plan, _ = _plan(series)
 
     assert next(f for f in plan.files if f.is_bold).fmap_group == "good"
+
+
+# ---- gradient-echo fieldmaps (TODO #19.6) ----------------------------------
+# LCNI flagged that older fieldmaps are gradient double-echo rather than
+# spin-echo. Two defects fell out of checking it against the repository corpus,
+# and both are pinned here. The fixture mirrors REV/REV055_20150811_135636,
+# which shoots two GRE pairs around the run blocks.
+
+
+def _gre_pair(magnitude_num, phase_num, description):
+    """One gradient-echo fieldmap pair, classified as the header reader would."""
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    def one(num, image_type, echoes, volumes):
+        s = SeriesInfo(
+            series_number=num,
+            description=description,
+            path=None,
+            file_count=volumes,
+            header=SeriesHeader(
+                modality="MR",
+                mr_acquisition_type="2D",
+                is_epi=False,
+                is_spin_echo=False,
+                dialect="classic",
+                image_type=image_type,
+                echo_numbers=echoes,
+                volumes=volumes,
+                single_volume=False,
+            ),
+        )
+        return s
+
+    return [
+        one(magnitude_num, ("ORIGINAL", "PRIMARY", "M", "ND", "NORM"), (1, 2), 144),
+        one(phase_num, ("ORIGINAL", "PRIMARY", "P", "ND"), (2,), 72),
+    ]
+
+
+def test_a_complete_gre_pair_is_not_reported_as_a_half_pair():
+    """The half-pair check tested ap/pa membership instead of is_complete_group.
+
+    A ``{magnitude, phasediff}`` group has neither, so every gradient-echo
+    session was told its fieldmap "can't correct anything and isn't offered for
+    binding" — while the runs were in fact bound to it.
+    """
+    series = [*_gre_pair(5, 6, "fieldmap_2mm"), _bold(9, "food", 1)]
+    plan, fieldmaps = _plan(series)
+    warnings = plan_warnings(plan, fieldmaps)
+    assert [w for w in fieldmaps.groups.values() if "magnitude" in w], "fixture sanity"
+    assert not [w for w in warnings if w.kind == "half-pair"]
+
+
+def test_a_gre_pair_missing_its_phase_half_is_still_flagged():
+    """The fix must not silence the real case it was there for."""
+    series = [_gre_pair(5, 6, "fieldmap_2mm")[0], _bold(9, "food", 1)]
+    plan, fieldmaps = _plan(series)
+    # No group forms at all without a phase partner, so detect_fieldmaps warns;
+    # what matters is that a group holding only one half never reads as usable.
+    from duckbrain.core.dicom_inspect import is_complete_group
+
+    assert all(not is_complete_group(m) for m in fieldmaps.groups.values())
+
+
+def test_two_gre_pairs_get_distinct_filenames():
+    """Both pairs collided on sub-X_ses-Y_phasediff, so the session refused.
+
+    group_entities was populated only on the spin-echo path, so two gradient-echo
+    pairs wrote identical names. The collision check caught it as an error —
+    nothing was lost — but the session could not convert at all.
+    """
+    series = [
+        *_gre_pair(7, 8, "fieldmap1"),
+        _bold(9, "BART", 1),
+        *_gre_pair(13, 14, "fieldmap2"),
+        _bold(15, "React", 1),
+    ]
+    plan, fieldmaps = _plan(series, subject="REV055", session="1")
+
+    assert len(fieldmaps.groups) == 2, "both pairs are found"
+    assert len(set(fieldmaps.group_entities.values())) == 2, "and told apart"
+
+    collisions = [w for w in plan_warnings(plan, fieldmaps) if w.kind == "collision"]
+    assert not collisions, [w.message for w in collisions]
+
+    fmap_files = sorted(f.path for f in plan.files if "/fmap/" in f.path)
+    assert len(fmap_files) == len(set(fmap_files)), fmap_files
+
+
+def test_a_lone_gre_pair_keeps_the_bare_filename():
+    """The entity is only warranted when something would collide."""
+    series = [*_gre_pair(5, 6, "fieldmap_2mm"), _bold(9, "food", 1)]
+    plan, fieldmaps = _plan(series, subject="CC052", session="1")
+    assert fieldmaps.group_entities == {}
+    names = {f.path.rsplit("/", 1)[-1] for f in plan.files if "/fmap/" in f.path}
+    assert names == {
+        "sub-CC052_ses-1_magnitude1.nii.gz",
+        "sub-CC052_ses-1_magnitude2.nii.gz",
+        "sub-CC052_ses-1_phasediff.nii.gz",
+    }
+
+
+def test_two_gre_pairs_sharing_one_name_get_legal_entity_values():
+    """A BIDS entity value is alphanumeric — the disambiguator must not leak in.
+
+    ``_detect_gre_fieldmaps`` suffixes a repeated group name with ``-2`` to keep
+    the namespace unique. Spelling that straight into ``acq-`` would emit
+    ``acq-greFieldMapping-2``, which re-parses as a second entity. A repeat is
+    what ``run-`` is for.
+    """
+    series = [
+        *_gre_pair(5, 6, "gre_field_mapping"),
+        _bold(7, "food", 1),
+        *_gre_pair(9, 10, "gre_field_mapping"),
+    ]
+    plan, fieldmaps = _plan(series, subject="X", session="1")
+
+    values = list(fieldmaps.group_entities.values())
+    assert len(set(values)) == 2, values
+    for entity in values:
+        for token in entity.split("_"):
+            key, _, value = token.partition("-")
+            assert value.isalnum(), f"{token} is not a legal BIDS entity"
+            assert key in ("acq", "run"), token
+
+    fmap_files = sorted(f.path for f in plan.files if "/fmap/" in f.path)
+    assert len(fmap_files) == len(set(fmap_files)), fmap_files
+    assert not [w for w in plan_warnings(plan, fieldmaps) if w.severity == "error"]

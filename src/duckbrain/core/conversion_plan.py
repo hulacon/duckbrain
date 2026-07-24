@@ -342,24 +342,37 @@ def plan_warnings(
                 )
             )
 
-    # --- Half pairs: a group with one phase-encoding direction cannot be used
-    # for distortion correction. detect_fieldmaps already warns; repeated here so
+    # --- Half pairs: a group missing one of its two halves cannot be used for
+    # distortion correction. detect_fieldmaps already warns; repeated here so
     # everything blocking a good conversion is in one panel.
+    #
+    # Completeness is `is_complete_group` and nothing else. Testing ap/pa
+    # membership here instead read *every* gradient-echo group as a half pair —
+    # a {magnitude, phasediff} group has neither key — so each one was reported
+    # as unusable while its runs were in fact bound to it. That predicate exists
+    # to be the single answer to "is this group usable"; the GUI's completeness
+    # check had already been moved onto it and this call site had not.
     if fieldmaps is not None:
         for group, dirs in sorted(fieldmaps.groups.items()):
-            missing = [d for d in ("ap", "pa") if d not in dirs]
-            if not missing:
+            if is_complete_group(dirs):
                 continue
             label = group or "(unnamed)"
+            # Name the halves the flavour actually needs: a pepolar pair is two
+            # phase-encoding directions, a gradient-echo one is two series.
+            needs = (
+                "both a magnitude and a phase series"
+                if {"magnitude", "phasediff"} & set(dirs)
+                else "both AP and PA"
+            )
             out.append(
                 PlanWarning(
                     kind="half-pair",
                     severity="warning",
                     message=(
                         f"Fieldmap group **{label}** has only "
-                        f"{', '.join(sorted(dirs)).upper()} — a pair needs both AP "
-                        "and PA, so this group can't correct anything and isn't "
-                        "offered for binding."
+                        f"{', '.join(sorted(dirs)).upper()} — a pair needs {needs}, "
+                        "so this group can't correct anything and isn't offered "
+                        "for binding."
                     ),
                     series=sorted(dirs.values()),
                 )

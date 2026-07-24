@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -550,6 +551,7 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
 
     # The two flavours share one namespace so that binding, entity naming and
     # the collision checks work on both without knowing which is which.
+    gre_keys: list[tuple[str, str]] = []
     for gname, members in gre_groups.items():
         key = gname
         suffix = 2
@@ -557,7 +559,37 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
             key = f"{gname}-{suffix}"
             suffix += 1
         groups[key] = members
+        gre_keys.append((key, gname))
     warnings.extend(gre_warnings)
+
+    # Two gradient-echo pairs collide where two pepolar pairs do, but harder to
+    # see: a pepolar pair at least carries ``dir-<X>``, whereas both halves of a
+    # GRE pair write bare ``magnitude1``/``magnitude2``/``phasediff``. Without an
+    # entity the second pair lands on the first pair's filenames — which is
+    # exactly what the LCNI curator's own tree shows, one unentitled phasediff
+    # where the DICOMs hold two pairs (REV055/REV074/REV126). duckbrain caught it
+    # as a collision *error* rather than overwriting, so nothing was lost, but
+    # the session then could not convert at all. Same entity shape as the pepolar
+    # path above so the two flavours read alike.
+    if len(gre_keys) > 1:
+        # The *base* label, not the key: _detect_gre_fieldmaps already appended
+        # "-2", "-3" … to keep two same-named pairs distinct in the namespace,
+        # and a BIDS entity value must be alphanumeric — `acq-greFieldMapping-2`
+        # would re-parse as a second entity. Names arrive here sanitized, so they
+        # can never hold a hyphen of their own and this suffix is unambiguous.
+        # A repeat is what `run-` is for; that is also how the pepolar path
+        # spells it.
+        bases = [(key, re.sub(r"-\d+$", "", key)) for key, _ in gre_keys]
+        repeats = Counter(base for _, base in bases)
+        run_index: dict[str, int] = {}
+        for key, base in bases:
+            run_index[base] = run_index.get(base, 0) + 1
+            # ``gre`` is the placeholder for a description carrying no group
+            # label, not a label read off the data — so it never becomes acq-.
+            entity = f"acq-{base}" if base and base != "gre" else ""
+            if repeats[base] > 1 or not entity:
+                entity = f"{entity}_run-{run_index[base]}" if entity else f"run-{run_index[base]}"
+            group_entities[key] = entity
 
     if not groups:
         return FieldmapDetection(strategy="none", warnings=warnings)

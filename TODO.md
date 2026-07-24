@@ -770,7 +770,42 @@ REV055. What it does *not* settle is a session that shoots **two pairs
 back-to-back** and expects a policy ("keep the last"): the times are then nearly
 equal and a tie falls through to first-group. That residue is genuinely a
 declaration, and belongs with `#16`'s `[expected]`, not a heuristic. duckbrain
-converts both pairs, which is at least visible.
+converts both pairs, which is at least visible — for gradient-echo as well as
+spin-echo since `#19.6`.
+
+### `#19.6` — Gradient-echo (GRE) fieldmaps — the two defects are DONE (2026-07-24, see ledger)
+
+**Prompted by LCNI**, who flagged that older fieldmaps are gradient double-echo
+rather than spin-echo and that converters mispair them when the magnitude and
+phase series aren't neighbouring. **The adjacency concern was unfounded** —
+`_detect_gre_fieldmaps` pairs on header `ImageType` (`P` marks phase) plus an
+identical `SeriesDescription` and ordering, never on `SeriesNumber + 1`; fed a
+magnitude at 5 and a phase at 12 it pairs them. All 38 GRE pairs the corpus
+actually holds are `+1`, so that robustness is by design rather than by
+validation. Checking it surfaced two real defects, both since fixed:
+`plan_warnings` calling `is_complete_group` rather than testing `ap`/`pa`, and
+GRE groups getting the same `acq-`/`run-` entities spin-echo pairs already had.
+
+**What the corpus proved about the rest of it.** duckbrain agrees with the
+curator on 26 of 32 GRE sessions and the other 6 are the ones above — where
+duckbrain finds a **second** GRE pair the canonical tree lost. REV055 ses-1 holds
+`fieldmap1` (series 7/8) and `fieldmap2` (13/14); canonical kept one unentitled
+`phasediff`, i.e. the curator hit this same collision and silently kept the last.
+So on these six duckbrain is right and canonical is wrong — another instance of
+`memory/lcni-repository-corpus`'s point that the canonical tree is not an oracle.
+Also confirmed: no BIDS Case-2 (`phase1`/`phase2`) or Case-3 (`_fieldmap`) data
+exists in the corpus, so `phasediff` is the only GRE flavour implemented and the
+only one present; and `EchoTime1`/`EchoTime2` are correctly left to dcm2niix
+(present in the canonical sidecars at 0.00437/0.00683) rather than injected.
+
+**Two fragilities left standing, neither observed in the corpus**, both of which
+drop a fieldmap *with warnings* rather than silently: a phase series that
+*precedes* its magnitude (the pairing requires the phase to sort after), and
+halves whose `SeriesDescription` differs (the pairing requires them equal, e.g.
+`gre_field_mapping` vs `gre_field_mapping_phase`). A magnitude split into two
+single-echo series also fails, since a magnitude is recognised by
+`len(echo_numbers) > 1`. Worth a decision, not a speculative fix — there is
+nothing local to validate against, which is `#19.2`'s reasoning.
 
 ### `#19.4` — DONE (2026-07-24, see ledger)
 
@@ -836,6 +871,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-24 | #19.6 | **Two gradient-echo fieldmap defects, prompted by LCNI** flagging that older fieldmaps are gradient double-echo and that converters mispair them when the halves aren't neighbouring. **That concern was unfounded** — pairing is header `ImageType` + identical description + ordering, never `SeriesNumber + 1`; a magnitude at 5 and a phase at 12 pair fine (all 38 GRE pairs the corpus holds happen to be `+1`, so the robustness is by design, not validation). What checking it *did* find: (a) `plan_warnings`'s half-pair check tested `ap`/`pa` membership rather than calling `is_complete_group`, so **every** GRE session was told its complete fieldmap "can't correct anything and isn't offered for binding" — false in both halves, since the runs were bound to it. `is_complete_group` exists to be the one predicate and the GUI had already moved onto it; this call site had not. (b) `group_entities` was populated only on the pepolar path, so two GRE pairs both wrote `sub-X_ses-Y_{magnitude1,magnitude2,phasediff}`. The collision check caught it as an *error* so nothing was overwritten, but the session could not convert at all and the message advised "distinct task or run values", which a fieldmap has none of. GRE groups now take the same `acq-`/`run-` entities. Fixed on all 6 affected corpus sessions (REV055/REV074/REV126, both sessions each) with binding unchanged; corpus-wide re-run confirms no duplicate fmap filename and no false half-pair anywhere. The 6 are also where duckbrain finds a **second** pair the canonical tree lost — the curator hit this same collision and silently kept the last |
 | 2026-07-24 | #19.3 #19.4 | **Three heudiconv ideas borrowed after comparing against its canonical DIVATTEN run on this filesystem.** (1) **Bold→fmap binding by acquisition time** — heudiconv's real criterion is shim settings (a fieldmap corrects only what shares its shim group), but Siemens keeps the shim in a CSA blob not populated until dcm2niix runs, and 36% of the corpus is XA30 with no CSA; AcquisitionTime is the portable proxy and is standard in both dialects. The old "first complete group" bound every run to whichever pair sorted first — wrong for every run after the second pair. Validated on REV055 (fieldmap1 binds GNG/BART, fieldmap2 binds SST/React). Explicit rule and name-match still outrank it; the preview path takes the same time lookup so it can't drift. (2) **Empty source directories flagged** — `plan_warnings` now carries each planned file's source file count and raises when zero, instead of predicting a file dcm2bids silently can't make. (3) Persisting the seqinfo table (heudiconv's `dicominfo.tsv`) not done — `classified_by` already surfaces the same on the Conversion page. heudiconv is Apache-2.0, so borrowing is one-way |
 | 2026-07-24 | — | **Two latent bugs the borrowing exposed.** (a) sbref-vs-bold was decided by `len(files) == 1`, a volume count only for a Siemens mosaic or enhanced series — a non-mosaic/GE/Philips single-volume reference arrives as one file per slice and read as a multi-volume BOLD; now settled by counting distinct slice positions, and an undetermined count defers to the name. The scan runs only for a 2D gradient-echo EPI. (b) an `_ND` copy was demoted whenever a same-named twin existed, without looking inside it — Crave_control/CC056 has the corrected mprage folder present but *empty* beside a populated `_ND` copy, so the session got no anatomical; the twin must now be non-empty |
 | 2026-07-24 | — | **Conversion hardened against the LCNI repository** (`/projects/lcni/dcm/repository` — 15 studies, 189 series descriptions, 112 sessions paired with canonical BIDS). Agreement with the curator went from **109 of 494 series** to **391 of 392 files (99.7%)**. Four things were wrong rather than merely narrow: the anat vocabulary matched as bare substrings so `BART1_`/`SST2_`/`React2_` classified as *anatomicals* and overwrote the real MPRAGE on one filename; `\bscout\b` can never match `aa_scout` because `_` is a word character, so `AAHScout` (300+ series) fell through to unknown; `_extract_fmap_group` stripped `ap`/`pa` anywhere in the string, splitting one pair into two groups; and the bulk/SLURM path never called `plan_warnings`, so it submitted the collisions the GUI refused. Also: the vNav setter and Siemens' `_ND` copy each converted as a second and third colliding T1w, and `MAB1`/`MAB2`/`MAB3` read as three tasks rather than three runs of one. Remaining gaps are `#19` |

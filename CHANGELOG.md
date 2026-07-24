@@ -23,6 +23,18 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   the source and reports it.
 
 ### Fixed
+- **A session with two gradient-echo fieldmap pairs now converts.** Both pairs
+  were written to the same filenames, which the collision check caught as an
+  error — so nothing was ever silently overwritten, but the session could not be
+  converted at all, and the message suggested setting task or run values that a
+  fieldmap does not have. Each pair now gets its own `acq-` or `run-` entity,
+  exactly as spin-echo pairs already did. Which run each pair corrects is
+  unchanged.
+- **A complete gradient-echo fieldmap is no longer reported as unusable.** Every
+  session with one was told the fieldmap "can't correct anything and isn't
+  offered for binding". Both halves of that were false — the group was complete,
+  and the runs were bound to it — so the warning was pure noise on a correct
+  conversion.
 - **A single-volume reference is no longer mistaken for a functional run on
   non-mosaic data.** Telling a single-band reference from its BOLD relied on the
   file count, which equals the volume count only for Siemens mosaic exports. With
