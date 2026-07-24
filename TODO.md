@@ -724,7 +724,25 @@ existing duckbrain/mmmdata work, open questions per item — in
 3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
    bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
 4. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC; layer norms
-   on the existing surveyor/QC pages.
+   on the existing surveyor/QC pages. **Scoped 2026-07-24 and ready to execute —
+   full plan in `docs/qc-dashboard-migration.md`.** mmmdata built and vetted the
+   layer this item describes: a registry of 30 measures, each stating why it is
+   shown, what a human should check by eye, what is flagged automatically, and
+   its source — 29 citations verified against MRIQC/fMRIPrep/AFNI source rather
+   than common practice, which is how it establishes that most IQMs have **no**
+   defensible absolute cutoff. It moves here because that claim is untestable in
+   a single-project repo, and because this item's own "group-level IQM
+   comparison" only becomes answerable in a multi-project tool.
+   Three independently-mergeable slices: the registry plus a `[qc]` config
+   section, the report renderer plus its embed, then the decision model. **The
+   last has teeth:** `core/qc.py` accepts `reviewer` and page 5 never passes it,
+   so *every QC decision duckbrain has written is anonymous*, and legacy records
+   cannot be attributed retroactively. Settled in the doc so they are not
+   re-argued — Streamlit stays the control plane and only the QC *report* becomes
+   a document (one renderer, embedded **and** exported; not two versions), and
+   mmmdata will depend on duckbrain rather than keep a copy, which makes
+   [Licensing](#licensing-follow-ups) a precondition for that end state rather
+   than background. Note `core/qc.py` is the only untested module in `core/`.
 5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
    confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
 6. **ReproIn** — **reading it is DONE** (2026-07-21): duckbrain parses the naming

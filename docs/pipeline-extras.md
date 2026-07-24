@@ -164,6 +164,15 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
   mapping to a `scans.tsv`/manifest; UI for reviewing/overriding.
 
 ## 7. QC norms & best-practice dashboard (open item in mmmdata)
+
+> **Superseded as a backlog entry — scoped 2026-07-24.** mmmdata built this layer
+> and it is migrating here; the execution plan, the settled design decisions and
+> the data-dependent checks live in **`docs/qc-dashboard-migration.md`**. The
+> three "open questions" below are answered there: norms are codified as a cited
+> registry that mostly documents the *absence* of defensible cutoffs, flagging is
+> relative-and-advisory with human sign-off required, and group-level comparison
+> is the one question still genuinely open. Kept here for the framing.
+
 - **What:** A QC dashboard grounded in recommended best practices (motion metrics,
   MRIQC IQMs + group norms, fMRIPrep visual-report review, carpet plots,
   registration checks).
