@@ -17,6 +17,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
+[`#19`](#19) conversion coverage ·
 [`#18`](#18) type checking · [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -563,6 +564,66 @@ The item is closed and shipping; these are the accepted edges.
 - NORDIC log rows still write `tool_version`/`runtime`/`code_source` that nothing
   reads now that sidecars are the source. The row still earns its place via `job_id`.
 
+<a id="19"></a>
+## #19 — Conversion coverage: what the LCNI repository still shows missing
+
+Validated against `/projects/lcni/dcm/repository` — 15 studies, 189 distinct
+series descriptions, 112 sessions paired with the BIDS the LCNI curator produced.
+duckbrain now reproduces **391 of the 392** canonical files (the miss is
+`anat/T1wa`, a curator typo and not a valid BIDS suffix). **Treat that corpus as
+the fixture for anything in this section** — it is read-only, and it is the only
+place these cases exist together. Write scratch output to
+`/projects/hulacon/bhutch`.
+
+What it does *not* cover, in the order the corpus argues for:
+
+### `#19.1` — DWI is recognised and still not convertible
+
+`dwi` is a classification with no emission path: no `bval`/`bvec` handling, no
+`dwi/` description in `generate_config`. `plan_warnings` says so out loud now,
+which is honest, not fixed. The corpus has `RL_diff_m2p2_64_2mm_rl` /
+`LR_diff_m2p2_64_2mm_lr` (Round_Robin) as a live fixture, and the curator dropped
+them too, so there is **no canonical output to check against** — that is the real
+cost of this one, and why it wants its own validation plan rather than a quick
+patch.
+
+### `#19.2` — Phase-encoding directions other than AP/PA
+
+`dir-` is AP/PA only, hardcoded in three places (`dicom_inspect._DIRECTION_TOKEN`,
+the `_fmap_description` call sites, and `consistency._PE_FOR_DIR`, whose `j-`/`j`
+table also assumes an axial acquisition). LR/RL is ordinary at non-Siemens sites.
+**Deliberately not done speculatively**: this corpus has no LR/RL fieldmap, so
+there is nothing to validate against, and `_PE_FOR_DIR` would need the
+acquisition plane to stay correct rather than just wider.
+
+### `#19.3` — Which fieldmap pair, when a session has more than one
+
+Two REV sessions acquire `fieldmap1`+`fieldmap3` and `fieldmap2`+`fieldmap4`; the
+curator kept the second pair of each. The headers of the two pairs are
+*identical*, so this is not header-derivable — it is a policy ("keep the last")
+or a declaration. It belongs with `#16`'s `[expected]` rather than with a
+heuristic, and duckbrain currently converts both, which is at least visible.
+Same family as `#5`'s standing note that bold→fmap linking has no
+temporal-proximity logic.
+
+### `#19.4` — An empty series directory reads as a missing file, not a finding
+
+6 of the corpus's 1384 series directories (0.43%) are empty. `read_series_header`
+returns `None` for them, so classification falls back to the name, which happily
+says "T1w" — and then dcm2bids produces nothing and the plan predicted a file
+that never appears. The two residual extra `anat/T1w` in the scorecard are
+exactly this. Wants a `plan_warnings` check: a planned file whose source series
+has no readable DICOM.
+
+### `#19.5` — Subject labels the corpus contains but BIDS forbids
+
+`sub-DIPPER_007`, `sub-hoya_01`, `sub-AEPET2_55`, `sub-NAGL_28` all carry an
+underscore, which is not a legal BIDS label — the filename then re-parses as an
+extra entity. duckbrain's `_sanitize_label` already strips these on ingestion, so
+this is not a duckbrain bug; it is a note that the *canonical* trees in that
+repository are not all valid, so "matches the curator" is not by itself a
+correctness argument.
+
 <a id="loose-ideas-not-scheduled"></a>
 ## Loose ideas (not scheduled)
 
@@ -611,6 +672,9 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-24 | — | **Conversion hardened against the LCNI repository** (`/projects/lcni/dcm/repository` — 15 studies, 189 series descriptions, 112 sessions paired with canonical BIDS). Agreement with the curator went from **109 of 494 series** to **391 of 392 files (99.7%)**. Four things were wrong rather than merely narrow: the anat vocabulary matched as bare substrings so `BART1_`/`SST2_`/`React2_` classified as *anatomicals* and overwrote the real MPRAGE on one filename; `\bscout\b` can never match `aa_scout` because `_` is a word character, so `AAHScout` (300+ series) fell through to unknown; `_extract_fmap_group` stripped `ap`/`pa` anywhere in the string, splitting one pair into two groups; and the bulk/SLURM path never called `plan_warnings`, so it submitted the collisions the GUI refused. Also: the vNav setter and Siemens' `_ND` copy each converted as a second and third colliding T1w, and `MAB1`/`MAB2`/`MAB3` read as three tasks rather than three runs of one. Remaining gaps are `#19` |
+| 2026-07-24 | — | **Classification reads DICOM headers** (`core/dicom_header.py`). It ran entirely on the console operator's free text, which across that corpus is frequently silent about datatype — `food`, `Whack`, `Resting1`, `WMS_R1`, `EPI196` are all ordinary BOLD runs, all classified unknown, all converted to nothing. `ImageType` + `MRAcquisitionType` + is-EPI + is-spin-echo + volume count is a 100%-pure key: **359/359 of the curator's converted series get the right datatype**, 1195 of 1384 decided by header. The finding that shaped it: **two MR dialects**, and 36% of that corpus is Siemens XA30 enhanced-MR with *no* `ScanningSequence`/`EchoNumbers`/`EchoTime` at the top level — a rule keyed on those doesn't misfire, it sees nothing. Absence is never evidence: unreadable or non-decisive falls back to the name path, `classified_by` records which decided, and the defaced-anatomical rule may only promote |
+| 2026-07-24 | — | **Gradient-echo fieldmaps convert** — 96 of the corpus's 404 canonical files, and *more* common there than the pepolar pair. Two consecutive series with the same description; `EchoNumber` joins `SeriesNumber` in the criteria because one magnitude series becomes two files, and `'P'` in `ImageType` is the only thing separating the halves. `EchoTime1`/`EchoTime2` deliberately not injected — dcm2niix writes them. Validated end to end against dcm2bids 3.2.0 on real data, and the result is *better* than the canonical, whose fieldmaps carry no `B0FieldIdentifier` at all so fMRIPrep skips SDC on them |
 | 2026-07-22 | #16 | **Sanity checks, Slice A — a declaration the data can't quietly agree with.** Ben's reframing is what the item turned on: *codifying intent is different from cataloguing what has been done*, and duckbrain was entirely the latter — every expectation in the codebase is re-derived from the data it judges, so a shortfall shrinks the expectation to match and reads COMPLETE. New `[expected]` project-config section (roster + per-session contents + `[expected.exceptions]`), `core/expectations.py`, `core/checks.py` with a cost-aware registry, rendered in the cockpit's existing panel. **Absent means off** — opt-out is the default and has its own test. Elicited from a good session then frozen (BIDScoin's study-bidsmap bootstrap); `elicit` deliberately never proposes the roster, the one thing disk can't know. Validated live on `divatten_beta`: with a task's BOLD and a fieldmap direction removed from a scratch mirror, `survey_project` still read **complete** for all five subjects while the checks caught both — the contrast is pinned by `test_surveyor_still_reads_complete_when_a_run_is_missing`. Live validation also found a real bug: zero has to be a *declaration*, or "this subject has no resting run" is unrecordable. Prior art surveyed and refused deliberately (Nipoppy's manifest borrowed as a shape, CuBIDS never a pip dep, mrQA out of scope) — `docs/sanity-checks.md`. `#16.1`–`#16.3` stay open |
 | 2026-07-22 | #14 | **Inverted fieldmap intent — data cleanup done, and the detector that makes it self-reporting.** The cleanup resolved by *deletion*: the three affected projects were removed, and the one live project (`divatten_beta`, converted after the fix) verified correct in both directions including SBRefs. No fMRIPrep derivative anywhere had been built from inverted data, so the expensive re-run half never arose. The durable half is `fmap-intent` in `core/consistency.py`, deliberately **wider than the original bug** — a *dangling* `B0FieldSource` that no fieldmap declares fails identically and silently, so it is caught too, and the check runs over the NORDIC `bids_input` tree as well as raw BIDS. Validated both ways against real data: silent on `divatten_beta`, and it fires on that same subject's sidecars re-inverted to the pre-fix shape |
 | 2026-07-22 | #18.1 | **Quality gates** — CI on Python 3.10/3.12 (import check + `compileall`, `ruff check`, `ruff format --check`, `pytest --cov`), ruff/coverage/pytest config in `pyproject.toml`, coverage floor 60% as a ratchet. The narrow first ruleset found two real bugs. Type checking and wider lint stay open under `#18` |

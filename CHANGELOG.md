@@ -11,6 +11,69 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **Conversion now reads the DICOM header, not just the sequence name.** Which
+  datatype a series is — anatomical, functional, fieldmap, single-band reference
+  — is decided by what the scanner recorded, falling back to the name only when
+  the header can't say.
+
+  This matters if your protocol names sequences after the *task* rather than the
+  scan type. Series called `food`, `Whack`, `Resting1`, `WMS_R1` or `EPI196` are
+  ordinary BOLD runs, and duckbrain previously classified them "unknown" and
+  converted nothing — on some sessions producing the anatomical and the
+  fieldmaps and none of the functional data. No naming vocabulary can fix that,
+  because a site is under no obligation to name a sequence after what it is.
+
+  Checked against 15 studies in the LCNI repository: of the series their curator
+  converted, duckbrain now picks the right datatype for **all 359**, and
+  reproduces **391 of their 392 BIDS files**. The one miss is a suffix typo in
+  the reference dataset.
+
+- **Gradient-echo fieldmaps (magnitude + phase difference) convert.** Previously
+  only spin-echo AP/PA pairs did, so a study using the gradient-echo flavour got
+  no fieldmap at all and its functional runs were preprocessed without
+  distortion correction. duckbrain now produces `magnitude1`, `magnitude2` and
+  `phasediff`, and binds the runs they correct.
+
+- **Fieldmap pairs named `distortion_ap`/`distortion_pa`** (and `topup`,
+  `pepolar`, `b0map`) are recognised. Previously only `se_epi`-style names were.
+
+- **Diffusion series and gradient-echo fieldmaps duckbrain cannot convert are
+  now named as such**, with the consequence spelled out, instead of being
+  reported as unrecognised names you might fix on the console.
+
+### Fixed
+- **A task whose name contains `t1_` or `t2_` is no longer converted as an
+  anatomical.** The anat vocabulary matched anywhere in the name, so real
+  functional runs called `BART1_…`, `SST2_…` and `React2_…` were written as T1w
+  and T2w images — and because anatomicals carried no run entity, they landed on
+  the *same filename* as the real MPRAGE and silently replaced it.
+
+- **Repeated anatomicals get `run-` entities instead of overwriting each
+  other.** Two T1w scans in one session previously resolved to one filename.
+
+- **Siemens localizers named `AAHScout` or `aa_scout` are recognised as
+  localizers.** They previously fell through as unrecognised, one spurious
+  warning each — hundreds per project.
+
+- **The vNav navigator setter and Siemens' distortion-uncorrected `_ND` copy no
+  longer convert as extra anatomicals.** Both collided with the real MPRAGE. An
+  `_ND` series is only dropped when its corrected twin is present, so a site
+  that acquires `_ND` alone still gets its anatomical.
+
+- **Bulk convert, the cockpit and SLURM submissions now refuse a session whose
+  series would overwrite each other's output.** The Conversion page has always
+  reported these; the non-interactive path submitted anyway, and dcm2bids kept
+  whichever series it wrote last and exited successfully.
+
+- **A repeated task named by suffix — `MAB1`, `MAB2`, `MAB3` — is one task with
+  three runs**, not three tasks. Acquisition parameters in the name
+  (`GNG1_mb3_g2_2mm_te27`) are no longer part of the task label.
+
+- **Fieldmap pairs whose name contains the letters `ap` or `pa` outside the
+  direction token** are grouped correctly. `AP_fieldmap_se_epi_2mm_ap` was split
+  into two groups and never paired, and `se_epi_pa_apex` was read as AP.
+
+### Added
 - **Declared study expectations, and the checks that read them** (`[expected]` in
   a project's `code/duckbrain.toml`). You can now state what a session of your
   study is *supposed* to contain — how many participants, how many T1w scans,
