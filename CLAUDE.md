@@ -121,6 +121,18 @@ the next one.
 
 ## Validation projects (real data, on Talapas)
 
+- **The conversion fixture — `/projects/lcni/dcm/repository`, and it is the good
+  one.** 15 studies with **paired `dicoms/` and `bids/` trees**: 2139 series
+  directories against the 404 canonical BIDS files the LCNI curator produced from
+  them, 189 distinct series descriptions, 112 sessions that pair exactly (join
+  the sidecars' `SeriesDescription`/`SeriesNumber` to the DICOM folder). Nothing
+  else on this filesystem gives you a *canonical answer* to diff against, and it
+  is the only place the hard cases exist together — both MR dialects, both
+  fieldmap flavours, the vNav setter, `_ND` duplicates, empty series directories.
+  **Read-only; never write to it** — scratch output goes to
+  `/projects/hulacon/bhutch`. Use it for anything touching conversion; see
+  `memory/lcni-repository-corpus` for what it proved and `TODO.md` `#19` for what
+  it still shows missing.
 - **Source DICOMs:** `/projects/lcni/dcm/hulacon/Hutchinson/divatten` — 37
   subjects, single-session, **read-only**.
 - **More real exports, all read-only and all useful as fixtures:**
