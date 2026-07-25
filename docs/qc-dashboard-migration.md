@@ -240,7 +240,7 @@ to resolve against and the embed cannot route to MRIQC reports at all. The expor
 is the way to reach them; whether the app should serve the reports itself is
 still open and still needs an OnDemand session to settle.
 
-### Slice 3 — the decision model
+### Slice 3 — the decision model — **DONE 2026-07-24**
 
 Unify the schema and add the sign-off distinction: `pending` joins the
 vocabulary, automated writers may record nothing else, and a human sign-off
@@ -253,6 +253,32 @@ decisions in the older shape with **no reviewer at all**, so they cannot be
 attributed retroactively. The reader must accept both schemas, and every legacy
 record should surface as *unattributed* — visible, not silently promoted to a
 sign-off it never was.
+
+*Landed. **No file was migrated, and none needed to be.*** The unified schema is
+mmmdata's `{"run_key": …, "decisions": [...]}` rather than duckbrain's
+`{"latest": …, "history": [...]}` — chosen because it is append-only with no
+duplicated current entry, and because it means the 609 records that already
+exist are readable as-is while the zero duckbrain-schema records on disk cost
+nothing to abandon. `_history_of` reads both shapes and `load_decisions` recurses,
+so mmmdata's `sub-XX/` nesting and duckbrain's flat directory both resolve.
+Verified against the real corpus: **609/609 read, 0 files modified**.
+
+Reading never rewrites, and that is a test. Restamping an old record would give
+it a provenance it does not have, which is the same error as promoting it.
+
+**The counts needed a third bucket, not two.** Live data forced the distinction:
+`automated` (author known to be a machine) and `unattributed` (author cannot be
+identified at all) are different provenance situations, and only the second is a
+gap someone could still close by re-reviewing. A first cut merged them and
+misreported all 609 `auto-stub` records as decisions by an unknown person.
+Records predating the `automated` flag are classified by reviewer name, which is
+what `AUTOMATED_REVIEWERS` is for.
+
+Reviewer identity is `getpass.getuser()`, per the settled decision above — not a
+text box that can be left blank, which is how every existing decision became
+anonymous. `save_decision` now *raises* rather than accepting a blank reviewer:
+a silently-unattributable record is the failure `CLAUDE.md`'s "a
+silently-degrading option is worse than one that fails" describes.
 
 ## Constraints that bind
 

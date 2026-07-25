@@ -170,6 +170,8 @@ def build_run_rows(
                 "reviewer": latest.get("reviewer") or "",
                 "reason": latest.get("reason") or "",
                 "timestamp": latest.get("timestamp") or "",
+                "automated": bool(latest.get("automated")),
+                "recommendation": latest.get("recommendation") or "",
                 "report": reports.get(run_key, ""),
             }
         )
@@ -314,14 +316,21 @@ def _section(anchor: str, heading: str, body: str) -> str:
 
 
 def _is_signed_off(run: dict) -> bool:
-    """A decision counts only when an identifiable person made it.
+    """Whether this row is a call a named person made.
 
-    Slice 3 owns the full sign-off model; the report needs the distinction now
-    because counting an unattributed record as reviewed is the misreport that
-    matters. Every decision duckbrain has written so far has an empty reviewer,
-    so this reads them all as pending — which is what they are.
+    Defers to :func:`core.qc.is_signed_off` so the report and the writer cannot
+    drift apart on what counts as a sign-off — there is one rule, and the store
+    owns it.
     """
-    return bool(run.get("decision")) and bool(str(run.get("reviewer", "")).strip())
+    from .qc import is_signed_off
+
+    return is_signed_off(
+        {
+            "decision": run.get("decision"),
+            "reviewer": run.get("reviewer"),
+            "automated": run.get("automated"),
+        }
+    )
 
 
 def _provenance_note(
@@ -393,6 +402,10 @@ def _render_table(runs: list[dict], iqm_cols: list[str], has_motion: bool, repor
         suffix = ""
         if signed:
             note = f"{r['reviewer']} — {r['reason']} ({r['timestamp']})"
+        elif r.get("automated"):
+            note = f"Written by automation ({r['reviewer'] or 'unnamed'}) — {r['reason']}"
+            if r.get("recommendation") and r["recommendation"] != "pending":
+                suffix = f'<span class="auto-suggest">suggests: {_esc(r["recommendation"])}</span>'
         elif r["decision"]:
             note = f"Recorded as '{r['decision']}' with no reviewer — cannot be attributed."
             suffix = f'<span class="auto-suggest">unattributed: {_esc(r["decision"])}</span>'

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import warnings
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -250,83 +250,227 @@ def summarize_motion(
 # ---- QC Decisions ----
 
 
+#: Every value a decision record may carry. ``pending`` is the state of a run no
+#: human has signed off on, and it is the only thing an automated writer may
+#: record — so a machine's suggestion can never be mistaken for a judgement.
+VALID_DECISIONS = frozenset({"keep", "exclude", "investigate", "pending"})
+
+#: The values that represent an actual human call.
+SIGNED_OFF_DECISIONS = frozenset({"keep", "exclude", "investigate"})
+
+#: Reviewer strings that name automation rather than a person. Records written
+#: before the ``automated`` flag existed are classified by this, which is what
+#: lets legacy files be read correctly without rewriting anything on disk.
+AUTOMATED_REVIEWERS = frozenset({"auto-stub", "auto", "automated", ""})
+
+
+def is_signed_off(record: dict | None) -> bool:
+    """True when *record* is a decision an identifiable person actually made.
+
+    Three things must hold: the record exists, its decision is a real call
+    rather than ``pending``, and it is attributable to a named human.
+
+    This is the whole point of the vocabulary. duckbrain wrote decisions for
+    months with ``reviewer`` defaulting to ``""`` and the page never passing one,
+    so **every decision it has ever recorded is anonymous**. Those cannot be
+    attributed after the fact — nobody knows who made them — so they read as
+    unattributed here rather than being promoted to sign-offs they never were.
+    """
+    if not record:
+        return False
+    if record.get("automated"):
+        return False
+    if record.get("decision") not in SIGNED_OFF_DECISIONS:
+        return False
+    reviewer = str(record.get("reviewer") or "").strip().lower()
+    return bool(reviewer) and reviewer not in AUTOMATED_REVIEWERS
+
+
 def save_decision(
     decisions_dir: str | Path,
     run_key: str,
     decision: str,
     reason: str = "",
     reviewer: str = "",
+    automated: bool = False,
+    recommendation: str | None = None,
 ) -> Path:
-    """Save a QC decision for a run.
+    """Append a QC decision for a run.
+
+    Records are append-only: the file holds the full history, and the last entry
+    is the current one. Written as ``{"run_key": ..., "decisions": [...]}``,
+    which is the shape mmmdata already writes — so the two tools converge on one
+    format with no file needing conversion, and duckbrain can read the 609
+    records mmmdata has accumulated.
 
     Parameters
     ----------
     decisions_dir : path
         Directory for decision JSON files.
     run_key : str
-        BIDS run identifier (e.g., "sub-01_ses-02_task-rest_run-1_bold").
+        BIDS run identifier (e.g. ``sub-01_ses-02_task-rest_run-1_bold``).
     decision : str
-        One of: "keep", "exclude", "investigate".
+        One of :data:`VALID_DECISIONS`. Automated writers may record only
+        ``pending``, and should put their suggestion in *recommendation*.
     reason : str
-        Optional reason for the decision.
+        Free-text explanation, saved with the decision.
     reviewer : str
-        Who made the decision.
+        Who made the call. Required — and required to name a person — unless
+        *automated* is set.
+    automated : bool
+        True when tooling wrote this rather than a person.
+    recommendation : str, optional
+        What automation would suggest. Advisory; it never gates anything.
 
-    Returns
-    -------
-    Path
-        Path to the written decision file.
+    Raises
+    ------
+    ValueError
+        If the decision is not in the vocabulary, if a human sign-off carries no
+        identifiable reviewer, or if an automated writer claims a verdict only a
+        human may make. Refusing is the point: a decision recorded without an
+        attributable author is indistinguishable later from one nobody made.
     """
-    if decision not in ("keep", "exclude", "investigate"):
-        raise ValueError(f"Invalid decision: {decision}. Must be keep/exclude/investigate.")
+    if decision not in VALID_DECISIONS:
+        raise ValueError(
+            f"Invalid decision {decision!r}; expected one of {sorted(VALID_DECISIONS)}"
+        )
+    if recommendation is not None and recommendation not in VALID_DECISIONS:
+        raise ValueError(
+            f"Invalid recommendation {recommendation!r}; expected one of {sorted(VALID_DECISIONS)}"
+        )
+
+    reviewer_id = (reviewer or "").strip()
+    if automated:
+        if decision in SIGNED_OFF_DECISIONS:
+            raise ValueError(
+                f"Automated writers may only record 'pending', not {decision!r}. "
+                f"Pass the suggestion as recommendation= instead."
+            )
+    elif not reviewer_id or reviewer_id.lower() in AUTOMATED_REVIEWERS:
+        raise ValueError(
+            f"A human sign-off requires an identifiable reviewer; got {reviewer!r}. "
+            f"Pass automated=True for tooling-written records."
+        )
 
     decisions_dir = Path(decisions_dir)
     decision_file = decisions_dir / f"{run_key}_decision.json"
 
-    # Load existing history if present
     history = []
     if decision_file.exists():
-        with open(decision_file) as f:
-            existing = json.load(f)
-        history = existing.get("history", [])
-        # Add previous latest to history
-        if "latest" in existing:
-            history.append(existing["latest"])
+        try:
+            with open(decision_file) as f:
+                history = _history_of(json.load(f))
+        except (OSError, json.JSONDecodeError):
+            history = []
 
-    latest = {
+    entry = {
         "decision": decision,
         "reason": reason,
         "reviewer": reviewer,
-        "timestamp": datetime.now().isoformat(),
+        "automated": bool(automated),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    if recommendation is not None:
+        entry["recommendation"] = recommendation
+    history.append(entry)
 
     decisions_dir.mkdir(parents=True, exist_ok=True)
     with open(decision_file, "w") as f:
-        json.dump({"latest": latest, "history": history}, f, indent=2)
+        json.dump({"run_key": run_key, "decisions": history}, f, indent=2)
 
     return decision_file
 
 
+def _history_of(data: dict) -> list[dict]:
+    """Return a record's entries oldest-first, from either on-disk schema.
+
+    Two shapes exist and neither reader understood the other:
+
+    * ``{"run_key": ..., "decisions": [...]}`` — what mmmdata writes and what
+      duckbrain writes now. Append-only; the last entry is current.
+    * ``{"latest": {...}, "history": [...]}`` — what duckbrain used to write,
+      keeping the current entry outside the list.
+
+    Both are accepted so no file on disk has to be converted, and so nothing
+    goes unread. Reading is the only compatibility that is owed: an old record
+    is never rewritten, because rewriting it would restamp a decision with a
+    provenance it does not have.
+    """
+    if isinstance(data.get("decisions"), list):
+        return [e for e in data["decisions"] if isinstance(e, dict)]
+    history = [e for e in data.get("history", []) if isinstance(e, dict)]
+    if isinstance(data.get("latest"), dict):
+        history.append(data["latest"])
+    return history
+
+
 def load_decisions(decisions_dir: str | Path) -> dict:
-    """Load all QC decisions.
+    """Load all QC decisions, in either on-disk schema and either layout.
+
+    Searched recursively, so both duckbrain's flat directory and mmmdata's
+    ``sub-XX/`` nesting are found.
 
     Returns
     -------
     dict
-        {run_key: {"latest": {...}, "history": [...]}}
+        ``{run_key: {"latest": {...}, "history": [...], "signed_off": bool}}``.
+        ``latest`` is the most recent entry; ``signed_off`` says whether it is a
+        call a named person made, which is not the same question as whether a
+        decision exists.
     """
     decisions_dir = Path(decisions_dir)
-    decisions = {}
+    decisions: dict[str, dict] = {}
 
     if not decisions_dir.is_dir():
         return decisions
 
-    for json_path in sorted(decisions_dir.glob("*_decision.json")):
-        run_key = json_path.stem.replace("_decision", "")
+    for json_path in sorted(decisions_dir.rglob("*_decision.json")):
         try:
             with open(json_path) as f:
-                decisions[run_key] = json.load(f)
-        except (json.JSONDecodeError, KeyError):
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
             continue
+        if not isinstance(data, dict):
+            continue
+        history = _history_of(data)
+        if not history:
+            continue
+        run_key = data.get("run_key") or json_path.stem.replace("_decision", "")
+        decisions[run_key] = {
+            "latest": history[-1],
+            "history": history,
+            "signed_off": is_signed_off(history[-1]),
+        }
 
     return decisions
+
+
+def decision_counts(decisions: dict) -> dict[str, int]:
+    """Break a decision set down by how much authority each record carries.
+
+    Reported separately rather than summed, because "has a decision" and "was
+    reviewed" are different claims and only the second justifies acting on the
+    data.
+
+    The two non-sign-off buckets say different things and must not be merged:
+    ``automated`` is a record whose author is known to be a machine, while
+    ``unattributed`` is one whose author cannot be identified at all. Only the
+    second is a provenance gap someone could still close by re-reviewing.
+
+    A record predating the ``automated`` flag is classified by reviewer name, so
+    mmmdata's 609 ``auto-stub`` entries count as automated rather than being
+    misreported as decisions by an unknown person.
+    """
+    counts = {"signed_off": 0, "unattributed": 0, "automated": 0, "pending": 0}
+    for record in decisions.values():
+        latest = record.get("latest") or {}
+        reviewer = str(latest.get("reviewer") or "").strip().lower()
+        if is_signed_off(latest):
+            counts["signed_off"] += 1
+        elif latest.get("automated") or (reviewer and reviewer in AUTOMATED_REVIEWERS):
+            counts["automated"] += 1
+        elif latest.get("decision") in SIGNED_OFF_DECISIONS:
+            counts["unattributed"] += 1
+        else:
+            counts["pending"] += 1
+    return counts

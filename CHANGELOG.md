@@ -24,6 +24,17 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **Duplicate copies that are dropped now say so.** They were counted as
   "left unconverted as expected" alongside the scanner localizers, which hid a
   choice being made on your behalf about which image ships.
+- **QC decisions now record who made them.** The reviewer is taken from the
+  session, so nothing has to be typed and nothing can be left blank. Recording a
+  keep/exclude/investigate without an identifiable reviewer is now refused rather
+  than saved anonymously.
+- **`pending` joins the decision vocabulary**, and automated writers may record
+  only that — a machine's suggestion is carried alongside as a recommendation
+  where it cannot be mistaken for a judgement.
+- **Decision counts separate signed-off from automated and unattributed**, since
+  "has a decision" and "was reviewed" are different claims. Decisions written
+  before duckbrain captured a reviewer are shown as unattributed and flagged on
+  the QC page, so they can be re-recorded rather than silently counted.
 - **The QC page now renders a full QC report**, with a run table, IQM
   distributions, outlier detail and the guidance glossary inline — and the same
   report downloads as one self-contained HTML file, or saves into
@@ -59,6 +70,12 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   file. An empty folder still looks like source data by name, so the conversion
   plan predicted a file that dcm2bids then couldn't create; the plan now checks
   the source and reports it.
+
+### Changed
+- **QC decision files are written in the same schema mmmdata uses**
+  (`{"run_key": …, "decisions": [...]}`, append-only). Both the old and new
+  shapes are read, and both flat and `sub-XX/` layouts are found, so no existing
+  file needs converting — and none is ever rewritten on read.
 
 ### Fixed
 - **A duplicated gradient-echo fieldmap no longer loses a usable pair.** Where a

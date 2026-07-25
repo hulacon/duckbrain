@@ -12,6 +12,7 @@ decision stays in Streamlit widgets outside that iframe, because persisting one
 needs a server-side callback static HTML cannot make.
 """
 
+import getpass
 from pathlib import Path
 
 import pandas as pd
@@ -138,6 +139,22 @@ components.html(html, height=1400, scrolling=True)
 st.subheader("QC Decisions")
 st.markdown("Review runs and mark them as **keep**, **exclude**, or **investigate**.")
 
+# Taken from the session rather than typed. Under OnDemand the session owner is
+# already known, so asking would add a step and an honour-system field that can
+# be left blank — which is how every decision written before now ended up
+# anonymous and unattributable.
+reviewer = getpass.getuser()
+st.caption(f"Signing off as **{reviewer}**, recorded with each decision.")
+
+counts = qc.decision_counts(qc.load_decisions(decisions_dir))
+if counts["unattributed"]:
+    st.warning(
+        f"{counts['unattributed']} decision(s) were recorded before duckbrain "
+        f"captured a reviewer, so no one can be identified as having made them. "
+        f"They are shown as unattributed and do not count as signed off — "
+        f"re-record any you still stand behind."
+    )
+
 for run in runs:
     run_key = run["run_key"]
     header = f"{run_key} — {run['decision'] or 'no decision'}"
@@ -158,7 +175,11 @@ for run in runs:
 
         def _record(verdict, _key=run_key, _reason_key=f"reason_{run_key}"):
             qc.save_decision(
-                decisions_dir, _key, verdict, reason=st.session_state.get(_reason_key, "")
+                decisions_dir,
+                _key,
+                verdict,
+                reason=st.session_state.get(_reason_key, ""),
+                reviewer=reviewer,
             )
             st.toast(f"{_key}: {verdict}", icon="✅")
 

@@ -762,6 +762,18 @@ existing duckbrain/mmmdata work, open questions per item — in
    `divatten_beta`. **What is still open:** relative links fix the exported copy
    but the `components.html` iframe has no origin to resolve them against, so
    whether the app should serve MRIQC reports itself needs an OnDemand session.
+   **Slice 3 landed 2026-07-24, and migrated nothing because nothing needed it**:
+   the unified on-disk schema is mmmdata's append-only
+   `{"run_key", "decisions"}`, so its 609 existing records read as-is (verified:
+   609/609 read, 0 files modified) while the zero duckbrain-schema files on disk
+   cost nothing to leave behind. Both shapes and both layouts are read; reading
+   never rewrites, and that is a test — restamping an old record would give it a
+   provenance it does not have. `save_decision` now raises on a blank reviewer,
+   and the page takes the reviewer from the session rather than a text box. Live
+   data forced a **third** count bucket: `automated` (author known to be a
+   machine) and `unattributed` (author unidentifiable) are different provenance
+   situations and only the second is closable by re-reviewing — merging them
+   misreported all 609 `auto-stub` records as decisions by an unknown person.
    **The
    last has teeth:** `core/qc.py` accepts `reviewer` and page 5 never passes it,
    so *every QC decision duckbrain has written is anonymous*, and legacy records
