@@ -402,3 +402,24 @@ def test_extra_flags_stays_an_unquoted_shell_fragment():
     argv = _singularity_argv(render_sbatch("fmriprep", ctx))
     assert "--use-syn-sdc" in argv
     assert argv[argv.index("--fd-spike-threshold") + 1] == "0.5"
+
+
+def test_mriqc_reads_raw_bids_even_when_the_project_uses_nordic():
+    """MRIQC grades the acquisition, not fMRIPrep's input — see
+    ``pipeline.effective_depends_on`` for why that asymmetry is deliberate.
+
+    Unpinned until now: the only MRIQC/NORDIC assertion anywhere was on the
+    *dependency*, so a change to the input path would have gone unnoticed. The
+    template hardcodes ``paths.bids_dir``, which is the behaviour worth holding —
+    pointing MRIQC at denoised data would make its noise IQMs describe the
+    denoiser rather than the scan.
+    """
+    cfg = _cfg()
+    cfg["nordic"] = {"use_nordic": True}
+    ctx = build_context(cfg, "mriqc", subject="04", session="", container_path="/x", mem_gb=8)
+    script = render_sbatch("mriqc", ctx)
+
+    assert "bids_format" not in script
+    # The positional BIDS root MRIQC is handed, and the bind that backs it.
+    assert '/projects/study "$OUTPUT_DIR" participant' in script
+    assert "-B /projects/study:/projects/study:ro" in script

@@ -969,21 +969,31 @@ def _check_fmap_intent(config: dict) -> list[ConsistencyIssue]:
     declares the identifier it names) produces the identical silent outcome and
     is the shape a hand-edited or partially-assembled tree fails in.
 
-    Hence it runs over the NORDIC ``bids_input`` tree as well as raw BIDS. That
+    Hence it runs over the NORDIC ``bids_format`` tree as well as raw BIDS. That
     staged tree is what fMRIPrep actually reads on the NORDIC path, it is
     assembled rather than converted, and ``nordic._is_stale`` exists because it
     could serve a stale ``B0FieldSource`` forever — the same failure one layer
     along.
 
+    That second root was spelled out here as ``bids_input`` while ``nordic.py``
+    assembled ``bids_format``, so the ``is_dir()`` guard below skipped it on
+    every NORDIC project and this check never once ran on fMRIPrep's actual
+    input. Hence :func:`nordic.nordic_bids_input_dir` rather than a fourth copy
+    of the literal; pinned by
+    ``test_fmap_intent_reads_the_tree_nordic_really_assembles``, since the test
+    that was here built ``bids_input`` itself and so passed on the bug.
+
     Reports, never repairs: which of re-converting or swapping the keys is right
     depends on what else the sidecars have been edited to say.
     """
+    from .nordic import nordic_bids_input_dir
+
     issues: list[ConsistencyIssue] = []
     paths = config.get("paths") or {}
     roots = [(paths.get("bids_dir") or "", "raw BIDS")]
     derivatives = paths.get("derivatives_dir") or ""
     if derivatives:
-        roots.append((str(Path(derivatives) / "nordic" / "bids_input"), "NORDIC fMRIPrep input"))
+        roots.append((str(nordic_bids_input_dir(derivatives)), "NORDIC fMRIPrep input"))
     for root, where in roots:
         if root and Path(root).is_dir():
             issues.extend(_check_fmap_intent_at(Path(root), where))

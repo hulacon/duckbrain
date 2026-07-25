@@ -140,7 +140,7 @@ def _build_fmriprep(config, subject, session, log_dir, params):
     # files) and read that instead.
     fmriprep_input = paths["bids_dir"]
     if _use_nordic(config):
-        from .nordic import build_nordic_bids_input, get_bold_runs
+        from .nordic import build_nordic_bids_input, get_bold_runs, nordic_bids_input_dir
 
         nordic_root = f"{derivatives_dir}/nordic"
         denoised = get_bold_runs(nordic_root, subject, session)
@@ -156,7 +156,7 @@ def _build_fmriprep(config, subject, session, log_dir, params):
             session=session,
             nordic_derivatives_dir=nordic_root,
         )
-        fmriprep_input = f"{nordic_root}/bids_format"
+        fmriprep_input = str(nordic_bids_input_dir(derivatives_dir))
 
     # A session filter restricts fMRIPrep to one session (multi-session only).
     filter_file = ""
@@ -342,6 +342,22 @@ def effective_depends_on(config: dict, stage: str) -> str | None:
     ``nordic`` (not ``converted``) when the project has ``use_nordic`` on — the
     denoised input must exist first. NORDIC itself stays a pure ``converted``
     producer regardless.
+
+    **MRIQC is deliberately not rewritten, and the asymmetry is the point.**
+    ``use_nordic`` is a statement about *fMRIPrep's input*, not about the
+    project; MRIQC always reads raw BIDS (``mriqc.sbatch.j2`` passes
+    ``paths.bids_dir``) and stays runnable as soon as conversion finishes. That
+    is what MRIQC is for: it grades the unprocessed acquisition, as a gate before
+    anyone spends fMRIPrep hours. Pointing it at denoised data would break it —
+    its noise-family IQMs measure thermal noise, which is precisely what NORDIC
+    removes, so they would describe the denoiser rather than the scan and stop
+    being comparable to any normative distribution. The artefacts a QC gate is
+    for (motion, spikes, dropout) survive NORDIC anyway.
+
+    Read as a bug once already, because the reasoning lived nowhere. The
+    consequence a reviewer must be told — that MRIQC IQMs and fMRIPrep motion
+    then describe two different images — is stated by ``qc_report``'s footnote,
+    not fixed here.
     """
     spec = STAGE_SPECS.get(stage)
     if spec is None:

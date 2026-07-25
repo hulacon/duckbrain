@@ -233,7 +233,8 @@ def build_nordic_bids_input(
         The NORDIC derivatives root, ``<derivatives>/nordic``. The denoised BOLDs
         for a unit live under ``<nordic_derivatives_dir>/sub-XX[/ses-YY]/func/``.
     output_bids_input_dir : path, optional
-        Output directory. Defaults to ``<derivatives>/nordic/bids_input/``.
+        Output directory. Defaults to :func:`nordic_bids_input_dir`, i.e.
+        ``<derivatives>/nordic/bids_format/``.
 
     Returns
     -------
@@ -251,11 +252,11 @@ def build_nordic_bids_input(
     ss = sub_ses_relpath(subject, session)
 
     if output_bids_input_dir is None:
-        # Sibling of the per-subject NORDIC output, i.e.
-        # <derivatives>/nordic/bids_format/ — the self-contained BIDS tree
+        # Sibling of the per-subject NORDIC output — the self-contained BIDS tree
         # fMRIPrep reads when use_nordic is on. (The caller passes
-        # <derivatives>/nordic as nordic_derivatives_dir.)
-        output_bids_input_dir = nordic_derivatives_dir / "bids_format"
+        # <derivatives>/nordic as nordic_derivatives_dir, so the parent is
+        # <derivatives>.)
+        output_bids_input_dir = nordic_bids_input_dir(nordic_derivatives_dir.parent)
 
     output_bids_input_dir = Path(output_bids_input_dir)
     out_sub_ses = output_bids_input_dir / ss
@@ -435,3 +436,16 @@ def nordic_output_dir(derivatives_dir: str | Path, subject: str, session: str = 
     from .ingestion import sub_ses_relpath
 
     return Path(derivatives_dir) / "nordic" / sub_ses_relpath(subject, session) / "func"
+
+
+def nordic_bids_input_dir(derivatives_dir: str | Path) -> Path:
+    """The assembled BIDS tree fMRIPrep reads when ``use_nordic`` is on.
+
+    One definition because the literal was written out in three places and one of
+    them said ``bids_input`` while this builder wrote ``bids_format``. That was
+    ``consistency._check_fmap_intent``, which guards on ``is_dir()`` — so it
+    skipped the staged tree silently on every NORDIC project, and the TODO #14
+    fieldmap-intent detector never ran on fMRIPrep's actual input. Take the path
+    from here rather than rebuilding it.
+    """
+    return Path(derivatives_dir) / "nordic" / "bids_format"

@@ -251,6 +251,26 @@ class TestFmriprepResolution:
         html = qc_report.render_report(rows, "bold", IQMS, fmriprep_variant="nordic")
         assert "NORDIC-denoised data" in html
 
+    def test_a_nordic_report_says_the_iqms_are_from_raw_data(self, metrics_df):
+        """The half of the table that was never labelled.
+
+        MRIQC always reads raw BIDS, so on a NORDIC project the IQM columns and
+        the motion columns describe different images. Only the motion side said
+        so, and a reader who knows the project uses NORDIC will assume the IQMs
+        do too — the more surprising claim was the unstated one.
+        """
+        motion = pd.DataFrame([{"sub": "015", "task": "rest", "run": "1", "mean_fd": 0.08}])
+        rows = qc_report.build_run_rows(metrics_df, "bold", IQMS, motion_df=motion)
+        html = qc_report.render_report(rows, "bold", IQMS, fmriprep_variant="nordic")
+        assert "MRIQC IQMs come from the <strong>raw</strong> BIDS data" in html
+
+    def test_a_raw_report_does_not_raise_a_distinction_that_is_not_there(self, metrics_df):
+        """Both halves are raw, so saying they differ would be noise — and wrong."""
+        motion = pd.DataFrame([{"sub": "015", "task": "rest", "run": "1", "mean_fd": 0.08}])
+        rows = qc_report.build_run_rows(metrics_df, "bold", IQMS, motion_df=motion)
+        html = qc_report.render_report(rows, "bold", IQMS, fmriprep_variant="raw")
+        assert "describe different images" not in html
+
 
 class TestWriteReport:
     def test_writes_beside_the_other_derivative_reports(self, tmp_path):

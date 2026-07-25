@@ -182,9 +182,11 @@ def _fmriprep_input_dir(config: dict) -> str:
     pin it at PARTIAL forever for work it was never asked to do. The shortfall
     still surfaces, once, at the NORDIC stage that caused it.
     """
+    from .nordic import nordic_bids_input_dir
+
     paths = config["paths"]
     if config.get("nordic", {}).get("use_nordic", False):
-        return f"{paths['derivatives_dir']}/nordic/bids_format"
+        return str(nordic_bids_input_dir(paths["derivatives_dir"]))
     return paths["bids_dir"]
 
 

@@ -10,7 +10,23 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Fixed
+- **The fieldmap-intent check never ran on NORDIC projects.** It looked for
+  fMRIPrep's assembled input tree under `derivatives/nordic/bids_input`, which
+  duckbrain has never written — the tree is `bids_format`. Because a missing
+  directory is skipped rather than reported, the one check that catches fMRIPrep
+  silently declining distortion correction was inert on exactly the projects
+  where the input tree is assembled by hand and can go stale on its own. The path
+  now comes from one function both ends share.
+
 ### Added
+- **A NORDIC project's QC report now says its IQMs come from raw data.** MRIQC
+  always grades the raw acquisition, on purpose — NORDIC removes the thermal
+  noise that MRIQC's noise measures are measuring, so denoised IQMs would
+  describe the denoiser rather than the scan. That means on a NORDIC project the
+  IQM columns and the fMRIPrep motion columns describe different images, and only
+  the motion side said so. MRIQC is also, for the same reason, still submittable
+  before NORDIC has run, where fMRIPrep is not.
 - **The conversion table says whether a Type was read or guessed.** A new
   "Type from" column reads `header` when the DICOM headers state the datatype and
   `name` when it was inferred from the series description — which is the guess,

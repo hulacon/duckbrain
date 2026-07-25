@@ -336,7 +336,20 @@ def _is_signed_off(run: dict) -> bool:
 def _provenance_note(
     variant: str, has_motion: bool, iqr_multiplier: float, n_unattributed: int
 ) -> str:
-    """State what produced these numbers and what the counts above mean."""
+    """State what produced these numbers and what the counts above mean.
+
+    On a NORDIC project the two halves of this table describe **two different
+    images**: MRIQC always runs on raw BIDS (see ``pipeline.effective_depends_on``
+    for why that is right), while the motion columns come from fMRIPrep, which
+    read the denoised tree. Labelling only the fMRIPrep half — which is all this
+    did — leaves the more surprising claim unstated, since a reader who knows the
+    project uses NORDIC will assume the IQMs do too.
+
+    MRIQC's side needs no provenance read to say so: its input is a constant, not
+    a config-dependent path, which is exactly why nothing in the artifact records
+    it. Stated only when it could mislead, i.e. when a NORDIC-input fMRIPrep is
+    in the same table.
+    """
     bits = [
         f"Outliers are values outside a {iqr_multiplier}&times; IQR fence computed "
         f"across the runs shown — a within-dataset comparison, not an absolute "
@@ -355,6 +368,13 @@ def _provenance_note(
             "unknown": "data of an unrecorded variant",
         }[variant]
         bits.append(f"Motion columns come from fMRIPrep confounds computed on {label}.")
+        if variant == "nordic":
+            bits.append(
+                "MRIQC IQMs come from the <strong>raw</strong> BIDS data, so they "
+                "and the motion columns describe different images. MRIQC grades "
+                "the acquisition on purpose: NORDIC removes the thermal noise its "
+                "noise measures are measuring."
+            )
     return '<p class="meta signoff-note">' + " ".join(bits) + "</p>"
 
 

@@ -15,6 +15,7 @@ hand-edited or partially-assembled tree fails.
 import json
 
 from duckbrain.core.consistency import _check_fmap_intent, check_consistency
+from duckbrain.core.nordic import nordic_bids_input_dir
 
 
 def _write(path, data):
@@ -148,17 +149,41 @@ def test_list_valued_keys_resolve(tmp_path):
 
 
 def test_the_nordic_fmriprep_input_tree_is_checked_too(tmp_path):
-    """`nordic/bids_input` is assembled, not converted — it can go stale alone."""
+    """`nordic/bids_format` is assembled, not converted — it can go stale alone."""
     bids = tmp_path / "bids"
     derivatives = tmp_path / "derivatives"
     _unit(bids)  # raw BIDS is correct...
-    staged = derivatives / "nordic" / "bids_input"
+    staged = nordic_bids_input_dir(derivatives)
     _unit(staged, fmap_key="B0FieldSource", func_key="B0FieldIdentifier")  # ...staged is not
 
     issues = _check_fmap_intent(_config(bids, derivatives=derivatives))
 
     assert len(issues) == 1
     assert "NORDIC fMRIPrep input" in issues[0].message
+
+
+def test_the_staged_tree_is_the_one_nordic_actually_assembles(tmp_path):
+    """The literal here read `bids_input`; `nordic.py` writes `bids_format`.
+
+    The `is_dir()` guard turns that disagreement into silence — the directory
+    never exists, so the staged tree was skipped on every NORDIC project and this
+    check never ran on fMRIPrep's real input. The test above passed throughout
+    because it built `bids_input` itself, which is why this one asserts against
+    `nordic_bids_input_dir` instead: same source as the builder, so the two ends
+    cannot drift apart again.
+    """
+    bids = tmp_path / "bids"
+    derivatives = tmp_path / "derivatives"
+    _unit(bids)  # raw BIDS is correct
+    _unit(
+        nordic_bids_input_dir(derivatives),
+        fmap_key="B0FieldSource",
+        func_key="B0FieldIdentifier",
+    )
+
+    issues = _check_fmap_intent(_config(bids, derivatives=derivatives))
+    assert [i for i in issues if "NORDIC fMRIPrep input" in i.message]
+    assert not (derivatives / "nordic" / "bids_input").exists()
 
 
 def test_findings_name_which_tree_they_came_from(tmp_path):
