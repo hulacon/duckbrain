@@ -97,6 +97,26 @@ excluded_nodes = ""
 # pure producer regardless; this only redirects fMRIPrep's input.
 use_nordic = false
 
+[qc]
+# Quality-control thresholds. core/qc_guidance.py carries, per measure, why it
+# is on the dashboard and what the literature does — and mostly does not —
+# support. These three are the only numbers duckbrain applies itself.
+
+# Framewise displacement (mm) above which a volume counts as high-motion when
+# duckbrain summarises fMRIPrep confounds. A run-summary convenience, not a
+# published exclusion criterion: Power et al. (2012)'s 0.5 mm censors individual
+# frames. Distinct from MRIQC's own fd_perc, which is fixed at 0.2 mm inside the
+# container and is not configurable from here.
+fd_threshold = 0.5
+
+# Mean FD (mm) above which an automated writer records 'investigate' rather than
+# 'keep'. A recommendation only — it is never a sign-off.
+investigate_threshold = 0.5
+
+# Multiplier for the Tukey IQR fence used to flag outlier runs.
+# 1.5 is the standard fence; 3.0 flags only extreme values.
+iqr_multiplier = 1.5
+
 [slurm]
 # The two partition ROLES. A stage names its role (see `long` below), never a
 # partition directly, so a site with different partition names sets these two

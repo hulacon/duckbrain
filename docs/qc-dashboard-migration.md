@@ -157,7 +157,7 @@ instruction ("fold them together rather than building two things") requires.
 Three, each independently mergeable and independently valuable. Ordered so that
 the piece needing no schema decisions lands first.
 
-### Slice 1 — the guidance registry
+### Slice 1 — the guidance registry — **DONE 2026-07-24**
 
 Port `qc_guidance.py` near-verbatim into `core/` with its 26 tests. Add the
 `[qc]` config section (`fd_threshold`, `investigate_threshold`,
@@ -174,6 +174,18 @@ absent and silently stranded every threshold on its fallback. duckbrain's
 `config.py` has no such package-level import today — **verify that still holds**
 rather than assuming, and make an unreadable config warn rather than default in
 silence.
+
+*Landed:* the trap was checked, not assumed — `core/__init__.py` is a bare
+docstring, so it does not apply here. `qc_settings()` still imports inside the
+function and warns on both an unreadable config and a non-numeric threshold,
+because the failure being defended against is silence, not the import. The
+registry ported with **two** edits, both cosmetic (a docstring import path and a
+generated-from line); it is otherwise byte-identical, which is what makes the
+eventual "mmmdata depends on duckbrain" end state a deletion rather than a merge.
+One config note the port did not carry over: `fd_threshold` is duckbrain's own
+threshold for summarising fMRIPrep confounds and is **not** MRIQC's `fd_perc`
+threshold, which is fixed at 0.2 mm inside the container and cannot be set from
+here. The shipped comment now says so.
 
 ### Slice 2 — the report renderer and the embed
 
@@ -221,28 +233,30 @@ sign-off it never was.
 - **This doc and `TODO.md` are the only places open work is recorded.** No
   `# TODO:` markers in source.
 
-## Cannot be verified without data
+## Checked against real data — 2026-07-24
 
-The registry's content was checked against tool source and literature, but every
-assumption about *this* deployment's actual MRIQC output is unverified. Work
-through these when a session has Talapas access — the one clean dataset is
-`/projects/hulacon/bhutch/divatten_beta` (MRIQC and NORDIC derivatives, no
-fMRIPrep yet, converted after the fieldmap-intent fix).
+The table below was the open list. It was worked before any code moved, against
+`/projects/hulacon/bhutch/divatten_beta` (70 MRIQC JSONs, 65 BOLD runs) and
+`/gpfs/projects/hulacon/shared/mmmdata` (647 MRIQC JSONs, T2w and dwi, both
+fMRIPrep variants). Both read-only.
 
-| # | To check | Why it matters |
-|---|---|---|
-| 1 | **IQM key names against real output.** MRIQC's own docs call the tissue-overlap keys `overlap_*_*` while the output uses `tpm_overlap_*`. The registry assumes the latter. | duckbrain pins `mriqc_version = "24.0.2"`; a wrong key renders a blank column silently. |
-| 2 | **`file://` links under the OnDemand proxy.** The report links to MRIQC HTML as `file:///…`, which works when opened locally and is blocked by browsers when the page is served over HTTP. | "View report" would silently do nothing — the exact silently-degrading failure `CLAUDE.md` forbids. Likely needs relative paths or serving reports through the app. |
-| 3 | **iframe height and payload at scale.** The mmmdata HTML is 4.8 MB, almost all inlined Plotly (deliberate, for offline HPC use). The iframe cannot share the parent page's JS. | Fine at 18 runs, unknown at 100+. Wants an `@st.cache_data` keyed on derivative mtimes — the same cache `#16.2` and `#22` both want, so build it once. |
-| 4 | **Which fMRIPrep tree QC should read** when `use_nordic` is set. | A behavioural decision, not just a path fix. |
-| 5 | **Sentinel `-1` values** for FBER and QI1 on real defaced or skull-stripped input. | Only observable on data that has been through defacing. |
-| 6 | **Whether `fd_perc` is present** in this MRIQC version's BOLD output, and at what threshold it counts frames. | mmmdata's guidance states MRIQC's default is 0.2 mm; the Parkes 20% rule is only citable if that holds. |
+**The headline: the registry was right about every content question, and the
+MRIQC *docs* are the stale side.** Nothing in it needed correcting on the way in.
 
-**One cheap way to collapse most of this:** commit one real MRIQC output JSON per
-modality (bold, T1w) into `tests/` as fixtures. A few KB each. They carry
-`bids_meta` with subject identifiers, so it is a judgement call for a public
-repo — but synthetic fixtures cannot catch a wrong key name, and items 1 and 6
-above are exactly that failure.
+| # | Verdict |
+|---|---|
+| 1 | **RESOLVED — registry correct.** Real output writes `tpm_overlap_csf/gm/wm`; `overlap_*_*` appears nowhere. Every registry key for bold/T1w/T2w exists in real output, with two intended exceptions (`mean_fd`, `pct_high_motion`) that duckbrain derives from fMRIPrep confounds and MRIQC never writes. Pinned by `TestAgainstRealMriqcOutput`. |
+| 2 | **CONFIRMED AS A REAL RISK, unfixed.** mmmdata's shipped dashboard carries **837** absolute `href="file:///gpfs/…"` links and no relative ones. A browser blocks `file://` navigation from an HTTP page, so under the OnDemand proxy every "View report" link silently does nothing. Slice 2 must emit *relative* paths for the exported copy (which also makes the report movable) and route the embed through the app. Still needs an OnDemand session to confirm the fix. |
+| 3 | **RESOLVED — benign.** Payload is ~4.86 MB of inlined Plotly regardless of content; 837 runs of table add only ~0.63 MB (~770 bytes/run). Scaling is not the problem, the fixed bundle is. |
+| 4 | **Open, and now concrete.** mmmdata carries `derivatives/fmriprep` *and* `derivatives/fmriprep_nordic` side by side, so this is a real two-tree case, not hypothetical. Slice 2 decides. |
+| 5 | **CONFIRMED — one real instance.** `sub-05_ses-01_acq-SPC_T2w` has `fber = -1` with `summary_bg_mean = 1.4`, i.e. a genuinely empty background. 1 of 627. `qi_1` never hit it (0 of 18). That file is now the `T2w` test fixture, so the sentinel has a live regression test rather than a hypothesis. |
+| 6 | **RESOLVED — the Parkes citation holds.** `fd_perc` is present. Counting frames above each candidate threshold against MRIQC's own `_timeseries.tsv` matched `fd_num` in **65/65** runs at 0.2 mm and at no other value (0.25/0.3/0.5 each matched 3/65, 0.1/0.15 matched 0/65). The denominator is `size_t`, not the count of FD estimates. |
+
+**Fixtures were committed, with the identifiers stripped.** `tests/fixtures/mriqc/{bold,T1w,T2w}.json` are real output with `bids_meta` and `provenance` removed — every remaining value is a number, so nothing subject- or scanner-identifying survives for a public repo, while the *key names* (the whole point) do. Synthetic fixtures cannot catch a wrong key name, because they would be written from the same assumption as the code.
+
+**One finding the table did not anticipate.** All **609** decision records in mmmdata are `reviewer: "auto-stub"`, `decision: "keep"`, and not one has a second entry — the corpus is 100% machine-written and contains zero human sign-offs. That is the strongest possible argument for Slice 3's rule that an automated writer may record only `pending`: under the current model every one of those reads as a considered "keep". They live in mmmdata and are read-only here; nothing is migrated.
+
+**And one the plan got wrong:** no duckbrain-schema decision file (`*_decision.json` with a `latest` key) exists in any real project directory on this filesystem. The legacy-migration problem Slice 3 describes is real in shape but currently has no instances, so the reader must still accept both schemas — there is just nothing to convert yet.
 
 ## Open questions
 

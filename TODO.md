@@ -736,7 +736,21 @@ existing duckbrain/mmmdata work, open questions per item — in
    a single-project repo, and because this item's own "group-level IQM
    comparison" only becomes answerable in a multi-project tool.
    Three independently-mergeable slices: the registry plus a `[qc]` config
-   section, the report renderer plus its embed, then the decision model. **The
+   section, the report renderer plus its embed, then the decision model.
+   **Slice 1 landed 2026-07-24** on `qc-guidance-migration`, and the plan's
+   "cannot be verified without data" table was worked first, against 717 real
+   MRIQC JSONs across both projects: the registry was right about every content
+   question it raised, so nothing needed correcting on the way in — `tpm_overlap_*`
+   is what MRIQC really writes (its *docs* are the stale side), and `fd_perc`
+   counts frames at 0.2 mm in **65/65** runs and at no other threshold, which is
+   what makes the Parkes 20% rule citable. Real output is now committed as
+   `tests/fixtures/mriqc/` with identifiers stripped, so a wrong key name fails a
+   test instead of rendering a blank column. **Two findings for the later slices:**
+   mmmdata's dashboard carries 837 absolute `file:///` links, every one of which a
+   browser blocks from an HTTP page — Slice 2 must emit relative paths or the
+   "View report" link is a silent no-op under OnDemand; and all **609** decision
+   records in mmmdata are machine-written `auto-stub`/`keep` with zero human
+   sign-offs, which is Slice 3's whole case. **The
    last has teeth:** `core/qc.py` accepts `reviewer` and page 5 never passes it,
    so *every QC decision duckbrain has written is anonymous*, and legacy records
    cannot be attributed retroactively. Settled in the doc so they are not

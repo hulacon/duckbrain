@@ -3,10 +3,75 @@
 from __future__ import annotations
 
 import json
+import warnings
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+
+# ---- QC settings ----
+
+#: Used only when the config cannot be read. Kept in step with ``[qc]`` in
+#: ``config/base.toml``; that file is the place to change a threshold.
+DEFAULT_QC_SETTINGS: dict[str, float] = {
+    "fd_threshold": 0.5,
+    "investigate_threshold": 0.5,
+    "iqr_multiplier": 1.5,
+}
+
+
+def qc_settings(project_dir: str | Path | None = None) -> dict[str, float]:
+    """Return the ``[qc]`` thresholds, resolved through the layered config.
+
+    A project overrides a threshold in its own ``code/duckbrain.toml``; the
+    shipped values in ``config/base.toml`` apply otherwise.
+
+    If the config cannot be read at all, :data:`DEFAULT_QC_SETTINGS` is used and
+    a warning is emitted rather than failing silently — a threshold that is
+    quietly not the one you configured is worse than a noisy one. mmmdata shipped
+    exactly that bug: a package-level import made ``load_config`` raise wherever
+    an optional dependency was absent, stranding every threshold on its fallback
+    with nothing said.
+
+    Parameters
+    ----------
+    project_dir : path, optional
+        Active project directory, passed through to ``load_config``.
+
+    Returns
+    -------
+    dict
+        Keys ``fd_threshold``, ``investigate_threshold``, ``iqr_multiplier``.
+    """
+    settings = dict(DEFAULT_QC_SETTINGS)
+
+    # Imported here, not at module scope: this module is imported by the GUI at
+    # a point where a missing/unreadable config must degrade to a warning rather
+    # than an ImportError at collection time.
+    try:
+        from duckbrain.config import load_config
+
+        qc_section = load_config(project_dir=project_dir).get("qc", {})
+    except Exception as exc:
+        warnings.warn(
+            f"Could not read [qc] settings from config ({exc}); falling back to {settings}.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return settings
+
+    for key in settings:
+        if key in qc_section:
+            try:
+                settings[key] = float(qc_section[key])
+            except (TypeError, ValueError):
+                warnings.warn(
+                    f"[qc] {key}={qc_section[key]!r} is not a number; using {settings[key]}.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+    return settings
 
 
 # ---- MRIQC Metrics ----

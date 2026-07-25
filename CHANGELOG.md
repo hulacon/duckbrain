@@ -24,6 +24,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **Duplicate copies that are dropped now say so.** They were counted as
   "left unconverted as expected" alongside the scanner localizers, which hid a
   choice being made on your behalf about which image ships.
+- **QC measures now come with an explanation and a citation.** A registry of 30
+  MRIQC/fMRIPrep measures records, for each one, why it is worth looking at, what
+  a human should check by eye, what gets flagged without them, and where the
+  guidance comes from — 29 sources, checked against tool source and primary
+  literature rather than common practice. Much of what it establishes is that a
+  measure has **no** defensible absolute cutoff: tSNR has no published basis for
+  "below 20 is poor", and Power's 0.5/0.2 mm figures censor individual frames, so
+  applying them to a run's mean is a category error. Nothing is surfaced in the
+  GUI yet.
+- **`[qc]` config section** (`fd_threshold`, `investigate_threshold`,
+  `iqr_multiplier`), so a project can set a QC threshold in its own
+  `code/duckbrain.toml` instead of it being a UI slider in one place and a Python
+  default in another. A config that cannot be read now warns instead of quietly
+  falling back.
 - **A run now binds to the fieldmap it was acquired next to**, when a session
   has more than one fieldmap pair. Previously every run bound to whichever pair
   sorted first, so a session that shot one fieldmap, ran some tasks, then shot a
