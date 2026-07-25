@@ -147,12 +147,27 @@ def test_one_table_carries_every_decision_and_the_outcome(two_pair_project):
         "Series #",
         "Description",
         "Type",
+        "Type from",
         "# Files",
         "task",
         "run",
         "fieldmap",
         "becomes",
     ]
+
+
+def test_the_table_says_whether_a_type_was_read_or_guessed(project):
+    """`classified_by` reaches the user, not just the dataclass.
+
+    It was set and unit-tested from the day header classification landed, and its
+    own comment said the Conversion page showed it — but no GUI code read it, so
+    a datatype inferred from a study-specific string looked exactly like one the
+    headers stated. This fixture's DICOMs are empty files, so the reader gets
+    nothing and every row is the guess.
+    """
+    plan = _plan_table(at := AppTest.from_file(PAGE, default_timeout=60).run())
+    assert not at.exception
+    assert set(plan["Type from"]) == {"name"}
 
 
 def test_fieldmap_rows_carry_their_own_pair_token(two_pair_project):

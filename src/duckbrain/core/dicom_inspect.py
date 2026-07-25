@@ -24,8 +24,11 @@ class SeriesInfo:
     # BIDS suffix the header pinned (``T1w``, ``epi``, ``phasediff``, …), or ""
     # when only the datatype is known.
     suffix_hint: str = ""
-    # Where ``classification`` came from: "header" or "name". Carried so the
-    # Conversion page can show the user which series were guessed from a string.
+    # Where ``classification`` came from: "header" or "name". Shown as the
+    # Conversion page's "Type from" column, so a datatype inferred from a
+    # study-specific string doesn't look like one the headers stated. This
+    # comment claimed that surfacing for three days before it was true; pinned
+    # now by test_the_table_says_whether_a_type_was_read_or_guessed.
     classified_by: str = ""
     # Why a series was demoted out of conversion, when something chose to demote
     # it. Empty for series nothing dropped on purpose. Surfaced by plan_warnings

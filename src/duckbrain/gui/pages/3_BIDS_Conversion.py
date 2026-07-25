@@ -522,6 +522,7 @@ for s in series_list:
             "Series #": s.series_number,
             "Description": s.description,
             "Type": s.classification,
+            "Type from": s.classified_by,
             "# Files": s.file_count,
             "task": task,
             "run": run,
@@ -760,7 +761,7 @@ with st.container(border=True):
 # read-only and show what the JSON says. Left editable they were three controls
 # that silently did nothing, and the only notice sat inside a collapsed expander
 # at the bottom of the page (TODO #17.5).
-_locked = ["Series #", "Description", "Type", "# Files", "becomes"]
+_locked = ["Series #", "Description", "Type", "Type from", "# Files", "becomes"]
 if _override_config is not None:
     _locked += ["task", "run", "fieldmap"]
     st.info(
@@ -776,6 +777,14 @@ st.data_editor(
     hide_index=True,
     disabled=_locked,
     column_config={
+        "Type from": st.column_config.TextColumn(
+            "Type from",
+            help="Where the Type came from. `header` means the DICOM headers "
+            "state it; `name` means it was inferred from the series description, "
+            "which is a guess and the one worth checking — a study-specific name "
+            "like `food` or `Whack` says nothing about datatype.",
+            width="small",
+        ),
         "run": st.column_config.NumberColumn("run", min_value=1, step=1, format="%d"),
         "fieldmap": st.column_config.SelectboxColumn(
             "fieldmap",

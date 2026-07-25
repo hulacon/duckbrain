@@ -15,7 +15,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 
 **Open items, in priority order:**
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
-[`#13`](#13) browser validation · [`#15`](#15) BIDS validation ·
+[`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
+[`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
 [`#22`](#22) wire up the dcm2niix probe ·
@@ -127,10 +128,10 @@ data-migration problem, not just a fix. duckbrain's shipped default partition wa
 *because* the field was inert.
 
 <a id="13"></a>
-## #13 — Conversion legibility: browser validation
+## #13 — Conversion legibility: browser validation, and an editable Type
 
 **Phases 1–7 shipped 2026-07-21 and granularity is settled (see the ledger).
-What remains is the eyeball pass.** Full design in
+What remains is the eyeball pass, plus `#13.1` below.** Full design in
 **`docs/conversion-legibility.md`**.
 
 - **UNVALIDATED in the browser.** Covered by unit + AppTest tests, but nobody has
@@ -154,6 +155,49 @@ What remains is the eyeball pass.** Full design in
   `sidecar_changes`, custom ids, dcm2bids options), so a continuous round trip
   would drop them silently. The import is explicit, one-shot, and reports what it
   couldn't represent.
+
+### `#13.1` — An editable `Type`, if it can be made honest
+
+**Captured 2026-07-24, Ben's question thinking about a naive user** — no live
+misclassification prompted it. Today `Type` is read-only and the only way to
+correct one is the hand-edited JSON override.
+
+- **Unlocking the column is one line and would be a bug.** Drop `"Type"` from
+  `_locked` (`3_BIDS_Conversion.py`) and the edit half-applies: the page builds
+  `edited_mapping` and `session_fmap_rules` off `row["Type"]`, but `generate_config`
+  dispatches on `SeriesInfo.classification`, and nothing writes the column back
+  onto `series_list`. Task/run and the bindings would follow the new type while
+  the emission followed the old one. Writing it back is mechanical — the honest
+  part is below.
+- **The datatype alone under-determines the output, so the control is not a
+  datatype dropdown.** `func`→`bold` and `sbref`→`sbref` are fixed, and nothing
+  else is: `_anat_description` picks the suffix from the *name* vocabulary
+  (`t1`/`t2`/`mprage`/`flair`) and falls back to `suffix_hint` — **and returns
+  `None` when neither fires, dropping the series**. So relabelling `food_r1` as
+  anat writes no file and says nothing, which is the failure the feature exists
+  to prevent, reintroduced by the feature. `fmap` is worse: `_fmap_description`
+  only emits for series `detect_fieldmaps` already grouped, so a manual label
+  creates no pair. And `dwi` has no emission path at all (`#19.1`).
+- **So: datatype+suffix (`anat/T1w`, `fmap/epi`) as a `SelectboxColumn`,
+  restricted to combinations that actually emit, and anything unhandled raises.**
+  The silently-degrading rule in `CLAUDE.md` is the whole difficulty here, not an
+  afterthought.
+- **Per-session is the wrong grain.** A table edit reaches conversion only
+  because the page saves `dcm2bids_config.json` before `advance_one` and
+  `_build_dcm2bids` reuses it; bulk convert and the cockpit re-derive through
+  `generate_session_config` ("no manual edits"). A scanner label duckbrain
+  misreads is misread for every subject, so this wants a project-level section
+  read by `classify_series` as a tier above header and name — same read-modify-write
+  shape as `save_project_task_map` / `save_project_fmap_map`, and the same
+  argument `docs/conversion-legibility.md` makes for keeping bindings declarative.
+- **Check first whether the case is a classifier bug.** The `Type from` column
+  (added 2026-07-24) now says `header` or `name`; a wrong `header` verdict is a
+  bug to fix at the source, and the override is for what no rule can reach.
+  `memory/header-based-classification` is the record of that distinction.
+- **Adjacent and unbuilt: there is no exclude/skip control either.** A series is
+  dropped only implicitly, by classifying as `scout`/`physio`/`derived`. If the
+  Type control is built, "don't convert this" is arguably one of its values —
+  decide that deliberately rather than discovering it.
 
 <a id="15"></a>
 ## #15 — Validate output against the BIDS standard, as a habit not a one-off

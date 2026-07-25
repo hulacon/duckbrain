@@ -11,6 +11,12 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **The conversion table says whether a Type was read or guessed.** A new
+  "Type from" column reads `header` when the DICOM headers state the datatype and
+  `name` when it was inferred from the series description — which is the guess,
+  and the one worth checking, since a study-specific name like `food` or `Whack`
+  says nothing about datatype. duckbrain has recorded this since header
+  classification landed; it had just never reached the screen.
 - **You can choose which reconstruction converts** where the scanner saved a
   series twice — once distortion-corrected and once with `ND` in the name. Set
   `[conversion] nd_duplicates` to `corrected` (the default, and what duckbrain
