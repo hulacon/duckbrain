@@ -11,6 +11,19 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Added
+- **You can choose which reconstruction converts** where the scanner saved a
+  series twice — once distortion-corrected and once with `ND` in the name. Set
+  `[conversion] nd_duplicates` to `corrected` (the default, and what duckbrain
+  has always done), `uncorrected`, or `both`. The Conversion page offers it as a
+  choice on any session that actually holds duplicates, and can save it as the
+  project default so bulk convert and the cockpit build the same thing. Under
+  `both` the two copies are written as `acq-dis` and `acq-nd`, and a duplicated
+  fieldmap becomes two independent fieldmaps, with runs bound to the corrected
+  one unless you say otherwise. Whichever you pick, a copy whose folder holds no
+  DICOM files is never chosen over one that does.
+- **Duplicate copies that are dropped now say so.** They were counted as
+  "left unconverted as expected" alongside the scanner localizers, which hid a
+  choice being made on your behalf about which image ships.
 - **A run now binds to the fieldmap it was acquired next to**, when a session
   has more than one fieldmap pair. Previously every run bound to whichever pair
   sorted first, so a session that shot one fieldmap, ran some tasks, then shot a
@@ -23,6 +36,29 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   the source and reports it.
 
 ### Fixed
+- **A duplicated gradient-echo fieldmap no longer loses a usable pair.** Where a
+  session held both reconstructions of a fieldmap — four series, two names — the
+  uncorrected magnitude was matched against the corrected *phase* and dropped on
+  the strength of it. If the corrected magnitude's folder was then empty, both
+  uncorrected series went too and the session was left with no usable fieldmap
+  even though a complete one was sitting there. The choice is now made once per
+  pair, so a fieldmap's magnitude and phase always come from the same
+  reconstruction.
+- **A session that shot the same anatomical twice and saved both reconstructions
+  gained a spurious third anatomical.** One of the four series went unclaimed and
+  converted alongside the two the setting had chosen.
+- **A turbo spin echo is now recognised as one from the scanner header.** T2w
+  anatomicals classified only because their *name* happened to contain `t2`, so a
+  site naming them anything else lost them; a dual-echo (PD+T2) turbo spin echo
+  was also on course to convert as half a fieldmap.
+- **A scanner localizer is now recognised from the sequence it ran**, not only
+  from its name — so a site whose console calls it something other than
+  `scout`/`localizer` no longer gets a warning about a series duckbrain should
+  have known to skip. A 3D SPACE anatomical named after its pulse sequence is
+  likewise no longer dropped.
+- **An unpaired gradient-echo fieldmap half no longer claims the flavour is
+  unsupported.** It has been supported since the previous release's fix; the
+  message now names what is actually missing.
 - **A session with two gradient-echo fieldmap pairs now converts.** Both pairs
   were written to the same filenames, which the collision check caught as an
   error — so nothing was ever silently overwritten, but the session could not be

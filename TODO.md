@@ -578,15 +578,17 @@ problem,** and the line is drawn here on purpose:
 - **`G##_S##` parsing is unit-tested only and stays that way.** No export on this
   filesystem uses it and it isn't expected to be common. Just **don't record it as
   live-validated**; close it for free if such an export turns up.
-- **bold→fmap linking still has no temporal-proximity logic** — an *unbound* task
-  goes to the first *complete* group; `_assign_fmap_group` never reasons about
-  acquisition time. It can no longer pick a half group (an aborted lone AP), and
-  since 2026-07-21 this is escapable rather than fixed: a project can declare
-  `task -> group` outright in `[fmap_mapping]` (`FmapRule`, now with optional
-  per-run granularity), which wins over the name-match heuristic and the
-  first-group default. Inferring from timestamps stays a candidate refinement, and
-  the explicit binding is the thing to measure it against. A rule naming a group a
-  session lacks **raises**; see the silently-degrading rule in `CLAUDE.md`.
+- **bold→fmap linking binds by acquisition time** (since 2026-07-24, `#19.3`) —
+  an unbound task goes to the complete group it was acquired *nearest in time*,
+  not the first one. This bullet asserted the opposite for three days after the
+  change landed; the ledger row and `memory/fieldmap-binding-and-heudiconv` are
+  the record. A project can still declare `task -> group` outright in
+  `[fmap_mapping]` (`FmapRule`, with optional per-run granularity), which wins
+  over the name match, the timing, and the first-group fallback. A tie falls
+  through to first-group, which is what a session shooting two pairs
+  back-to-back hits — that residue is `#19.3`, and it belongs with `#16`'s
+  `[expected]` rather than a heuristic. A rule naming a group a session lacks
+  **raises**; see the silently-degrading rule in `CLAUDE.md`.
 - **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
   becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
   alone on purpose: renaming it would change the `B0FieldIdentifier` of
@@ -799,11 +801,28 @@ The item is closed and shipping; these are the accepted edges.
 
 Validated against `/projects/lcni/dcm/repository` — 15 studies, 189 distinct
 series descriptions, 112 sessions paired with the BIDS the LCNI curator produced.
-duckbrain now reproduces **391 of the 392** canonical files (the miss is
-`anat/T1wa`, a curator typo and not a valid BIDS suffix). **Treat that corpus as
-the fixture for anything in this section** — it is read-only, and it is the only
-place these cases exist together. Write scratch output to
-`/projects/hulacon/bhutch`.
+**Treat that corpus as the fixture for anything in this section** — it is
+read-only, and it is the only place these cases exist together. Write scratch
+output to `/projects/hulacon/bhutch`.
+
+**The 391-of-392 number is a measurement dated 2026-07-24, not a standing
+claim.** As of that date duckbrain reproduced 391 of the 392 canonical files (the
+miss is `anat/T1wa`, a curator typo and not a valid BIDS suffix). LCNI has since
+said **many anatomicals in that repository are missing and will be
+re-converted** — in exactly the datatype `#19.4`/`#19.6` and the ND work touch.
+So the number must be **re-measured rather than carried forward**, and a lower
+agreement afterwards is not by itself a regression: it may only mean the curator's
+denominator moved.
+
+**What actually gates now is duckbrain's own frozen inventory** — the planned-file
+set across all sessions, snapshotted before a change and diffed after, with every
+difference triaged rather than counted. That is independent of a tree someone else
+is editing. Canonical stays useful as a one-way check for *new* disagreements,
+each looked at individually — and no more than that, because it is not an oracle:
+it holds illegal subject labels (`#19.5`), it silently kept one of two fieldmap
+pairs on six sessions (`#19.6`), and now it is known to be missing anatomicals.
+That is three independent ways it is wrong, so "matches the curator" has never
+been a correctness argument on its own.
 
 What it does *not* cover, in the order the corpus argues for:
 
@@ -906,6 +925,17 @@ single-echo series also fails, since a magnitude is recognised by
 `len(echo_numbers) > 1`. Worth a decision, not a speculative fix — there is
 nothing local to validate against, which is `#19.2`'s reasoning.
 
+**Still true, and now load-bearing for a second reason.** Pairing on an identical
+`SeriesDescription` is what makes `nd_duplicates = "both"` work with no
+fieldmap-specific code at all: the two reconstructions are named
+`fieldmap_2mm` and `fieldmap_2mm_ND`, so they fall into separate groups, get
+separate `acq-` entities from the existing multi-pair machinery, and end up as
+two independent `B0FieldIdentifier`s. Loosening the description match to fix the
+`gre_field_mapping` / `gre_field_mapping_phase` case would have to keep that
+separation, or it would merge the two reconstructions into one group and pair a
+corrected magnitude with an uncorrected phase — precisely the mispairing LCNI
+reported from another converter.
+
 ### `#19.4` — DONE (2026-07-24, see ledger)
 
 An empty series directory now raises an `empty-source` error in `plan_warnings`
@@ -921,6 +951,26 @@ extra entity. duckbrain's `_sanitize_label` already strips these on ingestion, s
 this is not a duckbrain bug; it is a note that the *canonical* trees in that
 repository are not all valid, so "matches the curator" is not by itself a
 correctness argument.
+
+### `#19.7` — Re-measure agreement once LCNI re-converts the anatomicals
+
+LCNI reported (2026-07-24) that many anatomicals in the repository are missing
+and will be redone. Until then the canonical anat coverage is incomplete, so the
+headline agreement number in the preamble above is frozen at its 2026-07-24
+measurement and must not be quoted as current.
+
+When the re-conversion lands: re-run the corpus harness, diff duckbrain's own
+inventory against the frozen baseline first (that is the regression gate), and
+only then compare against canonical — treating each *new* disagreement as
+something to triage rather than a score to restore. Expect the ND work to show up
+here: `both` doubles the anatomicals, and `corrected`/`uncorrected` change which
+source series a given `T1w` came from without changing its name, so a filename
+diff is the wrong instrument for that part.
+
+The one thing worth asking the curator directly is which reconstruction their
+re-conversion keeps. If they keep the `_ND` copy where both exist, duckbrain's
+default (`corrected`) will disagree on every twinned session — 47 of them — and
+that would be a *default* to reconsider, not a bug to fix.
 
 <a id="loose-ideas-not-scheduled"></a>
 ## Loose ideas (not scheduled)
@@ -970,6 +1020,9 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-24 | — | **A project chooses which reconstruction converts, prompted by LCNI** asking that the user be able to select the distortion-corrected copy, the `_ND` copy, or both. `[conversion] nd_duplicates`, defaulting to today's behaviour. Project-level and not a table column: bulk and cockpit converts go through `generate_session_config` and have no table, so a table-only control would mean the reviewed session and the bulk-converted session held different images with nothing saying so. `both` needed new code only for anatomicals — `acq-nd`/`acq-dis`, with `_disambiguate_anat` now bucketing by `(suffix, custom_entities)` so `run-` still means *acquired* twice rather than *reconstructed* twice. The fieldmap half falls out of description-matched pairing for free (two groups, two `B0FieldIdentifier`s), except that both pairs share an acquisition time, so nearest-in-time cannot separate them and fell through to insertion order — hence `FieldmapDetection.deprioritized`, which narrows the *automatic* candidates only. Validated live through dcm2bids on Crave_control/CC052: both reconstructions land, they differ across 61% of voxels, and the B0 intent is correct |
+| 2026-07-24 | — | **The ND choice is made per twin pair, not per series** — the defect LCNI's fieldmap layout exposed (27 `fieldmap_2mm_ND` mag, 28 `fieldmap_2mm` mag, 29 `fieldmap_2mm` phase, 30 `fieldmap_2mm_ND` phase). The twin lookup was a dict comprehension keyed on the description, so of the two series sharing `fieldmap_2mm` it kept only the last — the *phase* — and demoted the ND *magnitude* on the strength of it, never checking the role. And deciding per series can keep one half of each reconstruction, which the identical-description pairing then refuses entirely. Together those reproduced CC056 with a fieldmap: both ND series demoted, the group built on an empty directory, a complete populated pair discarded. LCNI's other worry — that the halves get matched in order, so 27 pairs with 29 — cannot happen here; pairing is `ImageType` + identical description, never ordering. The corpus run then found a third case the unit tests could not: pMAP101 shoots its mprage twice and saves both copies of each, and with each ND picking its own nearest twin one corrected series went unclaimed and converted as a spurious third anatomical **under every policy including the default**. Sides are now paired in acquisition order. The drop is also no longer invisible — `DroppedSeries.reason` and an `nd-duplicate` notice, on 52 corpus sessions that previously said nothing |
+| 2026-07-24 | — | **Spin echo read from both witnesses, and the pulse sequence name read at all.** `is_spin_echo` asked only whether `SequenceName` started `epse`, which is right for the pepolar fieldmap and wrong for every other spin-echo family: `*tse2d1_18` does not, so a classic turbo spin echo read as gradient echo — leaving the `anat`/`T2w` rule unreachable in that dialect (those series classified only because their *name* said `t2`) and putting a dual-echo TSE on course to convert as half a fieldmap. Neither witness subsumes the other: the pepolar `epse2d1_104` reports `ScanningSequence ('EP',)` with no `SE`, `*tse2d1_18` reports `('SE',)` with the wrong name — so it is a union. Separately, LCNI's note that the field to read is `PulseSequenceName` (post XA30) else `SequenceName`: duckbrain read only the latter, used it for one bit, and never stored it. Now on `SeriesHeader` and used as a last tier for the two classes nothing else reaches — `*fl3d1_ns` scouts (previously name-only, so a localizer called anything else was `unknown`) and `*spcR` SPACE. The plan for that said SPACE was absent from the corpus and would ship on a synthetic test; the corpus run said otherwise — WMS179 Series_21 is a real undefaced 3D SPACE, and enhanced-dialect, so it exercises exactly the tag that was never read |
 | 2026-07-24 | #22 | **A dcm2niix probe, and the correction it forced.** `core/dcm2niix_probe.py` stages one symlink per series and makes a single `dcm2niix -b o` call — **0.15 s warm per session** against 90 s for the same flag over the session directory, which is the invocation the "too slow to preview with" objection was actually about. It buys two fields `dicom_header` cannot reach by any amount of pydicom: the **signed** `PhaseEncodingDirection` (the raw tag is `ROW`/`COL`, no polarity, and absent on XA30) and `ShimSetting`. `plan_warnings` grows `pe-collinear` (error — both halves of a pepolar pair encoded the same way estimate nothing, and it is orientation-free so it holds for oblique acquisitions) and `pe-direction` (warning — the `_ap`/`_pa` name token disagrees with what the scanner did). The second is `consistency._check_fmap_pe_direction` moved to where it can still change the outcome; both now import one `PE_FOR_DIR` so a plan cannot pass preflight and fail after. **The correction: shim is reachable and useless.** dcm2niix reports it for 383/385 corpus series including 100% of XA30 — but in all 18 sampled multi-fieldmap sessions every group shares one shim, and in DEV102 the pair's shim matches *no* BOLD run. So the acquisition-time binding is not a compromise awaiting a shim upgrade; it is strictly better, and `#19.3` and `memory/fieldmap-binding-and-heudiconv` said the opposite until now. Also measured: the `_ap`/`_pa` token is correct 32/32 on the corpus, and LR/RL exists there after all (as diffusion). Wiring it into the GUI is open as `#22` |
 | 2026-07-24 | #19.6 | **Two gradient-echo fieldmap defects, prompted by LCNI** flagging that older fieldmaps are gradient double-echo and that converters mispair them when the halves aren't neighbouring. **That concern was unfounded** — pairing is header `ImageType` + identical description + ordering, never `SeriesNumber + 1`; a magnitude at 5 and a phase at 12 pair fine (all 38 GRE pairs the corpus holds happen to be `+1`, so the robustness is by design, not validation). What checking it *did* find: (a) `plan_warnings`'s half-pair check tested `ap`/`pa` membership rather than calling `is_complete_group`, so **every** GRE session was told its complete fieldmap "can't correct anything and isn't offered for binding" — false in both halves, since the runs were bound to it. `is_complete_group` exists to be the one predicate and the GUI had already moved onto it; this call site had not. (b) `group_entities` was populated only on the pepolar path, so two GRE pairs both wrote `sub-X_ses-Y_{magnitude1,magnitude2,phasediff}`. The collision check caught it as an *error* so nothing was overwritten, but the session could not convert at all and the message advised "distinct task or run values", which a fieldmap has none of. GRE groups now take the same `acq-`/`run-` entities. Fixed on all 6 affected corpus sessions (REV055/REV074/REV126, both sessions each) with binding unchanged; corpus-wide re-run confirms no duplicate fmap filename and no false half-pair anywhere. The 6 are also where duckbrain finds a **second** pair the canonical tree lost — the curator hit this same collision and silently kept the last |
 | 2026-07-24 | #19.3 #19.4 | **Three heudiconv ideas borrowed after comparing against its canonical DIVATTEN run on this filesystem.** (1) **Bold→fmap binding by acquisition time** — heudiconv's real criterion is shim settings (a fieldmap corrects only what shares its shim group), but Siemens keeps the shim in a CSA blob not populated until dcm2niix runs, and 36% of the corpus is XA30 with no CSA; AcquisitionTime is the portable proxy and is standard in both dialects. The old "first complete group" bound every run to whichever pair sorted first — wrong for every run after the second pair. Validated on REV055 (fieldmap1 binds GNG/BART, fieldmap2 binds SST/React). Explicit rule and name-match still outrank it; the preview path takes the same time lookup so it can't drift. (2) **Empty source directories flagged** — `plan_warnings` now carries each planned file's source file count and raises when zero, instead of predicting a file dcm2bids silently can't make. (3) Persisting the seqinfo table (heudiconv's `dicominfo.tsv`) not done — `classified_by` already surfaces the same on the Conversion page. heudiconv is Apache-2.0, so borrowing is one-way |

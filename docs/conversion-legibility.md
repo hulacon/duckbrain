@@ -199,14 +199,17 @@ series numbers are per-session, so a series-keyed rule could not generalize
 across subjects, and `[fmap_mapping]` is a project-level statement like
 `[task_mapping]` beside it.
 
-## Still open — temporal proximity
+## Closed — temporal proximity
 
-Even with run-level bindings, `_assign_fmap_group`'s *automatic* path never
-reasons about acquisition time: an unbound task still goes to the first complete
-pair. The explicit binding now covers every case that limitation produces, at the
-cost of saying so once per study. Inferring it from timestamps stays a candidate
-refinement, and the explicit binding is the thing to measure it against. See
-`TODO.md` `#5`.
+This section used to say `_assign_fmap_group`'s automatic path never reasoned
+about acquisition time. It has since 2026-07-24: an unbound task binds to the
+complete pair it was acquired nearest in time, and the explicit `[fmap_mapping]`
+binding still outranks it. What is left is a tie — two pairs shot back-to-back,
+where the times are equal and it falls through to the first group. That is
+genuinely a declaration rather than something to infer, so it sits with `#16`'s
+`[expected]`. See `TODO.md` `#19.3` and
+`memory/fieldmap-binding-and-heudiconv`, which also records why shim settings
+are *not* the upgrade path they look like.
 
 ## Not doing
 

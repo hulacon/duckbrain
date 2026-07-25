@@ -557,3 +557,20 @@ def test_two_gre_pairs_sharing_one_name_get_legal_entity_values():
     fmap_files = sorted(f.path for f in plan.files if "/fmap/" in f.path)
     assert len(fmap_files) == len(set(fmap_files)), fmap_files
     assert not [w for w in plan_warnings(plan, fieldmaps) if w.severity == "error"]
+
+
+def test_an_unpaired_gre_half_is_told_what_is_missing_not_that_gre_is_unsupported():
+    """The hint fires on any dropped fmap, and gradient-echo is supported now.
+
+    It used to say duckbrain "can only express the spin-echo AP/PA pair", which
+    stopped being true at `#19.6` — so a session whose fieldmap merely lost a
+    half was told to give up on a flavour duckbrain would have converted.
+    """
+    magnitude, _phase = _gre_pair(5, 6, "gre_field_mapping")
+    plan, fieldmaps = _plan([magnitude, _bold(7, "food", 1)], subject="X", session="1")
+
+    dropped = [w for w in plan_warnings(plan, fieldmaps) if w.kind == "dropped"]
+    assert len(dropped) == 1
+    message = dropped[0].message
+    assert "both halves" in message
+    assert "can only express" not in message

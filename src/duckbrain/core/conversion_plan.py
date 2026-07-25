@@ -41,15 +41,20 @@ _EXPECTED_DROPS = frozenset({"scout", "physio", "derived"})
 
 # A datatype duckbrain *recognises* but cannot yet express. Naming the limit is
 # the point: dropped with "classified unknown" reads as a naming problem the
-# user could fix on the console, and they cannot. Both of these are common in
-# the LCNI repository — the gradient-echo fieldmap is the single most frequent
-# fieldmap flavour there, ahead of the pepolar pair duckbrain does support.
+# user could fix on the console, and they cannot.
+#
+# The fmap hint used to say gradient-echo fieldmaps were unsupported outright.
+# They have been supported since `#19.6`, and the hint fires whenever *any* fmap
+# series is dropped — so an unpaired half produced a message that was simply
+# false, and told the user to stop expecting something duckbrain would have done.
+# What actually strands a gradient-echo fieldmap now is a half it could not pair;
+# pinned by tests/test_conversion_plan.py.
 _UNSUPPORTED_HINT = {
     "fmap": (
-        " If this is a gradient-echo fieldmap (magnitude + phase difference),"
-        " duckbrain can only express the spin-echo AP/PA pair — the scans it"
-        " would have corrected will be preprocessed without distortion"
-        " correction."
+        " A gradient-echo fieldmap needs both halves — the magnitude series and"
+        " the phase-difference series that follows it, sharing a description. A"
+        " half on its own cannot estimate a field, so the scans it would have"
+        " corrected will be preprocessed without distortion correction."
     ),
     "dwi": " duckbrain does not convert diffusion series (no bval/bvec handling).",
 }
