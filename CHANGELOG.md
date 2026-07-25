@@ -24,6 +24,17 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **Duplicate copies that are dropped now say so.** They were counted as
   "left unconverted as expected" alongside the scanner localizers, which hid a
   choice being made on your behalf about which image ships.
+- **The QC page now renders a full QC report**, with a run table, IQM
+  distributions, outlier detail and the guidance glossary inline — and the same
+  report downloads as one self-contained HTML file, or saves into
+  `derivatives/duckbrain_qc/` beside the MRIQC and fMRIPrep reports. Links to
+  MRIQC reports are relative, so a saved report keeps working when it is moved or
+  copied off the cluster.
+- **The report states which data the motion numbers came from.** fMRIPrep output
+  lives in one directory whether or not `use_nordic` is set, so nothing in the
+  path distinguished mean FD computed on NORDIC-denoised data from the same
+  number computed on raw data. It is now read from the derivative's own
+  provenance and shown.
 - **QC measures now come with an explanation and a citation.** A registry of 30
   MRIQC/fMRIPrep measures records, for each one, why it is worth looking at, what
   a human should check by eye, what gets flagged without them, and where the
@@ -73,6 +84,10 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **An unpaired gradient-echo fieldmap half no longer claims the flavour is
   unsupported.** It has been supported since the previous release's fix; the
   message now names what is actually missing.
+- **The QC page now finds MRIQC output on a study without sessions.** It looked
+  only for `sub-XX/ses-YY/<datatype>/`, so a single-session study matched nothing
+  and the page reported no metrics and suggested running MRIQC — which had
+  already run, successfully. Sessioned and flat layouts are unaffected.
 - **A session with two gradient-echo fieldmap pairs now converts.** Both pairs
   were written to the same filenames, which the collision check caught as an
   error — so nothing was ever silently overwritten, but the session could not be

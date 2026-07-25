@@ -95,30 +95,33 @@ def load_mriqc_metrics(mriqc_dir: str | Path, modality: str = "bold") -> pd.Data
     mriqc_dir = Path(mriqc_dir)
     rows = []
 
-    # MRIQC writes per-run JSON files: sub-XX/ses-YY/<modality>/*.json
-    # or flat: sub-XX_ses-YY_*_<modality>.json at root level
-    patterns = [
-        f"sub-*/ses-*/{modality}/*_{modality}.json",
-        f"sub-*/*_{modality}.json",
-        f"*_{modality}.json",
-    ]
-
+    # Recursive, because MRIQC's depth follows the dataset, not a fixed shape:
+    # sub-XX/ses-YY/<datatype>/ when the study has sessions, sub-XX/<datatype>/
+    # when it does not, and flat at the root for some versions. A fixed list of
+    # globs previously required the ses- level and so matched *nothing* on a
+    # sessionless project — the page then reported no metrics and advised
+    # running MRIQC, which had already run. Found 2026-07-24 against
+    # divatten_beta, which is sessionless.
+    #
+    # The suffix does the filtering: `*_bold.json` cannot match MRIQC's
+    # companion `*_timeseries.json`, so only IQM files are read.
     seen_files = set()
-    for pattern in patterns:
-        for json_path in mriqc_dir.glob(pattern):
-            if json_path.name in seen_files:
-                continue
-            seen_files.add(json_path.name)
-            try:
-                with open(json_path) as f:
-                    data = json.load(f)
-                # Extract subject/session/task/run from filename
-                parts = _parse_bids_filename(json_path.stem)
-                data.update(parts)
-                data["_source_file"] = json_path.name
-                rows.append(data)
-            except (json.JSONDecodeError, KeyError):
-                continue
+    for json_path in sorted(mriqc_dir.rglob(f"*_{modality}.json")):
+        if json_path.name in seen_files:
+            continue
+        try:
+            with open(json_path) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        # Extract subject/session/task/run from filename
+        parts = _parse_bids_filename(json_path.stem)
+        if "sub" not in parts:
+            continue
+        seen_files.add(json_path.name)
+        data.update(parts)
+        data["_source_file"] = json_path.name
+        rows.append(data)
 
     if not rows:
         return pd.DataFrame()

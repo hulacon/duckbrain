@@ -750,7 +750,19 @@ existing duckbrain/mmmdata work, open questions per item — in
    browser blocks from an HTTP page — Slice 2 must emit relative paths or the
    "View report" link is a silent no-op under OnDemand; and all **609** decision
    records in mmmdata are machine-written `auto-stub`/`keep` with zero human
-   sign-offs, which is Slice 3's whole case. **The
+   sign-offs, which is Slice 3's whole case.
+   **Slice 2 landed 2026-07-24**: the renderer is `core/qc_report.py`, page 5 is
+   wiring only, and links are relative rather than `file://`. Two corrections to
+   the plan, both in the doc — the `fmriprep_dir`/`use_nordic` "fix" would have
+   *created* a bug (duckbrain has one fMRIPrep tree, not mmmdata's two, so
+   branching on `use_nordic` points at a directory that never exists; the real gap
+   was that nothing told the reviewer which variant the motion numbers came from,
+   and that is now read from provenance) — and `load_mriqc_metrics` was finding
+   **zero** runs on any sessionless study, so the QC page had never worked on
+   `divatten_beta`. **What is still open:** relative links fix the exported copy
+   but the `components.html` iframe has no origin to resolve them against, so
+   whether the app should serve MRIQC reports itself needs an OnDemand session.
+   **The
    last has teeth:** `core/qc.py` accepts `reviewer` and page 5 never passes it,
    so *every QC decision duckbrain has written is anonymous*, and legacy records
    cannot be attributed retroactively. Settled in the doc so they are not

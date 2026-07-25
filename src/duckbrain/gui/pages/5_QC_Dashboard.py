@@ -1,9 +1,22 @@
-"""Page 5: QC Dashboard — review MRIQC metrics, motion, and make keep/exclude decisions."""
+"""Page 5: QC Dashboard — read the QC report, and record keep/exclude decisions.
 
-import streamlit as st
-import pandas as pd
+Thin on purpose. Everything that decides *what* is shown lives in
+``core.qc_report`` and ``core.qc``, where a test can import it; this file only
+wires widgets to those functions. The page is a Streamlit script no test
+imports, so logic that lives here is logic nothing covers — which is exactly why
+``core/qc.py`` was the only untested module in ``core/``.
+
+The report itself is one HTML string rendered once and delivered twice: embedded
+below, and offered as a download / written to ``derivatives/``. Recording a
+decision stays in Streamlit widgets outside that iframe, because persisting one
+needs a server-side callback static HTML cannot make.
+"""
+
 from pathlib import Path
 
+import pandas as pd
+import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="QC Dashboard — duckbrain", layout="wide")
 st.title("QC Dashboard")
@@ -24,168 +37,147 @@ if not derivatives_dir:
     st.error("Derivatives directory not set. Check Project Setup.")
     st.stop()
 
+from duckbrain.core import qc, qc_report
+
 mriqc_dir = Path(derivatives_dir) / "mriqc"
-fmriprep_dir = Path(derivatives_dir) / "fmriprep"
+fmriprep_dir = qc_report.resolve_fmriprep_dir(config)
 decisions_dir = Path(derivatives_dir) / "preprocessing_qc"
+
+settings = qc.qc_settings()
 
 # ---- Modality selector ----
 modality = st.selectbox("Modality", ["bold", "T1w", "T2w"])
+iqm_cols = qc.BOLD_IQMS if modality == "bold" else qc.ANAT_IQMS
 
-# ---- Load MRIQC metrics ----
-from duckbrain.core.qc import (
-    load_mriqc_metrics,
-    detect_outliers,
-    summarize_motion,
-    load_decisions,
-    save_decision,
-    BOLD_IQMS,
-    ANAT_IQMS,
+
+@st.cache_data(show_spinner="Reading MRIQC output…")
+def _load_metrics(mriqc_dir: str, modality: str, _fingerprint: tuple) -> pd.DataFrame:
+    """Cached MRIQC load. ``_fingerprint`` changes when the derivative does."""
+    return qc.load_mriqc_metrics(mriqc_dir, modality)
+
+
+def _fingerprint_of(root: Path, pattern: str) -> tuple:
+    """(count, newest mtime) of matching files — enough to invalidate the cache."""
+    try:
+        stats = [p.stat().st_mtime for p in root.rglob(pattern)]
+    except OSError:
+        return (0, 0.0)
+    return (len(stats), max(stats, default=0.0))
+
+
+metrics_df = _load_metrics(
+    str(mriqc_dir), modality, _fingerprint_of(mriqc_dir, f"*_{modality}.json")
 )
-
-metrics_df = load_mriqc_metrics(mriqc_dir, modality)
 
 if metrics_df.empty:
     st.warning(f"No MRIQC metrics found for **{modality}** in `{mriqc_dir}`.")
     st.info("Run MRIQC first from the **Preprocessing** page.")
     st.stop()
 
-st.subheader(f"MRIQC Metrics — {modality} ({len(metrics_df)} runs)")
-
 # ---- Outlier detection ----
-iqm_cols = BOLD_IQMS if modality == "bold" else ANAT_IQMS
-iqr_mult = st.slider("IQR multiplier for outlier detection", 1.0, 3.0, 1.5, 0.1)
-metrics_with_outliers = detect_outliers(metrics_df, iqm_columns=iqm_cols, iqr_multiplier=iqr_mult)
-
-# Show summary
-n_outliers = metrics_with_outliers["is_outlier"].sum()
-st.metric("Outlier runs", n_outliers, delta=None)
-
-# ---- Metrics table ----
-# Select display columns
-id_cols = [
-    c for c in ["sub", "ses", "task", "run", "_source_file"] if c in metrics_with_outliers.columns
-]
-available_iqms = [c for c in iqm_cols if c in metrics_with_outliers.columns]
-display_cols = id_cols + available_iqms + ["is_outlier"]
-
-st.dataframe(
-    metrics_with_outliers[display_cols].style.apply(
-        lambda row: [
-            "background-color: #ffcccc" if row.get("is_outlier", False) else "" for _ in row
-        ],
-        axis=1,
+iqr_mult = st.slider(
+    "IQR multiplier for outlier detection",
+    1.0,
+    3.0,
+    float(settings["iqr_multiplier"]),
+    0.1,
+    help=(
+        "Flags runs outside a Tukey fence computed across the runs shown — a "
+        "comparison within this dataset, not an absolute cutoff. The starting "
+        "value comes from [qc].iqr_multiplier."
     ),
-    width="stretch",
-    hide_index=True,
+)
+metrics_df = qc.detect_outliers(metrics_df, iqm_columns=iqm_cols, iqr_multiplier=iqr_mult)
+
+motion_df = None
+if modality == "bold" and fmriprep_dir.is_dir():
+    motion_df = qc.summarize_motion(fmriprep_dir, fd_threshold=settings["fd_threshold"])
+
+runs = qc_report.build_run_rows(
+    metrics_df,
+    modality,
+    iqm_cols,
+    motion_df=motion_df,
+    decisions=qc.load_decisions(decisions_dir),
+    reports=qc_report.find_mriqc_reports(mriqc_dir, modality),
 )
 
-# ---- IQM Distribution Plots ----
-st.subheader("IQM Distributions")
+html = qc_report.render_report(
+    runs,
+    modality,
+    iqm_cols,
+    fd_threshold=settings["fd_threshold"],
+    iqr_multiplier=iqr_mult,
+    project_name=config.get("project", {}).get("name", ""),
+    fmriprep_variant=qc_report.fmriprep_input_variant(config),
+)
 
-try:
-    import plotly.express as px
+# ---- Export ----
+filename = qc_report.report_filename(modality)
+col_dl, col_save = st.columns(2)
+with col_dl:
+    st.download_button(
+        "Download report",
+        data=html,
+        file_name=filename,
+        mime="text/html",
+        width="stretch",
+    )
+with col_save:
+    if st.button("Save to derivatives", width="stretch"):
+        saved = qc_report.write_report(html, derivatives_dir, filename)
+        st.success(f"Wrote `{saved}`")
 
-    for iqm in available_iqms:
-        if iqm in metrics_with_outliers.columns:
-            fig = px.box(
-                metrics_with_outliers,
-                y=iqm,
-                x="sub" if "sub" in metrics_with_outliers.columns else None,
-                points="all",
-                title=iqm,
-                hover_data=id_cols,
-            )
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, width="stretch")
-except ImportError:
-    st.info("Install plotly for interactive distribution charts.")
-
-# ---- Motion Summary (BOLD only) ----
-if modality == "bold" and fmriprep_dir.is_dir():
-    st.subheader("Motion Summary")
-    motion_df = summarize_motion(fmriprep_dir)
-    if not motion_df.empty:
-        motion_id_cols = [c for c in ["sub", "ses", "task", "run"] if c in motion_df.columns]
-        motion_display = motion_id_cols + ["mean_fd", "max_fd", "pct_high_motion", "n_volumes"]
-        motion_display = [c for c in motion_display if c in motion_df.columns]
-        st.dataframe(motion_df[motion_display], width="stretch", hide_index=True)
-
-        # Motion scatter plot
-        try:
-            if "mean_fd" in motion_df.columns:
-                fig = px.scatter(
-                    motion_df,
-                    x="mean_fd",
-                    y="pct_high_motion",
-                    color="sub" if "sub" in motion_df.columns else None,
-                    hover_data=motion_id_cols,
-                    title="Motion: Mean FD vs % High Motion Frames",
-                )
-                st.plotly_chart(fig, width="stretch")
-        except Exception:
-            pass
-    else:
-        st.info("No fMRIPrep confounds files found.")
+# ---- The report ----
+# Links to MRIQC reports are relative, so they resolve only for the copy written
+# beside them in derivatives/. Inside this sandboxed iframe they have no origin
+# to resolve against, which is why the export above is the way to reach them.
+components.html(html, height=1400, scrolling=True)
 
 # ---- QC Decisions ----
 st.subheader("QC Decisions")
 st.markdown("Review runs and mark them as **keep**, **exclude**, or **investigate**.")
 
-existing_decisions = load_decisions(decisions_dir)
+for run in runs:
+    run_key = run["run_key"]
+    header = f"{run_key} — {run['decision'] or 'no decision'}"
+    if run["is_outlier"]:
+        header += "  ⚠️"
+    with st.expander(header):
+        # The reason is carried into whichever verdict is clicked rather than
+        # saved on its own. Typing a note used to write a decision by itself,
+        # defaulting to "investigate" — so a run the reviewer had only jotted
+        # a reminder against acquired a verdict they never made, while the
+        # header above still read "no decision" (TODO #17.10).
+        st.text_input(
+            "Reason",
+            key=f"reason_{run_key}",
+            value=run["reason"],
+            help="Saved with the decision you pick — a note on its own is not a verdict.",
+        )
 
-# Build run key column
-if "sub" in metrics_with_outliers.columns:
-    metrics_with_outliers["run_key"] = metrics_with_outliers.apply(
-        lambda row: (
-            "_".join(
-                f"{k}-{row[k]}"
-                for k in ["sub", "ses", "task", "run"]
-                if k in row and pd.notna(row[k])
+        def _record(verdict, _key=run_key, _reason_key=f"reason_{run_key}"):
+            qc.save_decision(
+                decisions_dir, _key, verdict, reason=st.session_state.get(_reason_key, "")
             )
-            + f"_{modality}"
-        ),
-        axis=1,
-    )
+            st.toast(f"{_key}: {verdict}", icon="✅")
 
-    for idx, row in metrics_with_outliers.iterrows():
-        run_key = row["run_key"]
-        current = existing_decisions.get(run_key, {}).get("latest", {})
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Keep", key=f"keep_{run_key}", width="stretch"):
+                _record("keep")
+                st.rerun()
+        with col2:
+            if st.button("Exclude", key=f"excl_{run_key}", width="stretch"):
+                _record("exclude")
+                st.rerun()
+        with col3:
+            if st.button("Investigate", key=f"inv_{run_key}", width="stretch"):
+                _record("investigate")
+                st.rerun()
 
-        with st.expander(f"{run_key} — {current.get('decision', 'no decision')}"):
-            # The reason is carried into whichever verdict is clicked rather than
-            # saved on its own. Typing a note used to write a decision by itself,
-            # defaulting to "investigate" — so a run the reviewer had only jotted
-            # a reminder against acquired a verdict they never made, while the
-            # header above still read "no decision" (TODO #17.10).
-            reason = st.text_input(
-                "Reason",
-                key=f"reason_{run_key}",
-                value=current.get("reason", ""),
-                help="Saved with the decision you pick — a note on its own is not a verdict.",
-            )
-
-            def _record(verdict, _key=run_key, _reason_key=f"reason_{run_key}"):
-                save_decision(
-                    decisions_dir, _key, verdict, reason=st.session_state.get(_reason_key, "")
-                )
-                st.toast(f"{_key}: {verdict}", icon="✅")
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("Keep", key=f"keep_{run_key}", width="stretch"):
-                    _record("keep")
-                    st.rerun()
-            with col2:
-                if st.button("Exclude", key=f"excl_{run_key}", width="stretch"):
-                    _record("exclude")
-                    st.rerun()
-            with col3:
-                if st.button("Investigate", key=f"inv_{run_key}", width="stretch"):
-                    _record("investigate")
-                    st.rerun()
-
-            # Show relevant IQMs
-            for iqm in available_iqms:
-                if iqm in row and pd.notna(row[iqm]):
-                    outlier_flag = " (OUTLIER)" if row.get(f"{iqm}_outlier", False) else ""
-                    st.markdown(f"  - **{iqm}**: {row[iqm]:.4f}{outlier_flag}")
+        for metric, value in run["iqms"].items():
+            if value is None:
+                continue
+            flag = " (OUTLIER)" if metric in run["flagged_metrics"] else ""
+            st.markdown(f"  - **{metric}**: {value:.4f}{flag}")

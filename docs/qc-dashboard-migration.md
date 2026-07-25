@@ -187,7 +187,7 @@ threshold for summarising fMRIPrep confounds and is **not** MRIQC's `fd_perc`
 threshold, which is fixed at 0.2 mm inside the container and cannot be set from
 here. The shipped comment now says so.
 
-### Slice 2 — the report renderer and the embed
+### Slice 2 — the report renderer and the embed — **DONE 2026-07-24**
 
 Move the HTML rendering out of `qc_dashboard.py` into `core/` as a function
 taking already-loaded data and returning a string. Page 5 embeds it via
@@ -198,7 +198,47 @@ This is where `5_QC_Dashboard.py` gets thin. The logic currently in the page —
 outlier detection wiring, column selection, run-key construction — moves to
 `core/` where it is testable.
 
-Fix `fmriprep_dir` here: derive it from `use_nordic` rather than hardcoding.
+~~Fix `fmriprep_dir` here: derive it from `use_nordic` rather than hardcoding.~~
+
+*Landed as `core/qc_report.py`, with one plan correction and one bug found:*
+
+**The `fmriprep_dir` fix was wrong as specified, and doing it would have created
+the bug it was meant to fix.** Collision 3 above assumed duckbrain mirrors
+mmmdata's two-tree layout (`fmriprep` and `fmriprep_nordic`). It does not:
+`core/fmriprep.py` writes to `<derivatives>/fmriprep` unconditionally, and no
+`fmriprep_nordic` string exists anywhere in the codebase. Deriving a path from
+`use_nordic` would have pointed a NORDIC project at a directory that is never
+created — turning a non-bug into a silent empty read. The path is now resolved in
+one place (`resolve_fmriprep_dir`) and stays `<derivatives>/fmriprep`.
+
+The real gap that collision was groping toward is a *labelling* one, and it is
+fixed: with one directory serving both inputs, nothing in the path tells a
+reviewer whether mean FD was computed on NORDIC-denoised or raw data, and those
+are different numbers describing different images. `fmriprep_input_variant()`
+reads it from the derivative's own `DatasetLinks.raw` — the artifact, not the
+config's intent — and the report states it above the motion columns.
+
+**`load_mriqc_metrics` found zero runs on a sessionless project.** All three of
+its globs required a `ses-` level, so `sub-015/func/*_bold.json` matched nothing
+and the page reported "No MRIQC metrics found" while advising the user to run
+MRIQC, which had already run. That is `#17`'s display-vs-reality shape, and it
+means the QC page has never worked on `divatten_beta` — the one dataset this repo
+calls clean. Now a recursive glob; the `_bold.json` suffix does the filtering, so
+MRIQC's companion `_timeseries.json` still cannot be read as a run. All three
+layouts have tests.
+
+**Links are relative** (`../mriqc/…`), never `file://` — verified end-to-end
+against real data, 78 links across two modalities, zero broken. Payload measured
+at 4.96 MB for 65 runs, matching item 3's prediction that the Plotly bundle is
+effectively the whole cost. An `@st.cache_data` keyed on a (count, newest-mtime)
+fingerprint of the MRIQC output keeps the reload cheap.
+
+**Item 2 is only half-closed.** Relative links fix the *exported* copy, which is
+the one a reviewer opens from `derivatives/`. Inside `st.components.v1.html()`
+the iframe is a `srcdoc` sandbox with no origin, so a relative link has nothing
+to resolve against and the embed cannot route to MRIQC reports at all. The export
+is the way to reach them; whether the app should serve the reports itself is
+still open and still needs an OnDemand session to settle.
 
 ### Slice 3 — the decision model
 
