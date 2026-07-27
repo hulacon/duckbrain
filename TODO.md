@@ -362,16 +362,59 @@ ERROR: Label BA1_exvivo does not exist in SUBJECTS_DIR fsaverage!
        The fsaverage link probably points to an older freesurfer version
 ```
 
-and `fsaverage/label/` holds `BA1_exvivo` **now** — the winner's copy finished
-later. The losers read the tree mid-copy. **It arrived by the silent branch, not
-the documented one:** zero jobs logged `exists; if multiple jobs are running in
-parallel`. `dest.exists()` was already true (the winner creates the directory
-before filling it), so the loser never attempted a copy, never raised
-`FileExistsError`, and proceeded against a half-populated `fsaverage` with
-nothing in the log to say so. The misleading FreeSurfer error blames a stale
-version link, which is not what happened and sends you to the wrong place. So the
-warning text this item quotes is the *better* case; plan the fix for a race that
-usually leaves no trace at all.
+**It is not the `FileExistsError` branch below, and it is worse than it.** Zero
+jobs logged `exists; if multiple jobs are running in parallel`. The destroyer is
+an `rmtree` a few lines *above* that `try`, which the excerpt below originally
+omitted:
+
+```python
+if space == 'fsaverage' and dest.exists() and self.inputs.minimum_fs_version == "7.0.0":
+    label = dest / 'label' / 'rh.FG1.mpm.vpnl.label'  # new in FS7
+    if not label.exists():
+        shutil.rmtree(dest)          # <-- deletes a copy that is still in progress
+```
+
+fMRIPrep always passes `minimum_fs_version='7.0.0'` (`fmriprep/workflows/base.py`),
+so this branch is armed on every run. Job A creates `fsaverage/` and begins
+streaming 312 files into it. Job B arrives inside that window, sees `dest.exists()`
+is true, looks for the FreeSurfer-7 sentinel `rh.FG1.mpm.vpnl.label` — which A has
+not written yet — concludes the tree is a stale FreeSurfer-6 copy, and **deletes it
+out from under A**. Both then write into the same path and the result is a merged,
+permanently incomplete tree. No exception is raised anywhere, so nothing appears in
+any log.
+
+Measured on this filesystem 2026-07-27, copying from the 24.1.1 image to
+`/projects/hulacon/bhutch`: a clean `fsaverage` copytree is **312 files / 261 MB
+in 1.83 s**, and the sentinel lands at **+0.39 s**. So the window splits in two —
+arrive before +0.39 s and you *destroy* the tree; arrive between +0.39 s and
++1.83 s and you skip both the `rmtree` and the copy (`if not dest.exists()`) and
+start `recon-all` against a tree that is only partly there. Either way the damage
+is silent and does not surface until `recon-all`'s BA_exvivo stage, which here was
+**~3 hours later**. `divatten_beta_v2` ended up with 259 of 312 `fsaverage` files —
+53 missing, including `lh.BA1_exvivo.label`, which is exactly what the error names.
+`fsaverage6` came through complete (109/109).
+
+FreeSurfer's error text blames a stale version link. That is wrong and sends you to
+the wrong place.
+
+**The broken tree is sticky, and this is the part that bites twice.** It *does*
+contain `rh.FG1.mpm.vpnl.label`, so the self-repair branch above will never fire
+again: every future fMRIPrep run on this project reuses the incomplete `fsaverage`
+and fails identically. Re-submitting without first deleting
+`sourcedata/freesurfer/fsaverage` cannot work.
+
+**Staggering submissions is the wrong fix.** The window is ~2 s, but the quantity
+you would have to stagger against is the *spread in when jobs reach the copy*,
+which is fMRIPrep's workflow-build time — 61 s in this run (18:33:33 submit →
+18:34:34 copy) and dependent on BIDS indexing, node load and container cold-start.
+Two jobs launched a minute apart can still collide; you cannot bound the variance,
+so any fixed delay is a probabilistic dodge of a failure that is silent, sticky and
+three hours deferred. **Pre-populate instead:** copy `fsaverage` and any
+`fsaverageN` in `--output-spaces` into `<derivatives>/fmriprep/sourcedata/freesurfer/`
+once, before submitting anything. Every job then takes the "present, sentinel
+present" path — no `rmtree`, no copy, no window. `overwrite_fsaverage` defaults to
+False and fMRIPrep never sets it, so this is stable. That is the fix to build:
+a pre-flight in the bulk-submit path, not a `--begin` offset.
 
 Two things this run showed that are **not** explained and should not be assumed
 to be this race: `sub-010` exited 0 but never ran `recon-all` (it has no entry
@@ -381,10 +424,11 @@ confounds, no `space-MNI152NLin2009cAsym` or `fsaverage6` resampling — despite
 Net effect across the project: **zero** `*_desc-confounds_timeseries.tsv` files,
 so the QC dashboard had no fMRIPrep input at all (see `#7.4`).
 
-**The mechanism, read from
-`niworkflows/interfaces/bids.py::BIDSFreeSurferDir`.** At the start of *every*
-fMRIPrep run it copies `fsaverage`, and any `fsaverageN` in `--output-spaces`,
-from `$FREESURFER_HOME/subjects` into SUBJECTS_DIR. The copy is check-then-act:
+**The second mechanism, read from
+`niworkflows/interfaces/bids.py::BIDSFreeSurferDir`** — real, but *not* what was
+observed above, and the milder of the two. At the start of *every* fMRIPrep run it
+copies `fsaverage`, and any `fsaverageN` in `--output-spaces`, from
+`$FREESURFER_HOME/subjects` into SUBJECTS_DIR. The copy is check-then-act:
 
 ```python
 if not dest.exists():
