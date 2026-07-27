@@ -11,6 +11,19 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Fixed
+- **The QC run table now says which tool produced each column.** It is a join of
+  two derivatives presented as one table, and nothing marked the seam — so MRIQC's
+  `fd_mean` and fMRIPrep's `mean_fd` sat side by side, near-anagrams of each
+  other, both mean framewise displacement, computed by different tools on
+  different images whenever NORDIC is in play. A spanning header row now attributes
+  each block to **MRIQC** or **fMRIPrep**, and the blocks are shaded to match.
+- **Missing fMRIPrep motion no longer looks like good motion.** The motion columns
+  were dropped whenever no run carried them, so a table that was entirely MRIQC
+  looked exactly like one where both tools agreed. The report now states which of
+  the reasons applies — fMRIPrep has not run, it ran but wrote no confounds files,
+  its confounds matched none of these runs, or it covered only some of them — and
+  an individual empty motion cell renders as `—` rather than blank. Found on a
+  real project where 65 MRIQC runs loaded against zero confounds files.
 - **MRIQC reports are now reachable from the QC Dashboard.** Every per-run
   "View report" link in the embedded report did nothing when clicked — not an
   error, nothing at all — because the link was relative to the *exported* copy's

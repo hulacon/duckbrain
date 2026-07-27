@@ -110,6 +110,9 @@ runs = qc_report.build_run_rows(
 )
 
 
+motion_status = qc_report.describe_motion_source(fmriprep_dir, runs, modality)
+
+
 def _render(report_base):
     return qc_report.render_report(
         runs,
@@ -120,6 +123,7 @@ def _render(report_base):
         project_name=config.get("project", {}).get("name", ""),
         fmriprep_variant=qc_report.fmriprep_input_variant(config),
         report_base=report_base,
+        motion_status=motion_status,
     )
 
 

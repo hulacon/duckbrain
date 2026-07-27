@@ -343,3 +343,140 @@ class TestMriqcLayouts:
     def test_file_without_a_subject_entity_is_ignored(self, tmp_path):
         self._write(tmp_path / "group_bold.json", {"tsnr": 1.0})
         assert qc.load_mriqc_metrics(tmp_path, "bold").empty
+
+
+# ---------------------------------------------------------------------------
+# Column attribution: which tool produced which numbers
+# ---------------------------------------------------------------------------
+
+
+def _rows(with_motion=True, n=2):
+    """Run rows with or without fMRIPrep motion attached."""
+    df = pd.DataFrame(
+        [
+            {"sub": f"01{i}", "task": "rest", "run": "1", "fd_mean": 0.1, "tsnr": 40.0}
+            for i in range(n)
+        ]
+    )
+    motion = None
+    if with_motion:
+        motion = pd.DataFrame(
+            [
+                {
+                    "sub": f"01{i}",
+                    "task": "rest",
+                    "run": "1",
+                    "mean_fd": 0.2,
+                    "pct_high_motion": 3.0,
+                }
+                for i in range(n)
+            ]
+        )
+    return qc_report.build_run_rows(df, "bold", ["fd_mean", "tsnr"], motion_df=motion)
+
+
+class TestSourceAttribution:
+    """MRIQC's ``fd_mean`` and fMRIPrep's ``mean_fd`` sit in the same row, are
+    near-anagrams, and measure the same quantity on two different images. The
+    table has to say which is which."""
+
+    def test_both_tools_are_named_over_their_columns(self):
+        html = qc_report.render_report(_rows(), "bold", ["fd_mean", "tsnr"])
+        assert 'class="src src-mriqc" colspan="2"' in html
+        assert 'class="src src-fmriprep" colspan="2"' in html
+        assert qc_report.MRIQC_SOURCE in html and qc_report.FMRIPREP_SOURCE in html
+
+    def test_the_two_similar_columns_both_appear_and_are_attributed(self):
+        html = qc_report.render_report(_rows(), "bold", ["fd_mean", "tsnr"])
+        assert "fd_mean" in html and "mean_fd" in html
+        # The MRIQC span covers exactly the IQMs, so mean_fd cannot fall under it.
+        assert 'colspan="2"' in html
+
+    def test_no_fmriprep_span_when_there_is_no_motion(self):
+        html = qc_report.render_report(_rows(with_motion=False), "bold", ["fd_mean", "tsnr"])
+        # Assert on the header cell, not the class name — the class also appears
+        # in the stylesheet, where its presence means nothing.
+        assert 'class="src src-fmriprep"' not in html
+        assert 'class="src src-mriqc"' in html
+
+    def test_sorting_is_bound_to_the_column_name_row_only(self):
+        """The source row's cells span columns, so their index is not a column
+        index — sorting on them would sort the wrong column."""
+        html = qc_report.render_report(_rows(), "bold", ["fd_mean", "tsnr"])
+        assert ".qc-table thead tr:last-child th" in html
+        assert "document.querySelectorAll('.qc-table th')" not in html
+
+
+class TestDescribeMotionSource:
+    def test_anat_says_fmriprep_contributes_nothing_here(self, tmp_path):
+        state, sentence = qc_report.describe_motion_source(tmp_path, _rows(), "T1w")
+        assert state == "not-applicable"
+        assert "MRIQC" in sentence
+
+    def test_no_fmriprep_directory_at_all(self, tmp_path):
+        state, sentence = qc_report.describe_motion_source(
+            tmp_path / "fmriprep", _rows(with_motion=False), "bold"
+        )
+        assert state == "absent"
+        assert "has not run" in sentence
+
+    def test_fmriprep_ran_but_wrote_no_confounds(self, tmp_path):
+        """Live on divatten_beta_v2: 65 MRIQC runs, zero confounds files, and the
+        dashboard showed no motion columns without saying why."""
+        (tmp_path / "sub-010" / "func").mkdir(parents=True)
+        (tmp_path / "sub-010" / "func" / "sub-010_desc-preproc_bold.nii.gz").touch()
+        state, sentence = qc_report.describe_motion_source(
+            tmp_path, _rows(with_motion=False), "bold"
+        )
+        assert state == "no-confounds"
+        assert "absent, not zero" in sentence
+
+    def test_confounds_exist_but_match_no_run(self, tmp_path):
+        func = tmp_path / "sub-999" / "func"
+        func.mkdir(parents=True)
+        (func / "sub-999_task-other_run-1_desc-confounds_timeseries.tsv").touch()
+        state, sentence = qc_report.describe_motion_source(
+            tmp_path, _rows(with_motion=False), "bold"
+        )
+        assert state == "unmatched"
+        assert "none matched" in sentence
+
+    def test_some_runs_have_motion_and_some_do_not(self, tmp_path):
+        func = tmp_path / "sub-010" / "func"
+        func.mkdir(parents=True)
+        (func / "sub-010_task-rest_run-1_desc-confounds_timeseries.tsv").touch()
+        runs = _rows(n=2)
+        runs[1]["motion"] = None
+        state, sentence = qc_report.describe_motion_source(tmp_path, runs, "bold")
+        assert state == "partial"
+        assert "missing evidence, not good motion" in sentence
+
+    def test_complete_says_nothing(self, tmp_path):
+        state, sentence = qc_report.describe_motion_source(tmp_path, _rows(), "bold")
+        assert state == "complete"
+        assert sentence == ""
+
+
+class TestMotionStatusBanner:
+    def test_a_shortfall_is_stated_in_the_report(self):
+        html = qc_report.render_report(
+            _rows(with_motion=False),
+            "bold",
+            ["fd_mean", "tsnr"],
+            motion_status=("no-confounds", "fMRIPrep produced output but no confounds files."),
+        )
+        assert "note-warn" in html
+        assert "no confounds files" in html
+
+    def test_a_complete_run_gets_no_banner(self):
+        html = qc_report.render_report(
+            _rows(), "bold", ["fd_mean", "tsnr"], motion_status=("complete", "")
+        )
+        assert '<p class="source-note' not in html
+
+    def test_a_blank_motion_cell_reads_as_missing_not_as_zero(self):
+        runs = _rows(n=2)
+        runs[1]["motion"] = None
+        html = qc_report.render_report(runs, "bold", ["fd_mean", "tsnr"])
+        assert "cell-absent" in html
+        assert "No fMRIPrep confounds for this run" in html

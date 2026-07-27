@@ -99,6 +99,84 @@ def fmriprep_input_variant(config: dict) -> str:
     return "nordic" if _links_to_nordic(prov.raw_link) else "raw"
 
 
+#: The run table is a join of two tools' output that reads as one table. These
+#: name the halves, and the table carries them as a spanning header row — without
+#: it a reviewer compares MRIQC's ``fd_mean`` against fMRIPrep's ``mean_fd``
+#: without noticing they are two tools' answers to nearly the same question, on
+#: two different images whenever NORDIC is in play. The near-anagram is MRIQC's
+#: and fMRIPrep's own naming; duckbrain cannot rename either without lying about
+#: what it read, so it labels the source instead.
+MRIQC_SOURCE = "MRIQC"
+FMRIPREP_SOURCE = "fMRIPrep"
+
+#: Columns the run table gets from fMRIPrep rather than MRIQC.
+MOTION_COLUMNS = ("mean_fd", "pct_high_motion")
+
+#: What fMRIPrep's confounds file is called, and the only thing motion is read
+#: from. Named once so the "why are the columns missing" check below and
+#: ``qc.summarize_motion`` cannot drift apart on what they are looking for.
+CONFOUNDS_GLOB = "*_desc-confounds_timeseries.tsv"
+
+
+def describe_motion_source(
+    fmriprep_dir: str | Path, runs: list[dict[str, Any]], modality: str
+) -> tuple[str, str]:
+    """Why the fMRIPrep columns look the way they do — ``(state, sentence)``.
+
+    The motion columns are dropped from the table whenever no run carries motion,
+    and dropping them silently is the failure this exists to prevent: a table
+    that is entirely MRIQC looks exactly like a table where fMRIPrep agreed with
+    MRIQC, and the reviewer has no way to tell that half the evidence is absent.
+    That is the same shape as the derived-expectation trap in
+    ``docs/sanity-checks.md`` — the report shrinks to fit what it found.
+
+    Found live on ``divatten_beta_v2`` (2026-07-27): 65 MRIQC runs loaded and
+    **zero** confounds files existed, so the QC dashboard showed no motion at all
+    and said nothing about it.
+
+    States are ``not-applicable`` (anat: fMRIPrep contributes no columns),
+    ``absent``, ``no-confounds``, ``unmatched``, ``partial``, ``complete``.
+    """
+    if modality != "bold":
+        return "not-applicable", (
+            f"Every column here comes from {MRIQC_SOURCE}. {FMRIPREP_SOURCE} "
+            f"contributes motion columns to BOLD runs only."
+        )
+
+    fmriprep_dir = Path(fmriprep_dir)
+    with_motion = sum(1 for r in runs if r.get("motion"))
+    if with_motion == len(runs) and runs:
+        return "complete", ""
+
+    if not fmriprep_dir.is_dir():
+        return "absent", (
+            f"{FMRIPREP_SOURCE} has not run — there is no <code>{_esc(fmriprep_dir.name)}"
+            f"</code> directory. The motion columns are absent, not zero."
+        )
+
+    n_confounds = sum(1 for _ in fmriprep_dir.rglob(CONFOUNDS_GLOB))
+    if not n_confounds:
+        return "no-confounds", (
+            f"{FMRIPREP_SOURCE} produced output but no confounds files "
+            f"(<code>{CONFOUNDS_GLOB}</code>), which is where every motion number "
+            f"comes from. Its runs may have failed, or run at an output level that "
+            f"does not write them. The motion columns are absent, not zero — check "
+            f"the fMRIPrep logs before reading this table as a clean bill of health."
+        )
+    if not with_motion:
+        return "unmatched", (
+            f"{FMRIPREP_SOURCE} wrote {n_confounds} confounds file(s) but none "
+            f"matched the runs below, so no motion column could be filled. That is "
+            f"a naming or entity mismatch between the two derivatives, not a "
+            f"quiet absence of motion."
+        )
+    return "partial", (
+        f"{with_motion} of {len(runs)} runs carry {FMRIPREP_SOURCE} motion; the "
+        f"rest are blank because fMRIPrep has not produced confounds for them. A "
+        f"blank motion cell is missing evidence, not good motion."
+    )
+
+
 def find_mriqc_reports(mriqc_dir: str | Path, modality: str = "bold") -> dict[str, str]:
     """Map run key → MRIQC HTML filename, for the ones that exist on disk.
 
@@ -220,6 +298,7 @@ def render_report(
     project_name: str = "",
     fmriprep_variant: str = "unknown",
     report_base: str | None = "../mriqc",
+    motion_status: tuple[str, str] | None = None,
     generated: datetime | None = None,
 ) -> str:
     """Render the whole report as one self-contained HTML string.
@@ -240,6 +319,10 @@ def render_report(
         The Report column then names the report instead of linking it, and page
         5 opens it — a dead link that looks live is the failure this argument
         exists to avoid.
+    motion_status : (state, sentence), optional
+        From :func:`describe_motion_source`. Rendered as a banner whenever
+        fMRIPrep did not fill every motion cell, so that a table which is
+        entirely MRIQC cannot be mistaken for one where the two tools agreed.
     generated : datetime, optional
         Injected so tests can pin the output; defaults to now.
     """
@@ -296,6 +379,7 @@ def render_report(
 <section id="run-table">
   <h2>Run table</h2>
   {_run_table_note(report_base)}
+  {_render_motion_status(motion_status)}
   {_render_table(runs, iqm_cols, has_motion, report_base)}
 </section>
 
@@ -407,6 +491,47 @@ def _render_header_cells(headers: list[str]) -> str:
     return "".join(cells)
 
 
+def _render_motion_status(motion_status: tuple[str, str] | None) -> str:
+    """Say out loud when fMRIPrep contributed less than a full set of columns.
+
+    Silent on ``complete`` — the spanning header row already attributes the
+    columns, and a banner repeating "everything is fine" trains the eye to skip
+    the place where it will one day say something.
+    """
+    if not motion_status:
+        return ""
+    state, sentence = motion_status
+    if state == "complete" or not sentence:
+        return ""
+    klass = "note-info" if state == "not-applicable" else "note-warn"
+    return f'<p class="source-note {klass}">{sentence}</p>'
+
+
+def _render_source_row(n_identity: int, n_iqms: int, n_motion: int) -> str:
+    """The spanning row that says which tool each block of columns came from.
+
+    Sits above the column names so the attribution is read before the numbers
+    are, rather than in a paragraph above the table that the eye skips.
+    """
+    cells = [f'<th class="src-none" colspan="{n_identity}"></th>']
+    cells.append(
+        f'<th class="src src-mriqc" colspan="{n_iqms}" '
+        f'title="Image quality metrics read from derivatives/mriqc/*.json. '
+        f'MRIQC always grades the raw BIDS acquisition.">{MRIQC_SOURCE}</th>'
+    )
+    if n_motion:
+        cells.append(
+            f'<th class="src src-fmriprep" colspan="{n_motion}" '
+            f'title="Read from fMRIPrep&#39;s {CONFOUNDS_GLOB}, i.e. from whichever '
+            f'input fMRIPrep was given — raw or NORDIC-denoised.">{FMRIPREP_SOURCE}</th>'
+        )
+    # The Report column is MRIQC's too, but it is a link rather than a measure and
+    # sitting it under the MRIQC span would stretch that span across the motion
+    # columns. Left unattributed; its header says "Report" and the note says whose.
+    cells.append('<th class="src-none"></th>')
+    return f'<tr class="source-row">{"".join(cells)}</tr>'
+
+
 def _run_table_note(report_base: str | None) -> str:
     """Tell the reader where the MRIQC report is, given how this copy is delivered."""
     if report_base is None:
@@ -445,11 +570,9 @@ def _render_table(
     if not runs:
         return "<p>No runs.</p>"
 
-    headers = ["Subject", "Session", "Task", "Run", "Decision", "Outlier"]
-    headers += iqm_cols
-    if has_motion:
-        headers += ["mean_fd", "pct_high_motion"]
-    headers.append("Report")
+    identity = ["Subject", "Session", "Task", "Run", "Decision", "Outlier"]
+    motion_cols = list(MOTION_COLUMNS) if has_motion else []
+    headers = [*identity, *iqm_cols, *motion_cols, "Report"]
 
     body = []
     for r in runs:
@@ -484,21 +607,33 @@ def _render_table(
             f"<td>{'YES' if r['is_outlier'] else ''}</td>",
         ]
         for m in iqm_cols:
-            klass = "cell-flagged" if m in r["flagged_metrics"] else ""
+            klass = "col-mriqc" + (" cell-flagged" if m in r["flagged_metrics"] else "")
             cells.append(f'<td class="{klass}">{_fmt(r["iqms"].get(m))}</td>')
         if has_motion:
             motion = r.get("motion") or {}
-            cells.append(f"<td>{_fmt(motion.get('mean_fd'), '.3f')}</td>")
+            # A blank motion cell is fMRIPrep having produced nothing for this
+            # run, not a run with no motion. Marked so the two never read alike.
             phm = motion.get("pct_high_motion")
-            cells.append(f"<td>{'' if phm is None else f'{phm:.1f}%'}</td>")
+            for value in (
+                _fmt(motion.get("mean_fd"), ".3f"),
+                "" if phm is None else f"{phm:.1f}%",
+            ):
+                if value:
+                    cells.append(f'<td class="col-fmriprep">{value}</td>')
+                else:
+                    cells.append(
+                        '<td class="col-fmriprep cell-absent" '
+                        'title="No fMRIPrep confounds for this run">&mdash;</td>'
+                    )
         cells.append(f"<td>{_report_cell(r, report_base)}</td>")
 
         klass = ("row-outlier " if r["is_outlier"] else "") + f"border-{label}"
         body.append(f'<tr class="{klass}">{"".join(cells)}</tr>')
 
+    source_row = _render_source_row(len(identity), len(iqm_cols), len(motion_cols))
     return (
         '<table class="qc-table">'
-        f"<thead><tr>{_render_header_cells(headers)}</tr></thead>"
+        f"<thead>{source_row}<tr>{_render_header_cells(headers)}</tr></thead>"
         f"<tbody>{''.join(body)}</tbody></table>"
     )
 
@@ -712,6 +847,25 @@ h2 { font-size: 1.2rem; margin: 1.5rem 0 0.75rem;
                 font-style: italic; white-space: nowrap; }
 .report-name { color: #64748b; font-size: 0.7rem; font-style: italic; }
 
+/* Which tool produced which columns */
+.qc-table .source-row th { position: sticky; top: 0; z-index: 2;
+                           font-size: 0.7rem; letter-spacing: 0.06em;
+                           text-transform: uppercase; text-align: center;
+                           padding: 0.25rem 0.4rem; cursor: default; }
+.qc-table .source-row th:hover { background: inherit; }
+.qc-table thead tr:last-child th { top: 1.55rem; }
+.src-none { background: #fff; border-bottom: 1px solid #e2e8f0; }
+.src-mriqc { background: #eef2ff; color: #3730a3; border-bottom: 2px solid #6366f1; }
+.src-fmriprep { background: #ecfdf5; color: #065f46; border-bottom: 2px solid #10b981; }
+.col-mriqc { background: #fafaff; }
+.col-fmriprep { background: #f6fefb; }
+.cell-absent { color: #cbd5e1; text-align: center; }
+.source-note { font-size: 0.8rem; max-width: 90ch; padding: 0.5rem 0.7rem;
+               border-radius: 4px; margin-bottom: 0.6rem; }
+.note-warn { background: #fef3c7; border-left: 3px solid var(--warn); color: #78350f; }
+.note-info { background: #f1f5f9; border-left: 3px solid var(--pending); color: #334155; }
+.source-note code { background: rgba(0,0,0,0.06); padding: 0.05rem 0.25rem; border-radius: 3px; }
+
 /* Badges */
 .badge { padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.65rem;
          font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -770,7 +924,10 @@ section { margin-bottom: 2rem; }
 
 
 _TABLE_SORT_JS = """<script>
-document.querySelectorAll('.qc-table th').forEach(th => {
+// Only the column-name row sorts. The source row above it spans several columns,
+// so its cell index is not a column index and clicking it would sort by the
+// wrong one.
+document.querySelectorAll('.qc-table thead tr:last-child th').forEach(th => {
   th.addEventListener('click', () => {
     const table = th.closest('table');
     const tbody = table.querySelector('tbody');

@@ -350,8 +350,36 @@ migration would trade a validated classifier for an unvalidated one.
 **Flagged by LCNI (2026-07-24) from their own runs, then traced to the code in the
 24.1.1 image on disk. duckbrain has this exposure today** — it is not something
 the FreeSurfer-8 plan (`#7` item 7) would introduce, though that plan makes it
-sharper. Unobserved locally, but every precondition is true, so treat it as latent
-rather than hypothetical.
+sharper.
+
+**Observed locally 2026-07-27 on `divatten_beta_v2`, and it took out 4 of 5
+subjects.** All five jobs (`45644650`–`45644654`) started within one second of
+each other, which is the precondition at its worst. `sub-010` finished; `sub-011`
+through `sub-014` all died at `recon-all` with
+
+```
+ERROR: Label BA1_exvivo does not exist in SUBJECTS_DIR fsaverage!
+       The fsaverage link probably points to an older freesurfer version
+```
+
+and `fsaverage/label/` holds `BA1_exvivo` **now** — the winner's copy finished
+later. The losers read the tree mid-copy. **It arrived by the silent branch, not
+the documented one:** zero jobs logged `exists; if multiple jobs are running in
+parallel`. `dest.exists()` was already true (the winner creates the directory
+before filling it), so the loser never attempted a copy, never raised
+`FileExistsError`, and proceeded against a half-populated `fsaverage` with
+nothing in the log to say so. The misleading FreeSurfer error blames a stale
+version link, which is not what happened and sends you to the wrong place. So the
+warning text this item quotes is the *better* case; plan the fix for a race that
+usually leaves no trace at all.
+
+Two things this run showed that are **not** explained and should not be assumed
+to be this race: `sub-010` exited 0 but never ran `recon-all` (it has no entry
+under `sourcedata/freesurfer/`) and produced only minimal-level output — no
+confounds, no `space-MNI152NLin2009cAsym` or `fsaverage6` resampling — despite
+`--output-spaces MNI152NLin2009cAsym:res-2 fsaverage6 func` and no `--level` flag.
+Net effect across the project: **zero** `*_desc-confounds_timeseries.tsv` files,
+so the QC dashboard had no fMRIPrep input at all (see `#7.4`).
 
 **The mechanism, read from
 `niworkflows/interfaces/bids.py::BIDSFreeSurferDir`.** At the start of *every*
