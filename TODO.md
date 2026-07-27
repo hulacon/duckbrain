@@ -347,6 +347,16 @@ migration would trade a validated classifier for an unvalidated one.
 <a id="21"></a>
 ## #21 — The shared `fsaverage` race: N concurrent fMRIPrep jobs, one SUBJECTS_DIR
 
+**FIXED 2026-07-27 — `core/fsaverage.py`, wired into `advance_one`.** duckbrain
+installs every `fsaverage*` template fMRIPrep will want *before* it submits, so
+each job finds the directory present and the FreeSurfer-7 sentinel present and
+takes neither the `rmtree` nor the copy branch. Completeness is judged against
+the container's manifest (312 files for `fsaverage`, 109 for `fsaverage6` in the
+24.1.1 image), never against the sentinel — see below for why that distinction is
+the fix rather than a detail. Pinned by `tests/test_fsaverage.py`, including the
+exact `divatten_beta_v2` shape. The rest of this item is the record of what was
+wrong and stays because the reasoning is not re-derivable from the code.
+
 **Flagged by LCNI (2026-07-24) from their own runs, then traced to the code in the
 24.1.1 image on disk. duckbrain has this exposure today** — it is not something
 the FreeSurfer-8 plan (`#7` item 7) would introduce, though that plan makes it

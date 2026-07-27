@@ -11,6 +11,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Fixed
+- **Concurrent fMRIPrep jobs no longer destroy each other's FreeSurfer templates.**
+  fMRIPrep copies `fsaverage` into a SUBJECTS_DIR shared by every job in the
+  project, and a job arriving while another is copying deletes the partial tree
+  (it looks like a stale FreeSurfer-6 install). The result is a permanently
+  incomplete `fsaverage`, no error anywhere, and `recon-all` failures hours later
+  blaming a "stale freesurfer version". duckbrain now installs the templates once
+  before submitting anything and verifies them against the container's own file
+  list, so every job finds a complete tree and copies nothing. It **refuses to
+  submit** if it cannot do this, rather than launching a batch it cannot protect.
+  Submitting a whole study is unaffected in speed: the container is inspected once.
+
+  If you have a project that already hit this, the broken tree is self-perpetuating
+  — fMRIPrep's own repair check passes on it. Deleting
+  `derivatives/fmriprep/sourcedata/freesurfer/fsaverage` once is enough; the next
+  submission reinstalls it.
 - **The QC run table now says which tool produced each column.** It is a join of
   two derivatives presented as one table, and nothing marked the seam — so MRIQC's
   `fd_mean` and fMRIPrep's `mean_fd` sat side by side, near-anagrams of each
