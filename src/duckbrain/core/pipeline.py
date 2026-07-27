@@ -370,6 +370,47 @@ def effective_depends_on(config: dict, stage: str) -> str | None:
 # ---- public API -------------------------------------------------------------
 
 
+def _fsaverage_preflight(config: dict, stage: str, params: dict) -> None:
+    """Install FreeSurfer's ``fsaverage*`` templates before any fMRIPrep job runs.
+
+    Here rather than in ``_build_fmriprep`` because this is a **project-level**
+    precondition, not a per-unit one: it is the same directory for every subject,
+    and it has to be settled before the *first* job starts, not alongside each.
+    ``advance_one`` is the one chokepoint every launcher goes through — the
+    Preprocessing page, the cockpit, and anything added later — so putting it
+    here means no caller can forget it. ``core.fsaverage`` memoises per process,
+    so submitting 37 subjects launches the container once.
+
+    Runs for ``export_only`` too. An exported script is one the user will
+    ``sbatch`` themselves, usually as a batch, which is the exposed case.
+
+    Raises rather than warns, per the rule in ``CLAUDE.md``: jobs that race over
+    a half-installed tree fail three hours later, silently, and leave the
+    directory poisoned for every later run (``TODO.md`` ``#21``).
+    """
+    if stage != "fmriprep":
+        return
+
+    from .fmriprep import get_container_path
+    from .fsaverage import FsaverageError, ensure
+
+    fp_cfg = config.get("fmriprep", {})
+    spaces = params.get(
+        "output_spaces",
+        fp_cfg.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]),
+    )
+    extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", "")))
+    try:
+        ensure(
+            get_container_path(config),
+            config["paths"]["derivatives_dir"],
+            spaces,
+            extra_flags=extra_flags,
+        )
+    except FsaverageError as exc:
+        raise PipelineError(str(exc)) from exc
+
+
 def advance_one(
     config: dict,
     stage: str,
@@ -418,6 +459,13 @@ def advance_one(
     Path(log_dir).mkdir(parents=True, exist_ok=True)
 
     template, ctx = spec.build(config, subject, session, log_dir, params)
+
+    # After build, so a per-unit precondition (missing licence, no denoised BOLD)
+    # reports itself before the project-level install is attempted; and before
+    # both submit and export, since an exported script is one the user will
+    # sbatch as a batch, which is the exposed case.
+    _fsaverage_preflight(config, stage, params)
+
     script = render_sbatch(template, ctx)
     job_name = f"{spec.job_prefix}_{tag_for(subject, session)}"
 

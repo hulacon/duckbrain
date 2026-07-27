@@ -368,10 +368,10 @@ an `rmtree` a few lines *above* that `try`, which the excerpt below originally
 omitted:
 
 ```python
-if space == 'fsaverage' and dest.exists() and self.inputs.minimum_fs_version == "7.0.0":
-    label = dest / 'label' / 'rh.FG1.mpm.vpnl.label'  # new in FS7
+if space == "fsaverage" and dest.exists() and self.inputs.minimum_fs_version == "7.0.0":
+    label = dest / "label" / "rh.FG1.mpm.vpnl.label"  # new in FS7
     if not label.exists():
-        shutil.rmtree(dest)          # <-- deletes a copy that is still in progress
+        shutil.rmtree(dest)  # <-- deletes a copy that is still in progress
 ```
 
 fMRIPrep always passes `minimum_fs_version='7.0.0'` (`fmriprep/workflows/base.py`),

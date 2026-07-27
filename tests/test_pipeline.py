@@ -28,6 +28,20 @@ from duckbrain.core.pipeline import (
 from duckbrain.slurm.monitor import JobInfo
 
 
+@pytest.fixture(autouse=True)
+def _no_fsaverage_preflight(monkeypatch):
+    """Stub the fMRIPrep pre-flight for every test in this file.
+
+    ``advance_one`` installs FreeSurfer's ``fsaverage*`` templates before an
+    fMRIPrep job can be submitted (``core.fsaverage``, ``TODO.md`` ``#21``), and
+    that needs a real container — which CI does not have and these tests do not
+    want, since what they cover is build and dispatch. The pre-flight has its own
+    tests in ``test_fsaverage.py``; stubbing it here keeps a failure there from
+    also failing seven tests that are about something else.
+    """
+    monkeypatch.setattr(P, "_fsaverage_preflight", lambda config, stage, params: None)
+
+
 def _config(root):
     return {
         "paths": {
