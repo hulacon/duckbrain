@@ -319,3 +319,102 @@ def fmap_badge(group: str | None, swatches: dict[str, tuple[str, str]]) -> str:
     """Markdown badge for the same group — for use outside dataframes."""
     emoji, colour = swatches.get(group, _NO_FMAP_SWATCH) if group is not None else _NO_FMAP_SWATCH
     return f":{colour}-badge[{emoji} {fmap_label(group)}]"
+
+
+# ---------------------------------------------------------------------------
+# Embedding a tool-produced HTML report (MRIQC, fMRIPrep)
+# ---------------------------------------------------------------------------
+#
+# The figures these reports reference have to come from *some* URL, and the one
+# URL duckbrain is certain of is Streamlit's own media endpoint: same origin as
+# the page, so OnDemand's reverse proxy carries it with no route, launch flag or
+# symlink of ours. The alternatives were each rejected for a reason worth
+# recording, since they look attractive from the outside:
+#
+# * Streamlit's ``server.enableStaticServing`` cannot reach a project directory.
+#   Its handler resolves symlinks and then requires the result to stay under the
+#   static root, so a symlink *into* ``derivatives/`` is answered with 400; and
+#   making the static folder itself the symlink trips the 1 GB size check at
+#   startup, which disables static serving silently. (``divatten_beta_v2``'s
+#   derivatives are 34 GB.)
+# * A deep link into OnDemand's Files app is not portable — it does not exist in
+#   the SSH-tunnel workflow, and it would put the app's URL into duckbrain.
+#
+# Media files are registered per script run and garbage-collected by Streamlit
+# on the next one, so only the report being looked at is ever held in memory.
+
+_REPORT_MIMETYPES = {
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".css": "text/css",
+    ".js": "text/javascript",
+}
+
+
+def _media_url_prefix() -> str:
+    """Base path the app is served under, for prefixing Streamlit media URLs.
+
+    ``MediaFileManager`` returns a server-absolute ``/media/<id>.<ext>``, which
+    is right only when the app is at the root. Under OnDemand it is served at
+    ``/node/<host>/<port>/``, and the un-prefixed URL 404s — the same class of
+    bug as the relative report link this whole module exists to fix.
+    """
+    base = (st.get_option("server.baseUrlPath") or "").strip("/")
+    return f"/{base}" if base else ""
+
+
+def _serve_report_asset(path: Path, coordinates: str) -> str | None:
+    """Register one asset with Streamlit's media manager; return its URL."""
+    from streamlit.runtime import get_instance
+
+    mimetype = _REPORT_MIMETYPES.get(path.suffix.lower())
+    if mimetype is None:
+        return None
+    try:
+        url = get_instance().media_file_mgr.add(str(path), mimetype, coordinates)
+    except Exception:
+        # No runtime (bare mode), or the file became unreadable. Reported to the
+        # user by the caller rather than left as a figure that silently vanishes.
+        return None
+    return _media_url_prefix() + url
+
+
+def embed_tool_report(report_path: Path, *, height: int = 1200) -> bool:
+    """Render an MRIQC/fMRIPrep HTML report inline. True if it was complete.
+
+    The report goes into a sandboxed iframe, which is deliberate: it is a whole
+    Bootstrap page with its own scripts, and sandboxing keeps it from reaching
+    the app's origin — under OnDemand that origin is shared with the OnDemand
+    dashboard itself.
+    """
+    import streamlit.components.v1 as components
+
+    from duckbrain.core.report_embed import rewrite_asset_links
+
+    report_path = Path(report_path)
+    try:
+        raw = report_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        st.error(f"Could not read `{report_path}` — {exc}")
+        return False
+
+    counter = iter(range(10_000))
+    html, unresolved = rewrite_asset_links(
+        raw,
+        report_path.parent,
+        lambda p: _serve_report_asset(p, f"duckbrain-report.{report_path.name}.{next(counter)}"),
+    )
+
+    if unresolved:
+        st.warning(
+            f"{len(unresolved)} figure(s) in this report could not be served and "
+            f"are missing below: {', '.join(unresolved[:3])}"
+            + ("…" if len(unresolved) > 3 else "")
+            + ". Download the report to see it whole."
+        )
+
+    components.html(html, height=height, scrolling=True)
+    return not unresolved

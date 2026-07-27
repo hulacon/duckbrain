@@ -11,6 +11,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Fixed
+- **MRIQC reports are now reachable from the QC Dashboard.** Every per-run
+  "View report" link in the embedded report did nothing when clicked — not an
+  error, nothing at all — because the link was relative to the *exported* copy's
+  location, and the embedded copy lives in a sandboxed iframe with no location of
+  its own. Under OnDemand it resolved to a path the proxy does not serve. Each
+  run's expander in the QC Decisions panel now has a **Show MRIQC report** toggle
+  that renders the real report, figures included, inside the app; the run table's
+  Report column names the report rather than offering a link that cannot work.
+  Reports open one at a time on purpose: their figures are 4–15 MB per run.
 - **The fieldmap-intent check never ran on NORDIC projects.** It looked for
   fMRIPrep's assembled input tree under `derivatives/nordic/bids_input`, which
   duckbrain has never written — the tree is `bids_format`. Because a missing

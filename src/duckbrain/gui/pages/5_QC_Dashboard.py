@@ -6,10 +6,15 @@ wires widgets to those functions. The page is a Streamlit script no test
 imports, so logic that lives here is logic nothing covers — which is exactly why
 ``core/qc.py`` was the only untested module in ``core/``.
 
-The report itself is one HTML string rendered once and delivered twice: embedded
-below, and offered as a download / written to ``derivatives/``. Recording a
-decision stays in Streamlit widgets outside that iframe, because persisting one
-needs a server-side callback static HTML cannot make.
+One renderer, two deliveries: the report is embedded below, and offered as a
+download / written to ``derivatives/``. They differ in one argument —
+``report_base`` — because a relative link to MRIQC's own report resolves for the
+exported file (which sits beside ``mriqc/``) and cannot resolve for the embedded
+copy (a ``srcdoc`` iframe with no location of its own). MRIQC reports are opened
+per run from the decisions panel instead, via ``components.embed_tool_report``.
+
+Recording a decision stays in Streamlit widgets outside that iframe, because
+persisting one needs a server-side callback static HTML cannot make.
 """
 
 import getpass
@@ -39,6 +44,7 @@ if not derivatives_dir:
     st.stop()
 
 from duckbrain.core import qc, qc_report
+from duckbrain.gui import components as components_mod
 
 mriqc_dir = Path(derivatives_dir) / "mriqc"
 fmriprep_dir = qc_report.resolve_fmriprep_dir(config)
@@ -103,15 +109,26 @@ runs = qc_report.build_run_rows(
     reports=qc_report.find_mriqc_reports(mriqc_dir, modality),
 )
 
-html = qc_report.render_report(
-    runs,
-    modality,
-    iqm_cols,
-    fd_threshold=settings["fd_threshold"],
-    iqr_multiplier=iqr_mult,
-    project_name=config.get("project", {}).get("name", ""),
-    fmriprep_variant=qc_report.fmriprep_input_variant(config),
-)
+
+def _render(report_base):
+    return qc_report.render_report(
+        runs,
+        modality,
+        iqm_cols,
+        fd_threshold=settings["fd_threshold"],
+        iqr_multiplier=iqr_mult,
+        project_name=config.get("project", {}).get("name", ""),
+        fmriprep_variant=qc_report.fmriprep_input_variant(config),
+        report_base=report_base,
+    )
+
+
+# One renderer, two deliveries — and they differ in exactly one thing, which is
+# whether a relative link to MRIQC's report can resolve. The exported file sits
+# beside mriqc/ and its links work; the embedded copy is a srcdoc iframe with no
+# location of its own, so it names each report instead and the panel below opens
+# it. Rendering twice costs little: the ~4.9 MB of Plotly is cached.
+exported_html = _render("../mriqc")
 
 # ---- Export ----
 filename = qc_report.report_filename(modality)
@@ -119,21 +136,18 @@ col_dl, col_save = st.columns(2)
 with col_dl:
     st.download_button(
         "Download report",
-        data=html,
+        data=exported_html,
         file_name=filename,
         mime="text/html",
         width="stretch",
     )
 with col_save:
     if st.button("Save to derivatives", width="stretch"):
-        saved = qc_report.write_report(html, derivatives_dir, filename)
+        saved = qc_report.write_report(exported_html, derivatives_dir, filename)
         st.success(f"Wrote `{saved}`")
 
 # ---- The report ----
-# Links to MRIQC reports are relative, so they resolve only for the copy written
-# beside them in derivatives/. Inside this sandboxed iframe they have no origin
-# to resolve against, which is why the export above is the way to reach them.
-components.html(html, height=1400, scrolling=True)
+components.html(_render(None), height=1400, scrolling=True)
 
 # ---- QC Decisions ----
 st.subheader("QC Decisions")
@@ -202,3 +216,12 @@ for run in runs:
                 continue
             flag = " (OUTLIER)" if metric in run["flagged_metrics"] else ""
             st.markdown(f"  - **{metric}**: {value:.4f}{flag}")
+
+        # MRIQC's own report for this run, shown here rather than linked from the
+        # table above: its figures are several MB each (a T1w report is 15 MB),
+        # so they are fetched only for the run actually being looked at.
+        if run["report"]:
+            if st.toggle("Show MRIQC report", key=f"mriqc_{run_key}"):
+                components_mod.embed_tool_report(mriqc_dir / run["report"])
+        else:
+            st.caption("No MRIQC report on disk for this run.")

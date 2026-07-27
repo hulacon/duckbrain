@@ -111,3 +111,73 @@ def test_must_exist_warns_on_missing_default(tmp_path):
     missing = tmp_path / "nope"
     at = _run(missing, must_exist=True)
     assert any("does not exist" in c.value for c in at.caption)
+
+
+# ---------------------------------------------------------------------------
+# embed_tool_report — the MRIQC/fMRIPrep report viewer
+# ---------------------------------------------------------------------------
+
+
+def _embed_app(report_path):
+    from pathlib import Path
+
+    import streamlit as st
+
+    from duckbrain.gui.components import embed_tool_report
+
+    st.write(f"complete={embed_tool_report(Path(report_path))}")
+
+
+def _mriqc_report(tmp_path, *, with_figures=True):
+    """An MRIQC-shaped report: one HTML naming figures in a subdirectory."""
+    if with_figures:
+        (tmp_path / "figures").mkdir()
+        (tmp_path / "figures" / "carpet.svg").write_text("<svg/>")
+    path = tmp_path / "sub-010_task-rest_run-1_bold.html"
+    path.write_text('<html><body><img src="./figures/carpet.svg"/></body></html>')
+    return path
+
+
+def test_embed_tool_report_serves_the_figures(tmp_path):
+    """The whole point: a figure MRIQC named relatively becomes a URL the app
+    serves, so the report renders complete inside the GUI."""
+    at = AppTest.from_function(_embed_app, kwargs={"report_path": str(_mriqc_report(tmp_path))})
+    at.run()
+    assert not at.exception
+    assert at.markdown[0].value == "complete=True"
+    assert not at.warning
+
+
+def test_embed_tool_report_says_so_when_a_figure_is_missing(tmp_path):
+    """A report with holes in it must announce them. Rendering it silently
+    incomplete is the failure mode this feature exists to end."""
+    at = AppTest.from_function(
+        _embed_app,
+        kwargs={"report_path": str(_mriqc_report(tmp_path, with_figures=False))},
+    )
+    at.run()
+    assert not at.exception
+    assert at.markdown[0].value == "complete=False"
+    assert "could not be served" in at.warning[0].value
+
+
+def test_embed_tool_report_reports_an_unreadable_file(tmp_path):
+    at = AppTest.from_function(_embed_app, kwargs={"report_path": str(tmp_path / "nope.html")})
+    at.run()
+    assert not at.exception
+    assert at.markdown[0].value == "complete=False"
+    assert at.error
+
+
+def test_media_urls_carry_the_ondemand_base_path(monkeypatch):
+    """Streamlit hands back a root-absolute ``/media/…`` URL, which 404s under
+    OnDemand's ``/node/<host>/<port>/`` mount. Prefixing it is the fix."""
+    import streamlit as st
+
+    from duckbrain.gui import components
+
+    monkeypatch.setattr(st, "get_option", lambda name: "/node/n0123/8501/")
+    assert components._media_url_prefix() == "/node/n0123/8501"
+
+    monkeypatch.setattr(st, "get_option", lambda name: None)
+    assert components._media_url_prefix() == ""

@@ -803,9 +803,27 @@ existing duckbrain/mmmdata work, open questions per item — in
    was that nothing told the reviewer which variant the motion numbers came from,
    and that is now read from provenance) — and `load_mriqc_metrics` was finding
    **zero** runs on any sessionless study, so the QC page had never worked on
-   `divatten_beta`. **What is still open:** relative links fix the exported copy
-   but the `components.html` iframe has no origin to resolve them against, so
-   whether the app should serve MRIQC reports itself needs an OnDemand session.
+   `divatten_beta`. **The link question is settled 2026-07-27, dogfooding
+   `divatten_beta_v2`: duckbrain serves the reports itself.** Relative links fixed
+   the exported copy and could never fix the embedded one — a `srcdoc` iframe's
+   base URL is the *page's*, so under OnDemand `../mriqc/…` addressed
+   `/node/<host>/mriqc/…`, which nothing serves. The mechanism is Streamlit's own
+   media endpoint (`core/report_embed.py` rewrites each relative asset reference;
+   `gui/components.embed_tool_report` supplies the URLs): same origin, so the
+   OnDemand proxy carries it with no route, launch flag or symlink of duckbrain's.
+   Two rejected alternatives are recorded in `components.py` because both look
+   right from outside — `server.enableStaticServing` cannot reach a project
+   directory (its handler resolves symlinks then demands the result stay under the
+   static root, and making the static folder itself the symlink trips a 1 GB size
+   check that disables serving *silently*), and an OnDemand Files deep link does
+   not exist in the SSH-tunnel workflow. Reports open per run from the decisions
+   panel rather than from the table, because the figures run 4–15 MB per run; the
+   table now names its report instead of offering a link that does nothing.
+   Validated across all **70** MRIQC reports in `divatten_beta_v2`: zero
+   unresolved assets. **Left open by this:** `st.components.v1.html` is deprecated
+   with a removal date already past (2026-06-01), and `st.iframe` replaces it but
+   does not exist at our `streamlit>=1.48` floor — switching means raising the
+   floor, which is a decision about who can install duckbrain, not a rename.
    **Slice 3 landed 2026-07-24, and migrated nothing because nothing needed it**:
    the unified on-disk schema is mmmdata's append-only
    `{"run_key", "decisions"}`, so its 609 existing records read as-is (verified:

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import html as _html
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -218,7 +219,7 @@ def render_report(
     subject: str | None = None,
     project_name: str = "",
     fmriprep_variant: str = "unknown",
-    report_base: str = "../mriqc",
+    report_base: str | None = "../mriqc",
     generated: datetime | None = None,
 ) -> str:
     """Render the whole report as one self-contained HTML string.
@@ -227,10 +228,18 @@ def render_report(
     ----------
     runs : list of dict
         From :func:`build_run_rows`.
-    report_base : str
+    report_base : str or None
         Path prefix for MRIQC report links, relative to where this HTML will be
         written. The default assumes ``<derivatives>/duckbrain_qc/``. Never pass
         an absolute path — see the module docstring.
+
+        Pass ``None`` for the copy embedded in the QC page, where no relative
+        path can resolve: that copy sits in a sandboxed ``srcdoc`` iframe whose
+        base URL is the *page's*, not the report's, so ``../mriqc/…`` addressed
+        a directory OnDemand does not serve and the link did nothing at all.
+        The Report column then names the report instead of linking it, and page
+        5 opens it — a dead link that looks live is the failure this argument
+        exists to avoid.
     generated : datetime, optional
         Injected so tests can pin the output; defaults to now.
     """
@@ -286,6 +295,7 @@ def render_report(
 
 <section id="run-table">
   <h2>Run table</h2>
+  {_run_table_note(report_base)}
   {_render_table(runs, iqm_cols, has_motion, report_base)}
 </section>
 
@@ -397,7 +407,41 @@ def _render_header_cells(headers: list[str]) -> str:
     return "".join(cells)
 
 
-def _render_table(runs: list[dict], iqm_cols: list[str], has_motion: bool, report_base: str) -> str:
+def _run_table_note(report_base: str | None) -> str:
+    """Tell the reader where the MRIQC report is, given how this copy is delivered."""
+    if report_base is None:
+        return (
+            '<p class="section-intro">MRIQC reports are opened from the '
+            "<strong>QC Decisions</strong> panel below this report, one run at a "
+            "time — the figures are far too large to carry inside every row.</p>"
+        )
+    return (
+        '<p class="section-intro">The Report column links to MRIQC\'s own report '
+        "for each run, relative to this file. Keep this report beside "
+        "<code>mriqc/</code> in <code>derivatives/</code> and those links "
+        "travel with it.</p>"
+    )
+
+
+def _report_cell(run: dict, report_base: str | None) -> str:
+    """The Report column: a link where one can resolve, a plain name where none can.
+
+    ``report_base=None`` is the embedded copy, which has no location to be
+    relative to. It still says which MRIQC report covers the run, because that
+    is a fact the reviewer wants; it just does not dress it as something to
+    click.
+    """
+    name = run["report"]
+    if not name:
+        return ""
+    if report_base is None:
+        return f'<span class="report-name" title="{_esc(name)}">open below</span>'
+    return f'<a href="{_esc(report_base + "/" + name)}" target="_blank">View</a>'
+
+
+def _render_table(
+    runs: list[dict], iqm_cols: list[str], has_motion: bool, report_base: str | None
+) -> str:
     if not runs:
         return "<p>No runs.</p>"
 
@@ -447,11 +491,7 @@ def _render_table(runs: list[dict], iqm_cols: list[str], has_motion: bool, repor
             cells.append(f"<td>{_fmt(motion.get('mean_fd'), '.3f')}</td>")
             phm = motion.get("pct_high_motion")
             cells.append(f"<td>{'' if phm is None else f'{phm:.1f}%'}</td>")
-        if r["report"]:
-            href = f"{report_base}/{r['report']}"
-            cells.append(f'<td><a href="{_esc(href)}" target="_blank">View</a></td>')
-        else:
-            cells.append("<td></td>")
+        cells.append(f"<td>{_report_cell(r, report_base)}</td>")
 
         klass = ("row-outlier " if r["is_outlier"] else "") + f"border-{label}"
         body.append(f'<tr class="{klass}">{"".join(cells)}</tr>')
@@ -560,7 +600,7 @@ def _render_motion_chart(runs: list[dict], fd_threshold: float) -> str:
     return fig.to_html(full_html=False, include_plotlyjs=False)
 
 
-def _render_outlier_detail(runs: list[dict], report_base: str) -> str:
+def _render_outlier_detail(runs: list[dict], report_base: str | None) -> str:
     items = []
     for r in (x for x in runs if x["is_outlier"]):
         bullets = []
@@ -575,7 +615,7 @@ def _render_outlier_detail(runs: list[dict], report_base: str) -> str:
             bullets.append(f"<li><strong>{_esc(m)}</strong>: {_fmt(r['iqms'].get(m))}{hint}</li>")
         detail = f"<ul>{''.join(bullets)}</ul>" if bullets else "<p>No flagged measures.</p>"
         link = ""
-        if r["report"]:
+        if r["report"] and report_base is not None:
             href = f"{report_base}/{r['report']}"
             link = f' <a href="{_esc(href)}" target="_blank">[MRIQC report]</a>'
         items.append(f"<details><summary>{_esc(_run_label(r))}{link}</summary>{detail}</details>")
@@ -592,12 +632,16 @@ def _run_label(run: dict) -> str:
     return " ".join(bits)
 
 
+@lru_cache(maxsize=1)
 def _plotly_js() -> str:
     """Inline the Plotly source so the report works with no network.
 
     Deliberate: these reports are read on HPC nodes and mailed around as single
     files. It costs a fixed ~4.9 MB and the run table adds under a kilobyte per
     run, so the payload is effectively constant in dataset size.
+
+    Cached because the page renders the report twice — once to embed and once to
+    export, differing only in ``report_base`` — and this is ~4.9 MB of it.
     """
     try:
         from plotly.offline import get_plotlyjs
@@ -666,6 +710,7 @@ h2 { font-size: 1.2rem; margin: 1.5rem 0 0.75rem;
 .signoff-note { margin-top: 0.6rem; font-size: 0.78rem; max-width: 90ch; }
 .auto-suggest { margin-left: 0.4rem; font-size: 0.65rem; color: #94a3b8;
                 font-style: italic; white-space: nowrap; }
+.report-name { color: #64748b; font-size: 0.7rem; font-style: italic; }
 
 /* Badges */
 .badge { padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.65rem;
