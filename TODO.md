@@ -18,7 +18,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
 [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
-[`#19`](#19) conversion coverage ·
+[`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
 [`#22`](#22) wire up the dcm2niix probe ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
@@ -1202,10 +1202,61 @@ which is the argument for the project-level skip in `#13.1`.
 **Her tree is also a live fixture for two things that had none.** It carries
 `cmrr_diff_3shell` in **four** phase-encoding directions — `ap`, `pa`, `rl`, `lr`
 — so `#19.2` (LR/RL) finally has real data, and `#19.1` (DWI) has a multi-shell
-fixture with an SBRef per direction. Note the DWI SBRefs classify as `fmap` and
-duckbrain builds a spurious `acq-cmrrDiff3shellSbref` AP/PA fieldmap pair out of
-the first two; whether that pair is legitimate to use for SDC is a real question,
-but naming it after a diffusion SBRef is not what a user would expect to review.
+fixture with an SBRef per direction. That last one is also `#19.9`.
+
+### `#19.9` — A diffusion SBRef is converted as a pepolar fieldmap, and runs bind to it
+
+🔴 **Correctness bug, confirmed 2026-07-28 on `/projects/hulacon/shared/mmmsourcedata`.**
+Not cosmetic: in **all five `ses-01` sessions** the resting-state BOLD *and* its
+SBRef take `B0FieldSource: B0map_cmrr_diff_3shell_sbref` — 10 descriptions, and
+**zero** bound to the real `se_epi_ap/pa_encoding` pair that is sitting in the
+same session. fMRIPrep would estimate the field from two diffusion SBRefs and
+apply it to the functional run: valid dataset, no tool complains, silently wrong
+preprocessing. The `ses-28` task sessions are clean (10/10 correct), because
+there the real pair is adjacent to the task runs.
+
+**duckbrain identifies DWI correctly** — that is not the gap. `cmrr_diff_3shell_ap`
+carries `DIFFUSION` in `ImageType`, `is_diffusion` fires, `classify_from_header`
+returns `dwi`. The gap is its **SBRef**, which reads
+`('ORIGINAL','PRIMARY','M','NONE')` — the token is absent — so `is_diffusion` is
+false and it falls through to the next branch: `2D and is_epi and is_spin_echo`
+→ `("fmap","epi")`. Diffusion *is* spin-echo EPI, so a diffusion SBRef is a
+single-volume spin-echo EPI, which is precisely the definition that branch uses
+for a pepolar half. Compare series 20 (diffusion SBRef) with series 5 (real
+fieldmap): `is_epi`, `is_spin_echo`, `mr_acquisition_type` and volume count are
+identical on both. Note the asymmetry that hides it — the *gradient*-echo branch
+below asks `single_volume` to separate an SBRef from its BOLD; the spin-echo
+branch returns `fmap` without ever asking anything.
+
+`detect_fieldmaps` then does the rest, correctly given bad input: strip the
+direction token off `cmrr_diff_3shell_{ap,pa}_SBRef`, get one base
+`cmrr_diff_3shell_sbref` holding both directions, call it a complete pair. The
+`rl`/`lr` SBRefs escape only because those directions aren't recognised at all
+(`#19.2`) — fix that in isolation and this gets *worse*, producing a second
+spurious pair. **The two items are coupled; don't do `#19.2` first.**
+
+**The obvious fix does not work.** `ImageType[2]` is `M` on the diffusion SBRef
+and `FMRI` on her real fieldmap, which looks like the discriminator — but 48 of
+60 sampled pepolar fieldmaps in the LCNI corpus also read `M`
+(`ORIGINAL/PRIMARY/M/ND/MOSAIC`), so `M` cannot mean "not a fieldmap". Verified,
+not assumed.
+
+**What looks right is the sibling relation**, which is already this module's
+idiom: `cmrr_diff_3shell_ap_SBRef` strips to `cmrr_diff_3shell_ap`, which is in
+the session and is `dwi` *on its own header's authority*. So an SBRef whose base
+sibling is `dwi` is a diffusion reference, not a fieldmap half — the same shape
+`_recover_func_from_sbref` uses in the opposite direction. One real wrinkle: that
+function refuses to override a header verdict on principle ("it cannot outrank
+what the scanner recorded"), and this would use a *sibling's* header to overturn
+this series' own. Defensible — the sibling's `DIFFUSION` token is positive
+evidence and the verdict it overturns is a fall-through, not a positive
+identification — but it is a change to the precedence rule and wants stating
+where the rule is stated.
+
+**Why it was never caught:** the LCNI corpus contains **zero** diffusion SBRefs
+(searched all 2139 series directories). Her tree is the only fixture for this
+shape on the filesystem, which is also why it needs a unit test built from these
+headers rather than a corpus run.
 
 <a id="23"></a>
 ## #23 — `st.components.v1.html` is past its announced removal date
