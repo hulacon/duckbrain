@@ -558,8 +558,8 @@ def test_series_duckbrain_cannot_convert_start_unticked(two_pair_project):
     assert convert[2] and convert[9] and convert[3]
 
 
-def test_skipping_one_fieldmap_half_with_a_run_still_bound_to_it_is_an_error(two_pair_project):
-    """Refuse rather than write a lone `fmap/` file nothing can be estimated from."""
+def test_skipping_one_fieldmap_half_takes_the_pair_and_says_so(two_pair_project):
+    """The partner goes too — half a pair can estimate nothing — and it is stated."""
     at = AppTest.from_file(PAGE, default_timeout=90).run()
     at.session_state[EDITOR_KEY] = {
         "edited_rows": {2: {"convert": False}},  # series 03, the AP half of pair 1
@@ -568,7 +568,55 @@ def test_skipping_one_fieldmap_half_with_a_run_still_bound_to_it_is_an_error(two
     }
     at.run()
     assert not at.exception
-    assert any("both halves" in e.value for e in at.error)
+
+    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    assert becomes[3] == becomes[4] == "— not converted"
+    assert any("whole pair" in w.value for w in at.warning)
+
+
+def test_unticking_a_fieldmap_half_does_not_hide_the_table(two_pair_project):
+    """The regression that matters: the undo lives *in* the table.
+
+    This shipped once as st.error + st.stop(), which fires above the table — so
+    unticking a fieldmap half made the whole table vanish, taking the checkbox
+    needed to put it back. A control whose misuse hides the control leaves the
+    user with no way back and nothing to look at.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    before = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {2: {"convert": False}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    # Every row still there, and the unticked one is still visible and re-tickable.
+    plan = _plan_table(at)
+    assert list(plan["Series #"]) == [1, 2, 3, 4, 9, 19, 30, 32]
+    assert not dict(zip(plan["Series #"], plan["convert"]))[3]
+
+    # And re-ticking restores exactly the original plan.
+    at.session_state[EDITOR_KEY] = {"edited_rows": {}, "added_rows": [], "deleted_rows": []}
+    at.run()
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"])) == before
+
+
+def test_runs_bound_to_a_skipped_pair_are_still_written_uncorrected(two_pair_project):
+    """Losing the fieldmap must not lose the run — that would be data, not correction."""
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {2: {"convert": False}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+
+    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    assert becomes[9].endswith("run-1_bold.nii.gz")
+    assert becomes[19].endswith("run-2_bold.nii.gz")
 
 
 def test_a_skip_survives_the_saved_config_round_trip(two_pair_project):

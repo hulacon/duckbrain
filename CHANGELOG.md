@@ -30,13 +30,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   is written for it, and the rest of the session is unaffected. Series duckbrain
   has no way to convert anyway — scouts, physio logs, diffusion — start unticked.
 
+  **Unticking never removes the row**, so nothing you untick by accident
+  disappears — the row stays exactly where it was with the box clear, and ticking
+  it again puts the file straight back. Nothing is written until you submit.
+
   Unticking one half of a fieldmap pair removes the **whole pair**, because a
   field is estimated from both halves or not at all; a lone `fmap/` file would be
-  something no scan can be corrected from. If a run is still bound to that pair
-  you get an error naming both edits, rather than a conversion that quietly drops
-  the correction. Skipping a BOLD without also skipping its SBRef is reported too
-  — an SBRef is the reference volume *for* a run, so on its own it references
-  nothing.
+  something no scan can be corrected from. The runs that were using that pair are
+  still converted, just without distortion correction, and you are told which and
+  why. Skipping a BOLD without also skipping its SBRef is reported too — an SBRef
+  is the reference volume *for* a run, so on its own it references nothing.
 
   A skip is **per session**. It is recorded in that session's saved
   `dcm2bids_config.json`, which is what the conversion actually runs, so it

@@ -142,6 +142,16 @@ the next one.
   `/projects/lcni/dcm/hulacon/mmmdata/` is the **nested** layout: one level of
   protocol folders (`anat_session/`, `func_session_*/`), 104 sessions, several
   with two or three fieldmap pairs.
+- **The sourcedata fixture — `/projects/hulacon/shared/mmmsourcedata`.** A beta
+  tester's ABCD-protocol tree, 5 subjects and 95 sessions, **already in
+  duckbrain's `sourcedata` layout** (`sub-XX/ses-YY/dicom/Series_NN_<desc>/`), so
+  it needs no ingestion. Treat as read-only — `sub-06`/`sub-07` are `drwxr-sr-x`,
+  and duckbrain writes each session's `dcm2bids_config.json` back into the tree,
+  so symlink at the `dicom` level into your own project instead of pointing
+  `sourcedata_dir` at it. It holds three shapes the LCNI corpus does not:
+  **diffusion SBRefs** (the corpus has zero, and they are what `#19.9` is about),
+  **LR/RL phase-encoding**, and **a scanner that writes no `ND` token in
+  `ImageType`** (`#19.8`). See `memory/mmmsourcedata-fixture`.
 - **BIDS project — there is exactly one, `/projects/hulacon/bhutch/divatten_beta`**
   (sub-015…019; MRIQC and NORDIC derivatives, no fMRIPrep yet). Converted
   2026-07-22, i.e. *after* the fieldmap-intent fix, and verified correct — it is

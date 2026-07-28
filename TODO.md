@@ -202,6 +202,18 @@ correct one is the hand-edited JSON override.
   datatype is a claim about what the series *is*, a skip is a decision about what
   to do with it, and collapsing them would make relabelling a series the only way
   to drop it.
+- **`_half_bound` is the same trap, still armed** (noticed 2026-07-28 while fixing
+  the `convert` one). The fieldmap dropdown offers *every* detected group,
+  incomplete ones included, and picking an incomplete one hits `st.error` +
+  `st.stop()` — which fires above the table, so the page loses the dropdown the
+  user needs to change their mind. Same shape as the bug the `convert` control
+  shipped with for one commit, same fix available (unbind, warn, keep rendering),
+  but it is a *different* semantic: skipping a fieldmap half makes a run
+  uncorrected as a consequence, whereas binding a run to a half pair is a request
+  duckbrain cannot honor at all, and quietly downgrading that to "uncorrected" is
+  closer to the silently-degrading shape than the skip case is. Decide which
+  before copying the fix across. The standing rule the two share: **never
+  `st.stop()` above the table over something the table is the fix for.**
 - **What the skip does not do is generalize.** It is keyed on series number, so
   it is per-session by construction and reaches a later convert only through the
   saved `dcm2bids_config.json`. A study whose protocol always produces the same

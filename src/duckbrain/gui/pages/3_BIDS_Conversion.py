@@ -734,24 +734,31 @@ if _half_bound:
     )
     st.stop()
 
-# Skipping one half of a pair takes the whole pair out (a field is estimated from
-# both halves or not at all), so a run still bound to it has nowhere to point.
-# generate_config raises on this, but the message it can produce says the session
-# doesn't *have* the group — true, and useless, because the user removed it three
-# rows up. Name the two edits that conflict instead.
+# Skipping one half of a pair takes the whole pair out — a field is estimated from
+# both halves or not at all — so the runs bound to it lose their correction. Their
+# fieldmap cell still shows the pair's token, because it *displays* a binding made
+# before the untick; carrying it into generate_config would raise "this session has
+# no such group", which is true and useless when the user removed the group
+# themselves three rows up.
+#
+# Unbound and reported here rather than raised. This shipped as st.error +
+# st.stop() for exactly one commit and that was a trap: st.stop() fires *above*
+# the table, so unticking a fieldmap half made the whole table disappear — taking
+# with it the checkbox needed to undo it. A control whose misuse hides the control
+# leaves no way back, and the user cannot even see what they did. Nothing is
+# silently degraded by continuing: the runs lose B0FieldSource, this says which
+# and why, and `plan_warnings` adds its `uncorrected` note on top.
 _skipped_groups = {g for g, dirs in fieldmaps.groups.items() if skipped_series & set(dirs.values())}
 _orphaned = sorted({r.group for r in session_fmap_rules if r.group in _skipped_groups})
 if _orphaned:
-    st.error(
-        "These fieldmap pairs are still bound to a run, but you have unticked "
-        f"`convert` for at least one of their halves: "
-        f"{', '.join(f'`{g}`' for g in _orphaned)}. A pair estimates the field "
-        "from both halves, so skipping one takes the pair out entirely. Either "
-        "re-tick the half, or set those runs' fieldmap to "
-        f"`{_NO_FMAP_TOKEN}` — they will then be preprocessed without distortion "
-        "correction."
+    session_fmap_rules = [r for r in session_fmap_rules if r.group not in _skipped_groups]
+    st.warning(
+        "You have unticked `convert` for at least one half of "
+        f"{', '.join(f'`{g}`' for g in _orphaned)}. A pair estimates the field from "
+        "both halves, so skipping one takes the **whole pair** out, and the runs "
+        "bound to it will be written without distortion correction. Re-tick that "
+        "half to undo it."
     )
-    st.stop()
 
 try:
     auto_config = generate_config(
