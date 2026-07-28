@@ -57,17 +57,28 @@ class EvidenceFigure:
     label : str
         Human-readable name for the viewer's caption.
     pattern : str
-        Glob fragment appended after the entity prefix to find the file, e.g.
-        ``'desc-sdc_bold.svg'`` resolving to
-        ``sub-010_task-rest_run-1_desc-sdc_bold.svg``. Kept as a glob rather
-        than an exact name because output space is a project choice —
-        ``space-*_T1w.svg`` must match whichever template fMRIPrep normalized to.
+        Filename tail identifying the figure, matched as ``*{pattern}`` inside
+        the subject's ``figures/`` directory and then filtered by BIDS entities.
+        Matched this way rather than by joining a prefix, because fMRIPrep
+        writes entities the run key does not carry — the anatomical figures on a
+        real session dataset are ``sub-03_acq-MPR_dseg.svg``, and a prefix join
+        would find nothing. Kept as a glob because output space is a project
+        choice: ``space-*_T1w.svg`` must match whichever template was used.
     scope : str
-        One of :data:`VALID_SCOPES`, which decides what the prefix is: a run key
-        or a subject label.
+        One of :data:`VALID_SCOPES`. ``'run'`` filters on subject, session, task
+        and run; ``'subject'`` filters on subject and session only. Session
+        matters even for a "subject" figure because fieldmaps are estimated per
+        session, and showing another session's is worse than showing none.
     look_for : str
         What the reviewer should check by eye. Same contract, and same voice, as
         ``MeasureGuidance.look_for``.
+    absent_means : str, optional
+        What it *means* that this figure is missing. For most figures absence
+        just means the run was not preprocessed, but for some it is a finding in
+        its own right — a missing SDC figure says the run was preprocessed with
+        no distortion correction, which is exactly the failure that shipped
+        silently once already. Stated here so the viewer reports the absence
+        rather than rendering a gap.
     """
 
     key: str
@@ -75,6 +86,7 @@ class EvidenceFigure:
     pattern: str
     scope: str
     look_for: str
+    absent_means: str | None = None
 
     def __post_init__(self) -> None:
         if self.scope not in VALID_SCOPES:
@@ -82,6 +94,20 @@ class EvidenceFigure:
                 f"Invalid scope {self.scope!r} for {self.key!r}; "
                 f"expected one of {sorted(VALID_SCOPES)}"
             )
+
+    def explain_absence(self) -> str:
+        """Why this figure is missing — never the empty string.
+
+        Falls back to the generic reading rather than to nothing, so a viewer
+        cannot render a silent gap by trusting a field nobody filled in.
+        """
+        if self.absent_means:
+            return self.absent_means
+        return (
+            f"No {self.label.lower()} figure was written for this selection. "
+            f"fMRIPrep writes it whenever the corresponding step runs, so the "
+            f"usual reading is that this run was not preprocessed."
+        )
 
 
 @dataclass(frozen=True)
@@ -322,6 +348,16 @@ _register(
                     "correction was applied — check that the fieldmap was found and "
                     "the BIDS intent fields point at this run."
                 ),
+                absent_means=(
+                    "fMRIPrep writes this only when it found and applied a fieldmap, so "
+                    "its absence means this run was preprocessed with **no distortion "
+                    "correction**. That is a finding, not a missing picture. Before "
+                    "concluding no fieldmap exists, check the BIDS intent fields: the "
+                    "fieldmap carries `B0FieldIdentifier`, and the bold and sbref carry "
+                    "`B0FieldSource`. duckbrain shipped those inverted once and nothing "
+                    "complained — the dataset validated, and fMRIPrep reported no SDC "
+                    "and preprocessed uncorrected."
+                ),
             ),
             EvidenceFigure(
                 key="coreg",
@@ -345,6 +381,11 @@ _register(
                     "it. If this is off, SDC will confidently apply the wrong warp, "
                     "which is worse than applying none — check this figure before "
                     "trusting the SDC one above."
+                ),
+                absent_means=(
+                    "Written only when a fieldmap was applied, so it goes missing "
+                    "alongside the distortion-correction figure and for the same "
+                    "reason. Read that one's note first."
                 ),
             ),
             EvidenceFigure(
@@ -370,6 +411,12 @@ _register(
                     "strongest near air–tissue boundaries. Speckle or a sharp "
                     "discontinuity means the estimation failed, and every run it "
                     "serves inherits the error."
+                ),
+                absent_means=(
+                    "No fieldmap was estimated for this session, so no run in it "
+                    "received distortion correction. A session with two fieldmap pairs "
+                    "shows two of these figures — both are listed, because which pair "
+                    "served a given run depends on acquisition time."
                 ),
             ),
             EvidenceFigure(
@@ -406,6 +453,12 @@ _register(
                     "round. Surfaces cutting through the skull, or bulging into the "
                     "sinuses and eyes, mean the reconstruction failed for that "
                     "subject — only relevant when FreeSurfer was actually run."
+                ),
+                absent_means=(
+                    "FreeSurfer surface reconstruction did not run for this subject. "
+                    "Usually that is deliberate — `--fs-no-reconall` — and not a "
+                    "failure; check how fMRIPrep was submitted before treating it as "
+                    "one."
                 ),
             ),
         ),

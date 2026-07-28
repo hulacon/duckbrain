@@ -115,7 +115,7 @@ def load_mriqc_metrics(mriqc_dir: str | Path, modality: str = "bold") -> pd.Data
         except (OSError, json.JSONDecodeError):
             continue
         # Extract subject/session/task/run from filename
-        parts = _parse_bids_filename(json_path.stem)
+        parts = parse_entities(json_path.stem)
         if "sub" not in parts:
             continue
         seen_files.add(json_path.name)
@@ -129,8 +129,13 @@ def load_mriqc_metrics(mriqc_dir: str | Path, modality: str = "bold") -> pd.Data
     return pd.DataFrame(rows)
 
 
-def _parse_bids_filename(stem: str) -> dict:
-    """Extract BIDS entities from a filename stem."""
+def parse_entities(stem: str) -> dict:
+    """Extract BIDS entities from a filename stem.
+
+    Public because ``core.qc_evidence`` matches fMRIPrep figures on entities and
+    needs the same reading of a filename that the IQM loader uses. A third copy
+    would be the one that drifts.
+    """
     entities = {}
     for part in stem.split("_"):
         if "-" in part:
@@ -235,7 +240,7 @@ def summarize_motion(
                 continue
 
             fd = df["framewise_displacement"].dropna()
-            parts = _parse_bids_filename(tsv_path.stem.replace("_desc-confounds_timeseries", ""))
+            parts = parse_entities(tsv_path.stem.replace("_desc-confounds_timeseries", ""))
             parts["mean_fd"] = fd.mean()
             parts["max_fd"] = fd.max()
             parts["pct_high_motion"] = (fd > fd_threshold).mean() * 100

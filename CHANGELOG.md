@@ -10,6 +10,22 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Changed
+- **The QC Dashboard shows fMRIPrep's figures one run at a time, instead of the
+  whole 80 MB subject report.** Reviewing distortion correction meant loading
+  every figure fMRIPrep wrote for a subject — 83 MB on a real project — to look
+  at one 1.1 MB picture. The panel now offers the specific figures the alignment
+  review needs (SDC before/after, BOLD-to-T1w and fieldmap coregistration, brain
+  mask and CompCor ROIs, segmentation, normalization, surface reconstruction),
+  each behind its own toggle with its size named first, scoped to a run you pick.
+  The SDC before/after animation still works: the flicker is CSS carried inside
+  each SVG, so it does not need the enclosing report. The whole report is still
+  one toggle away for anything the curated list does not cover.
+
+  Each figure now also says **what to look for in it**, and — new — what it means
+  when it is *missing*. A run with no SDC figure was preprocessed with no
+  distortion correction at all, which the old panel had no way to tell you.
+
 ### Fixed
 - **Concurrent fMRIPrep jobs no longer destroy each other's FreeSurfer templates.**
   fMRIPrep copies `fsaverage` into a SUBJECTS_DIR shared by every job in the

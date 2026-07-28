@@ -20,7 +20,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
 [`#22`](#22) wire up the dcm2niix probe ·
-[`#24`](#24) QC review domains (Slice A done; B–E open) ·
+[`#24`](#24) QC review domains (A + C done; B dropped; D–E open) ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
@@ -1228,15 +1228,17 @@ Three findings shaped it, all checked against real data rather than assumed:
 Slices, each independently mergeable, schema-bound work last:
 
 - **A — the taxonomy. DONE** (see the ledger). `core/qc_domains.py`, additive.
-- **B — the export regroups.** `qc_report.py` only: generalize
-  `_render_source_row` to span domain groups as well as tool groups, one
-  `<section>` per domain with its guidance rendered inline, and the standalone
-  glossary replaced by a `#references` bibliography from
-  `qc_guidance.all_references()` (which has no production caller today). Anchors
-  are unchanged, so nothing that links to `#guidance-{key}` breaks.
-- **C — the evidence viewer.** `core/qc_evidence.py` + `gui/qc_panels.py`. The
-  fMRIPrep expander becomes a per-run figure viewer. Highest user-visible value,
-  and needs no schema or nav change.
+- **~~B — the export regroups.~~ DROPPED 2026-07-28.** The plan was to regroup
+  the exported HTML report by domain. Ben's call: punt on the HTML export
+  entirely for now, and if the dashboard ever grows persistent artifacts they
+  belong in `derivatives/duckbrain`. The export still works and is untouched; it
+  is simply not where effort goes. Slice D makes the *pages* the QC surface, so
+  regrouping a document nobody was asked to read would have been work spent on
+  the wrong end. **Consequence to accept knowingly:** until this is revisited,
+  the export shows a flat table with a floating glossary while the pages show
+  domains, so the two disagree about how QC is organised.
+- **C — the evidence viewer. DONE** (see the ledger). `core/qc_evidence.py` +
+  `gui/qc_panels.py`; the fMRIPrep panel is now a per-run figure viewer.
 - **D — the page split.** Dict-grouped `st.navigation` (a `QC` group renders as
   one collapsible item at `position="top"`), a shared scope bar, deep links via
   `st.page_link(query_params=…)`, native rendering. This is where

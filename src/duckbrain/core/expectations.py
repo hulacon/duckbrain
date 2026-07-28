@@ -81,7 +81,7 @@ def unit_key(subject: str, session: str) -> str:
 def bids_entities(name: str) -> dict[str, str]:
     """The ``key-value`` entities in a BIDS filename, as a dict.
 
-    Local rather than shared: ``qc._parse_bids_filename`` does the same job for
+    Local rather than shared: ``qc.parse_entities`` does the same job for
     MRIQC's flat IQM filenames, and merging the two would couple this module to
     the QC page's needs for six lines of savings.
     """

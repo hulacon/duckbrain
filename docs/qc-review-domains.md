@@ -149,6 +149,20 @@ recorded"). It is never *recorded*. And the verdict buttons must not be gated
 behind domain completion — a reviewer who sees a wrecked run must be able to
 exclude it without touring four pages first.
 
+### The HTML export is punted on, not regrouped
+
+Decided 2026-07-28. The original plan had a slice that reorganised the exported
+report by domain. That is dropped: the export keeps working exactly as it does,
+and effort goes into the pages instead. If the dashboard ever grows persistent
+artifacts worth keeping, they belong in `derivatives/duckbrain` — note that
+today's `REPORT_SUBDIR` is `duckbrain_qc`, and nothing has ever been written to
+it on this filesystem, so that rename is still free whenever it is wanted.
+
+**Accept the consequence knowingly:** until this is revisited, the export shows a
+flat table with a floating glossary while the pages show domains. The two
+disagree about how QC is organised, and that is a real cost of punting, not an
+oversight.
+
 ### Domain pages render natively; the export keeps its single renderer
 
 This **amends** `docs/qc-dashboard-migration.md`'s "one renderer, two delivery
@@ -202,6 +216,38 @@ Checked 2026-07-28 against `/projects/hulacon/bhutch/divatten_beta_v2`.
 - **The output-space template must not be hardcoded.** The normalization figure
   is `space-MNI152NLin2009cAsym_T1w.svg` here, but output space is a project
   choice, so `EvidenceFigure.pattern` is a glob (`space-*_T1w.svg`).
+
+Checked again 2026-07-28 while building Slice C, against `mmmdata`'s seven-session
+tree as well:
+
+- **`figures/` sits at the subject level even with sessions.** fMRIPrep puts the
+  session in the *filename*. Assuming a `ses-XX/figures` level would find nothing
+  for every session project.
+- **Matching must be by entity, not by string prefix.** mmmdata's anatomical
+  figures are `sub-03_acq-MPR_dseg.svg` — an entity the run key never carries —
+  so joining a prefix to a pattern finds nothing there while working fine on
+  `divatten_beta_v2`. Every candidate is globbed by its filename tail and then
+  filtered on the entities both sides carry.
+- **A "subject" figure still has to respect the session.** `desc-pepolar` carries
+  `ses` and matches 58 files for one subject on mmmdata; filtering on subject
+  alone would offer another session's fieldmap as if it were this one's. It must
+  *not* respect `run`, though — a fieldmap's `run` index counts fieldmaps, not
+  BOLD runs, and comparing them would reject every fieldmap.
+- **Several matches is normal, not an error.** Two fieldmap pairs in a session
+  give two estimation figures; a multi-acquisition anatomical gives one
+  segmentation figure per acquisition. All are shown, labelled by what
+  distinguishes them.
+- **One run in mmmdata has a carpet plot and no SDC figure** (202 against 203).
+  The absence case is real, not hypothetical.
+- **`Path.glob` returns empty rather than raising** for a directory that is
+  missing, unreadable, or not a directory. So there is deliberately no `try/except
+  OSError` around it: the guard would be unreachable, and unreachable guards rot.
+  Pinned by a test that points the viewer at a regular file.
+- **Verified live end-to-end**: the SDC figure reaches the browser as a
+  self-contained 1.13 MB `data:image/svg+xml` URI with `@keyframes` intact, so
+  the flicker survives. A data URI also has no URL to get wrong under OnDemand's
+  `/node/<host>/<port>/` prefix, which is the bug class `report_embed` exists to
+  fix — here it is avoided by construction rather than handled.
 
 ## Coverage, since it gates CI
 

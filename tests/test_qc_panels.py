@@ -1,0 +1,187 @@
+"""Tests for duckbrain.gui.qc_panels — the reusable QC review panels.
+
+Driven with ``AppTest.from_function`` rather than through a page, the same way
+``tests/test_gui_components.py`` drives ``directory_picker``. That is the whole
+reason these panels live in a module instead of in a page script: a page is not
+imported by any test, so logic put there is logic nothing covers.
+"""
+
+from pathlib import Path
+
+import pytest
+from streamlit.testing.v1 import AppTest
+
+from duckbrain.core.qc_domains import get_domain
+from duckbrain.gui import qc_panels
+
+FIGURE_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+    "<style>@keyframes flicker { 0% {opacity:1} 100% {opacity:0} }"
+    ".f { animation: flicker 2s infinite; }</style>"
+    '<rect class="f" width="10" height="10"/></svg>'
+)
+
+
+@pytest.fixture
+def fmriprep(tmp_path):
+    figures = tmp_path / "fmriprep" / "sub-010" / "figures"
+    figures.mkdir(parents=True)
+    for name in (
+        "sub-010_task-rest_run-1_desc-sdc_bold.svg",
+        "sub-010_task-rest_run-1_desc-coreg_bold.svg",
+        "sub-010_dseg.svg",
+    ):
+        (figures / name).write_text(FIGURE_SVG)
+    return tmp_path / "fmriprep"
+
+
+def _script(root, run_key):
+    """Run in a fresh module by AppTest, so it closes over nothing and imports its own."""
+    from duckbrain.core.qc_domains import get_domain
+    from duckbrain.gui import qc_panels
+
+    qc_panels.evidence_viewer(root, get_domain("alignment"), run_key)
+
+
+def _viewer(root: str, run_key: str = "sub-010_task-rest_run-1_bold"):
+    return AppTest.from_function(
+        _script, kwargs={"root": root, "run_key": run_key}, default_timeout=30
+    ).run()
+
+
+class TestEvidenceViewer:
+    def test_nothing_is_loaded_on_arrival(self, fmriprep):
+        """Megabyte-scale figures are a cost the reviewer chooses to spend."""
+        at = _viewer(str(fmriprep))
+        assert not at.exception
+        assert at.toggle, "no figures were offered"
+        assert all(t.value is False for t in at.toggle)
+
+    def test_the_size_is_named_before_it_is_spent(self, fmriprep):
+        at = _viewer(str(fmriprep))
+        assert any("MB" in c.value for c in at.caption)
+
+    def test_a_present_figure_is_offered_and_an_absent_one_is_explained(self, fmriprep):
+        at = _viewer(str(fmriprep))
+        captions = " ".join(c.value for c in at.caption)
+        assert "Susceptibility distortion correction" in captions
+        # No fieldmap-estimation figure was written, so the panel must say so
+        # rather than quietly listing one fewer figure than the domain declares.
+        assert "Fieldmap estimation" in captions
+        assert "not on disk" in captions
+
+    def test_showing_a_figure_states_what_to_look_for(self, fmriprep):
+        at = _viewer(str(fmriprep))
+        at.toggle[0].set_value(True).run()
+        assert not at.exception
+        assert any("Look for:" in m.value for m in at.markdown)
+
+    def test_a_missing_tree_explains_every_figure_rather_than_rendering_nothing(self, tmp_path):
+        at = _viewer(str(tmp_path / "absent"))
+        assert not at.exception
+        assert not at.toggle
+        declared = get_domain("alignment").evidence_for("bold")
+        captions = " ".join(c.value for c in at.caption)
+        assert captions.count("not on disk") == len(declared)
+
+    def test_the_animation_reaches_the_browser_intact(self, fmriprep):
+        """The claim the whole per-figure viewer rests on, checked at the exit.
+
+        Serving one figure instead of the 80 MB report is only worth doing if the
+        before/after flicker survives, and the flicker is CSS *inside* the SVG.
+        Streamlit inlines a local SVG as a base64 data URI, so this decodes what
+        would actually be sent and looks for the animation in it — the earlier
+        tests check the file on disk, which would still pass if the render path
+        started stripping styles.
+        """
+        import base64
+
+        at = _viewer(str(fmriprep))
+        at.toggle[0].set_value(True).run()
+        assert not at.exception
+
+        images = [e for e in at._tree if e.type == "image"]
+        assert images, "the figure was toggled on but no image was emitted"
+        url = images[0].proto.imgs[0].url
+        assert url.startswith("data:image/svg+xml"), (
+            "the figure is no longer self-contained — a URL has to resolve, and "
+            "under OnDemand's /node/<host>/<port>/ prefix that is the bug this "
+            "avoided by construction"
+        )
+        payload = base64.b64decode(url.split(",", 1)[1]).decode("utf-8", "replace")
+        assert "@keyframes" in payload and "animation:" in payload
+
+    def test_it_reports_how_many_figures_it_found(self, fmriprep):
+        """The return value is what a caller uses to decide whether to say more."""
+        assert (
+            qc_panels.evidence_viewer.__doc__
+            and "Returns how many" in qc_panels.evidence_viewer.__doc__
+        )
+
+    def test_a_domain_with_no_figures_renders_nothing(self, fmriprep):
+        def script():
+            from duckbrain.core.qc_domains import get_domain
+            from duckbrain.gui import qc_panels
+
+            shown = qc_panels.evidence_viewer(
+                "/nonexistent", get_domain("signal"), "sub-010_task-rest_bold"
+            )
+            import streamlit as st
+
+            st.write(f"shown={shown}")
+
+        at = AppTest.from_function(script, default_timeout=30).run()
+        assert not at.exception
+        assert not at.caption
+        assert not at.toggle
+
+
+class TestDomainIntro:
+    def test_it_states_the_review_question(self):
+        def script():
+            from duckbrain.core.qc_domains import get_domain
+            from duckbrain.gui import qc_panels
+
+            qc_panels.domain_intro(get_domain("temporal"), "bold", n_measures=3)
+
+        at = AppTest.from_function(script, default_timeout=30).run()
+        assert not at.exception
+        assert any("hold still" in m.value for m in at.markdown)
+
+    def test_an_empty_domain_explains_itself_rather_than_going_blank(self):
+        """The silent-degradation rule, at the panel boundary this time."""
+
+        def script():
+            from duckbrain.core.qc_domains import get_domain
+            from duckbrain.gui import qc_panels
+
+            qc_panels.domain_intro(get_domain("temporal"), "T1w", n_measures=0)
+
+        at = AppTest.from_function(script, default_timeout=30).run()
+        assert not at.exception
+        assert any("single volume" in i.value for i in at.info)
+
+    def test_a_domain_caveat_is_shown(self):
+        def script():
+            from duckbrain.core.qc_domains import get_domain
+            from duckbrain.gui import qc_panels
+
+            qc_panels.domain_intro(get_domain("alignment"), "bold", n_measures=0)
+
+        at = AppTest.from_function(script, default_timeout=30).run()
+        assert not at.exception
+        assert any("MRIQC's own" in c.value for c in at.caption)
+
+
+class TestSizeNote:
+    @pytest.mark.parametrize("n,expected", [(1, "1 figure"), (2, "2 figures")])
+    def test_it_agrees_with_itself_about_number(self, n, expected):
+        assert expected in qc_panels._size_note(1_000_000, n)
+
+    def test_bytes_are_reported_in_megabytes(self):
+        assert "1.5 MB" in qc_panels._size_note(1_500_000, 1)
+
+
+def test_the_panels_module_is_importable_without_a_runtime():
+    """It must be safe to import from a test or a script, not only from a page."""
+    assert Path(qc_panels.__file__).exists()

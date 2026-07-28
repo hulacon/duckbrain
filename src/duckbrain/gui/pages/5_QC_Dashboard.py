@@ -49,8 +49,9 @@ if not derivatives_dir:
     st.error("Derivatives directory not set. Check Project Setup.")
     st.stop()
 
-from duckbrain.core import qc, qc_report, report_embed
+from duckbrain.core import qc, qc_domains, qc_evidence, qc_report, report_embed
 from duckbrain.gui import components as components_mod
+from duckbrain.gui import qc_panels
 
 mriqc_dir = Path(derivatives_dir) / "mriqc"
 fmriprep_dir = qc_report.resolve_fmriprep_dir(config)
@@ -58,24 +59,46 @@ decisions_dir = Path(derivatives_dir) / "preprocessing_qc"
 
 settings = qc.qc_settings()
 
-# ---- fMRIPrep's own reports ----
+# ---- fMRIPrep's own evidence ----
 # Above the MRIQC gate below, deliberately: these exist whenever fMRIPrep has
 # run, and stopping the page because MRIQC metrics are missing would hide a
-# derivative that is present. Collapsed, because the run table is what the page
-# is for and this is a per-subject document that does not belong in it.
+# derivative that is present.
+#
+# Shown as individual figures rather than the whole subject report. The report
+# is per subject and carries everything at once — 80 MB on divatten_beta_v2 —
+# while the distortion-correction figure a reviewer wants is 1.1 MB. The
+# animation survives the split because each SVG carries its own @keyframes, so
+# nothing is lost by not going through the enclosing document. The full report
+# stays available below for anything the curated list does not cover.
 fmriprep_reports = qc_report.find_fmriprep_reports(fmriprep_dir)
-with st.expander("fMRIPrep report — segmentation, spatial normalization, SDC before/after"):
+with st.expander("fMRIPrep — segmentation, normalization, SDC before/after"):
     if not fmriprep_reports:
         st.caption(f"No fMRIPrep reports in `{fmriprep_dir}`. Run fMRIPrep from **Preprocessing**.")
     else:
         subject = st.selectbox("Subject", sorted(fmriprep_reports), key="fmriprep_subject")
+        alignment = qc_domains.get_domain("alignment")
+        qc_panels.domain_intro(alignment, "bold", n_measures=0)
+
+        # Run-scoped figures need a run to scope to. Offered from the subject's
+        # own figures rather than from MRIQC's metrics, so this panel keeps
+        # working on a project where fMRIPrep ran and MRIQC did not.
+        runs_here = qc_evidence.runs_with_figures(fmriprep_dir, subject)
+        selected = st.selectbox(
+            "Run",
+            runs_here or [f"sub-{subject}" if not subject.startswith("sub-") else subject],
+            key="fmriprep_run",
+            help="Distortion correction and coregistration are written per run.",
+        )
+        qc_panels.evidence_viewer(fmriprep_dir, alignment, selected, key_prefix="p5_")
+
+        st.divider()
         report_path = fmriprep_dir / fmriprep_reports[subject]
-        # Named before it is spent, not after: the figures are read into the
-        # server's memory to be served, so an 80 MB subject report is a cost the
-        # reader should choose knowingly (core.report_embed.payload_bytes).
         megabytes = report_embed.payload_bytes(report_path) / 1e6
-        st.caption(f"`{report_path.name}` — {megabytes:.0f} MB of figures, loaded only when shown.")
-        if st.toggle("Show fMRIPrep report", key=f"fmriprep_report_{subject}"):
+        st.caption(
+            f"Everything at once: `{report_path.name}` — {megabytes:.0f} MB of figures, "
+            f"loaded only when shown."
+        )
+        if st.toggle("Show the whole fMRIPrep report", key=f"fmriprep_report_{subject}"):
             components_mod.embed_tool_report(report_path, height=1600)
 
 # ---- Modality selector ----
