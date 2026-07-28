@@ -1,4 +1,4 @@
-"""Reusable QC review panels.
+"""Reusable QC review panels, and the whole body of every QC page.
 
 Lives here rather than in a page because a page is a Streamlit script that no
 test imports — logic put there is logic nothing covers, which is the whole
@@ -6,18 +6,31 @@ reason ``core/qc.py`` was once the only untested module in ``core/``. A module
 can be driven by ``AppTest.from_function``, exactly as
 ``tests/test_gui_components.py`` drives ``directory_picker``.
 
-What is here is the *rendering* of an already-decided thing. Which figures a
-domain is reviewed through is ``core.qc_domains``; where they are on disk is
-``core.qc_evidence``; this decides only how they are put on screen.
+The QC pages are therefore *declarations*, not scripts: each one says which
+domain it is and calls :func:`render_domain_page`. Splitting one page into five
+would otherwise have multiplied untested statements fivefold, against a coverage
+gate that is a ratchet.
+
+What is here is the *rendering* of an already-decided thing. Which measures and
+figures a domain covers is ``core.qc_domains``; where the figures are on disk is
+``core.qc_evidence``; what a measure means is ``core.qc_guidance``. This decides
+only how they are put on screen.
+
+**Scope travels through session state, with query parameters as the bookmark
+channel** — not the reverse. Treating the URL as the live store makes a widget
+write back what it just read, and the app oscillates. So the URL seeds the
+session once on arrival, session state is the truth thereafter, and the URL is
+rewritten to match so a link to one run's alignment review can be sent to someone.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
-from duckbrain.core import qc_evidence
+from duckbrain.core import qc, qc_domains, qc_evidence, qc_guidance, qc_report
 from duckbrain.core.qc_domains import ReviewDomain
 
 
@@ -93,3 +106,535 @@ def domain_intro(domain: ReviewDomain, modality: str, *, n_measures: int) -> Non
         st.info(domain.explain_absence(modality))
     if domain.caveat:
         st.caption(domain.caveat)
+
+
+# ---------------------------------------------------------------------------
+# Scope: what the reviewer is looking at, shared across the QC pages
+# ---------------------------------------------------------------------------
+
+#: Session keys holding the selection, and the URL parameter each maps to.
+_SCOPE_PARAMS = {"qc_modality": "modality", "qc_run": "run"}
+_SEEDED = "_qc_scope_seeded"
+
+MODALITIES = ("bold", "T1w", "T2w")
+
+
+class Scope:
+    """One reviewer's current selection, plus everything derived from it.
+
+    Assembled once per page render by :func:`scope_bar` so the five QC pages
+    agree about what is being looked at without each rebuilding it.
+    """
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+    @property
+    def run_key(self) -> str:
+        """The selected run, whether or not MRIQC produced a row for it.
+
+        Not read off ``run``: when MRIQC has not been run there are no rows, but
+        there is still a run to look at fMRIPrep's figures for.
+        """
+        return getattr(self, "selected_key", "") or (self.run["run_key"] if self.run else "")
+
+    def values_for(self, measure: str) -> list:
+        """Every run's value for *measure* — the cohort this run is judged against."""
+        return [r["iqms"].get(measure, (r.get("motion") or {}).get(measure)) for r in self.runs]
+
+
+def _seed_scope_from_url() -> None:
+    """Copy URL parameters into session state, once, on first arrival.
+
+    Once only, and that matters: doing it every rerun would overwrite the
+    reviewer's next click with the URL that click has not yet updated.
+    """
+    if st.session_state.get(_SEEDED):
+        return
+    for key, param in _SCOPE_PARAMS.items():
+        value = st.query_params.get(param)
+        if value:
+            st.session_state[key] = value
+    st.session_state[_SEEDED] = True
+
+
+def _publish_scope_to_url(**values: str) -> None:
+    """Rewrite the URL to match the selection, so the page can be linked to.
+
+    Only on a real change: assigning unconditionally rewrites the URL on every
+    rerun for no benefit.
+    """
+    for key, value in values.items():
+        param = _SCOPE_PARAMS[key]
+        if value and st.query_params.get(param) != value:
+            st.query_params[param] = value
+
+
+def _pick(label: str, options: list, session_key: str, **kwargs):
+    """A selectbox that remembers across pages, defaulting to a stale-proof index.
+
+    A remembered value that no longer exists — the modality changed, or the
+    derivative did — falls back to the first option rather than raising.
+    """
+    if not options:
+        return None
+    remembered = st.session_state.get(session_key)
+    index = options.index(remembered) if remembered in options else 0
+    chosen = st.selectbox(label, options, index=index, **kwargs)
+    st.session_state[session_key] = chosen
+    return chosen
+
+
+@st.cache_data(show_spinner="Reading MRIQC output…")
+def _load_metrics(mriqc_dir: str, modality: str, _fingerprint: tuple) -> pd.DataFrame:
+    """Cached MRIQC load. ``_fingerprint`` changes when the derivative does."""
+    return qc.load_mriqc_metrics(mriqc_dir, modality)
+
+
+def _fingerprint_of(root: Path, pattern: str) -> tuple:
+    """(count, newest mtime) of matching files — enough to invalidate the cache."""
+    try:
+        stats = [p.stat().st_mtime for p in root.rglob(pattern)]
+    except OSError:
+        return (0, 0.0)
+    return (len(stats), max(stats, default=0.0))
+
+
+def scope_bar(config: dict, *, with_run: bool = True) -> Scope | None:
+    """Render the shared selection controls and return what was selected.
+
+    ``None`` means there is nothing to review and the reason has already been
+    said on screen — the caller should stop rather than render an empty page.
+    """
+    _seed_scope_from_url()
+
+    paths = config.get("paths", {})
+    derivatives_dir = paths.get("derivatives_dir", "")
+    if not derivatives_dir:
+        st.error("Derivatives directory not set. Check **Project Setup**.")
+        return None
+
+    mriqc_dir = Path(derivatives_dir) / "mriqc"
+    fmriprep_dir = qc_report.resolve_fmriprep_dir(config)
+    decisions_dir = Path(derivatives_dir) / "preprocessing_qc"
+    settings = qc.qc_settings()
+
+    cols = st.columns([1, 2, 1] if with_run else [1, 3])
+    with cols[0]:
+        modality = _pick("Modality", list(MODALITIES), "qc_modality")
+
+    metrics_df = _load_metrics(
+        str(mriqc_dir), modality, _fingerprint_of(mriqc_dir, f"*_{modality}.json")
+    )
+    iqm_cols = qc.BOLD_IQMS if modality == "bold" else qc.ANAT_IQMS
+    iqr_multiplier = float(st.session_state.get("qc_iqr", settings["iqr_multiplier"]))
+    runs: list[dict] = []
+
+    if metrics_df.empty:
+        # MRIQC has not run, but fMRIPrep may well have. Falling back to the run
+        # list in fMRIPrep's own figures keeps the visual review reachable, which
+        # stopping here would not: a present derivative would become invisible
+        # and the page would say only that MRIQC has not run. That failure has
+        # shipped twice, and the old single page guarded against it by ordering
+        # the fMRIPrep panel above its own stop.
+        st.warning(f"No MRIQC metrics found for **{modality}** in `{mriqc_dir}`.")
+        keys = qc_evidence.all_runs_with_figures(fmriprep_dir, modality)
+        if not keys:
+            st.info("Run MRIQC first from the **Preprocessing** page.")
+            return None
+        st.caption(
+            "Runs below are read from fMRIPrep's own figures instead, so the "
+            "visual review still works. The measures need MRIQC — run it from "
+            "**Preprocessing** for those."
+        )
+        flagged: set[str] = set()
+    else:
+        metrics_df = qc.detect_outliers(
+            metrics_df, iqm_columns=iqm_cols, iqr_multiplier=iqr_multiplier
+        )
+        motion_df = None
+        if modality == "bold" and fmriprep_dir.is_dir():
+            motion_df = qc.summarize_motion(fmriprep_dir, fd_threshold=settings["fd_threshold"])
+        runs = qc_report.build_run_rows(
+            metrics_df,
+            modality,
+            iqm_cols,
+            motion_df=motion_df,
+            decisions=qc.load_decisions(decisions_dir),
+            reports=qc_report.find_mriqc_reports(mriqc_dir, modality),
+        )
+        keys = [r["run_key"] for r in runs]
+        flagged = {r["run_key"] for r in runs if r["is_outlier"]}
+
+    run = None
+    run_key = ""
+    if with_run:
+        with cols[1]:
+            chosen = _pick(
+                "Run",
+                keys,
+                "qc_run",
+                format_func=lambda k: f"{k}  ⚠️" if k in flagged else k,
+                help="The run every section on this page describes.",
+            )
+        run_key = chosen or ""
+        run = next((r for r in runs if r["run_key"] == run_key), None)
+        with cols[2]:
+            st.metric("Runs", len(keys), f"{len(flagged)} flagged" if flagged else None)
+        _publish_scope_to_url(qc_modality=modality, qc_run=run_key)
+    else:
+        _publish_scope_to_url(qc_modality=modality)
+
+    return Scope(
+        config=config,
+        modality=modality,
+        iqm_cols=iqm_cols,
+        runs=runs,
+        run=run,
+        selected_key=run_key,
+        metrics_df=metrics_df,
+        mriqc_dir=mriqc_dir,
+        fmriprep_dir=fmriprep_dir,
+        decisions_dir=decisions_dir,
+        settings=settings,
+        iqr_multiplier=iqr_multiplier,
+        motion_status=qc_report.describe_motion_source(fmriprep_dir, runs, modality),
+    )
+
+
+def load_config_or_stop() -> dict:
+    """The config every QC page needs, or a message and a stop."""
+    from duckbrain.config import load_config
+
+    try:
+        return load_config()
+    except FileNotFoundError:
+        st.error("Configuration not found. Please complete **Project Setup** first.")
+        st.stop()
+
+
+# ---------------------------------------------------------------------------
+# A domain, for one run
+# ---------------------------------------------------------------------------
+
+
+def measure_table(scope: Scope, measures: list[str]) -> None:
+    """This run's numbers for *measures*, each against the cohort it sits in.
+
+    The position column is the point. Every measure here carries site, scanner
+    and protocol batch effects, so a bare value cannot be read on its own — what
+    a reviewer needs to know is whether this run is unusual *for this dataset*,
+    which is the same comparison the outlier fence makes and the same one the
+    guidance says to make by eye.
+    """
+    run = scope.run
+    if not run:
+        return
+    rows = []
+    for key in measures:
+        value = run["iqms"].get(key, (run.get("motion") or {}).get(key))
+        guidance = qc_guidance.get_guidance(key)
+        cohort = scope.values_for(key)
+        series = pd.Series(cohort, dtype="float64").dropna()
+        rows.append(
+            {
+                "Measure": guidance.label if guidance else key,
+                "Value": value,
+                "Cohort median": float(series.median()) if len(series) else None,
+                "Position in cohort": qc.cohort_position(cohort, value),
+                "Better": guidance.direction_label if guidance else "",
+                "Flagged": "⚠️" if key in run["flagged_metrics"] else "",
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(rows),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Position in cohort": st.column_config.ProgressColumn(
+                "Position in cohort",
+                help=(
+                    "Where this run sits among the runs shown, 0 = lowest value, "
+                    "1 = highest. A position, not a verdict — every dataset has a "
+                    "lowest run."
+                ),
+                min_value=0.0,
+                max_value=1.0,
+                format="%.2f",
+            ),
+            "Value": st.column_config.NumberColumn(format="%.4f"),
+            "Cohort median": st.column_config.NumberColumn(format="%.4f"),
+        },
+    )
+
+
+def guidance_expanders(measures: list[str]) -> None:
+    """Each measure's guidance, next to the number rather than in a glossary.
+
+    This is the "tethered, not floating" half of the redesign: the reason a
+    measure earns a column used to live in one glossary at the bottom of a long
+    report, which is far enough away that nobody read it.
+    """
+    for g in qc_guidance.guidance_for_keys(measures):
+        with st.expander(f"{g.label} — {g.direction_label}"):
+            if g.units:
+                st.caption(f"Units: {g.units}")
+            st.markdown(f"**Why it is here.** {g.why}")
+            st.markdown(f"**Look for.** {g.look_for}")
+            st.markdown(f"**Flagged when.** {g.auto_flag}")
+            if g.literature_threshold:
+                st.markdown(f"**A priori thresholds.** {g.literature_threshold}")
+            if g.caveats:
+                st.markdown(f"**Caveats.** {g.caveats}")
+            for ref in g.references:
+                st.caption(f"[{ref.label}]({ref.url}) — {ref.detail}. {ref.note}")
+
+
+def render_domain_page(domain_key: str) -> None:
+    """The whole body of one domain page.
+
+    The pages are five near-identical declarations of which domain they are, so
+    that everything here is exercised by ``AppTest.from_function`` instead of
+    living five times over in scripts no test imports.
+    """
+    domain = qc_domains.get_domain(domain_key)
+    st.title(domain.label)
+
+    config = load_config_or_stop()
+    scope = scope_bar(config)
+    if scope is None:
+        return
+
+    measures = domain.measures_for(scope.modality)
+    domain_intro(domain, scope.modality, n_measures=len(measures))
+
+    if not scope.run_key:
+        st.info("Pick a run above to review it.")
+        return
+
+    # The guidance stands on its own even with no numbers to attach it to, and
+    # the figures do not need MRIQC at all — so neither is gated on ``scope.run``,
+    # which is absent whenever MRIQC has not run.
+    if measures and scope.run:
+        measure_table(scope, measures)
+    if measures:
+        guidance_expanders(measures)
+
+    if domain.evidence_for(scope.modality):
+        st.subheader("Evidence")
+        evidence_viewer(scope.fmriprep_dir, domain, scope.run_key, modality=scope.modality)
+
+    st.divider()
+    _page_link(
+        "pages/5_QC_Overview.py",
+        "Record a keep/exclude verdict for this run on the Overview",
+        icon="⬅️",
+    )
+
+
+# ---------------------------------------------------------------------------
+# The overview: the cohort, and where the verdict is recorded
+# ---------------------------------------------------------------------------
+
+#: Where each domain's own page lives, for deep links out of the worklist.
+DOMAIN_PAGES = {
+    "signal": "pages/5a_QC_Signal.py",
+    "temporal": "pages/5b_QC_Temporal.py",
+    "alignment": "pages/5c_QC_Alignment.py",
+    "artifact": "pages/5d_QC_Artifacts.py",
+}
+
+
+def _page_link(path: str, label: str, **kwargs) -> None:
+    """A cross-page link that degrades instead of raising outside the app.
+
+    ``st.page_link`` resolves a page path against the set registered by
+    ``st.navigation``, so it raises when a page is rendered on its own — which
+    is how every page test runs it, and how anyone debugging one page runs it.
+    Same best-effort treatment as ``0_Project_Status._deep_links``; a missing
+    link is a smaller failure than a page that will not render.
+    """
+    try:
+        st.page_link(path, label=label, **kwargs)
+    except Exception:
+        st.caption(label)
+
+
+def domain_links(run_key: str, modality: str) -> None:
+    """One link per domain, carrying the selection into that domain's page.
+
+    ``st.page_link`` takes query parameters directly, so this needs no
+    ``switch_page`` dance and no pre-navigation session write — and the
+    resulting URL is one a reviewer can send to someone else.
+    """
+    cols = st.columns(len(qc_domains.DOMAINS))
+    for col, domain in zip(cols, qc_domains.DOMAINS):
+        with col:
+            _page_link(
+                DOMAIN_PAGES[domain.key],
+                domain.label,
+                query_params={"run": run_key, "modality": modality},
+            )
+
+
+def verdict_panel(scope: Scope, reviewer: str) -> None:
+    """Record keep / exclude / investigate for the selected run.
+
+    The reason is carried into whichever verdict is clicked rather than saved on
+    its own. Typing a note used to write a decision by itself, defaulting to
+    "investigate", so a run the reviewer had only jotted a reminder against
+    acquired a verdict they never made.
+    """
+    run = scope.run
+    if not run:
+        return
+    run_key = run["run_key"]
+    st.text_input(
+        "Reason",
+        key=f"reason_{run_key}",
+        value=run["reason"],
+        help="Saved with the decision you pick — a note on its own is not a verdict.",
+    )
+
+    def _record(verdict: str) -> None:
+        qc.save_decision(
+            scope.decisions_dir,
+            run_key,
+            verdict,
+            reason=st.session_state.get(f"reason_{run_key}", ""),
+            reviewer=reviewer,
+        )
+        st.toast(f"{run_key}: {verdict}", icon="✅")
+
+    col1, col2, col3 = st.columns(3)
+    for col, verdict, label in (
+        (col1, "keep", "Keep"),
+        (col2, "exclude", "Exclude"),
+        (col3, "investigate", "Investigate"),
+    ):
+        with col:
+            if st.button(label, key=f"{verdict}_{run_key}", width="stretch"):
+                _record(verdict)
+                st.rerun()
+
+
+def _export_panel(scope: Scope) -> None:
+    """The standalone HTML report, kept working but not developed further.
+
+    The pages are the QC surface now, and the plan to reorganise this document
+    by domain was dropped (``TODO.md`` ``#24``, slice B). It still renders and
+    still exports, because deleting a working capability is not what punting on
+    one means — but it is organised the way it always was, so it and the pages
+    disagree about how QC is grouped until someone revisits it.
+    """
+    with st.expander("Export a standalone HTML report"):
+        st.caption(
+            "The report as it has always been: one flat table with the glossary "
+            "at the end. It is not grouped into the domains these pages use."
+        )
+        # Built only when asked for. An expander's body runs even while collapsed,
+        # and rendering this inlines a ~4.9 MB Plotly bundle — which took the
+        # overview from about a second to ten on a 65-run project, on every visit,
+        # for a file almost nobody exports.
+        if not st.toggle("Prepare the report", key="qc_prepare_export"):
+            st.caption("Roughly 5 MB of charts, built on request.")
+            return
+        html = qc_report.render_report(
+            scope.runs,
+            scope.modality,
+            scope.iqm_cols,
+            fd_threshold=scope.settings["fd_threshold"],
+            iqr_multiplier=scope.iqr_multiplier,
+            project_name=scope.config.get("project", {}).get("name", ""),
+            fmriprep_variant=qc_report.fmriprep_input_variant(scope.config),
+            report_base="../mriqc",
+            motion_status=scope.motion_status,
+        )
+        filename = qc_report.report_filename(scope.modality)
+        left, right = st.columns(2)
+        with left:
+            st.download_button(
+                "Download report", data=html, file_name=filename, mime="text/html", width="stretch"
+            )
+        with right:
+            if st.button("Save to derivatives", width="stretch"):
+                derivatives = scope.config.get("paths", {}).get("derivatives_dir", "")
+                st.success(f"Wrote `{qc_report.write_report(html, derivatives, filename)}`")
+
+
+def render_overview() -> None:
+    """The whole body of the QC overview page."""
+    import getpass
+
+    st.title("QC Overview")
+
+    config = load_config_or_stop()
+    scope = scope_bar(config)
+    if scope is None:
+        return
+
+    st.slider(
+        "IQR multiplier for outlier detection",
+        1.0,
+        3.0,
+        scope.iqr_multiplier,
+        0.1,
+        key="qc_iqr",
+        help=(
+            "Flags runs outside a Tukey fence computed across the runs shown — a "
+            "comparison within this dataset, not an absolute cutoff. The starting "
+            "value comes from [qc].iqr_multiplier."
+        ),
+    )
+
+    state, sentence = scope.motion_status or ("", "")
+    if sentence and state != "complete":
+        st.info(sentence)
+
+    st.subheader("Runs")
+    st.caption(
+        "Every measure is compared within this dataset, never against a fixed "
+        "cutoff — a flag means unusual here, not bad."
+    )
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Run": r["run_key"],
+                    "Decision": r["decision"] or "pending",
+                    "Reviewer": r["reviewer"],
+                    "Flagged": ", ".join(r["flagged_metrics"]) or "",
+                }
+                for r in scope.runs
+            ]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+
+    if scope.runs:
+        _export_panel(scope)
+
+    if not scope.run_key:
+        return
+
+    st.subheader(f"Review {scope.run_key}")
+    st.caption("Each domain is reviewed on its own page:")
+    domain_links(scope.run_key, scope.modality)
+
+    if not scope.run:
+        return
+
+    st.divider()
+    reviewer = getpass.getuser()
+    st.caption(f"Signing off as **{reviewer}**, recorded with each decision.")
+    counts = qc.decision_counts(qc.load_decisions(scope.decisions_dir))
+    if counts["unattributed"]:
+        st.warning(
+            f"{counts['unattributed']} decision(s) were recorded before duckbrain "
+            f"captured a reviewer, so no one can be identified as having made them. "
+            f"They are shown as unattributed and do not count as signed off — "
+            f"re-record any you still stand behind."
+        )
+    verdict_panel(scope, reviewer)

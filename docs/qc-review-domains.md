@@ -249,6 +249,33 @@ tree as well:
   `/node/<host>/<port>/` prefix, which is the bug class `report_embed` exists to
   fix — here it is avoided by construction rather than handled.
 
+## What building the pages settled — 2026-07-28
+
+- **`st.page_link` to a page path raises outside the multipage app.** It resolves
+  against the pages `st.navigation` registered, so a standalone render — which is
+  how every page test runs, and how anyone debugging one page runs it — gets
+  `KeyError: 'url_pathname'`. Wrapped best-effort, the same treatment
+  `0_Project_Status._deep_links` already gives it. A missing link is a smaller
+  failure than a page that will not render.
+- **An expander runs its body while collapsed.** Rendering the HTML report inside
+  one cost ~8 s on every Overview visit for a file almost nobody exports, because
+  the ~4.9 MB Plotly bundle was built whether or not the expander was opened. It
+  is behind an explicit toggle now: 10.5 s → 2.1 s on a 65-run project.
+- **The MRIQC-missing fallback replaces the old ordering trick.** The single page
+  kept fMRIPrep reachable by putting its panel *above* its own `st.stop()`. The
+  domain pages cannot do that — the scope bar is the first thing on every page —
+  so instead, when MRIQC has no metrics, the run list comes from fMRIPrep's own
+  figures (`qc_evidence.all_runs_with_figures`) and the visual review carries on.
+  Same property, different mechanism, same test.
+- **Session state is the truth and the URL is the bookmark.** The URL seeds the
+  session once on arrival and is rewritten to match thereafter. The reverse —
+  reading the URL every rerun — makes a widget overwrite the click that has not
+  yet updated the URL.
+- **A remembered selection must survive its options changing.** Switching
+  modality, or a derivative growing, leaves a stored run key that no longer
+  exists; `_pick` falls back to the first option rather than raising, and a stale
+  deep link therefore lands somewhere useful instead of erroring.
+
 ## Coverage, since it gates CI
 
 Measured before starting: 5937 statements, 4205 covered, **70.83%**, floor 65%,
@@ -260,8 +287,18 @@ The structural rule is unchanged from the migration doc — logic goes in `core/
 pages stay thin — with one addition: shared per-domain rendering goes in
 `gui/qc_panels.py`, which is importable and therefore testable via
 `AppTest.from_function`, exactly as `tests/test_gui_components.py` drives
-`directory_picker`. Slice A landed at 100% coverage of the new module and moved
-the total *up*, to 71.17%.
+`directory_picker`.
+
+**The prediction was wrong in the right direction, and the reason is worth
+keeping.** Splitting one page into five was supposed to cost coverage and merely
+stay inside the headroom. It *raised* it — 70.83% → 73.29% — because the five
+pages are **four-statement declarations** that call `render_domain_page(key)`,
+replacing a 108-statement page, while everything they used to hold moved into a
+module tests can import. The ratchet went 65 → 70 as a result.
+
+The generalisable form: a page that holds logic is a page that holds untested
+logic. Making the pages declarations is not a coverage trick, it is what let five
+pages cost less than one.
 
 The real risk is suite wall-clock rather than the gate: `test_qc_page.py` runs
 with `default_timeout=60` because the page renders the full Plotly report twice.

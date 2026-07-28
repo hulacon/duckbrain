@@ -11,6 +11,29 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 ## [Unreleased]
 
 ### Changed
+- **QC is now five pages grouped by what you are actually asking, instead of one
+  long dashboard.** The old page put every measure, every figure and every
+  decision in one scroll, with the explanation of what each number meant in a
+  glossary far from the number. QC now sits under a single collapsible **QC**
+  item in the top bar: an **Overview** with the cohort and the keep/exclude
+  verdict, then **Signal & contrast**, **Temporal stability**, **Alignment &
+  distortion** and **Artifacts & inhomogeneity** — each reviewing the selected run
+  for one question at a time, with each measure's guidance attached to it.
+
+  Each measure is now shown with **where the run sits among the runs around it**,
+  not just its value. That is the comparison the guidance has always said to make:
+  these numbers carry scanner and protocol batch effects and have almost no
+  defensible absolute cutoffs, so "unusual here" is the honest reading and a bare
+  value is not.
+
+  Your selection travels in the URL, so a link to one run's alignment review can
+  be sent to someone else, and the page it opens is the page you were looking at.
+
+  Faster, too: a domain page loads in about a second on a 65-run project where the
+  old page took eighteen, because it renders its own domain rather than a 5 MB
+  chart bundle. The standalone HTML report is still exported from the Overview,
+  now built only when you ask for it.
+
 - **The QC Dashboard shows fMRIPrep's figures one run at a time, instead of the
   whole 80 MB subject report.** Reviewing distortion correction meant loading
   every figure fMRIPrep wrote for a subject — 83 MB on a real project — to look

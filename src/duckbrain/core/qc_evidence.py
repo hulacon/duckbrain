@@ -157,6 +157,26 @@ def collect(
     return [find_figure(fmriprep_dir, figure, run_key) for figure in domain.evidence_for(modality)]
 
 
+def subjects_with_figures(fmriprep_dir: Path | str) -> list[str]:
+    """Subjects fMRIPrep has written a figures directory for."""
+    root = Path(fmriprep_dir)
+    return sorted(p.name for p in root.glob("sub-*") if (p / "figures").is_dir())
+
+
+def all_runs_with_figures(fmriprep_dir: Path | str, modality: str = "bold") -> list[str]:
+    """Every run key fMRIPrep wrote figures for, across every subject.
+
+    The fallback run list for a project where fMRIPrep ran and MRIQC did not.
+    Without it the visual review would be unreachable on exactly the projects
+    that have the derivative to review — the failure this page has shipped twice.
+    """
+    return sorted(
+        key
+        for subject in subjects_with_figures(fmriprep_dir)
+        for key in runs_with_figures(fmriprep_dir, subject, modality)
+    )
+
+
 def runs_with_figures(fmriprep_dir: Path | str, subject: str, modality: str = "bold") -> list[str]:
     """Run keys fMRIPrep wrote per-run figures for, read from the figures themselves.
 

@@ -8,12 +8,13 @@ project bar (which replaced the sidebar indicator) renders and can switch.
 """
 
 import os
+from pathlib import Path
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
 from duckbrain.config import remember_project, scaffold_project
-from duckbrain.gui.app import _PAGES, _PAGES_DIR, _shorten
+from duckbrain.gui.app import _PAGES, _PAGES_DIR, _QC_PAGES, _shorten
 
 APP = "src/duckbrain/gui/app.py"
 
@@ -30,8 +31,31 @@ def _no_ambient_project(monkeypatch):
 
 def test_every_declared_page_file_exists():
     """A typo'd filename would only surface as a 404 in the browser."""
-    missing = [f for f, _ in _PAGES if not (_PAGES_DIR / f).is_file()]
+    missing = [f for f, _ in [*_PAGES, *_QC_PAGES] if not (_PAGES_DIR / f).is_file()]
     assert missing == []
+
+
+def test_every_qc_domain_has_a_page_and_every_qc_page_is_declared():
+    """The QC group and the domain taxonomy must not drift apart.
+
+    ``qc_panels.DOMAIN_PAGES`` is what the overview's deep links point at, and a
+    link to a page that is not in the nav is a dead end that nothing else
+    catches — ``st.page_link`` to an unregistered page fails at click time, on a
+    page nobody tests by hand.
+    """
+    from duckbrain.core.qc_domains import DOMAINS
+    from duckbrain.gui.qc_panels import DOMAIN_PAGES
+
+    assert set(DOMAIN_PAGES) == {d.key for d in DOMAINS}
+
+    declared = {f for f, _ in _QC_PAGES}
+    linked = {Path(p).name for p in DOMAIN_PAGES.values()}
+    assert linked <= declared, f"deep-linked but not in the nav: {linked - declared}"
+
+
+def test_the_qc_group_leads_with_the_overview():
+    """It is the only QC page that shows the whole cohort, so it is the way in."""
+    assert _QC_PAGES[0][0] == "5_QC_Overview.py"
 
 
 def test_status_is_the_default_landing_page():

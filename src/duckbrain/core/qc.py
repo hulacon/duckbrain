@@ -150,6 +150,29 @@ BOLD_IQMS = ["fd_mean", "fd_perc", "tsnr", "dvars_std", "efc", "fber"]
 ANAT_IQMS = ["cnr", "cjv", "efc", "fber", "snr_total", "qi_1", "wm2max"]
 
 
+def cohort_position(values: "pd.Series | list", value: float | None) -> float | None:
+    """Where *value* sits among *values*, as a fraction from 0 (lowest) to 1.
+
+    The guidance layer's central claim is that IQMs carry site, scanner and
+    protocol batch effects, so the honest comparison is within a dataset rather
+    than against a fixed cutoff. A raw number cannot express that on its own —
+    ``tsnr = 41`` means nothing without knowing that every other run here is
+    higher. This is that comparison, in the one number a reader can scan.
+
+    Deliberately **not** a verdict: it says where a run sits, not whether the
+    position is acceptable. A perfectly good dataset still has a lowest run.
+
+    Returns ``None`` when there is nothing to compare against — a single run, or
+    a metric no run reported — rather than a misleading 0.0 or 0.5.
+    """
+    if value is None:
+        return None
+    series = pd.Series(list(values), dtype="float64").dropna()
+    if len(series) < 2:
+        return None
+    return float((series <= value).sum() - 1) / float(len(series) - 1)
+
+
 def detect_outliers(
     metrics_df: pd.DataFrame,
     iqm_columns: list[str] | None = None,

@@ -20,7 +20,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
 [`#22`](#22) wire up the dcm2niix probe ·
-[`#24`](#24) QC review domains (A + C done; B dropped; D–E open) ·
+[`#24`](#24) QC review domains (A/C/D done; B dropped; `#24.E` open) ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
@@ -1188,9 +1188,12 @@ Two calls to change, but do not do it blind:
 Found 2026-07-28 while adding the fMRIPrep report panel; the deprecation warning
 is visible in any `AppTest` run of the QC page.
 
-**Slice D of `#24` closes this for the whole QC surface** by rendering the domain
-pages natively instead of embedding HTML. That leaves only `embed_tool_report`,
-which serves the tools' own reports and genuinely needs an iframe.
+**Mostly closed for QC by `#24` slices C and D, 2026-07-28.** The QC pages render
+natively now, and fMRIPrep's figures are served as individual SVGs through
+`st.image` rather than through an embedded document. Two call sites remain, and
+they are the ones that genuinely need an iframe: `embed_tool_report`, which shows
+MRIQC's and fMRIPrep's own Bootstrap reports, and nothing else. The exported
+duckbrain report is a *file*, not an embed, so it is unaffected either way.
 
 ---
 
@@ -1239,13 +1242,13 @@ Slices, each independently mergeable, schema-bound work last:
   domains, so the two disagree about how QC is organised.
 - **C — the evidence viewer. DONE** (see the ledger). `core/qc_evidence.py` +
   `gui/qc_panels.py`; the fMRIPrep panel is now a per-run figure viewer.
-- **D — the page split.** Dict-grouped `st.navigation` (a `QC` group renders as
-  one collapsible item at `position="top"`), a shared scope bar, deep links via
-  `st.page_link(query_params=…)`, native rendering. This is where
-  `detect_outliers(scope="within_subject")` — which exists and has never been
-  reachable from the GUI — gets a home; note it changes what is flagged, so the
-  export must say which scope produced the flags, as it already does for
-  `iqr_multiplier`.
+- **D — the page split. DONE** (see the ledger). Five pages under a collapsible
+  `QC` nav group; `5_QC_Dashboard.py` is gone.
+  **One thing it was to carry and does not:** `detect_outliers(scope=
+  "within_subject")` still has no way to reach it from the GUI. It was to be the
+  temporal page's, but it changes *what is flagged*, so whatever surfaces it must
+  also say which scope produced the flags — as the export already does for
+  `iqr_multiplier`. Left undone rather than shipped unlabelled.
 - **E — the domain review store.** An optional `domain` field on entries in the
   existing append-only per-run records. Two rules make it safe: `latest` must mean
   "latest entry with **no** domain", or the last note about a domain silently

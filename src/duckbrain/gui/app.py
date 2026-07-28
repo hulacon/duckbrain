@@ -35,8 +35,19 @@ _PAGES = [
     ("2_Data_Ingestion.py", "Ingestion"),
     ("3_BIDS_Conversion.py", "Conversion"),
     ("4_Preprocessing.py", "Preprocessing"),
-    ("5_QC_Dashboard.py", "QC"),
     ("6_Guide.py", "Guide"),
+]
+
+# QC is six pages, so it is a *group*: passing st.navigation a dict makes each
+# grouping one collapsible item at position="top", which keeps the top bar the
+# length it was. The empty-string key is what puts the pipeline pages before the
+# groups rather than inside one.
+_QC_PAGES = [
+    ("5_QC_Overview.py", "Overview"),
+    ("5a_QC_Signal.py", "Signal & contrast"),
+    ("5b_QC_Temporal.py", "Temporal stability"),
+    ("5c_QC_Alignment.py", "Alignment & distortion"),
+    ("5d_QC_Artifacts.py", "Artifacts"),
 ]
 
 
@@ -97,7 +108,13 @@ def main():
         initial_sidebar_state="collapsed",
     )
     nav = st.navigation(
-        [st.Page(_PAGES_DIR / f, title=t, default=(i == 0)) for i, (f, t) in enumerate(_PAGES)],
+        {
+            "": [
+                st.Page(_PAGES_DIR / f, title=t, default=(i == 0))
+                for i, (f, t) in enumerate(_PAGES)
+            ],
+            "QC": [st.Page(_PAGES_DIR / f, title=t) for f, t in _QC_PAGES],
+        },
         position="top",
     )
     _project_bar()

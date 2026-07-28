@@ -58,11 +58,16 @@ source = ["duckbrain"]
 # versions can't fail CI on its own. Raise it when coverage rises — never lower
 # it to make a red build green.
 #
-# The number reads low because the seven Streamlit pages (~1200 statements) score
-# 0%: they are scripts, not importable modules, and the tests that cover them
-# assert on their *source* rather than executing them. Core, config and slurm —
-# the code the floor is actually protecting — sit between 84% and 100%.
-fail_under = 65
+# The number reads low because the Streamlit pages (~1200 statements) score 0%:
+# they are scripts, not importable modules, and AppTest executes them in a way
+# coverage does not follow. Core, config and slurm — the code the floor is
+# actually protecting — sit between 84% and 100%.
+#
+# The QC pages show the way out of that, and it is worth copying rather than
+# admiring: they are four-statement declarations calling one tested module
+# (`gui.qc_panels`), so splitting one 108-statement page into five *raised* the
+# total. A page that holds logic is a page that holds untested logic.
+fail_under = 70
 
 [tool.ruff]
 line-length = 100
