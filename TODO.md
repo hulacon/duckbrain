@@ -20,7 +20,6 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
 [`#22`](#22) wire up the dcm2niix probe ·
-[`#24`](#24) QC review domains (A/C/D done; B dropped; `#24.E` open) ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
@@ -1197,79 +1196,6 @@ duckbrain report is a *file*, not an embed, so it is unaffected either way.
 
 ---
 
-<a id="24"></a>
-## #24 — QC dashboard: group review into domains
-
-`5_QC_Dashboard.py` is one mega-page — a per-subject fMRIPrep panel, a modality
-selector, a 4.9 MB embedded report, then 65 flat per-run expanders. Everything
-about a run arrives at once, and the guidance explaining each number sits in a
-glossary far from the number.
-
-Group QC evidence into four **review domains** — signal, temporal, alignment,
-artifact — so each aspect of a run is reviewable on its own, with its guidance
-attached to it. The run stays the unit of review; domains become per-run
-subsections, each on its own page acting as a viewer for the selected run.
-
-Three findings shaped it, all checked against real data rather than assumed:
-
-- **fMRIPrep's alignment evidence is per-run, not per-subject.** `desc-sdc`,
-  `desc-coreg`, `desc-fmapCoreg`, `desc-carpetplot` and `desc-rois` all carry run
-  entities; only `dseg`, `space-*_T1w`, `desc-reconall` and `fmapid-*_fieldmap`
-  are per-subject. The current panel is per-subject only because
-  `find_fmriprep_reports` globs the aggregated `sub-*.html`. Serving one figure is
-  **1.1 MB against 80 MB**, and each SVG carries its own `@keyframes`, so the SDC
-  before/after flicker survives being served standalone.
-- **Alignment has no MRIQC number on the BOLD side at all** — `tpm_overlap_*` is
-  anat-only. That is the argument for grouping by review *question* rather than by
-  data source: it gives the orphaned fMRIPrep evidence a home.
-- **The four domains do not partition the question a verdict answers.** None
-  covers task timing, stimulus delivery, or a participant asleep with their eyes
-  open. So an overall keep/exclude may be *displayed* as derived ("4/4 reviewed,
-  no verdict recorded") but never *recorded* that way, and the verdict buttons
-  must not be gated behind domain completion.
-
-Slices, each independently mergeable, schema-bound work last:
-
-- **A — the taxonomy. DONE** (see the ledger). `core/qc_domains.py`, additive.
-- **~~B — the export regroups.~~ DROPPED 2026-07-28.** The plan was to regroup
-  the exported HTML report by domain. Ben's call: punt on the HTML export
-  entirely for now, and if the dashboard ever grows persistent artifacts they
-  belong in `derivatives/duckbrain`. The export still works and is untouched; it
-  is simply not where effort goes. Slice D makes the *pages* the QC surface, so
-  regrouping a document nobody was asked to read would have been work spent on
-  the wrong end. **Consequence to accept knowingly:** until this is revisited,
-  the export shows a flat table with a floating glossary while the pages show
-  domains, so the two disagree about how QC is organised.
-- **C — the evidence viewer. DONE** (see the ledger). `core/qc_evidence.py` +
-  `gui/qc_panels.py`; the fMRIPrep panel is now a per-run figure viewer.
-- **D — the page split. DONE** (see the ledger). Five pages under a collapsible
-  `QC` nav group; `5_QC_Dashboard.py` is gone.
-  **One thing it was to carry and does not:** `detect_outliers(scope=
-  "within_subject")` still has no way to reach it from the GUI. It was to be the
-  temporal page's, but it changes *what is flagged*, so whatever surfaces it must
-  also say which scope produced the flags — as the export already does for
-  `iqr_multiplier`. Left undone rather than shipped unlabelled.
-- **E — the domain review store.** An optional `domain` field on entries in the
-  existing append-only per-run records. Two rules make it safe: `latest` must mean
-  "latest entry with **no** domain", or the last note about a domain silently
-  becomes the run's verdict (`#17.10` with the arrow reversed); and the domain
-  vocabulary (`reviewed`/`concerns`/`pending`) must be **disjoint** from
-  `VALID_DECISIONS`, enforced at the writer rather than by convention.
-
-Known cost of keeping the run as the unit: four domains × 65 runs is 260
-possible sign-offs where there are 65 today. Sign-off is optional and gates
-nothing, and the overview's run × domain matrix is what keeps a reviewer from
-touring everything. A per-run "mark remaining reviewed" bulk action is the
-pressure valve **if real use shows one is needed** — design it against observed
-friction, not a prediction.
-
-Full design, the assignment of all 30 registry keys, which assignments are
-arguable, and the decisions that are settled: **`docs/qc-review-domains.md`**.
-Don't re-open the taxonomy or the "run stays the unit of review" question without
-reading it.
-
----
-
 <a id="loose-ideas-not-scheduled"></a>
 ## Loose ideas (not scheduled)
 
@@ -1277,9 +1203,10 @@ reading it.
   (deliberately excluded from `stage_runnable` today).
 - The NORDIC column is always-on; for non-NORDIC projects it's a column of ⚪.
   Fine for LCNI/mmmdata, revisit if it reads as noise elsewhere.
-- The QC metrics table doesn't carry a `current_decision` column. It renders
-  before decisions are loaded, so showing it means reordering the page; the
-  decision is visible in each run's expander header meanwhile. Cosmetic.
+- ~~The QC metrics table doesn't carry a `current_decision` column.~~ **Resolved
+  by `#24`, 2026-07-28** — the ordering problem it described was an artefact of
+  the single page, and the Overview's run table now carries Decision and Reviewer
+  because decisions are loaded before anything renders.
 - **Re-add the Nipoppy bagel export** if Nipoppy takes off — but feed it from
   *provenance, not config*, which is the bug that made removal right. Verified spec
   preserved in `memory/nipoppy-status-tracking`; recover the code with
@@ -1318,6 +1245,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-28 | `#24` | **QC review is grouped by the question being asked** — an Overview plus one page per domain (signal, temporal, alignment, artifact) under a collapsible `QC` nav group, each measure's guidance beside the number instead of in a glossary, and each measure shown with where the run sits among the runs around it. `core/qc_domains.py` partitions all 30 registry measures at import (a measure in two domains emits duplicate `#guidance-{key}` anchors), and carries the fMRIPrep figures that can never be registry entries — which is what gives alignment, the domain with no MRIQC number on bold, anything to show. `core/qc_evidence.py` serves those figures per run: 1.1 MB against 80 MB for the subject report, with the SDC flicker intact because the animation is CSS inside each SVG, verified reaching the browser as a self-contained data URI. Matching is by BIDS entity, not by prefix join, which is what makes `sub-03_acq-MPR_dseg.svg` findable on a session dataset. An absent figure is stated, not skipped — no SDC figure means the run was preprocessed with no distortion correction. Domain reviews share the per-run decision file via an optional `domain` field, with a vocabulary disjoint from the verdicts' and `latest` meaning the newest entry carrying *no* domain, so a note about alignment can never become the run's verdict; 609 real records read unchanged. Coverage rose 70.83% → 73.51% because the five pages are four-statement declarations over one tested module, so the ratchet went 65 → 70. Slice B (regrouping the HTML export) dropped by decision, not deferred |
 | 2026-07-24 | — | **A project chooses which reconstruction converts, prompted by LCNI** asking that the user be able to select the distortion-corrected copy, the `_ND` copy, or both. `[conversion] nd_duplicates`, defaulting to today's behaviour. Project-level and not a table column: bulk and cockpit converts go through `generate_session_config` and have no table, so a table-only control would mean the reviewed session and the bulk-converted session held different images with nothing saying so. `both` needed new code only for anatomicals — `acq-nd`/`acq-dis`, with `_disambiguate_anat` now bucketing by `(suffix, custom_entities)` so `run-` still means *acquired* twice rather than *reconstructed* twice. The fieldmap half falls out of description-matched pairing for free (two groups, two `B0FieldIdentifier`s), except that both pairs share an acquisition time, so nearest-in-time cannot separate them and fell through to insertion order — hence `FieldmapDetection.deprioritized`, which narrows the *automatic* candidates only. Validated live through dcm2bids on Crave_control/CC052: both reconstructions land, they differ across 61% of voxels, and the B0 intent is correct |
 | 2026-07-24 | — | **The ND choice is made per twin pair, not per series** — the defect LCNI's fieldmap layout exposed (27 `fieldmap_2mm_ND` mag, 28 `fieldmap_2mm` mag, 29 `fieldmap_2mm` phase, 30 `fieldmap_2mm_ND` phase). The twin lookup was a dict comprehension keyed on the description, so of the two series sharing `fieldmap_2mm` it kept only the last — the *phase* — and demoted the ND *magnitude* on the strength of it, never checking the role. And deciding per series can keep one half of each reconstruction, which the identical-description pairing then refuses entirely. Together those reproduced CC056 with a fieldmap: both ND series demoted, the group built on an empty directory, a complete populated pair discarded. LCNI's other worry — that the halves get matched in order, so 27 pairs with 29 — cannot happen here; pairing is `ImageType` + identical description, never ordering. The corpus run then found a third case the unit tests could not: pMAP101 shoots its mprage twice and saves both copies of each, and with each ND picking its own nearest twin one corrected series went unclaimed and converted as a spurious third anatomical **under every policy including the default**. Sides are now paired in acquisition order. The drop is also no longer invisible — `DroppedSeries.reason` and an `nd-duplicate` notice, on 52 corpus sessions that previously said nothing |
 | 2026-07-24 | — | **Spin echo read from both witnesses, and the pulse sequence name read at all.** `is_spin_echo` asked only whether `SequenceName` started `epse`, which is right for the pepolar fieldmap and wrong for every other spin-echo family: `*tse2d1_18` does not, so a classic turbo spin echo read as gradient echo — leaving the `anat`/`T2w` rule unreachable in that dialect (those series classified only because their *name* said `t2`) and putting a dual-echo TSE on course to convert as half a fieldmap. Neither witness subsumes the other: the pepolar `epse2d1_104` reports `ScanningSequence ('EP',)` with no `SE`, `*tse2d1_18` reports `('SE',)` with the wrong name — so it is a union. Separately, LCNI's note that the field to read is `PulseSequenceName` (post XA30) else `SequenceName`: duckbrain read only the latter, used it for one bit, and never stored it. Now on `SeriesHeader` and used as a last tier for the two classes nothing else reaches — `*fl3d1_ns` scouts (previously name-only, so a localizer called anything else was `unknown`) and `*spcR` SPACE. The plan for that said SPACE was absent from the corpus and would ship on a synthetic test; the corpus run said otherwise — WMS179 Series_21 is a real undefaced 3D SPACE, and enhanced-dialect, so it exercises exactly the tag that was never read |

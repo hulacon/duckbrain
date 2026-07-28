@@ -134,6 +134,33 @@ reviewed" bulk action is available **if real use shows one is needed**. That las
 is deliberately deferred: it is defensible only as an explicit human act, and it
 should be designed against observed friction rather than a prediction.
 
+### Domain reviews share the run's file, and cannot become its verdict
+
+Built 2026-07-28. Each entry in the existing append-only
+`{"run_key": …, "decisions": [...]}` record may carry an optional `domain` field.
+No new file family: the cohort-scoped store an earlier draft proposed became
+unnecessary once the run stayed the unit of review.
+
+Two rules make sharing the file safe, and the first is the whole point:
+
+1. **`latest` means the newest entry carrying *no* domain.** `load_decisions`
+   used to return `history[-1]`, and `build_run_rows` reads that straight into
+   the run's badge, `is_signed_off` and `decision_counts`. Appending domain
+   entries to the same list would therefore have made *the last thing said about
+   a domain become the run's verdict* — noting "SDC looks off" on the alignment
+   page would silently flip the run to `concerns` in the exported report. That is
+   `#17.10` with the arrow reversed.
+2. **The vocabularies are disjoint**, enforced at the writer in both directions:
+   `save_decision(domain=…)` refuses a verdict word and `save_decision()` refuses
+   a domain word. `reviewed` / `concerns` / `pending`, where `concerns` records
+   that a look happened and found something — which `pending` cannot express. The
+   only word in common is `pending`, which is a sign-off in neither.
+
+Everything else carries over unchanged: `getpass.getuser()`, a blank reviewer
+raises, automation may write only `pending`, and a note is written only when a
+state button is clicked. Verified against the real 609-record mmmdata corpus —
+all read, counts identical, no file modified, no phantom domains.
+
 ### An overall verdict is never derived from domain sign-offs
 
 Not only because it manufactures a sign-off nobody made — the `#17.10` shape, and

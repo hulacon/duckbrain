@@ -231,6 +231,67 @@ class TestDomainPages:
         assert not [t for t in _run(SIGNAL).toggle if t.label.startswith("Show ")]
 
 
+class TestDomainSignOff:
+    """Reviewing one aspect is recorded, and is not a verdict on the run."""
+
+    def _decisions(self, project):
+        return project / "derivatives" / "preprocessing_qc"
+
+    def test_each_domain_page_offers_a_sign_off(self, full):
+        labels = [b.label for b in _run(SIGNAL).button]
+        assert "Reviewed — no concerns" in labels
+        assert "Reviewed — concerns" in labels
+
+    def test_signing_off_records_it_against_that_domain(self, full):
+        at = _run(SIGNAL)
+        [b for b in at.button if b.label == "Reviewed — no concerns"][0].click().run()
+        assert not at.exception
+        written = list(self._decisions(full).glob("*_decision.json"))
+        record = json.loads(written[0].read_text())["decisions"][-1]
+        assert record["decision"] == "reviewed"
+        assert record["domain"] == "signal"
+        assert record["reviewer"]
+
+    def test_signing_off_a_domain_gives_the_run_no_verdict(self, full):
+        """The property the whole schema change exists to guarantee."""
+        from duckbrain.core import qc
+
+        at = _run(ALIGNMENT)
+        [b for b in at.button if b.label == "Reviewed — concerns"][0].click().run()
+        assert not at.exception
+        loaded = qc.load_decisions(self._decisions(full))["sub-010_task-rest_run-1_bold"]
+        assert loaded["latest"] == {}
+        assert loaded["signed_off"] is False
+        assert loaded["domains"]["alignment"]["latest"]["decision"] == "concerns"
+
+    def test_a_note_alone_is_not_a_review(self, full):
+        """#17.10 again, at the domain level this time."""
+        at = _run(SIGNAL)
+        [i for i in at.text_input if i.label == "Note"][0].set_value("looks odd").run()
+        assert not at.exception
+        assert not list(self._decisions(full).glob("*_decision.json"))
+
+    def test_an_existing_review_is_shown_back(self, full):
+        from duckbrain.core import qc
+
+        qc.save_decision(
+            self._decisions(full),
+            "sub-010_task-rest_run-1_bold",
+            "concerns",
+            reason="ringing",
+            reviewer="ben",
+            domain="artifact",
+        )
+        at = _run(ARTIFACTS, run="sub-010_task-rest_run-1_bold")
+        assert any("ringing" in c and "ben" in c for c in _captions(at))
+
+    def test_the_verdict_is_not_gated_behind_reviewing_every_domain(self, full):
+        """A reviewer seeing a wrecked run must be able to exclude it at once."""
+        at = _run(OVERVIEW)
+        exclude = [b for b in at.button if b.label == "Exclude"]
+        assert exclude and not exclude[0].disabled
+
+
 # ---------------------------------------------------------------------------
 # Scope travel — the mechanism the navigation rests on
 # ---------------------------------------------------------------------------
@@ -300,6 +361,21 @@ class TestOverview:
     def test_the_outlier_slider_is_here_and_only_here(self, full):
         assert [s for s in _run(OVERVIEW).slider if "IQR" in s.label]
         assert not [s for s in _run(SIGNAL).slider if "IQR" in s.label]
+
+    def test_domain_progress_is_shown_but_no_verdict_is_derived(self, full):
+        """Four reviewed aspects must prompt for a verdict, never stand in for one."""
+        from duckbrain.core import qc
+
+        decisions = full / "derivatives" / "preprocessing_qc"
+        for key in ("signal", "temporal", "alignment", "artifact"):
+            qc.save_decision(
+                decisions, "sub-010_task-rest_run-1_bold", "reviewed", reviewer="ben", domain=key
+            )
+        at = _run(OVERVIEW, run="sub-010_task-rest_run-1_bold")
+        assert not at.exception
+        captions = " ".join(_captions(at))
+        assert "4/4 aspects reviewed" in captions
+        assert "no verdict recorded" in captions
 
     def test_the_export_is_still_offered(self, full):
         """Slice B was dropped, not the capability — the report still exports."""

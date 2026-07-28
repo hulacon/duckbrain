@@ -426,10 +426,78 @@ def render_domain_page(domain_key: str) -> None:
         evidence_viewer(scope.fmriprep_dir, domain, scope.run_key, modality=scope.modality)
 
     st.divider()
+    domain_signoff(scope, domain)
     _page_link(
         "pages/5_QC_Overview.py",
         "Record a keep/exclude verdict for this run on the Overview",
         icon="⬅️",
+    )
+
+
+def domain_signoff(scope: Scope, domain: ReviewDomain) -> None:
+    """Record that this aspect of this run was reviewed.
+
+    Optional, and it gates nothing. Four domains across sixty-five runs is a lot
+    of clicking if it were required, and the run's verdict is a separate act that
+    must stay reachable without touring four pages first — a reviewer looking at a
+    wrecked run should be able to exclude it immediately.
+
+    The note is carried into whichever state is clicked rather than saved on its
+    own, for the reason the run-level panel does the same: a typed note that
+    records itself becomes a judgement nobody made.
+    """
+    import getpass
+
+    run_key = scope.run_key
+    if not run_key:
+        return
+
+    record = qc.load_decisions(scope.decisions_dir).get(run_key, {})
+    current = (record.get("domains") or {}).get(domain.key, {})
+    latest = current.get("latest") or {}
+
+    st.subheader("Review this aspect")
+    if current.get("signed_off"):
+        st.caption(
+            f"**{latest.get('decision')}** — {latest.get('reviewer')} "
+            f"{('· ' + latest['reason']) if latest.get('reason') else ''}"
+            f" ({latest.get('timestamp', '')[:10]})"
+        )
+    else:
+        st.caption("Not yet reviewed.")
+
+    reviewer = getpass.getuser()
+    note_key = f"note_{domain.key}_{run_key}"
+    st.text_input(
+        "Note",
+        key=note_key,
+        value=latest.get("reason", ""),
+        help="Saved with whichever state you pick — a note on its own is not a review.",
+    )
+
+    def _record(state: str) -> None:
+        qc.save_decision(
+            scope.decisions_dir,
+            run_key,
+            state,
+            reason=st.session_state.get(note_key, ""),
+            reviewer=reviewer,
+            domain=domain.key,
+        )
+        st.toast(f"{run_key} · {domain.label}: {state}", icon="✅")
+
+    left, right = st.columns(2)
+    with left:
+        if st.button("Reviewed — no concerns", key=f"rev_{domain.key}_{run_key}", width="stretch"):
+            _record("reviewed")
+            st.rerun()
+    with right:
+        if st.button("Reviewed — concerns", key=f"con_{domain.key}_{run_key}", width="stretch"):
+            _record("concerns")
+            st.rerun()
+    st.caption(
+        f"Recorded as **{reviewer}**, against this aspect only. It does not give "
+        f"the run a keep/exclude verdict — that stays a separate call on the Overview."
     )
 
 
@@ -620,7 +688,18 @@ def render_overview() -> None:
         return
 
     st.subheader(f"Review {scope.run_key}")
-    st.caption("Each domain is reviewed on its own page:")
+
+    # Shown, never recorded. Reviewing all four domains is not a verdict: the
+    # domains do not partition the question a verdict answers — none covers task
+    # timing, stimulus delivery, or a participant asleep with their eyes open.
+    # So this prompts, and the reviewer still has to make the call.
+    record = qc.load_decisions(scope.decisions_dir).get(scope.run_key, {})
+    done, total = qc.domain_progress(record, [d.key for d in qc_domains.DOMAINS])
+    verdict = (record.get("latest") or {}).get("decision")
+    st.caption(
+        f"{done}/{total} aspects reviewed · "
+        + (f"verdict: **{verdict}**" if verdict else "no verdict recorded")
+    )
     domain_links(scope.run_key, scope.modality)
 
     if not scope.run:

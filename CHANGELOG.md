@@ -10,6 +10,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+- **Each aspect of a run can be signed off on its own.** Every domain page now
+  has *Reviewed — no concerns* / *Reviewed — concerns*, with a note, recorded
+  against your username and against that aspect only. It is optional and gates
+  nothing: a run you can see is wrecked can still be excluded immediately,
+  without touring four pages first.
+
+  A domain review is **never** a verdict on the run. The Overview shows how many
+  aspects you have reviewed ("3/4 aspects reviewed · no verdict recorded") as a
+  prompt, and nothing derives a keep/exclude from it — the four domains do not
+  cover every way a run can be unusable (task timing, stimulus delivery, a
+  participant asleep with their eyes open), so "reviewed everything" and "this run
+  is usable" are different claims and only you can make the second.
+
 ### Changed
 - **QC is now five pages grouped by what you are actually asking, instead of one
   long dashboard.** The old page put every measure, every figure and every

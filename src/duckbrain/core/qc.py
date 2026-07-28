@@ -291,6 +291,22 @@ SIGNED_OFF_DECISIONS = frozenset({"keep", "exclude", "investigate"})
 #: lets legacy files be read correctly without rewriting anything on disk.
 AUTOMATED_REVIEWERS = frozenset({"auto-stub", "auto", "automated", ""})
 
+#: What a reviewer may record about **one aspect** of a run — signal, temporal
+#: stability, alignment, artifacts. ``concerns`` records that a look happened and
+#: something wants following up, which ``pending`` cannot express.
+#:
+#: These words are deliberately **disjoint** from :data:`VALID_DECISIONS`, and
+#: :func:`save_decision` enforces the separation in both directions. The reason is
+#: structural, not stylistic: domain entries live in the same append-only list as
+#: verdicts, and ``latest`` is read straight into a run's badge. If the two
+#: vocabularies overlapped, noting "SDC looks off" on the alignment domain would
+#: flip the run's verdict — the shape of the bug where typing a reason used to
+#: record an ``investigate`` nobody made, with the arrow reversed.
+VALID_DOMAIN_STATES = frozenset({"reviewed", "concerns", "pending"})
+
+#: Domain states that mean a person actually looked.
+SIGNED_OFF_DOMAIN_STATES = frozenset({"reviewed", "concerns"})
+
 
 def is_signed_off(record: dict | None) -> bool:
     """True when *record* is a decision an identifiable person actually made.
@@ -322,8 +338,9 @@ def save_decision(
     reviewer: str = "",
     automated: bool = False,
     recommendation: str | None = None,
+    domain: str | None = None,
 ) -> Path:
-    """Append a QC decision for a run.
+    """Append a QC decision for a run, or a review note for one of its domains.
 
     Records are append-only: the file holds the full history, and the last entry
     is the current one. Written as ``{"run_key": ..., "decisions": [...]}``,
@@ -338,8 +355,15 @@ def save_decision(
     run_key : str
         BIDS run identifier (e.g. ``sub-01_ses-02_task-rest_run-1_bold``).
     decision : str
-        One of :data:`VALID_DECISIONS`. Automated writers may record only
-        ``pending``, and should put their suggestion in *recommendation*.
+        One of :data:`VALID_DECISIONS` for a run verdict, or one of
+        :data:`VALID_DOMAIN_STATES` when *domain* is given. Automated writers may
+        record only ``pending``, and should put their suggestion in
+        *recommendation*.
+    domain : str, optional
+        A review domain key (``'signal'``, ``'temporal'``, ``'alignment'``,
+        ``'artifact'``). When given, this entry records that one aspect of the run
+        was reviewed and is **not** a verdict on the run — it never becomes the
+        run's ``latest``, and never changes its badge or its sign-off count.
     reason : str
         Free-text explanation, saved with the decision.
     reviewer : str
@@ -358,18 +382,36 @@ def save_decision(
         human may make. Refusing is the point: a decision recorded without an
         attributable author is indistinguishable later from one nobody made.
     """
-    if decision not in VALID_DECISIONS:
-        raise ValueError(
-            f"Invalid decision {decision!r}; expected one of {sorted(VALID_DECISIONS)}"
+    # Which vocabulary applies, and — as importantly — which one must be refused.
+    # Rejecting the *other* vocabulary in each direction is what makes the two
+    # kinds of entry impossible to confuse once they share a file.
+    if domain is None:
+        allowed, signed_off_values, kind = VALID_DECISIONS, SIGNED_OFF_DECISIONS, "decision"
+        forbidden, other = VALID_DOMAIN_STATES, "a domain review state"
+    else:
+        allowed, signed_off_values, kind = (
+            VALID_DOMAIN_STATES,
+            SIGNED_OFF_DOMAIN_STATES,
+            "domain state",
         )
-    if recommendation is not None and recommendation not in VALID_DECISIONS:
+        forbidden, other = VALID_DECISIONS, "a run verdict"
+
+    if decision in (forbidden - allowed):
         raise ValueError(
-            f"Invalid recommendation {recommendation!r}; expected one of {sorted(VALID_DECISIONS)}"
+            f"{decision!r} is {other} and cannot be recorded "
+            f"{'for a domain' if domain else 'as a run verdict'}; "
+            f"expected one of {sorted(allowed)}."
+        )
+    if decision not in allowed:
+        raise ValueError(f"Invalid {kind} {decision!r}; expected one of {sorted(allowed)}")
+    if recommendation is not None and recommendation not in allowed:
+        raise ValueError(
+            f"Invalid recommendation {recommendation!r}; expected one of {sorted(allowed)}"
         )
 
     reviewer_id = (reviewer or "").strip()
     if automated:
-        if decision in SIGNED_OFF_DECISIONS:
+        if decision in signed_off_values:
             raise ValueError(
                 f"Automated writers may only record 'pending', not {decision!r}. "
                 f"Pass the suggestion as recommendation= instead."
@@ -400,6 +442,11 @@ def save_decision(
     }
     if recommendation is not None:
         entry["recommendation"] = recommendation
+    if domain is not None:
+        # Only ever set, never defaulted to None: an entry with no ``domain`` key
+        # is a run verdict, and every record written before domains existed must
+        # keep reading as exactly that.
+        entry["domain"] = domain
     history.append(entry)
 
     decisions_dir.mkdir(parents=True, exist_ok=True)
@@ -441,10 +488,19 @@ def load_decisions(decisions_dir: str | Path) -> dict:
     Returns
     -------
     dict
-        ``{run_key: {"latest": {...}, "history": [...], "signed_off": bool}}``.
-        ``latest`` is the most recent entry; ``signed_off`` says whether it is a
-        call a named person made, which is not the same question as whether a
-        decision exists.
+        ``{run_key: {"latest": ..., "history": [...], "signed_off": bool,
+        "domains": {key: {"latest": ..., "history": [...], "signed_off": bool}}}}``.
+
+        ``latest`` is the most recent entry **carrying no domain** — the run's own
+        verdict. That qualification is the whole safety property: domain notes
+        share the file, so reading ``history[-1]`` would let the last thing said
+        about alignment become the run's verdict and flip its badge. ``signed_off``
+        says whether that verdict is a call a named person made, which is not the
+        same question as whether a decision exists.
+
+        ``domains`` is empty for every record written before domains existed,
+        because those entries carry no ``domain`` key — so a legacy file reads
+        byte-identically to how it always did.
     """
     decisions_dir = Path(decisions_dir)
     decisions: dict[str, dict] = {}
@@ -464,13 +520,70 @@ def load_decisions(decisions_dir: str | Path) -> dict:
         if not history:
             continue
         run_key = data.get("run_key") or json_path.stem.replace("_decision", "")
+        verdicts = [e for e in history if not e.get("domain")]
+        latest = verdicts[-1] if verdicts else {}
         decisions[run_key] = {
-            "latest": history[-1],
+            "latest": latest,
             "history": history,
-            "signed_off": is_signed_off(history[-1]),
+            "signed_off": is_signed_off(latest),
+            "domains": _domains_of(history),
         }
 
     return decisions
+
+
+def _domains_of(history: list[dict]) -> dict[str, dict]:
+    """Group a record's domain entries by domain, newest last.
+
+    Same shape as the run-level record, so a caller reads one from the other
+    without learning a second convention.
+    """
+    grouped: dict[str, list[dict]] = {}
+    for entry in history:
+        key = entry.get("domain")
+        if key:
+            grouped.setdefault(key, []).append(entry)
+    return {
+        key: {
+            "latest": entries[-1],
+            "history": entries,
+            "signed_off": is_domain_signed_off(entries[-1]),
+        }
+        for key, entries in grouped.items()
+    }
+
+
+def is_domain_signed_off(record: dict | None) -> bool:
+    """True when a named person recorded a look at this domain.
+
+    The domain counterpart of :func:`is_signed_off`, and it answers the same
+    question about a smaller claim: someone identifiable reviewed this aspect.
+    ``concerns`` counts — it means they looked and found something, which is more
+    review than ``reviewed``, not less.
+    """
+    if not record:
+        return False
+    if record.get("automated"):
+        return False
+    if record.get("decision") not in SIGNED_OFF_DOMAIN_STATES:
+        return False
+    reviewer = str(record.get("reviewer") or "").strip().lower()
+    return bool(reviewer) and reviewer not in AUTOMATED_REVIEWERS
+
+
+def domain_progress(record: dict | None, domain_keys) -> tuple[int, int]:
+    """How many of *domain_keys* a person has reviewed, and how many there are.
+
+    For **display only**. A run whose four domains are all reviewed has not
+    thereby been given a verdict, and duckbrain must never derive one: the domains
+    do not partition the question a verdict answers — none of them covers task
+    timing, stimulus delivery, or a participant asleep with their eyes open.
+    "Reviewed every domain" and "this run is usable" are different claims, and
+    turning the first into the second manufactures a sign-off nobody made.
+    """
+    domains = (record or {}).get("domains") or {}
+    keys = list(domain_keys)
+    return sum(1 for k in keys if domains.get(k, {}).get("signed_off")), len(keys)
 
 
 def decision_counts(decisions: dict) -> dict[str, int]:

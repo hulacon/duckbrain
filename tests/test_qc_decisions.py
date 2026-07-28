@@ -259,3 +259,141 @@ class TestReportReflectsTheModel:
         rows = self._rows({"decision": "keep", "reviewer": "ben", "automated": True})
         html = qc_report.render_report(rows, "bold", ["tsnr"])
         assert '<div class="card card-ok">0<span>Signed off</span></div>' in html
+
+
+class TestDomainReviewsAreNotVerdicts:
+    """The safety property Slice E rests on.
+
+    Domain entries share the append-only list with run verdicts, and
+    ``load_decisions`` reads ``latest`` straight into the run's badge, its
+    sign-off state and its counts. If a domain note could land there, noting
+    "SDC looks off" on the alignment page would silently flip the run's verdict
+    in every view — the shape of the bug where typing a reason recorded an
+    ``investigate`` nobody made, with the arrow reversed.
+    """
+
+    def test_the_two_vocabularies_share_only_pending(self):
+        """Structural, not conventional — everything below depends on it.
+
+        ``pending`` is common to both and harmless, because it is a sign-off in
+        neither: it is the word for "nobody has said anything yet".
+        """
+        assert qc.VALID_DECISIONS & qc.VALID_DOMAIN_STATES == {"pending"}
+        assert qc.SIGNED_OFF_DECISIONS.isdisjoint(qc.SIGNED_OFF_DOMAIN_STATES)
+
+    def test_a_verdict_word_is_refused_for_a_domain(self, tmp_path):
+        with pytest.raises(ValueError, match="a run verdict"):
+            qc.save_decision(tmp_path, KEY, "keep", reviewer="ben", domain="signal")
+
+    def test_a_domain_word_is_refused_as_a_verdict(self, tmp_path):
+        with pytest.raises(ValueError, match="a domain review state"):
+            qc.save_decision(tmp_path, KEY, "reviewed", reviewer="ben")
+
+    def test_a_domain_entry_never_becomes_the_runs_verdict(self, tmp_path):
+        qc.save_decision(tmp_path, KEY, "keep", reviewer="ben")
+        qc.save_decision(tmp_path, KEY, "concerns", reviewer="ben", domain="alignment")
+        record = qc.load_decisions(tmp_path)[KEY]
+        assert record["latest"]["decision"] == "keep"
+        assert record["signed_off"] is True
+
+    def test_a_domain_entry_alone_leaves_the_run_without_a_verdict(self, tmp_path):
+        qc.save_decision(tmp_path, KEY, "reviewed", reviewer="ben", domain="signal")
+        record = qc.load_decisions(tmp_path)[KEY]
+        assert record["latest"] == {}
+        assert record["signed_off"] is False
+
+    def test_domain_entries_do_not_disturb_the_counts(self, tmp_path):
+        qc.save_decision(tmp_path, KEY, "keep", reviewer="ben")
+        before = qc.decision_counts(qc.load_decisions(tmp_path))
+        for key in ("signal", "temporal", "alignment", "artifact"):
+            qc.save_decision(tmp_path, KEY, "reviewed", reviewer="ben", domain=key)
+        assert qc.decision_counts(qc.load_decisions(tmp_path)) == before
+
+    def test_a_domain_review_is_recorded_and_readable(self, tmp_path):
+        qc.save_decision(
+            tmp_path, KEY, "concerns", reason="ringing", reviewer="ben", domain="artifact"
+        )
+        domains = qc.load_decisions(tmp_path)[KEY]["domains"]
+        assert domains["artifact"]["latest"]["decision"] == "concerns"
+        assert domains["artifact"]["latest"]["reason"] == "ringing"
+        assert domains["artifact"]["signed_off"] is True
+
+    def test_domain_history_is_append_only_too(self, tmp_path):
+        qc.save_decision(tmp_path, KEY, "concerns", reviewer="ben", domain="signal")
+        qc.save_decision(tmp_path, KEY, "reviewed", reviewer="ben", domain="signal")
+        signal = qc.load_decisions(tmp_path)[KEY]["domains"]["signal"]
+        assert [e["decision"] for e in signal["history"]] == ["concerns", "reviewed"]
+
+    def test_domains_are_kept_apart(self, tmp_path):
+        qc.save_decision(tmp_path, KEY, "concerns", reviewer="ben", domain="signal")
+        qc.save_decision(tmp_path, KEY, "reviewed", reviewer="ben", domain="temporal")
+        domains = qc.load_decisions(tmp_path)[KEY]["domains"]
+        assert domains["signal"]["latest"]["decision"] == "concerns"
+        assert domains["temporal"]["latest"]["decision"] == "reviewed"
+
+    def test_a_domain_review_still_needs_a_named_reviewer(self, tmp_path):
+        with pytest.raises(ValueError, match="identifiable reviewer"):
+            qc.save_decision(tmp_path, KEY, "reviewed", domain="signal")
+
+    def test_automation_may_only_record_pending_for_a_domain_too(self, tmp_path):
+        with pytest.raises(ValueError, match="only record 'pending'"):
+            qc.save_decision(tmp_path, KEY, "reviewed", automated=True, domain="signal")
+        qc.save_decision(tmp_path, KEY, "pending", automated=True, domain="signal")
+        assert qc.load_decisions(tmp_path)[KEY]["domains"]["signal"]["signed_off"] is False
+
+
+class TestLegacyRecordsAreUnaffected:
+    def test_a_record_with_no_domains_reads_exactly_as_before(self, tmp_path):
+        """Every record written before domains existed carries no domain key."""
+        path = tmp_path / f"{KEY}_decision.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "run_key": KEY,
+                    "decisions": [
+                        {"decision": "keep", "reviewer": "ben", "reason": "", "automated": False}
+                    ],
+                }
+            )
+        )
+        record = qc.load_decisions(tmp_path)[KEY]
+        assert record["latest"]["decision"] == "keep"
+        assert record["signed_off"] is True
+        assert record["domains"] == {}
+
+    def test_reading_a_legacy_record_does_not_rewrite_it(self, tmp_path):
+        path = tmp_path / f"{KEY}_decision.json"
+        payload = json.dumps({"latest": {"decision": "keep", "reviewer": "ben"}, "history": []})
+        path.write_text(payload)
+        qc.load_decisions(tmp_path)
+        assert path.read_text() == payload
+
+
+class TestDomainProgressIsDisplayOnly:
+    """Derived readiness may be shown. It may never be recorded.
+
+    The four domains do not partition the question a verdict answers — none of
+    them covers task timing, stimulus delivery, or a participant asleep with
+    their eyes open. "Reviewed every domain" and "this run is usable" are
+    different claims.
+    """
+
+    KEYS = ["signal", "temporal", "alignment", "artifact"]
+
+    def test_it_counts_only_signed_off_domains(self, tmp_path):
+        qc.save_decision(tmp_path, KEY, "reviewed", reviewer="ben", domain="signal")
+        qc.save_decision(tmp_path, KEY, "pending", automated=True, domain="temporal")
+        record = qc.load_decisions(tmp_path)[KEY]
+        assert qc.domain_progress(record, self.KEYS) == (1, 4)
+
+    def test_a_full_house_still_leaves_the_run_without_a_verdict(self, tmp_path):
+        for key in self.KEYS:
+            qc.save_decision(tmp_path, KEY, "reviewed", reviewer="ben", domain=key)
+        record = qc.load_decisions(tmp_path)[KEY]
+        assert qc.domain_progress(record, self.KEYS) == (4, 4)
+        assert record["latest"] == {}
+        assert record["signed_off"] is False
+
+    def test_it_is_empty_for_a_run_nobody_has_touched(self):
+        assert qc.domain_progress({}, self.KEYS) == (0, 4)
+        assert qc.domain_progress(None, self.KEYS) == (0, 4)
