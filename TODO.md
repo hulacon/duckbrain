@@ -20,6 +20,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
 [`#22`](#22) wire up the dcm2niix probe ·
+[`#24`](#24) QC review domains (Slice A done; B–E open) ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
@@ -1186,6 +1187,81 @@ Two calls to change, but do not do it blind:
 
 Found 2026-07-28 while adding the fMRIPrep report panel; the deprecation warning
 is visible in any `AppTest` run of the QC page.
+
+**Slice D of `#24` closes this for the whole QC surface** by rendering the domain
+pages natively instead of embedding HTML. That leaves only `embed_tool_report`,
+which serves the tools' own reports and genuinely needs an iframe.
+
+---
+
+<a id="24"></a>
+## #24 — QC dashboard: group review into domains
+
+`5_QC_Dashboard.py` is one mega-page — a per-subject fMRIPrep panel, a modality
+selector, a 4.9 MB embedded report, then 65 flat per-run expanders. Everything
+about a run arrives at once, and the guidance explaining each number sits in a
+glossary far from the number.
+
+Group QC evidence into four **review domains** — signal, temporal, alignment,
+artifact — so each aspect of a run is reviewable on its own, with its guidance
+attached to it. The run stays the unit of review; domains become per-run
+subsections, each on its own page acting as a viewer for the selected run.
+
+Three findings shaped it, all checked against real data rather than assumed:
+
+- **fMRIPrep's alignment evidence is per-run, not per-subject.** `desc-sdc`,
+  `desc-coreg`, `desc-fmapCoreg`, `desc-carpetplot` and `desc-rois` all carry run
+  entities; only `dseg`, `space-*_T1w`, `desc-reconall` and `fmapid-*_fieldmap`
+  are per-subject. The current panel is per-subject only because
+  `find_fmriprep_reports` globs the aggregated `sub-*.html`. Serving one figure is
+  **1.1 MB against 80 MB**, and each SVG carries its own `@keyframes`, so the SDC
+  before/after flicker survives being served standalone.
+- **Alignment has no MRIQC number on the BOLD side at all** — `tpm_overlap_*` is
+  anat-only. That is the argument for grouping by review *question* rather than by
+  data source: it gives the orphaned fMRIPrep evidence a home.
+- **The four domains do not partition the question a verdict answers.** None
+  covers task timing, stimulus delivery, or a participant asleep with their eyes
+  open. So an overall keep/exclude may be *displayed* as derived ("4/4 reviewed,
+  no verdict recorded") but never *recorded* that way, and the verdict buttons
+  must not be gated behind domain completion.
+
+Slices, each independently mergeable, schema-bound work last:
+
+- **A — the taxonomy. DONE** (see the ledger). `core/qc_domains.py`, additive.
+- **B — the export regroups.** `qc_report.py` only: generalize
+  `_render_source_row` to span domain groups as well as tool groups, one
+  `<section>` per domain with its guidance rendered inline, and the standalone
+  glossary replaced by a `#references` bibliography from
+  `qc_guidance.all_references()` (which has no production caller today). Anchors
+  are unchanged, so nothing that links to `#guidance-{key}` breaks.
+- **C — the evidence viewer.** `core/qc_evidence.py` + `gui/qc_panels.py`. The
+  fMRIPrep expander becomes a per-run figure viewer. Highest user-visible value,
+  and needs no schema or nav change.
+- **D — the page split.** Dict-grouped `st.navigation` (a `QC` group renders as
+  one collapsible item at `position="top"`), a shared scope bar, deep links via
+  `st.page_link(query_params=…)`, native rendering. This is where
+  `detect_outliers(scope="within_subject")` — which exists and has never been
+  reachable from the GUI — gets a home; note it changes what is flagged, so the
+  export must say which scope produced the flags, as it already does for
+  `iqr_multiplier`.
+- **E — the domain review store.** An optional `domain` field on entries in the
+  existing append-only per-run records. Two rules make it safe: `latest` must mean
+  "latest entry with **no** domain", or the last note about a domain silently
+  becomes the run's verdict (`#17.10` with the arrow reversed); and the domain
+  vocabulary (`reviewed`/`concerns`/`pending`) must be **disjoint** from
+  `VALID_DECISIONS`, enforced at the writer rather than by convention.
+
+Known cost of keeping the run as the unit: four domains × 65 runs is 260
+possible sign-offs where there are 65 today. Sign-off is optional and gates
+nothing, and the overview's run × domain matrix is what keeps a reviewer from
+touring everything. A per-run "mark remaining reviewed" bulk action is the
+pressure valve **if real use shows one is needed** — design it against observed
+friction, not a prediction.
+
+Full design, the assignment of all 30 registry keys, which assignments are
+arguable, and the decisions that are settled: **`docs/qc-review-domains.md`**.
+Don't re-open the taxonomy or the "run stays the unit of review" question without
+reading it.
 
 ---
 
