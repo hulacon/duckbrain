@@ -17,6 +17,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
 [`#15`](#15) BIDS validation ·
+[`#25`](#25) publish the existing tags as Releases (**5 minutes, turns on a
+shipped feature**) ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
 [`#22`](#22) wire up the dcm2niix probe ·
@@ -253,6 +255,35 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   `custom_entities` per the spec unless `--do_not_reorder_entities` is passed, so
   `_fmap_description`'s manual acq/dir/run ordering might be doing work dcm2bids
   would do anyway. Harmless, but worth checking before adding more of it.
+
+<a id="25"></a>
+## #25 — Publish `v0.1.0` and `v0.2.0` as GitHub Releases
+
+**Needs a browser and a GitHub login, so it cannot be done from Talapas** — `gh`
+is not installed and there is no token on the cluster. That is the only reason
+this is an item rather than a commit.
+
+Both tags are pushed; the API returns **zero releases**. A pushed tag notifies
+nobody, so today the announcement channel described in `docs/releasing.md` step 7
+does not exist, and the GUI's "newer version available" line
+(`core/updates.py`, wired into `gui/app.py`) queries `releases/latest` and gets a
+404 — it will stay dark for every user until the first Release is published.
+
+- Draft a Release against each existing tag, body = that version's `CHANGELOG.md`
+  section verbatim. Web UI: **Releases → Draft a new release → Choose an existing
+  tag**.
+- Then tell the two beta users to **Watch → Custom → Releases** on the repo
+  (`README.md#staying-up-to-date` has the wording).
+- Sanity-check afterwards: `curl -s
+  https://api.github.com/repos/hulacon/duckbrain/releases/latest` should return
+  `tag_name`, and the GUI bar should show the version with no update link (the
+  checkout is ahead of `v0.2.0`, which is the correct quiet state).
+
+Worth noticing while doing this: the **fieldmap-intent inversion fix is still in
+`[Unreleased]`** — the most consequential correctness fix in the project has never
+appeared in a tagged release. Users on `main` have it; anyone who ever pinned a
+tag does not. That is an argument for cutting `v0.3.0` sooner rather than
+backfilling `v0.2.0` and stopping.
 
 <a id="licensing-follow-ups"></a>
 ## Licensing follow-ups

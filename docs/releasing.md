@@ -48,10 +48,32 @@ minor than one that changes what gets written.
    `-N-g<sha>` suffix and no `-dirty`. That string is what lands in
    `GeneratedBy` for anything converted from this checkout, so a dirty tree at
    tag time is a permanently wrong provenance record.
+7. **Publish the tag as a GitHub Release** — body is the `CHANGELOG.md` section
+   you just closed, verbatim.
+
+   With the `gh` CLI, on a machine that has it (Talapas does not):
+
+   ```bash
+   gh release create vX.Y.Z --title "duckbrain vX.Y.Z" --notes-file notes.md
+   ```
+
+   Otherwise the web UI: **Releases → Draft a new release → Choose an existing tag
+   `vX.Y.Z` → paste the changelog section → Publish**.
+
+   **Do not skip this.** A pushed tag notifies nobody and is invisible to the API.
+   The Release is the whole announcement channel — it emails everyone watching
+   Releases, and it is what `core/updates.py` queries, so the GUI's "newer version
+   available" line stays dark until you publish. Tag pushed but Release unpublished
+   is the one state where users are behind and *nothing* says so.
 
 ## After
 
-Nothing is published to PyPI — distribution is `git clone`, so the tag *is* the
-release. Users on Talapas pick it up with `git pull` in their own checkout; this
-checkout also serves the OnDemand app, so the release is live here the moment it
-is committed, tag or no tag.
+Nothing is published to PyPI — distribution is `git clone`. Users on Talapas pick a
+release up with `git pull` in their own checkout; this checkout also serves the
+OnDemand app, so the code is live here the moment it is committed, tag or no tag.
+
+That last property is why the announcement is a separate act from the tag. The
+maintainer never experiences being out of date, so nothing about cutting a release
+surfaces the fact that everyone else does — the two users who reported this
+project's bugs have no signal at all beyond the Release notification and the GUI
+line it drives.

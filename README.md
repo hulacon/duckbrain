@@ -240,10 +240,30 @@ copyright the Regents of the University of Minnesota, is patent-encumbered, is
 licensed for non-profit research and educational use only, and **may not be
 redistributed** — so each user must obtain their own copy from upstream.
 
+## Staying up to date
+
+duckbrain is distributed by `git clone` and the GUI serves whatever is checked
+out, so nothing pulls updates for you. Two things make that visible:
+
+- **Subscribe to releases.** On [the repo](https://github.com/hulacon/duckbrain),
+  click **Watch → Custom → Releases**. You get an email when a version ships, and
+  nothing for day-to-day commits. Then update with `git pull` in your checkout.
+- **The GUI tells you.** The bar at the top of every page shows the version you
+  are running, and links the newer release when one exists. It says nothing when
+  it can't reach GitHub — no news there is not the same as being current.
+
+Some fixes matter more than they look. The `B0FieldIdentifier`/`B0FieldSource`
+inversion — duckbrain wrote them backwards, so susceptibility distortion
+correction never ran — produced datasets that validate, convert without complaint
+and are silently *uncorrected*. There was no symptom to notice. Read
+[CHANGELOG.md](CHANGELOG.md) when you update, and re-check anything converted
+under an older line.
+
 ## Versioning
 
-duckbrain follows [Semantic Versioning](https://semver.org); releases are git tags
-and are recorded in [CHANGELOG.md](CHANGELOG.md).
+duckbrain follows [Semantic Versioning](https://semver.org); releases are git tags,
+published as [GitHub Releases](https://github.com/hulacon/duckbrain/releases) and
+recorded in [CHANGELOG.md](CHANGELOG.md).
 
 Because duckbrain is distributed by `git clone` and served straight from a working
 copy, most users run code *between* releases. Provenance therefore records a `git

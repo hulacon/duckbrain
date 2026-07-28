@@ -25,6 +25,26 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   visible. If you had reviewed runs already, they will look exactly as they did.
 
 ### Added
+- **The GUI tells you when you are running an old duckbrain.** The bar at the top
+  of every page now shows the version you are on — a `git describe` of your
+  checkout, which is also what a bug report needs to quote — and links the newer
+  release when one exists.
+
+  This closes a real gap rather than adding chrome. duckbrain is distributed by
+  `git clone` and the GUI serves whatever is checked out, so a user could sit on
+  one commit indefinitely with nothing to say a fix had landed — and the fixes
+  that most need to travel are the ones with no symptom. The
+  `B0FieldIdentifier`/`B0FieldSource` inversion produced datasets that validate,
+  convert cleanly, and are silently uncorrected.
+
+  It compares against **published releases, not `origin/main`**: sitting a few
+  commits past a tag is the normal state, so "behind main" would fire for
+  everyone, always. When it cannot reach GitHub it says *nothing* — never that you
+  are up to date, since it has no way to tell that apart from a failed check. Set
+  `DUCKBRAIN_NO_UPDATE_CHECK=1` to switch it off entirely.
+
+  To be told about releases by email: on the repo, **Watch → Custom → Releases**.
+
 - **You can leave a series out of the conversion.** The plan table has a
   `convert` checkbox: untick a row and `becomes` reads *not converted*, no file
   is written for it, and the rest of the session is unaffected. Series duckbrain

@@ -102,6 +102,39 @@ def test_switcher_offers_other_recents_and_switches(user_cfg, tmp_path, monkeypa
     assert os.environ["DUCKBRAIN_PROJECT_DIR"] == str(other)
 
 
+def test_the_bar_shows_which_version_is_running(user_cfg):
+    """The checkout is what runs, and it is what a bug report has to quote.
+
+    Distribution is ``git clone`` from a working copy, so "which duckbrain" has no
+    answer short of the commit — ``__version__`` names only the last release.
+    """
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    assert not at.exception
+
+    from duckbrain.core.bids_metadata import duckbrain_version
+
+    assert any(duckbrain_version() in c.value for c in at.caption)
+
+
+def test_a_newer_release_becomes_a_link_and_silence_stays_silent(monkeypatch):
+    """The notice appears only when something newer is *known* to exist.
+
+    ``update_available`` returns ``None`` for "current" and for "could not reach
+    GitHub" alike, so the bar must never render an all-clear off it — a user told
+    they are up to date by a check that failed is worse off than one told nothing.
+    """
+    from duckbrain.gui import app
+
+    monkeypatch.setattr(app, "_newer_release", lambda: ("v9.9.0", "https://example.invalid/r"))
+    note = app._version_note()
+    assert "v9.9.0" in note and "https://example.invalid/r" in note
+
+    monkeypatch.setattr(app, "_newer_release", lambda: None)
+    quiet = app._version_note()
+    assert "available" not in quiet
+    assert "up to date" not in quiet.lower()
+
+
 def test_shorten_keeps_enough_to_disambiguate():
     assert _shorten("/projects/hulacon/bhutch/divatten") == ".../bhutch/divatten"
     assert _shorten("/short") == "/short"

@@ -20,6 +20,8 @@ import streamlit as st
 # hid exactly that behind a bare ``except Exception``, which is why the sidebar's
 # project indicator always read "Config not found" under `streamlit run`.
 from duckbrain.config import PROJECT_ENV, recent_projects, remember_project
+from duckbrain.core.bids_metadata import duckbrain_version
+from duckbrain.core.updates import update_available
 
 # resolve(): st.Page validates the path, and __file__ is only relative-safe while
 # the cwd happens to be the repo root. An absolute path makes nav independent of
@@ -73,8 +75,36 @@ def _shorten(path: str, keep: int = 2) -> str:
     return path if len(parts) <= keep else ".../" + "/".join(parts[-keep:])
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _newer_release() -> tuple[str, str] | None:
+    """Cached ``update_available()`` — one network call an hour, process-wide.
+
+    The check reaches out to GitHub, and it sits in the render path of *every*
+    page, so it must not be paid per rerun. An hour is the right coarseness: this
+    is a "you have been on this checkout for weeks" notice, not a live feed.
+    """
+    return update_available()
+
+
+def _version_note() -> str:
+    """The running version, plus a link when a newer release exists.
+
+    ``duckbrain_version()`` and not ``__version__``: it prefers a ``git describe``
+    of the checkout, which is what actually runs and what a user needs to quote
+    when reporting a bug. Says nothing about being current —
+    :mod:`duckbrain.core.updates` cannot distinguish "current" from "could not
+    reach GitHub", and a false all-clear is worse than no line at all.
+    """
+    here = duckbrain_version()
+    newer = _newer_release()
+    if not newer:
+        return f"`{here}`" if here else ""
+    tag, url = newer
+    return f"`{here}` · [**{tag}** available]({url})" if here else f"[**{tag}** available]({url})"
+
+
 def _project_bar() -> None:
-    """One-line active-project indicator + recent-projects switcher.
+    """One-line active-project indicator, version, + recent-projects switcher.
 
     Rendered *before* ``nav.run()`` for two reasons: it appears above whichever
     page is showing (replacing the sidebar indicator that top nav displaced), and
@@ -85,10 +115,14 @@ def _project_bar() -> None:
         os.environ[PROJECT_ENV] = active
 
     others = [p for p in recent_projects() if p != active]
-    label, switcher = st.columns([6, 1], vertical_alignment="center")
+    label, version, switcher = st.columns([5, 2, 1], vertical_alignment="center")
 
     with label:
         st.caption(f"Project: `{active}`" if active else "No project open — start in **Setup**.")
+    with version:
+        note = _version_note()
+        if note:
+            st.caption(note)
     with switcher:
         if not others:
             return
