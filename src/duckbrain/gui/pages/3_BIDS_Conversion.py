@@ -279,6 +279,7 @@ if fieldmaps.warnings:
 # had to join series numbers, task labels and group names by eye. See TODO #13 /
 # docs/conversion-legibility.md.
 from duckbrain.core.dcm2bids_config import (
+    EMITTED_CLASSIFICATIONS,
     build_task_run_mapping,
     collapse_fmap_rules,
     generate_config,
@@ -398,8 +399,9 @@ if st.session_state.get("dcm2bids_json_override"):
 else:
     st.markdown(
         "One row per DICOM series. **This table is the source of truth** — edit "
-        "`task`, `run` or `fieldmap` and everything downstream regenerates from "
-        "it. `becomes` is the BIDS file that will actually be written."
+        "`convert`, `task`, `run` or `fieldmap` and everything downstream "
+        "regenerates from it. `becomes` is the BIDS file that will actually be "
+        "written, or *not converted* for a series you have left out."
     )
 
 template = st.text_input(
@@ -517,6 +519,11 @@ for s in series_list:
                 _unknown_groups.setdefault(group, []).append(s.series_number)
         elif s.series_number in imported.group_by_series and entry and entry.role == "bold":
             fieldmap = _NO_FMAP_TOKEN if fieldmaps.groups else ""
+    # Ticked for anything duckbrain has an emission path for, so the box agrees
+    # with `becomes` on first render rather than promising a file for a scout.
+    convert = s.classification in EMITTED_CLASSIFICATIONS
+    if imported is not None and convert:
+        convert = s.series_number not in imported.skipped_series
     seed_rows.append(
         {
             "Series #": s.series_number,
@@ -524,6 +531,7 @@ for s in series_list:
             "Type": s.classification,
             "Type from": s.classified_by,
             "# Files": s.file_count,
+            "convert": convert,
             "task": task,
             "run": run,
             "fieldmap": fieldmap,
@@ -589,6 +597,10 @@ if _override_config is not None:
     _override_unknown: dict[str, list[int]] = {}
     for _i, _num in enumerate(effective_df["Series #"]):
         _num = int(_num)
+        if effective_df.iat[_i, effective_df.columns.get_loc("convert")]:
+            effective_df.iat[_i, effective_df.columns.get_loc("convert")] = (
+                _num not in _from_json.skipped_series
+            )
         if _num in _from_json.task_by_series:
             effective_df.iat[_i, effective_df.columns.get_loc("task")] = _from_json.task_by_series[
                 _num
@@ -626,6 +638,30 @@ if _override_config is not None:
 def _row_run(value):
     return int(value) if pd.notna(value) else None
 
+
+# ---- Series the user has told the page not to convert ----
+# Only rows duckbrain would otherwise emit for: unticking a scout is a no-op, and
+# collecting it here would put it in the skip set and have the plan announce a
+# "deliberate" drop for a series that was never going to convert.
+skipped_series = {
+    int(row["Series #"])
+    for _, row in effective_df.iterrows()
+    if row["Type"] in EMITTED_CLASSIFICATIONS and not row["convert"]
+}
+
+# Stamp the reason on the series themselves, which is what carries it into the
+# plan: `plan_conversion` reads `drop_reason` off `series_list`, so without this
+# the preflight would report each skipped run as a series nothing claimed —
+# indistinguishable from the anat-suffix bug that warning exists to catch.
+_SKIP_REASON = "you unticked `convert` for it on this page"
+for _s in series_list:
+    if _s.series_number in skipped_series:
+        _s.drop_reason = _SKIP_REASON
+    elif _s.drop_reason == _SKIP_REASON:
+        # Re-ticked within the same session: `series_list` is cached across
+        # reruns, so a stale reason would keep claiming a converted series was
+        # skipped.
+        _s.drop_reason = ""
 
 edited_mapping = [
     TaskRunEntry(
@@ -698,6 +734,25 @@ if _half_bound:
     )
     st.stop()
 
+# Skipping one half of a pair takes the whole pair out (a field is estimated from
+# both halves or not at all), so a run still bound to it has nowhere to point.
+# generate_config raises on this, but the message it can produce says the session
+# doesn't *have* the group — true, and useless, because the user removed it three
+# rows up. Name the two edits that conflict instead.
+_skipped_groups = {g for g, dirs in fieldmaps.groups.items() if skipped_series & set(dirs.values())}
+_orphaned = sorted({r.group for r in session_fmap_rules if r.group in _skipped_groups})
+if _orphaned:
+    st.error(
+        "These fieldmap pairs are still bound to a run, but you have unticked "
+        f"`convert` for at least one of their halves: "
+        f"{', '.join(f'`{g}`' for g in _orphaned)}. A pair estimates the field "
+        "from both halves, so skipping one takes the pair out entirely. Either "
+        "re-tick the half, or set those runs' fieldmap to "
+        f"`{_NO_FMAP_TOKEN}` — they will then be preprocessed without distortion "
+        "correction."
+    )
+    st.stop()
+
 try:
     auto_config = generate_config(
         series_list,
@@ -706,6 +761,7 @@ try:
         session=session,
         mapping=edited_mapping,
         fmap_rules=session_fmap_rules,
+        skip=skipped_series,
     )
 except ValueError as exc:
     # An unsatisfiable fieldmap binding. Refuse to show a config rather than
@@ -763,7 +819,7 @@ with st.container(border=True):
 # at the bottom of the page (TODO #17.5).
 _locked = ["Series #", "Description", "Type", "Type from", "# Files", "becomes"]
 if _override_config is not None:
-    _locked += ["task", "run", "fieldmap"]
+    _locked += ["convert", "task", "run", "fieldmap"]
     st.info(
         "**The hand-edited JSON is driving this conversion.** The columns below "
         "show what that JSON says and are read-only — edit it in ⚙️ Advanced at "
@@ -783,6 +839,16 @@ st.data_editor(
             "state it; `name` means it was inferred from the series description, "
             "which is a guess and the one worth checking — a study-specific name "
             "like `food` or `Whack` says nothing about datatype.",
+            width="small",
+        ),
+        "convert": st.column_config.CheckboxColumn(
+            "convert",
+            help="Untick to leave this series out of the conversion — `becomes` "
+            "then reads *not converted* and no file is written for it. Unticking "
+            "one half of a fieldmap pair removes the whole pair, since a field is "
+            "estimated from both halves or not at all. Rows duckbrain has no way "
+            "to convert (scouts, physio logs, diffusion) start unticked and "
+            "ticking them changes nothing.",
             width="small",
         ),
         "run": st.column_config.NumberColumn("run", min_value=1, step=1, format="%d"),

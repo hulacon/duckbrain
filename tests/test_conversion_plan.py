@@ -7,7 +7,11 @@ consumes, so a test that fed it a synthetic config would be testing the wrong
 thing.
 """
 
-from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+from duckbrain.core.conversion_plan import (
+    plan_conversion,
+    plan_warnings,
+    read_config_into_table,
+)
 from duckbrain.core.dcm2bids_config import (
     TaskRunEntry,
     build_task_run_mapping,
@@ -574,3 +578,140 @@ def test_an_unpaired_gre_half_is_told_what_is_missing_not_that_gre_is_unsupporte
     message = dropped[0].message
     assert "both halves" in message
     assert "can only express" not in message
+
+
+# ---- skipping a series (the `convert` column) ----------------------------
+# The config's native spelling of "not converted" is *no description*, so these
+# assert on absence from the plan rather than on any skip-specific state. That is
+# the property that makes the skip survive a save/reload with nothing extra
+# stored: the JSON dcm2bids consumes already says it.
+
+
+def _plan_with_skip(series, skip, subject="001", session="01"):
+    classify_series(series)
+    fieldmaps = detect_fieldmaps(series)
+    mapping = build_task_run_mapping(series)
+    config = generate_config(
+        series, fieldmaps, subject=subject, session=session, mapping=mapping, skip=skip
+    )
+    return plan_conversion(config, series, subject=subject, session=session), fieldmaps, config
+
+
+def test_a_skipped_series_produces_no_file():
+    series = [_series(2, "t1w_mprage"), _bold(9, "food", 1), _bold(10, "food", 2)]
+    plan, _fieldmaps, _config = _plan_with_skip(series, skip={10})
+
+    assert 10 not in plan.by_series
+    assert [d.series_number for d in plan.dropped] == [10]
+    assert {9, 2} <= set(plan.by_series)
+
+
+def test_skipping_reads_back_off_the_config_with_nothing_else_stored():
+    """Round trip: the table can rebuild the skip from the JSON alone."""
+    series = [_series(2, "t1w_mprage"), _bold(9, "food", 1), _bold(10, "food", 2)]
+    _plan, _fieldmaps, config = _plan_with_skip(series, skip={10})
+
+    assert read_config_into_table(config, series).skipped_series == {10}
+
+
+def test_an_unskipped_session_reads_back_as_skipping_nothing():
+    series = [_series(2, "t1w_mprage"), _bold(9, "food", 1)]
+    _plan, _fieldmaps, config = _plan_with_skip(series, skip=set())
+
+    assert read_config_into_table(config, series).skipped_series == set()
+
+
+def test_a_scout_is_not_reported_as_skipped():
+    """It was never convertible, so unticking it would be a control doing nothing.
+
+    `skipped_series` seeds the checkbox column, so including a scout here would
+    put it in the skip set on the next render and have the plan announce a
+    deliberate drop for a series duckbrain has no emission path for.
+    """
+    series = [_series(1, "AAHead_Scout"), _series(2, "t1w_mprage")]
+    _plan, _fieldmaps, config = _plan_with_skip(series, skip=set())
+
+    assert read_config_into_table(config, series).skipped_series == set()
+
+
+def test_skipping_one_fieldmap_half_removes_the_whole_pair():
+    """A field is estimated from both halves, so half a pair is not half a fieldmap.
+
+    Emitting the survivor would write a `fmap/` file nothing can be estimated
+    from — the silently-degrading shape, and worse than refusing.
+    """
+    series = [_series(3, "se_epi_ap"), _series(4, "se_epi_pa"), _bold(9, "food", 1)]
+    plan, _fieldmaps, _config = _plan_with_skip(series, skip={3})
+
+    assert not [f for f in plan.files if f.datatype == "fmap"]
+    assert {3, 4} == {d.series_number for d in plan.dropped}
+
+
+def test_a_run_whose_fieldmap_was_skipped_is_written_without_correction():
+    """Not silently: it loses B0FieldSource, and the plan says the run is uncorrected."""
+    series = [_series(3, "se_epi_ap"), _series(4, "se_epi_pa"), _bold(9, "food", 1)]
+    plan, fieldmaps, _config = _plan_with_skip(series, skip={3})
+
+    bold = plan.by_series[9][0]
+    assert bold.fmap_group is None
+    # `fieldmaps` is the unfiltered detection — the pair still exists on disk, so
+    # the "you have a usable pair and this run isn't using it" note must fire.
+    assert any(w.kind == "uncorrected" for w in plan_warnings(plan, fieldmaps))
+
+
+def test_a_deliberate_skip_is_a_note_not_a_warning():
+    """The warning it would otherwise raise means 'nothing claimed this' — a bug.
+
+    A skipped run is indistinguishable from an anat whose suffix vocabulary
+    didn't match unless the reason travels with it, and that warning exists to
+    catch the second one.
+    """
+    series = [_series(2, "t1w_mprage"), _bold(9, "food", 1), _bold(10, "food", 2)]
+    plan, fieldmaps, _config = _plan_with_skip(series, skip={10})
+    for s in series:
+        if s.series_number == 10:
+            s.drop_reason = "you unticked `convert` for it on this page"
+    plan = plan_conversion(
+        generate_config(
+            series,
+            fieldmaps,
+            subject="001",
+            session="01",
+            mapping=build_task_run_mapping(series),
+            skip={10},
+        ),
+        series,
+        subject="001",
+        session="01",
+    )
+
+    findings = plan_warnings(plan, fieldmaps)
+    assert not [w for w in findings if w.kind == "dropped" and w.severity == "warning"]
+    told = [w for w in findings if w.kind == "deliberate-drop"]
+    assert len(told) == 1 and told[0].series == [10]
+
+
+def test_skipping_a_bold_and_not_its_sbref_is_reported():
+    """The two are separate rows, so the half-edit is one click away.
+
+    An SBRef alone references nothing — fMRIPrep has no run to attach it to and
+    it sits in func/ looking like data.
+    """
+    series = [
+        _bold(9, "food", 1),
+        _series(8, "cmrr_mbep2d_bold_task-food_run-1_SBRef", n=1),
+    ]
+    plan, fieldmaps, _config = _plan_with_skip(series, skip={9})
+
+    orphans = [w for w in plan_warnings(plan, fieldmaps) if w.kind == "orphan-sbref"]
+    assert len(orphans) == 1 and orphans[0].series == [8]
+
+
+def test_a_bold_kept_with_its_sbref_is_not_reported_as_an_orphan():
+    series = [
+        _bold(9, "food", 1),
+        _series(8, "cmrr_mbep2d_bold_task-food_run-1_SBRef", n=1),
+    ]
+    plan, fieldmaps, _config = _plan_with_skip(series, skip=set())
+
+    assert not [w for w in plan_warnings(plan, fieldmaps) if w.kind == "orphan-sbref"]

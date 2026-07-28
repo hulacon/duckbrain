@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .dcm2bids_config import EMITTED_CLASSIFICATIONS
 from .dcm2niix_probe import PE_FOR_DIR, SeriesProbe
 from .dicom_inspect import FieldmapDetection, SeriesInfo, is_complete_group
 
@@ -490,9 +491,46 @@ def plan_warnings(
             )
         )
 
+    # --- An SBRef whose BOLD isn't being written. The SBRef exists to be that
+    # run's reference volume, so on its own it references nothing: fMRIPrep has
+    # no bold to attach it to and it sits in func/ looking like data. Reachable
+    # only by skipping the bold and not the sbref, which the table makes easy
+    # because they are two rows — so name the second row rather than quietly
+    # tidying up, which would be duckbrain deciding what the user meant.
+    # Matched on the entity string, which is what makes a BOLD and its SBRef one
+    # run: generate_config composes both from the same (task, acq, run), so they
+    # agree exactly or they are not a pair.
+    _bold_entities = {f.entities for f in plan.files if f.is_bold}
+    orphans = [
+        f
+        for f in sorted(plan.files, key=lambda f: f.series_number)
+        if f.datatype == "func" and f.suffix == "sbref" and f.entities not in _bold_entities
+    ]
+    for f in orphans:
+        out.append(
+            PlanWarning(
+                kind="orphan-sbref",
+                severity="warning",
+                message=(
+                    f"Series {f.series_number} `{f.description}` will be written as "
+                    f"`{f.filename}`, but no BOLD run is being written for "
+                    f"`{f.entities}`. An SBRef is the reference volume *for* a run — "
+                    "on its own it corrects and references nothing. Untick `convert` "
+                    "for it too, unless you meant to keep it."
+                ),
+                series=[f.series_number],
+            )
+        )
+
     # --- Series nothing claims. Unexpected ones first: an anat whose suffix
     # vocabulary didn't match is a real bug and looks exactly like a scout here.
-    unexpected = [d for d in plan.dropped if not d.expected]
+    #
+    # A drop carrying a `reason` is excluded: something *chose* it — the ND
+    # policy, or the user unticking `convert` — and the loop below states it as a
+    # note. Without this an ND-demoted anat was reported twice, once as a warning
+    # saying nothing claimed it and once as the note explaining what did, and a
+    # deliberately skipped run would nag on every rerun of a reviewed session.
+    unexpected = [d for d in plan.dropped if not d.expected and not d.reason]
     for d in unexpected:
         out.append(
             PlanWarning(
@@ -535,17 +573,19 @@ def plan_warnings(
                 )
             )
 
-    # --- Drops duckbrain chose, rather than drops the data implies. These are
+    # --- Drops somebody chose, rather than drops the data implies. These are
     # expected, so the count below would swallow them — but a scout the scanner
     # produced and a reconstruction the project picked between are not the same
     # kind of "expected", and only one of them is a decision the user may want to
-    # revisit.
+    # revisit. The kind is not `nd-duplicate`: the ND policy was the first thing
+    # to set a reason, not the only one — an unticked `convert` box arrives here
+    # too, and a label naming one source misreads every other.
     for d in sorted(plan.dropped, key=lambda d: d.series_number):
         if not d.reason:
             continue
         out.append(
             PlanWarning(
-                kind="nd-duplicate",
+                kind="deliberate-drop",
                 severity="info",
                 message=(
                     f"Series {d.series_number} `{d.description}` will not be converted: {d.reason}."
@@ -603,6 +643,14 @@ class ConfigImport:
     run_by_series: dict[int, int | None] = field(default_factory=dict)
     group_by_series: dict[int, str | None] = field(default_factory=dict)
     unrepresentable: list[str] = field(default_factory=list)
+    # Series present in the session that no description claims — the config's
+    # native spelling of "not converted", and what the `convert` column reads
+    # back. Restricted to the convertible classifications, because a scout is
+    # unclaimed in every config ever generated and unticking its box would say
+    # nothing. Without this a reviewed skip silently re-ticked itself on reload
+    # while the *saved* config still omitted the series, so the table promised a
+    # file the conversion would not write.
+    skipped_series: set[int] = field(default_factory=set)
 
 
 def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> ConfigImport:
@@ -659,5 +707,16 @@ def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> Confi
         out.unrepresentable.append(
             f"series {series_number} is named in the config but not in this session"
         )
+
+    claimed = {
+        int(c["SeriesNumber"])
+        for d in descriptions
+        if (c := d.get("criteria") or {}).get("SeriesNumber") is not None
+    }
+    out.skipped_series = {
+        s.series_number
+        for s in series_list
+        if s.classification in EMITTED_CLASSIFICATIONS and s.series_number not in claimed
+    }
 
     return out

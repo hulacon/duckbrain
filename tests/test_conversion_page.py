@@ -6,6 +6,7 @@ raw-JSON editor must not silently take over from the tables (it used to, because
 the text area kept its own widget state).
 """
 
+import json
 import os
 
 import pytest
@@ -149,6 +150,7 @@ def test_one_table_carries_every_decision_and_the_outcome(two_pair_project):
         "Type",
         "Type from",
         "# Files",
+        "convert",
         "task",
         "run",
         "fieldmap",
@@ -501,3 +503,105 @@ def test_choosing_both_shows_two_anatomicals_in_becomes(nd_project):
     becomes = dict(zip(plan["Series #"], plan["becomes"]))
     assert becomes[1009] == "sub-001_ses-01_acq-nd_T1w.nii.gz"
     assert becomes[1010] == "sub-001_ses-01_acq-dis_T1w.nii.gz"
+
+
+# ---- the `convert` column: leaving a series out on purpose -------------------
+# Row indices below are positions in TWO_PAIR_SERIES, which is what
+# st.data_editor's edited_rows is keyed on.
+
+
+def test_unticking_convert_leaves_the_series_out(two_pair_project):
+    """The whole feature, end to end: `becomes` says so and no file is planned."""
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[19].endswith(
+        "run-2_bold.nii.gz"
+    )
+
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {5: {"convert": False}},  # series 19, run 2
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    assert not at.error
+
+    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    assert becomes[19] == "— not converted"
+    # The rest of the session is untouched — a skip is not a bulk opt-out.
+    assert becomes[9].endswith("run-1_bold.nii.gz")
+    assert becomes[2] == "sub-001_ses-01_T1w.nii.gz"
+
+
+def test_a_skipped_series_is_a_note_not_a_warning(two_pair_project):
+    """It must not read as the 'nothing claimed this' warning, which means a bug."""
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {5: {"convert": False}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+
+    assert not [w for w in at.warning if "matches no description" in w.value]
+    assert any("you unticked" in c.value for c in at.caption)
+
+
+def test_series_duckbrain_cannot_convert_start_unticked(two_pair_project):
+    """So the box agrees with `becomes` instead of promising a file for a scout."""
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    plan = _plan_table(at)
+    convert = dict(zip(plan["Series #"], plan["convert"]))
+
+    assert convert[1] is False or not convert[1]  # the scout
+    assert convert[2] and convert[9] and convert[3]
+
+
+def test_skipping_one_fieldmap_half_with_a_run_still_bound_to_it_is_an_error(two_pair_project):
+    """Refuse rather than write a lone `fmap/` file nothing can be estimated from."""
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {2: {"convert": False}},  # series 03, the AP half of pair 1
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    assert any("both halves" in e.value for e in at.error)
+
+
+def test_a_skip_survives_the_saved_config_round_trip(two_pair_project):
+    """Reload must not silently re-tick a box while the saved JSON still omits it.
+
+    The saved config *is* what a later convert runs (`_build_converted` reuses
+    it), so a table that re-ticked itself would promise a file the conversion
+    would not write — the drift this page exists to prevent.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    _skip_19 = {
+        "edited_rows": {5: {"convert": False}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.session_state[EDITOR_KEY] = _skip_19
+    at.run()
+    # Re-injected: st.data_editor writes its own (empty) delta back into
+    # session_state on each run, so the edit has to be restated for the run that
+    # actually presses Save.
+    at.session_state[EDITOR_KEY] = _skip_19
+    next(b for b in at.button if b.label == "Save Config JSON").click().run()
+    assert not at.exception
+
+    saved_path = two_pair_project / "sourcedata/sub-001/ses-01/dcm2bids_config.json"
+    saved = json.loads(saved_path.read_text())
+    assert 19 not in {d["criteria"]["SeriesNumber"] for d in saved["descriptions"]}
+
+    fresh = AppTest.from_file(PAGE, default_timeout=90).run()
+    fresh.session_state["_pending_json_import"] = saved_path.read_text()
+    fresh.run()
+    assert not fresh.exception
+
+    plan = _plan_table(fresh)
+    assert not dict(zip(plan["Series #"], plan["convert"]))[19]
+    assert dict(zip(plan["Series #"], plan["becomes"]))[19] == "— not converted"

@@ -362,7 +362,7 @@ def test_the_both_policy_falls_back_when_one_copy_is_empty():
     fmaps = dicom_inspect.detect_fieldmaps(series)
     plan = plan_conversion(generate_config(series, fmaps, subject="X"), series, subject="X")
     assert [f.filename for f in plan.files] == ["sub-X_T1w.nii.gz"]
-    assert any(w.kind == "nd-duplicate" for w in plan_warnings(plan, fmaps))
+    assert any(w.kind == "deliberate-drop" for w in plan_warnings(plan, fmaps))
 
 
 def test_the_both_policy_gives_two_independent_b0_groups():
@@ -535,7 +535,7 @@ def test_the_empty_twin_flip_is_reported_rather_than_silent():
 
     # the populated copy converts, and without a spurious run- entity
     assert [f.filename for f in plan.files] == ["sub-X_T1w.nii.gz"]
-    told = [w for w in plan_warnings(plan, fmaps) if w.kind == "nd-duplicate"]
+    told = [w for w in plan_warnings(plan, fmaps) if w.kind == "deliberate-drop"]
     assert len(told) == 1
     assert "holds no DICOM files" in told[0].message
 

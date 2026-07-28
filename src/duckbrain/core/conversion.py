@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Collection
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from pathlib import Path
@@ -181,6 +182,7 @@ def generate_session_config(
     fmap_rules: list | None = None,
     series_list: list | None = None,
     nd_duplicates: str = "corrected",
+    skip: Collection[int] | None = None,
 ) -> dict:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
@@ -204,6 +206,14 @@ def generate_session_config(
     saved a series twice; it must reach here for the same reason ``fmap_rules``
     does — a bulk convert that fell back to the default while the GUI honoured
     the project's setting would ship a different image than the one reviewed.
+
+    ``skip`` is a set of series numbers to leave unconverted. It is per-session
+    by nature — series numbers do not generalize across sessions, which is the
+    same reason :class:`~duckbrain.core.dcm2bids_config.TaskRule` is keyed on
+    description — so nothing here reads it from the project config. The GUI's
+    saved ``dcm2bids_config.json`` is how a reviewed skip reaches a later
+    convert: ``pipeline._build_converted`` reuses that file rather than calling
+    this, and a skipped series is simply absent from it.
 
     Raises ``ValueError`` if two series would be written to the same BIDS file.
     The interactive page renders that as an error and lets a human resolve it,
@@ -230,6 +240,7 @@ def generate_session_config(
         session=session,
         mapping=mapping,
         fmap_rules=fmap_rules,
+        skip=skip,
     )
 
     plan = plan_conversion(config, series_list, subject=subject, session=session)

@@ -195,10 +195,20 @@ correct one is the hand-edited JSON override.
   (added 2026-07-24) now says `header` or `name`; a wrong `header` verdict is a
   bug to fix at the source, and the override is for what no rule can reach.
   `memory/header-based-classification` is the record of that distinction.
-- **Adjacent and unbuilt: there is no exclude/skip control either.** A series is
-  dropped only implicitly, by classifying as `scout`/`physio`/`derived`. If the
-  Type control is built, "don't convert this" is arguably one of its values —
-  decide that deliberately rather than discovering it.
+- **The adjacent skip control is now built** (2026-07-28, see the ledger) — a
+  `convert` checkbox, separate from `Type`. So "don't convert this" is *not* one
+  of the Type control's values; it already has its own, and the two questions
+  stayed apart. Whoever builds the Type dropdown should keep them apart: a
+  datatype is a claim about what the series *is*, a skip is a decision about what
+  to do with it, and collapsing them would make relabelling a series the only way
+  to drop it.
+- **What the skip does not do is generalize.** It is keyed on series number, so
+  it is per-session by construction and reaches a later convert only through the
+  saved `dcm2bids_config.json`. A study whose protocol always produces the same
+  unwanted series (her `_ND` twins, the DWI derivatives) still has to untick them
+  once per session. A project-level skip would have to be keyed on *description*,
+  which is the same key `[task_mapping]` uses — and is the same read-modify-write
+  shape as the project-level classification tier above, so build them together.
 
 <a id="15"></a>
 ## #15 — Validate output against the BIDS standard, as a habit not a one-off
@@ -1155,6 +1165,48 @@ re-conversion keeps. If they keep the `_ND` copy where both exist, duckbrain's
 default (`corrected`) will disagree on every twinned session — 47 of them — and
 that would be a *default* to reconsider, not a bug to fix.
 
+### `#19.8` — ND twin detection never fires on a scanner that omits the tag
+
+🔴 **Found 2026-07-28 on a beta tester's data**, `/projects/hulacon/shared/mmmsourcedata`
+(read-only; 5 subjects, 95 sessions, ABCD-style protocol). Her sessions save both
+reconstructions — `ABCD_T1w_MPR_vNav` beside `ABCD_T1w_MPR_vNav_ND`, same for
+`T2_coronal_1.8` and `ABCD_T2w_SPC_vNav` — and duckbrain converts **both**,
+writing `T1w run-1..run-4` where two of the four are the same acquisition
+reconstructed twice. `nd_twin_bases` returns `[]`, so the page never even offers
+the reconstruction choice.
+
+The cause is the one-sided guard in `_nd_twin_groups`: it skips any ND-*named*
+series whose header carries an `image_type` that does not contain `ND`. On this
+scanner every series reads `('ORIGINAL','PRIMARY','M','NONE')` — the token is
+absent from **both** copies, so the guard reads "the name says ND, the header
+disagrees, therefore `ND` means something else at this site" and bails. That
+inference is right for a site that genuinely reuses the token and wrong for a
+site that simply doesn't write it, and nothing in the header distinguishes the
+two.
+
+**Do not just delete the guard** — it exists so a sequence with `ND` in its name
+for unrelated reasons isn't demoted, and that is a real failure mode. The
+promising shape is to require the header to *contradict* rather than merely fail
+to confirm: only skip when the image type is present **and** carries a
+distortion-correction token of its own (`DIS2D`/`DIS3D`), which is what a site
+reusing the name for something else would look like. An `image_type` that names
+no reconstruction at all says nothing either way, and should fall through to the
+name. Validate against both this tree and the LCNI corpus's 47 twinned sessions
+before changing it — the corpus is the only place the guard's original case
+exists.
+
+Until it is fixed the `convert` control is the workaround, and it is per-session:
+5 subjects × 95 sessions × 3 twins is not a workaround anybody will keep up with,
+which is the argument for the project-level skip in `#13.1`.
+
+**Her tree is also a live fixture for two things that had none.** It carries
+`cmrr_diff_3shell` in **four** phase-encoding directions — `ap`, `pa`, `rl`, `lr`
+— so `#19.2` (LR/RL) finally has real data, and `#19.1` (DWI) has a multi-shell
+fixture with an SBRef per direction. Note the DWI SBRefs classify as `fmap` and
+duckbrain builds a spurious `acq-cmrrDiff3shellSbref` AP/PA fieldmap pair out of
+the first two; whether that pair is legitimate to use for SDC is a real question,
+but naming it after a diffusion SBRef is not what a user would expect to review.
+
 <a id="23"></a>
 ## #23 — `st.components.v1.html` is past its announced removal date
 
@@ -1245,6 +1297,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-28 | `#13.1` | **A series can be left out of the conversion** — a `convert` checkbox on the plan table, prompted by a beta tester asking how to skip a run. The config's native spelling of "not converted" is *no description*, so `generate_config(skip=…)` simply omits one and everything downstream follows with no new state: `becomes` already rendered `— not converted` for an unclaimed series, and the skip survives save/reload through the saved JSON alone. Three things the naive version gets wrong. **A skipped fieldmap half takes its whole pair** (`_without_skipped_groups`) — half a pair is not half a fieldmap, and emitting the survivor writes a `fmap/` file nothing can be estimated from; a run still bound to a pair whose half was unticked is refused, naming the two edits that conflict rather than letting `generate_config` say the session lacks a group the user removed three rows up. **The drop carries a reason**, because the warning it otherwise raises means "nothing claimed this" — the anat-suffix bug that warning exists to catch — so the reason travels on `SeriesInfo.drop_reason` and the finding is an info note; that also fixes the pre-existing double-report where an ND-demoted anat got both the warning and the note, and the kind is `deliberate-drop` now, not `nd-duplicate`, since the ND policy was the first thing to set a reason and is no longer the only one. **A stranded SBRef is reported** (`orphan-sbref`): bold and sbref are two rows, so skipping one and not the other is a click away, and an SBRef alone is the reference volume for a run that isn't being written. Rows duckbrain has no emission path for start unticked so the box agrees with `becomes`; `EMITTED_CLASSIFICATIONS` is deliberately not "everything that isn't an expected drop", because `dwi` classifies cleanly and still converts to nothing. Per-session by construction — see `#13.1` for why a project-level skip needs the description key |
 | 2026-07-28 | — | **All duckbrain-authored output moved under `derivatives/duckbrain/`** (`qc/decisions/`, `qc/reports/`), so a project shows at a glance which derivatives a tool produced and which duckbrain did. The tool trees stay put — they are the tools' own derivative datasets and BIDS expects them at `derivatives/<pipeline>/`, and that includes `fmriprep/sourcedata/freesurfer`, which duckbrain only seeds `fsaverage` into. No file is moved: `decision_search_dirs` still reads `preprocessing_qc/`, legacy root first so the current location's entries are the newest, because mmmdata still writes there and a project reviewed before the move must not lose its history — the same treatment `_history_of` gives the two on-disk schemas, applied to the two locations. Verified live on both real projects: 1 and 609 records, all still read, none moved. The report's MRIQC links are now computed from `REPORT_SUBDIR` rather than a hardcoded `../mriqc`, since deepening the subdir would otherwise have pointed every link at a directory that does not exist — silently, a broken relative link being ordinary text |
 | 2026-07-28 | `#24` | **QC review is grouped by the question being asked** — an Overview plus one page per domain (signal, temporal, alignment, artifact) under a collapsible `QC` nav group, each measure's guidance beside the number instead of in a glossary, and each measure shown with where the run sits among the runs around it. `core/qc_domains.py` partitions all 30 registry measures at import (a measure in two domains emits duplicate `#guidance-{key}` anchors), and carries the fMRIPrep figures that can never be registry entries — which is what gives alignment, the domain with no MRIQC number on bold, anything to show. `core/qc_evidence.py` serves those figures per run: 1.1 MB against 80 MB for the subject report, with the SDC flicker intact because the animation is CSS inside each SVG, verified reaching the browser as a self-contained data URI. Matching is by BIDS entity, not by prefix join, which is what makes `sub-03_acq-MPR_dseg.svg` findable on a session dataset. An absent figure is stated, not skipped — no SDC figure means the run was preprocessed with no distortion correction. Domain reviews share the per-run decision file via an optional `domain` field, with a vocabulary disjoint from the verdicts' and `latest` meaning the newest entry carrying *no* domain, so a note about alignment can never become the run's verdict; 609 real records read unchanged. Coverage rose 70.83% → 73.51% because the five pages are four-statement declarations over one tested module, so the ratchet went 65 → 70. Slice B (regrouping the HTML export) dropped by decision, not deferred |
 | 2026-07-24 | — | **A project chooses which reconstruction converts, prompted by LCNI** asking that the user be able to select the distortion-corrected copy, the `_ND` copy, or both. `[conversion] nd_duplicates`, defaulting to today's behaviour. Project-level and not a table column: bulk and cockpit converts go through `generate_session_config` and have no table, so a table-only control would mean the reviewed session and the bulk-converted session held different images with nothing saying so. `both` needed new code only for anatomicals — `acq-nd`/`acq-dis`, with `_disambiguate_anat` now bucketing by `(suffix, custom_entities)` so `run-` still means *acquired* twice rather than *reconstructed* twice. The fieldmap half falls out of description-matched pairing for free (two groups, two `B0FieldIdentifier`s), except that both pairs share an acquisition time, so nearest-in-time cannot separate them and fell through to insertion order — hence `FieldmapDetection.deprioritized`, which narrows the *automatic* candidates only. Validated live through dcm2bids on Crave_control/CC052: both reconstructions land, they differ across 61% of voxels, and the B0 intent is correct |

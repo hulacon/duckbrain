@@ -55,7 +55,8 @@ fieldmaps and no binding are unaffected: no ``B0FieldSource`` is written, no
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from collections.abc import Collection
+from dataclasses import dataclass, replace
 
 from .dicom_inspect import (
     _SBREF_SUFFIX,
@@ -427,6 +428,44 @@ def _lookup_fmap_rule(
     return rules.get((key, None))
 
 
+# The classifications :func:`generate_config` has an emission path for, and so
+# the only ones a `convert` toggle can mean anything for. Deliberately not
+# "everything that isn't an expected drop": `dwi` classifies cleanly and still
+# converts to nothing (`TODO` `#19.1`), so reading the set off the drop list
+# would offer a control over a series duckbrain cannot write either way.
+EMITTED_CLASSIFICATIONS = frozenset({"anat", "func", "sbref", "fmap"})
+
+
+def _without_skipped_groups(
+    fieldmaps: FieldmapDetection, skip: Collection[int]
+) -> FieldmapDetection:
+    """Drop every fieldmap group that lost a member to ``skip``.
+
+    A pair estimates the field from both of its halves, so omitting one does not
+    leave a usable fieldmap behind — it leaves nothing. Emitting the surviving
+    half anyway would write a ``fmap/`` file that no scan can be corrected from
+    and that fMRIPrep will pick up and fail on, which is the silently-degrading
+    shape ``CLAUDE.md`` forbids. Dropping the whole group instead means the bolds
+    bound to it fall through to no ``B0FieldSource``, and the plan says so.
+
+    Returns a copy; the caller's detection is left intact, because the GUI still
+    renders the full set of detected pairs beside the table.
+    """
+    skip = set(skip)
+    if not skip:
+        return fieldmaps
+    doomed = {g for g, dirs in fieldmaps.groups.items() if skip & set(dirs.values())}
+    if not doomed:
+        return fieldmaps
+    return replace(
+        fieldmaps,
+        groups={g: d for g, d in fieldmaps.groups.items() if g not in doomed},
+        group_entities={g: e for g, e in fieldmaps.group_entities.items() if g not in doomed},
+        group_times={g: t for g, t in fieldmaps.group_times.items() if g not in doomed},
+        deprioritized={g for g in fieldmaps.deprioritized if g not in doomed},
+    )
+
+
 def generate_config(
     series_list: list[SeriesInfo],
     fieldmaps: FieldmapDetection,
@@ -435,6 +474,7 @@ def generate_config(
     mapping: list[TaskRunEntry] | None = None,
     template: str | None = None,
     fmap_rules: list[FmapRule] | None = None,
+    skip: Collection[int] | None = None,
 ) -> dict:
     """Build a dcm2bids-compatible config dict from classified DICOM series.
 
@@ -457,6 +497,15 @@ def generate_config(
     fmap_rules : list[FmapRule], optional
         Project-wide ``task -> fieldmap group`` bindings; each wins over the
         name-matching heuristic for the task it names.
+    skip : collection of int, optional
+        Series numbers to leave unconverted. A skipped series gets no
+        description, which is exactly how the config format already expresses
+        "not converted" — so the omission survives a save/reload round trip with
+        no extra state, and :func:`~duckbrain.core.conversion_plan.plan_conversion`
+        reports it as dropped without being told about the skip separately.
+
+        Skipping one half of a fieldmap pair drops the whole group; see
+        :func:`_without_skipped_groups`.
 
     Returns
     -------
@@ -467,10 +516,14 @@ def generate_config(
     ------
     ValueError
         If an ``fmap_rules`` entry names a group this session doesn't have, or
-        one that holds only a single phase-encoding direction.
+        one that holds only a single phase-encoding direction. A group skipped
+        out of existence raises through the same path, which is the intended
+        reading: the project asked for a binding the session can no longer honor.
     """
     descriptions = []
     sub_ses = f"sub{subject}ses{session}" if subject and session else ""
+    skipped = set(skip or ())
+    fieldmaps = _without_skipped_groups(fieldmaps, skipped)
 
     if mapping is None:
         mapping = build_task_run_mapping(series_list, template)
@@ -482,14 +535,16 @@ def generate_config(
 
     # --- Anatomicals ---
     for s in series_list:
-        if s.classification != "anat":
+        if s.classification != "anat" or s.series_number in skipped:
             continue
         desc = _anat_description(s)
         if desc:
             descriptions.append(desc)
 
     # --- Functionals (BOLD) ---
-    func_series = [s for s in series_list if s.classification == "func"]
+    func_series = [
+        s for s in series_list if s.classification == "func" and s.series_number not in skipped
+    ]
     for s in func_series:
         entry = entry_by_series.get(s.series_number)
         # Sanitize regardless of source: the heuristic already yields a valid
@@ -538,7 +593,7 @@ def generate_config(
 
     # --- SBRef ---
     for s in series_list:
-        if s.classification != "sbref":
+        if s.classification != "sbref" or s.series_number in skipped:
             continue
         entry = entry_by_series.get(s.series_number)
         # Sanitize regardless of source: the heuristic already yields a valid

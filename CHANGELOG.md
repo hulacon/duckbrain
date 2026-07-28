@@ -25,6 +25,32 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   visible. If you had reviewed runs already, they will look exactly as they did.
 
 ### Added
+- **You can leave a series out of the conversion.** The plan table has a
+  `convert` checkbox: untick a row and `becomes` reads *not converted*, no file
+  is written for it, and the rest of the session is unaffected. Series duckbrain
+  has no way to convert anyway — scouts, physio logs, diffusion — start unticked.
+
+  Unticking one half of a fieldmap pair removes the **whole pair**, because a
+  field is estimated from both halves or not at all; a lone `fmap/` file would be
+  something no scan can be corrected from. If a run is still bound to that pair
+  you get an error naming both edits, rather than a conversion that quietly drops
+  the correction. Skipping a BOLD without also skipping its SBRef is reported too
+  — an SBRef is the reference volume *for* a run, so on its own it references
+  nothing.
+
+  A skip is **per session**. It is recorded in that session's saved
+  `dcm2bids_config.json`, which is what the conversion actually runs, so it
+  survives leaving the page and coming back. It does not carry to other subjects:
+  if the same unwanted series appears in every session, you untick it in each.
+
+### Fixed
+- **A series dropped on purpose no longer reads as a problem.** Where the
+  duplicate-reconstruction choice left a series out, the preflight reported it
+  twice — once as a warning saying nothing claimed the series (which means a
+  misclassification, a real bug) and once as the note explaining what did. Now
+  only the note.
+
+### Added
 - **Each aspect of a run can be signed off on its own.** Every domain page now
   has *Reviewed — no concerns* / *Reviewed — concerns*, with a note, recorded
   against your username and against that aspect only. It is optional and gates
