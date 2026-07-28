@@ -10,6 +10,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Changed
+- **Everything duckbrain writes now lives under `derivatives/duckbrain/`.** QC
+  decisions go to `derivatives/duckbrain/qc/decisions/` and exported QC reports
+  to `derivatives/duckbrain/qc/reports/`, so a project shows at a glance which
+  derivatives came from a tool and which from duckbrain. The tool trees —
+  `fmriprep/`, `mriqc/`, `nordic/` — are unchanged; those are the tools' own
+  output and BIDS expects them where they are.
+
+  **Nothing needs moving, and nothing is moved for you.** Decisions written
+  before this — in `derivatives/preprocessing_qc/` — are still read, and so are
+  mmmdata's, which still writes there. New decisions go to the new location and
+  supersede the old ones for the same run, with both halves of the history
+  visible. If you had reviewed runs already, they will look exactly as they did.
+
 ### Added
 - **Each aspect of a run can be signed off on its own.** Every domain page now
   has *Reviewed — no concerns* / *Reviewed — concerns*, with a note, recorded

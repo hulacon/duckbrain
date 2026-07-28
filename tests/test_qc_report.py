@@ -128,7 +128,9 @@ class TestRenderReport:
             metrics_df, "bold", IQMS, reports={"sub-015_task-rest_run-1_bold": "r.html"}
         )
         html = qc_report.render_report(rows, "bold", IQMS)
-        assert 'href="../mriqc/r.html"' in html
+        # From the constant, not retyped: the link depth follows REPORT_SUBDIR,
+        # and this test exists to prove the two stay in step.
+        assert f'href="{qc_report.MRIQC_REPORT_BASE}/r.html"' in html
 
     def test_embeds_guidance_for_every_rendered_column(self, metrics_df):
         rows = qc_report.build_run_rows(metrics_df, "bold", IQMS)
@@ -279,12 +281,19 @@ class TestWriteReport:
         assert path.read_text() == "<p>hi</p>"
 
     def test_relative_links_resolve_from_where_it_lands(self, tmp_path):
-        """``../mriqc/x.html`` must reach the real MRIQC report from the report."""
+        """The link the report emits must reach the real MRIQC report on disk.
+
+        Resolved against the file's actual location rather than asserted as a
+        string, which is what caught the report moving deeper into
+        ``derivatives/duckbrain/qc/reports/``: a relative link with the wrong
+        number of levels renders as ordinary text and says nothing.
+        """
         mriqc = tmp_path / "mriqc"
         mriqc.mkdir()
         (mriqc / "r.html").write_text("report")
         path = qc_report.write_report("x", tmp_path, "qc.html")
-        assert (path.parent / "../mriqc/r.html").resolve().read_text() == "report"
+        link = path.parent / f"{qc_report.MRIQC_REPORT_BASE}/r.html"
+        assert link.resolve().read_text() == "report"
 
     def test_filename_distinguishes_scope(self):
         assert qc_report.report_filename("bold") == "qc_report_all_bold.html"

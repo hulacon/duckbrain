@@ -112,6 +112,14 @@ def _run(page, **params):
     return at.run()
 
 
+def _decisions_dir(project: Path) -> Path:
+    """Where decisions land, asked of the code rather than restated here."""
+    from duckbrain.config import load_config
+    from duckbrain.core import qc
+
+    return qc.decisions_dir(load_config(project_dir=str(project)))
+
+
 def _captions(at):
     return [c.value for c in at.caption]
 
@@ -235,7 +243,7 @@ class TestDomainSignOff:
     """Reviewing one aspect is recorded, and is not a verdict on the run."""
 
     def _decisions(self, project):
-        return project / "derivatives" / "preprocessing_qc"
+        return _decisions_dir(project)
 
     def test_each_domain_page_offers_a_sign_off(self, full):
         labels = [b.label for b in _run(SIGNAL).button]
@@ -345,7 +353,7 @@ class TestOverview:
         at = _run(OVERVIEW)
         [b for b in at.button if b.label == "Keep"][0].click().run()
         assert not at.exception
-        written = list((full / "derivatives" / "preprocessing_qc").glob("*_decision.json"))
+        written = list(_decisions_dir(full).glob("*_decision.json"))
         assert len(written) == 1
         record = json.loads(written[0].read_text())
         assert record["decisions"][-1]["decision"] == "keep"
@@ -356,7 +364,7 @@ class TestOverview:
         at = _run(OVERVIEW)
         [i for i in at.text_input if i.label == "Reason"][0].set_value("just a note").run()
         assert not at.exception
-        assert not list((full / "derivatives" / "preprocessing_qc").glob("*_decision.json"))
+        assert not list(_decisions_dir(full).glob("*_decision.json"))
 
     def test_the_outlier_slider_is_here_and_only_here(self, full):
         assert [s for s in _run(OVERVIEW).slider if "IQR" in s.label]
@@ -366,7 +374,7 @@ class TestOverview:
         """Four reviewed aspects must prompt for a verdict, never stand in for one."""
         from duckbrain.core import qc
 
-        decisions = full / "derivatives" / "preprocessing_qc"
+        decisions = _decisions_dir(full)
         for key in ("signal", "temporal", "alignment", "artifact"):
             qc.save_decision(
                 decisions, "sub-010_task-rest_run-1_bold", "reviewed", reviewer="ben", domain=key

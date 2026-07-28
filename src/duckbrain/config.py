@@ -122,6 +122,12 @@ def derive_paths(config: dict, project_dir: str | Path) -> dict:
         "bids_dir": str(project_dir),
         "sourcedata_dir": str(project_dir / "sourcedata"),
         "derivatives_dir": str(project_dir / "derivatives"),
+        # Everything duckbrain itself authors goes here, under one name, so a
+        # project shows at a glance which derivatives came from a tool and which
+        # from duckbrain. The tool trees — fmriprep/, mriqc/, nordic/ — stay
+        # where they are: those are the tools' own derivative datasets, written
+        # by the tools, and BIDS expects them at derivatives/<pipeline>/.
+        "duckbrain_dir": str(project_dir / "derivatives" / "duckbrain"),
         "code_dir": str(project_dir / "code"),
         # SLURM logs + submitted scripts must live on shared FS (not node-local
         # work_dir=/tmp), or a failed job's log is stranded on the compute node.

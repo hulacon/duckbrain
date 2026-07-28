@@ -215,8 +215,13 @@ def scope_bar(config: dict, *, with_run: bool = True) -> Scope | None:
         return None
 
     mriqc_dir = Path(derivatives_dir) / "mriqc"
+    # Two names, and they are not the same thing: decisions are *written* to one
+    # place and *read* from everywhere they have ever been written, so a project
+    # reviewed before duckbrain gathered its output under one directory — or by
+    # mmmdata, which still writes the old location — does not lose its history.
+    decisions_read_dirs = qc.decision_search_dirs(config)
     fmriprep_dir = qc_report.resolve_fmriprep_dir(config)
-    decisions_dir = Path(derivatives_dir) / "preprocessing_qc"
+    decisions_dir = qc.decisions_dir(config)
     settings = qc.qc_settings()
 
     cols = st.columns([1, 2, 1] if with_run else [1, 3])
@@ -260,7 +265,7 @@ def scope_bar(config: dict, *, with_run: bool = True) -> Scope | None:
             modality,
             iqm_cols,
             motion_df=motion_df,
-            decisions=qc.load_decisions(decisions_dir),
+            decisions=qc.load_decisions(decisions_read_dirs),
             reports=qc_report.find_mriqc_reports(mriqc_dir, modality),
         )
         keys = [r["run_key"] for r in runs]
@@ -296,6 +301,7 @@ def scope_bar(config: dict, *, with_run: bool = True) -> Scope | None:
         mriqc_dir=mriqc_dir,
         fmriprep_dir=fmriprep_dir,
         decisions_dir=decisions_dir,
+        decisions_read_dirs=decisions_read_dirs,
         settings=settings,
         iqr_multiplier=iqr_multiplier,
         motion_status=qc_report.describe_motion_source(fmriprep_dir, runs, modality),
@@ -452,7 +458,7 @@ def domain_signoff(scope: Scope, domain: ReviewDomain) -> None:
     if not run_key:
         return
 
-    record = qc.load_decisions(scope.decisions_dir).get(run_key, {})
+    record = qc.load_decisions(scope.decisions_read_dirs).get(run_key, {})
     current = (record.get("domains") or {}).get(domain.key, {})
     latest = current.get("latest") or {}
 
@@ -616,7 +622,6 @@ def _export_panel(scope: Scope) -> None:
             iqr_multiplier=scope.iqr_multiplier,
             project_name=scope.config.get("project", {}).get("name", ""),
             fmriprep_variant=qc_report.fmriprep_input_variant(scope.config),
-            report_base="../mriqc",
             motion_status=scope.motion_status,
         )
         filename = qc_report.report_filename(scope.modality)
@@ -693,7 +698,7 @@ def render_overview() -> None:
     # domains do not partition the question a verdict answers — none covers task
     # timing, stimulus delivery, or a participant asleep with their eyes open.
     # So this prompts, and the reviewer still has to make the call.
-    record = qc.load_decisions(scope.decisions_dir).get(scope.run_key, {})
+    record = qc.load_decisions(scope.decisions_read_dirs).get(scope.run_key, {})
     done, total = qc.domain_progress(record, [d.key for d in qc_domains.DOMAINS])
     verdict = (record.get("latest") or {}).get("decision")
     st.caption(
@@ -708,7 +713,7 @@ def render_overview() -> None:
     st.divider()
     reviewer = getpass.getuser()
     st.caption(f"Signing off as **{reviewer}**, recorded with each decision.")
-    counts = qc.decision_counts(qc.load_decisions(scope.decisions_dir))
+    counts = qc.decision_counts(qc.load_decisions(scope.decisions_read_dirs))
     if counts["unattributed"]:
         st.warning(
             f"{counts['unattributed']} decision(s) were recorded before duckbrain "

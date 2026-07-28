@@ -36,10 +36,18 @@ import pandas as pd
 
 from . import qc_guidance
 
-#: Where the report is written, relative to the derivatives directory. Its own
-#: directory so the MRIQC-relative links below have a stable number of levels
-#: to climb no matter what the report is named.
-REPORT_SUBDIR = "duckbrain_qc"
+#: Where the report is written, relative to the derivatives directory. Under
+#: ``duckbrain/`` with everything else duckbrain authors, and in its own
+#: directory so the MRIQC-relative links below have a stable number of levels to
+#: climb no matter what the report is named.
+REPORT_SUBDIR = "duckbrain/qc/reports"
+
+#: How to reach ``<derivatives>/mriqc`` from inside :data:`REPORT_SUBDIR`.
+#: **Computed, not written out**: this pair used to be a literal ``"../mriqc"``
+#: next to a one-level subdir, so deepening the subdir would have left every
+#: link in the exported report pointing at a directory that does not exist —
+#: silently, since a broken relative link renders as ordinary text.
+MRIQC_REPORT_BASE = "/".join([".."] * len(Path(REPORT_SUBDIR).parts) + ["mriqc"])
 
 #: Entities that make up a run key, in BIDS order. Kept identical to what
 #: ``core.qc.save_decision`` has always written so existing decision files still
@@ -317,7 +325,7 @@ def render_report(
     subject: str | None = None,
     project_name: str = "",
     fmriprep_variant: str = "unknown",
-    report_base: str | None = "../mriqc",
+    report_base: str | None = MRIQC_REPORT_BASE,
     motion_status: tuple[str, str] | None = None,
     generated: datetime | None = None,
 ) -> str:
@@ -329,8 +337,9 @@ def render_report(
         From :func:`build_run_rows`.
     report_base : str or None
         Path prefix for MRIQC report links, relative to where this HTML will be
-        written. The default assumes ``<derivatives>/duckbrain_qc/``. Never pass
-        an absolute path — see the module docstring.
+        written. Defaults to :data:`MRIQC_REPORT_BASE`, which is computed from
+        :data:`REPORT_SUBDIR` and so stays right if that moves. Never pass an
+        absolute path — see the module docstring.
 
         Pass ``None`` for the copy embedded in the QC page, where no relative
         path can resolve: that copy sits in a sandboxed ``srcdoc`` iframe whose
@@ -807,10 +816,11 @@ def _plotly_js() -> str:
 
 
 def write_report(html: str, derivatives_dir: str | Path, filename: str) -> Path:
-    """Write the report into ``<derivatives>/duckbrain_qc/`` and return its path.
+    """Write the report into ``<derivatives>/duckbrain/qc/reports/``, returning its path.
 
-    Beside MRIQC's and fMRIPrep's own reports, which is where someone looking for
-    a report will look, and at the depth ``report_base``'s default assumes.
+    Under ``duckbrain/`` with everything else duckbrain authors, so a project
+    shows at a glance which derivatives a tool produced and which duckbrain did,
+    and at the depth ``report_base``'s default computes.
     """
     out_dir = Path(derivatives_dir) / REPORT_SUBDIR
     out_dir.mkdir(parents=True, exist_ok=True)

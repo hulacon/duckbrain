@@ -176,6 +176,45 @@ recorded"). It is never *recorded*. And the verdict buttons must not be gated
 behind domain completion — a reviewer who sees a wrecked run must be able to
 exclude it without touring four pages first.
 
+### Everything duckbrain authors lives under `derivatives/duckbrain/`
+
+Decided 2026-07-28. One name, so a project shows at a glance which derivatives a
+tool produced and which duckbrain did:
+
+```
+derivatives/
+  fmriprep/   mriqc/   nordic/     ← the tools' own derivative datasets
+  duckbrain/
+    qc/
+      decisions/   *_decision.json
+      reports/     qc_report_*.html
+```
+
+**The tool trees stay where they are.** `fmriprep/`, `mriqc/` and `nordic/` are
+written by the tools, are derivative datasets in their own right, and BIDS
+expects them at `derivatives/<pipeline>/`. So is
+`fmriprep/sourcedata/freesurfer` — fMRIPrep's own default SUBJECTS_DIR, which
+duckbrain only seeds `fsaverage` into and never redirects with
+`--fs-subjects-dir`. Moving any of them would break the tool, not tidy it.
+
+Two consequences worth knowing:
+
+- **Decisions are written to one place and read from every place they have ever
+  been written.** `derivatives/preprocessing_qc/` is still searched, never
+  written and never moved: mmmdata still writes it, and a project reviewed before
+  the move must not silently lose its history. `decision_search_dirs` returns the
+  legacy root first so the current location's entries land last and are current.
+  This is the same treatment `_history_of` gives the two on-disk *schemas*,
+  applied to the two on-disk *locations*. Verified live: the one real record on
+  `divatten_beta_v2` and all 609 on `mmmdata` still read, none moved.
+- **The report's MRIQC links are now computed, not written out.**
+  `MRIQC_REPORT_BASE` is derived from `REPORT_SUBDIR`, because they used to be a
+  hardcoded `"../mriqc"` beside a one-level subdir — deepening the subdir would
+  have left every link in the exported report pointing at a directory that does
+  not exist, and a broken relative link renders as ordinary text rather than
+  failing. `test_relative_links_resolve_from_where_it_lands` resolves the link
+  against the file's real location and caught exactly this.
+
 ### The HTML export is punted on, not regrouped
 
 Decided 2026-07-28. The original plan had a slice that reorganised the exported

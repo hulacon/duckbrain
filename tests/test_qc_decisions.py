@@ -397,3 +397,100 @@ class TestDomainProgressIsDisplayOnly:
     def test_it_is_empty_for_a_run_nobody_has_touched(self):
         assert qc.domain_progress({}, self.KEYS) == (0, 4)
         assert qc.domain_progress(None, self.KEYS) == (0, 4)
+
+
+class TestOutputMovedUnderDuckbrain:
+    """Decisions are written to one place and read from everywhere they have been.
+
+    Everything duckbrain authors now lives under ``derivatives/duckbrain/``. The
+    old ``derivatives/preprocessing_qc/`` is still read, and never written or
+    moved — mmmdata still writes it, and a project reviewed before the move must
+    not silently lose its history. Same treatment ``_history_of`` gives the two
+    on-disk *schemas*, applied to the two on-disk *locations*.
+    """
+
+    def _config(self, tmp_path):
+        return {
+            "paths": {
+                "derivatives_dir": str(tmp_path / "derivatives"),
+                "duckbrain_dir": str(tmp_path / "derivatives" / "duckbrain"),
+            }
+        }
+
+    def test_writes_land_under_duckbrain(self, tmp_path):
+        config = self._config(tmp_path)
+        target = qc.decisions_dir(config)
+        assert target == tmp_path / "derivatives" / "duckbrain" / "qc" / "decisions"
+
+    def test_the_legacy_location_is_still_searched(self, tmp_path):
+        config = self._config(tmp_path)
+        roots = qc.decision_search_dirs(config)
+        assert tmp_path / "derivatives" / "preprocessing_qc" in roots
+        assert qc.decisions_dir(config) in roots
+
+    def test_the_current_location_is_searched_last(self, tmp_path):
+        """Order carries meaning: the last root's entries are the newest."""
+        assert qc.decision_search_dirs(self._config(tmp_path))[-1] == qc.decisions_dir(
+            self._config(tmp_path)
+        )
+
+    def test_a_decision_written_before_the_move_is_still_read(self, tmp_path):
+        config = self._config(tmp_path)
+        legacy = tmp_path / "derivatives" / "preprocessing_qc"
+        legacy.mkdir(parents=True)
+        (legacy / f"{KEY}_decision.json").write_text(
+            json.dumps(
+                {
+                    "run_key": KEY,
+                    "decisions": [
+                        {"decision": "investigate", "reviewer": "bhutch", "automated": False}
+                    ],
+                }
+            )
+        )
+        loaded = qc.load_decisions(qc.decision_search_dirs(config))
+        assert loaded[KEY]["latest"]["decision"] == "investigate"
+        assert loaded[KEY]["signed_off"] is True
+
+    def test_a_new_verdict_supersedes_the_pre_move_one(self, tmp_path):
+        """Reviewing again writes to the new place and must become current."""
+        config = self._config(tmp_path)
+        legacy = tmp_path / "derivatives" / "preprocessing_qc"
+        legacy.mkdir(parents=True)
+        (legacy / f"{KEY}_decision.json").write_text(
+            json.dumps(
+                {"run_key": KEY, "decisions": [{"decision": "investigate", "reviewer": "a"}]}
+            )
+        )
+        qc.save_decision(qc.decisions_dir(config), KEY, "keep", reviewer="b")
+        loaded = qc.load_decisions(qc.decision_search_dirs(config))
+        assert loaded[KEY]["latest"]["decision"] == "keep"
+        assert [e["decision"] for e in loaded[KEY]["history"]] == ["investigate", "keep"]
+
+    def test_reading_never_moves_or_rewrites_the_legacy_file(self, tmp_path):
+        config = self._config(tmp_path)
+        legacy = tmp_path / "derivatives" / "preprocessing_qc"
+        legacy.mkdir(parents=True)
+        path = legacy / f"{KEY}_decision.json"
+        payload = json.dumps({"run_key": KEY, "decisions": [{"decision": "keep", "reviewer": "a"}]})
+        path.write_text(payload)
+        qc.load_decisions(qc.decision_search_dirs(config))
+        assert path.exists() and path.read_text() == payload
+
+    def test_a_domain_review_recorded_after_the_move_joins_the_old_history(self, tmp_path):
+        """The two locations are one history, so the verdict rule still holds."""
+        config = self._config(tmp_path)
+        legacy = tmp_path / "derivatives" / "preprocessing_qc"
+        legacy.mkdir(parents=True)
+        (legacy / f"{KEY}_decision.json").write_text(
+            json.dumps({"run_key": KEY, "decisions": [{"decision": "keep", "reviewer": "a"}]})
+        )
+        qc.save_decision(qc.decisions_dir(config), KEY, "concerns", reviewer="b", domain="signal")
+        loaded = qc.load_decisions(qc.decision_search_dirs(config))
+        assert loaded[KEY]["latest"]["decision"] == "keep"
+        assert loaded[KEY]["domains"]["signal"]["latest"]["decision"] == "concerns"
+
+    def test_a_single_directory_is_still_accepted(self, tmp_path):
+        """The one-root call is the common case and must not need a list."""
+        qc.save_decision(tmp_path, KEY, "keep", reviewer="ben")
+        assert qc.load_decisions(tmp_path)[KEY]["latest"]["decision"] == "keep"

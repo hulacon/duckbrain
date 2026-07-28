@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -456,6 +457,39 @@ def save_decision(
     return decision_file
 
 
+#: Where duckbrain's QC output lives inside its own derivatives directory.
+QC_SUBDIR = "qc"
+DECISIONS_SUBDIR = "decisions"
+
+#: Directories decisions were written to before everything duckbrain authors was
+#: gathered under ``derivatives/duckbrain``. Read, never written, never moved —
+#: mmmdata still writes here, and a project converted by either tool has to stay
+#: readable by both.
+LEGACY_DECISION_DIRS = ("preprocessing_qc",)
+
+
+def decisions_dir(config: dict) -> Path:
+    """Where a decision is written. One place, always the current one."""
+    paths = config.get("paths", {})
+    root = paths.get("duckbrain_dir") or (Path(paths["derivatives_dir"]) / "duckbrain")
+    return Path(root) / QC_SUBDIR / DECISIONS_SUBDIR
+
+
+def decision_search_dirs(config: dict) -> list[Path]:
+    """Everywhere decisions may be read from, oldest location first.
+
+    Order is the point rather than a detail: :func:`load_decisions` appends each
+    root's entries after the previous root's, so the current location's entries
+    land last and a run reviewed in both places reads with its newest verdict
+    current. It also means no file has to be moved — the same treatment
+    :func:`_history_of` gives the two on-disk *schemas*, applied to the two
+    on-disk *locations*.
+    """
+    derivatives = Path(config.get("paths", {}).get("derivatives_dir", ""))
+    legacy = [derivatives / name for name in LEGACY_DECISION_DIRS]
+    return [*legacy, decisions_dir(config)]
+
+
 def _history_of(data: dict) -> list[dict]:
     """Return a record's entries oldest-first, from either on-disk schema.
 
@@ -479,11 +513,20 @@ def _history_of(data: dict) -> list[dict]:
     return history
 
 
-def load_decisions(decisions_dir: str | Path) -> dict:
-    """Load all QC decisions, in either on-disk schema and either layout.
+def load_decisions(decisions_dir: str | Path | Iterable[str | Path]) -> dict:
+    """Load all QC decisions, in either on-disk schema and any known location.
 
     Searched recursively, so both duckbrain's flat directory and mmmdata's
     ``sub-XX/`` nesting are found.
+
+    Parameters
+    ----------
+    decisions_dir : path or iterable of paths
+        One directory, or several to merge — see :func:`decision_search_dirs`.
+        When a run has entries under more than one root, their histories are
+        concatenated in the order the roots are given, so the last root's
+        entries are the most recent. Within a file, order is left alone: it is
+        append-only, and position is what carries "current".
 
     Returns
     -------
@@ -502,24 +545,31 @@ def load_decisions(decisions_dir: str | Path) -> dict:
         because those entries carry no ``domain`` key — so a legacy file reads
         byte-identically to how it always did.
     """
-    decisions_dir = Path(decisions_dir)
+    if isinstance(decisions_dir, (str, Path)):
+        roots = [Path(decisions_dir)]
+    else:
+        roots = [Path(d) for d in decisions_dir]
+
+    merged: dict[str, list[dict]] = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for json_path in sorted(root.rglob("*_decision.json")):
+            try:
+                with open(json_path) as f:
+                    data = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            history = _history_of(data)
+            if not history:
+                continue
+            run_key = data.get("run_key") or json_path.stem.replace("_decision", "")
+            merged.setdefault(run_key, []).extend(history)
+
     decisions: dict[str, dict] = {}
-
-    if not decisions_dir.is_dir():
-        return decisions
-
-    for json_path in sorted(decisions_dir.rglob("*_decision.json")):
-        try:
-            with open(json_path) as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        history = _history_of(data)
-        if not history:
-            continue
-        run_key = data.get("run_key") or json_path.stem.replace("_decision", "")
+    for run_key, history in merged.items():
         verdicts = [e for e in history if not e.get("domain")]
         latest = verdicts[-1] if verdicts else {}
         decisions[run_key] = {
