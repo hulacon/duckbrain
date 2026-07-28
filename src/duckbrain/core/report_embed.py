@@ -4,6 +4,14 @@ MRIQC and fMRIPrep both write a small HTML page beside a directory of large SVG
 figures, referenced relatively::
 
     <img class="svg-reportlet" src="./sub-010/figures/sub-010_..._desc-carpet_bold.svg" />
+    <object class="svg-reportlet" type="image/svg+xml"
+            data="./sub-010/figures/sub-010_..._desc-sdc_bold.svg"></object>
+
+Both forms appear, and which one a figure gets is not cosmetic: fMRIPrep uses
+``<object>`` for the reportlets that animate, because the before/after flicker is
+a CSS ``:hover`` animation and an SVG inside an ``<img>`` is not a document that
+can be hovered. Any attribute that names a file has to be rewritten or that
+figure is simply absent.
 
 Opened from disk that resolves. Served from the app it does not, and the reason
 is worth stating because it is the same shape of failure ``qc_report``'s module
@@ -39,10 +47,24 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-#: ``src=`` / ``href=`` with a double-quoted value. Tool reports are generated
-#: from templates, not hand-written, so the quoting is uniform; a parser would
-#: buy nothing and would rewrite the whole document on the way out.
-_ASSET_REF = re.compile(r'\b(?P<attr>src|href)\s*=\s*"(?P<url>[^"]*)"')
+#: ``src=`` / ``href=`` / ``data=`` with a double-quoted value. Tool reports are
+#: generated from templates, not hand-written, so the quoting is uniform; a
+#: parser would buy nothing and would rewrite the whole document on the way out.
+#:
+#: ``data=`` is here because fMRIPrep embeds its *animated* reportlets — SDC
+#: before/after, BOLD-to-T1w and fieldmap coregistration, spatial normalization —
+#: as ``<object type="image/svg+xml" data="…">`` rather than ``<img src="…">``.
+#: It needs a real document, not an image: the flicker is a CSS animation that
+#: runs on ``:hover``, and an SVG in an ``<img>`` gets no hover. Missing ``data=``
+#: left 41 of one subject's 95 figures pointing at a path that does not resolve
+#: inside the iframe — blank frames, and *silently* so, because every one of them
+#: is also linked by an ``<a href>`` "open in new tab" that did get rewritten. So
+#: the file resolved, nothing landed in ``unresolved``, and the only symptom was
+#: that the figures a reviewer most needs were the ones that did not appear.
+#:
+#: ``\b…\s*=`` cannot match ``data-bs-toggle=`` or ``data-cites=`` (a hyphen is
+#: not an ``=``), which is what keeps Bootstrap's attributes out of it.
+_ASSET_REF = re.compile(r'\b(?P<attr>src|href|data)\s*=\s*"(?P<url>[^"]*)"')
 
 #: Prefixes that mean "not a file beside this report" — absolute URLs, protocol-
 #: relative CDN links, already-inlined data, in-page anchors, and server-absolute

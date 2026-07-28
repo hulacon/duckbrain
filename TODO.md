@@ -1174,11 +1174,13 @@ Two calls to change, but do not do it blind:
 - `st.iframe` is newer than the floor. Check which version introduced it and
   raise the `streamlit>=` floor to match in the same commit, or the fix breaks
   1.48 users instead.
-- The sandbox matters. `embed_tool_report` deliberately renders into a
-  *sandboxed* iframe so a tool report's own scripts cannot reach the app's
-  origin, which under OnDemand is shared with the OnDemand dashboard. Confirm
-  `st.iframe` still sandboxes before swapping, and pin it with a test if it is
-  expressible — that property has no coverage today.
+- The sandbox is weaker than it looks, so don't budget for losing protection
+  that isn't there. Streamlit 1.56 sets `allow-same-origin` *and* `allow-scripts`
+  together (`static/js/IFrameUtil.*.js`), which cancels the isolation: a `srcdoc`
+  document inherits the parent origin, shared under OnDemand with the OnDemand
+  dashboard. `embed_tool_report`'s docstring asserted the opposite until
+  2026-07-28. Swapping to `st.iframe` therefore cannot make this *worse*, but
+  check whether it makes it better — and if it offers real sandboxing, take it.
 - `tests/test_qc_page.py` and `tests/test_gui_components.py` exercise both call
   sites, so a swap that breaks rendering should fail rather than go quiet.
 

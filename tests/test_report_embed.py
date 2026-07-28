@@ -38,6 +38,24 @@ MRIQC_HTML = (
 )
 
 
+#: Verbatim in shape from a real fMRIPrep subject report. Every animated
+#: reportlet appears exactly like this: an ``<object data=…>`` that draws it, an
+#: ``<a href=…>`` to the same file that opens it in a tab, and Bootstrap's
+#: ``data-bs-*`` attributes nearby, which must not be mistaken for asset
+#: references.
+FMRIPREP_HTML = (
+    "<html><body>\n"
+    '<button data-bs-toggle="collapse" data-bs-target="#sdc">SDC</button>\n'
+    '<object class="svg-reportlet" type="image/svg+xml" '
+    'data="./sub-010/figures/sub-010_task-rest_run-1_desc-sdc_bold.svg" style="">\n'
+    "</object>\n"
+    '<a href="./sub-010/figures/sub-010_task-rest_run-1_desc-sdc_bold.svg" '
+    'target="_blank">Open</a>\n'
+    '<img class="svg-reportlet" src="./sub-010/figures/sub-010_dseg.svg" />\n'
+    "</body></html>"
+)
+
+
 @pytest.fixture
 def report(tmp_path):
     """An MRIQC-shaped report directory: one HTML, two figures beside it."""
@@ -47,6 +65,18 @@ def report(tmp_path):
     (figures / "sub-010_desc-mean_bold.svg").write_text("<svg/>")
     path = tmp_path / "sub-010_task-rest_run-1_bold.html"
     path.write_text(MRIQC_HTML)
+    return path
+
+
+@pytest.fixture
+def fmriprep_report(tmp_path):
+    """An fMRIPrep-shaped report: one animated ``<object>``, one plain ``<img>``."""
+    figures = tmp_path / "sub-010" / "figures"
+    figures.mkdir(parents=True)
+    (figures / "sub-010_task-rest_run-1_desc-sdc_bold.svg").write_text("<svg/>")
+    (figures / "sub-010_dseg.svg").write_text("<svg/>")
+    path = tmp_path / "sub-010.html"
+    path.write_text(FMRIPREP_HTML)
     return path
 
 
@@ -127,6 +157,59 @@ class TestRewriteAssetLinks:
     def test_a_resolver_declining_is_also_reported(self, report):
         _, unresolved = rewrite_asset_links(report.read_text(), report.parent, lambda p: None)
         assert len(unresolved) == 2
+
+
+class TestAnimatedReportlets:
+    """fMRIPrep draws its animated figures with ``<object data=…>``, not ``<img>``.
+
+    The bug: only ``src``/``href`` were rewritten, so 41 of a subject's 95
+    figures — SDC before/after, both coregistrations, spatial normalization —
+    stayed relative and rendered blank. It was silent because each is *also*
+    linked by an ``<a href>`` to the same file, which did get rewritten: the path
+    resolved, ``unresolved`` stayed empty, and the only visible symptom was that
+    the figure was missing while "open in new tab" worked.
+    """
+
+    def test_object_data_is_repointed(self, fmriprep_report):
+        html, unresolved = rewrite_asset_links(
+            fmriprep_report.read_text(), fmriprep_report.parent, lambda p: f"/media/{p.name}"
+        )
+        assert unresolved == []
+        assert 'data="/media/sub-010_task-rest_run-1_desc-sdc_bold.svg"' in html
+        assert "./sub-010/figures/" not in html, "a relative path survived"
+
+    def test_bootstrap_data_attributes_are_left_alone(self, fmriprep_report):
+        """``data-bs-toggle`` is not an asset reference and must not be touched."""
+        html, _ = rewrite_asset_links(
+            fmriprep_report.read_text(), fmriprep_report.parent, lambda p: f"/media/{p.name}"
+        )
+        assert 'data-bs-toggle="collapse"' in html
+        assert 'data-bs-target="#sdc"' in html
+
+    def test_a_missing_animated_figure_is_reported(self, fmriprep_report):
+        """The silence is the thing being fixed: an absent one must be named.
+
+        Its ``<a href>`` twin resolves, so this only works if ``data=`` is
+        checked on its own rather than deduplicated against the link.
+        """
+        (
+            fmriprep_report.parent
+            / "sub-010"
+            / "figures"
+            / "sub-010_task-rest_run-1_desc-sdc_bold.svg"
+        ).unlink()
+        _, unresolved = rewrite_asset_links(
+            fmriprep_report.read_text(), fmriprep_report.parent, lambda p: f"/media/{p.name}"
+        )
+        assert unresolved.count("./sub-010/figures/sub-010_task-rest_run-1_desc-sdc_bold.svg") == 2
+
+    def test_the_figure_is_counted_once_across_object_and_link(self, fmriprep_report):
+        """Same file named twice by two attributes — the bytes are paid once."""
+        found = local_asset_paths(fmriprep_report.read_text(), fmriprep_report.parent)
+        assert sorted(p.name for p in found) == [
+            "sub-010_dseg.svg",
+            "sub-010_task-rest_run-1_desc-sdc_bold.svg",
+        ]
 
 
 class TestPayloadCost:

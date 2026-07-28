@@ -66,6 +66,12 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   hang. The panel sits above the point where the page stops for missing MRIQC
   metrics, so an fMRIPrep derivative is readable whether or not MRIQC has run.
 
+  This includes the **animated** reportlets — the ones that flicker between
+  before and after for susceptibility distortion correction and for both
+  coregistrations. **Hover the mouse over one to play it**; fMRIPrep leaves the
+  animation paused until you do, so a still frame is what it should look like at
+  rest.
+
   The report's size is stated before you open it (~80 MB of figures for a
   13-run subject) and nothing is loaded until you ask for it, because the figures
   are read into the session's memory in order to be served — and the OnDemand
