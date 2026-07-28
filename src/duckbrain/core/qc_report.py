@@ -201,6 +201,26 @@ def find_mriqc_reports(mriqc_dir: str | Path, modality: str = "bold") -> dict[st
     return reports
 
 
+def find_fmriprep_reports(fmriprep_dir: str | Path) -> dict[str, str]:
+    """Map subject label → fMRIPrep's own HTML report, for the ones on disk.
+
+    Keyed by subject, not by run, and that asymmetry with
+    :func:`find_mriqc_reports` is the whole reason fMRIPrep's reports went
+    unshown for so long: the QC page is organised around runs, so there was
+    nowhere for a per-subject document to hang. It is also what makes them worth
+    surfacing — the anatomical checks a reviewer most needs (tissue
+    segmentation, spatial normalization, surface reconstruction) are computed
+    once per subject and appear in no per-run view at all.
+
+    The stem is the key, so a session-aggregated report (``sub-01_ses-02.html``)
+    keys distinctly from a subject-level one instead of colliding with it.
+    """
+    fmriprep_dir = Path(fmriprep_dir)
+    if not fmriprep_dir.is_dir():
+        return {}
+    return {path.stem: path.name for path in sorted(fmriprep_dir.glob("sub-*.html"))}
+
+
 def build_run_rows(
     metrics_df: pd.DataFrame,
     modality: str,

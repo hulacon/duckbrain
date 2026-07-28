@@ -75,6 +75,49 @@ def resolve_asset(report_dir: Path, url: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def local_asset_paths(html: str, report_dir: Path) -> list[Path]:
+    """Every distinct file ``html`` draws on from beside it, deduplicated.
+
+    Same resolution rules as :func:`rewrite_asset_links`, so this answers "what
+    would that call serve" without serving it.
+    """
+    seen: dict[Path, None] = {}
+    for match in _ASSET_REF.finditer(html):
+        url = match.group("url")
+        if not is_local_asset(url):
+            continue
+        path = resolve_asset(report_dir, url)
+        if path is not None:
+            seen.setdefault(path, None)
+    return list(seen)
+
+
+def payload_bytes(report_path: Path) -> int:
+    """Bytes that embedding ``report_path`` pulls into memory — 0 if unreadable.
+
+    Worth knowing before the fact, because Streamlit's media manager reads each
+    asset into the server's RAM when the URL is registered and keeps it there.
+    Browser-side laziness cannot claw that back: the read happens while the page
+    is being built, before the browser has seen any of it. MRIQC made this
+    invisible at 15 MB for a T1w report; one fMRIPrep *subject* report references
+    ~80 MB of SVG, mostly per-run fieldmap and coregistration figures, so the
+    caller is expected to show this and let the reader decide rather than spend
+    it on their behalf.
+    """
+    report_path = Path(report_path)
+    try:
+        html = report_path.read_text(encoding="utf-8", errors="replace")
+        total = report_path.stat().st_size
+    except OSError:
+        return 0
+    for asset in local_asset_paths(html, report_path.parent):
+        try:
+            total += asset.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
 def rewrite_asset_links(
     html: str,
     report_dir: Path,

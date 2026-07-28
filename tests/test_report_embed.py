@@ -14,6 +14,8 @@ import pytest
 from duckbrain.core import qc_report
 from duckbrain.core.report_embed import (
     is_local_asset,
+    local_asset_paths,
+    payload_bytes,
     resolve_asset,
     rewrite_asset_links,
 )
@@ -125,6 +127,75 @@ class TestRewriteAssetLinks:
     def test_a_resolver_declining_is_also_reported(self, report):
         _, unresolved = rewrite_asset_links(report.read_text(), report.parent, lambda p: None)
         assert len(unresolved) == 2
+
+
+class TestPayloadCost:
+    """What embedding a report costs, answerable before paying it.
+
+    Streamlit reads every asset into the server's memory to serve it, so an
+    fMRIPrep subject report is ~80 MB of RAM. The QC page states the figure, and
+    can only state it if it can be computed without embedding anything.
+    """
+
+    def test_lists_each_local_asset_once(self, report):
+        found = local_asset_paths(report.read_text(), report.parent)
+        assert sorted(p.name for p in found) == [
+            "sub-010_desc-carpet_bold.svg",
+            "sub-010_desc-mean_bold.svg",
+        ]
+
+    def test_a_figure_drawn_twice_is_counted_once(self, report):
+        """Reports repeat a figure across sections; the bytes are paid once."""
+        doubled = report.read_text().replace(
+            "</body>", '<img src="./sub-010/figures/sub-010_desc-mean_bold.svg" /></body>'
+        )
+        report.write_text(doubled)
+        assert len(local_asset_paths(doubled, report.parent)) == 2
+
+    def test_cdn_and_anchors_cost_nothing(self, report):
+        """The browser fetches those, not the server — they are not our bytes."""
+        assert all(p.suffix == ".svg" for p in local_asset_paths(report.read_text(), report.parent))
+
+    def test_counts_the_report_and_its_figures(self, report):
+        figures = report.parent / "sub-010" / "figures"
+        (figures / "sub-010_desc-carpet_bold.svg").write_text("x" * 5000)
+        (figures / "sub-010_desc-mean_bold.svg").write_text("x" * 3000)
+        assert payload_bytes(report) == report.stat().st_size + 8000
+
+    def test_an_unreadable_report_costs_nothing_rather_than_raising(self, tmp_path):
+        """The page shows this number in passing; it must not be able to crash."""
+        assert payload_bytes(tmp_path / "absent.html") == 0
+
+    def test_a_missing_figure_is_skipped_not_counted(self, report):
+        (report.parent / "sub-010" / "figures" / "sub-010_desc-mean_bold.svg").unlink()
+        assert payload_bytes(report) == report.stat().st_size + len("<svg/>")
+
+
+class TestFindFmriprepReports:
+    """fMRIPrep writes one report per subject at the root of its output dir."""
+
+    def test_finds_them_keyed_by_subject(self, tmp_path):
+        for name in ("sub-010.html", "sub-011.html"):
+            (tmp_path / name).write_text("<html/>")
+        assert qc_report.find_fmriprep_reports(tmp_path) == {
+            "sub-010": "sub-010.html",
+            "sub-011": "sub-011.html",
+        }
+
+    def test_a_session_aggregated_report_keys_distinctly(self, tmp_path):
+        """``--aggregate-session-reports`` yields one per session; not a collision."""
+        (tmp_path / "sub-010.html").write_text("<html/>")
+        (tmp_path / "sub-010_ses-02.html").write_text("<html/>")
+        assert set(qc_report.find_fmriprep_reports(tmp_path)) == {"sub-010", "sub-010_ses-02"}
+
+    def test_ignores_everything_that_is_not_a_subject_report(self, tmp_path):
+        (tmp_path / "dataset_description.json").write_text("{}")
+        (tmp_path / "desc-aseg_dseg.tsv").write_text("x")
+        (tmp_path / "sub-010").mkdir()
+        assert qc_report.find_fmriprep_reports(tmp_path) == {}
+
+    def test_no_derivative_is_no_reports_not_an_error(self, tmp_path):
+        assert qc_report.find_fmriprep_reports(tmp_path / "nope") == {}
 
 
 class TestReportBaseInTheRenderedReport:

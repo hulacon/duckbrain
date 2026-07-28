@@ -20,6 +20,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage ·
 [`#22`](#22) wire up the dcm2niix probe ·
+[`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
@@ -1153,6 +1154,38 @@ The one thing worth asking the curator directly is which reconstruction their
 re-conversion keeps. If they keep the `_ND` copy where both exist, duckbrain's
 default (`corrected`) will disagree on every twinned session — 47 of them — and
 that would be a *default* to reconsider, not a bug to fix.
+
+<a id="23"></a>
+## #23 — `st.components.v1.html` is past its announced removal date
+
+Streamlit 1.56 emits, every time the QC page renders:
+
+> Please replace `st.components.v1.html` with `st.iframe`. `st.components.v1.html`
+> will be removed after 2026-06-01.
+
+That date has passed. It still works in 1.56, but `pyproject.toml` pins only
+`streamlit>=1.48`, so the next upgrade a user happens to install can take it
+away — and it is what renders **both** the QC report itself and every embedded
+MRIQC/fMRIPrep report (`gui/components.py` `embed_tool_report`,
+`5_QC_Dashboard.py`). Losing it silently blanks the whole QC surface.
+
+Two calls to change, but do not do it blind:
+
+- `st.iframe` is newer than the floor. Check which version introduced it and
+  raise the `streamlit>=` floor to match in the same commit, or the fix breaks
+  1.48 users instead.
+- The sandbox matters. `embed_tool_report` deliberately renders into a
+  *sandboxed* iframe so a tool report's own scripts cannot reach the app's
+  origin, which under OnDemand is shared with the OnDemand dashboard. Confirm
+  `st.iframe` still sandboxes before swapping, and pin it with a test if it is
+  expressible — that property has no coverage today.
+- `tests/test_qc_page.py` and `tests/test_gui_components.py` exercise both call
+  sites, so a swap that breaks rendering should fail rather than go quiet.
+
+Found 2026-07-28 while adding the fMRIPrep report panel; the deprecation warning
+is visible in any `AppTest` run of the QC page.
+
+---
 
 <a id="loose-ideas-not-scheduled"></a>
 ## Loose ideas (not scheduled)

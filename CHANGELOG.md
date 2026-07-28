@@ -57,6 +57,19 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   now comes from one function both ends share.
 
 ### Added
+- **fMRIPrep's own report is now readable from the QC Dashboard.** A panel at the
+  top of the page opens the per-subject report — tissue segmentation, spatial
+  normalization, surface reconstruction, susceptibility distortion correction
+  before/after, per-run carpet plots and confound correlations. None of these
+  were reachable from the GUI before: every QC view is organised around runs, and
+  fMRIPrep writes one document per *subject*, so there was nowhere for it to
+  hang. The panel sits above the point where the page stops for missing MRIQC
+  metrics, so an fMRIPrep derivative is readable whether or not MRIQC has run.
+
+  The report's size is stated before you open it (~80 MB of figures for a
+  13-run subject) and nothing is loaded until you ask for it, because the figures
+  are read into the session's memory in order to be served — and the OnDemand
+  form defaults to 4 GB.
 - **A NORDIC project's QC report now says its IQMs come from raw data.** MRIQC
   always grades the raw acquisition, on purpose — NORDIC removes the thermal
   noise that MRIQC's noise measures are measuring, so denoised IQMs would

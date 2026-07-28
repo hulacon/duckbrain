@@ -13,6 +13,12 @@ exported file (which sits beside ``mriqc/``) and cannot resolve for the embedded
 copy (a ``srcdoc`` iframe with no location of its own). MRIQC reports are opened
 per run from the decisions panel instead, via ``components.embed_tool_report``.
 
+The tools' own reports hang at the level each is written at: MRIQC's per run, in
+the decisions panel; fMRIPrep's per subject, in a panel above the run table. The
+anatomical checks a reviewer needs — tissue segmentation, spatial normalization,
+surface reconstruction — are computed once per subject and appear in no per-run
+view, so a page organised entirely around runs had nowhere to put them.
+
 Recording a decision stays in Streamlit widgets outside that iframe, because
 persisting one needs a server-side callback static HTML cannot make.
 """
@@ -43,7 +49,7 @@ if not derivatives_dir:
     st.error("Derivatives directory not set. Check Project Setup.")
     st.stop()
 
-from duckbrain.core import qc, qc_report
+from duckbrain.core import qc, qc_report, report_embed
 from duckbrain.gui import components as components_mod
 
 mriqc_dir = Path(derivatives_dir) / "mriqc"
@@ -51,6 +57,26 @@ fmriprep_dir = qc_report.resolve_fmriprep_dir(config)
 decisions_dir = Path(derivatives_dir) / "preprocessing_qc"
 
 settings = qc.qc_settings()
+
+# ---- fMRIPrep's own reports ----
+# Above the MRIQC gate below, deliberately: these exist whenever fMRIPrep has
+# run, and stopping the page because MRIQC metrics are missing would hide a
+# derivative that is present. Collapsed, because the run table is what the page
+# is for and this is a per-subject document that does not belong in it.
+fmriprep_reports = qc_report.find_fmriprep_reports(fmriprep_dir)
+with st.expander("fMRIPrep report — segmentation, spatial normalization, SDC before/after"):
+    if not fmriprep_reports:
+        st.caption(f"No fMRIPrep reports in `{fmriprep_dir}`. Run fMRIPrep from **Preprocessing**.")
+    else:
+        subject = st.selectbox("Subject", sorted(fmriprep_reports), key="fmriprep_subject")
+        report_path = fmriprep_dir / fmriprep_reports[subject]
+        # Named before it is spent, not after: the figures are read into the
+        # server's memory to be served, so an 80 MB subject report is a cost the
+        # reader should choose knowingly (core.report_embed.payload_bytes).
+        megabytes = report_embed.payload_bytes(report_path) / 1e6
+        st.caption(f"`{report_path.name}` — {megabytes:.0f} MB of figures, loaded only when shown.")
+        if st.toggle("Show fMRIPrep report", key=f"fmriprep_report_{subject}"):
+            components_mod.embed_tool_report(report_path, height=1600)
 
 # ---- Modality selector ----
 modality = st.selectbox("Modality", ["bold", "T1w", "T2w"])
