@@ -17,8 +17,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
 [`#15`](#15) BIDS validation ·
-[`#25`](#25) publish the existing tags as Releases (**5 minutes, turns on a
-shipped feature**) ·
+[`#25`](#25) push the `v0.3.0` tag, then publish it as a Release (**0.1/0.2
+done; the untagged tip mis-stamps provenance**) ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
 [`#22`](#22) wire up the dcm2niix probe ·
@@ -258,7 +258,7 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   would do anyway. Harmless, but worth checking before adding more of it.
 
 <a id="25"></a>
-## #25 — Publish `v0.1.0`, `v0.2.0` and `v0.3.0` as GitHub Releases
+## #25 — Publish the tags as GitHub Releases (`v0.1.0`, `v0.2.0` done)
 
 **Needs a browser and a GitHub login, so it cannot be done from Talapas** — `gh`
 is not installed and there is no token on the cluster. That is the only reason
@@ -281,21 +281,21 @@ Until that lands, a fresh clone has no `v0.3.0`, so `git describe` reads
 stamped with the wrong provenance**. That is the reason to do it before the next
 conversion run, not merely for tidiness.
 
-Two of the three tags are pushed; the API returns **zero releases**. A pushed tag notifies
-nobody, so today the announcement channel described in `docs/releasing.md` step 7
-does not exist, and the GUI's "newer version available" line
-(`core/updates.py`, wired into `gui/app.py`) queries `releases/latest` and gets a
-404 — it will stay dark for every user until the first Release is published.
+**`v0.1.0` and `v0.2.0` are published** (2026-07-29), so the announcement channel
+of `docs/releasing.md` step 7 now exists and `core/updates.py` no longer 404s.
+`v0.3.0` is the only one left, and it is blocked on the tag push above — a
+Release can only be drafted against a tag that exists on `origin`.
 
-- Draft a Release against each existing tag, body = that version's `CHANGELOG.md`
-  section verbatim. Web UI: **Releases → Draft a new release → Choose an existing
-  tag**.
+- Publish `v0.3.0` once its tag is pushed, body = that version's `CHANGELOG.md`
+  section verbatim, marked **latest**. Web UI: **Releases → Draft a new release →
+  Choose an existing tag**.
 - Then tell the two beta users to **Watch → Custom → Releases** on the repo
-  (`README.md#staying-up-to-date` has the wording).
+  (`README.md#staying-up-to-date` has the wording). Worth saying explicitly that
+  `v0.3.0` is the one to update to, and why — see the fieldmap-intent note below.
 - Sanity-check afterwards: `curl -s
   https://api.github.com/repos/hulacon/duckbrain/releases/latest` should return
   `tag_name: v0.3.0`, and the GUI bar should show `v0.3.0` with no update link —
-  this checkout *is* the tag now, so quiet is the correct state.
+  a checkout sitting *on* the tag is the correct quiet state.
 
 The **fieldmap-intent inversion fix reaching a tagged release** is what `v0.3.0`
 is for — the most consequential correctness fix in the project sat in
