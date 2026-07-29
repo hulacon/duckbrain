@@ -264,14 +264,13 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
 is not installed and there is no token on the cluster. That is the only reason
 this is an item rather than a commit.
 
-**`v0.3.0` is prepared but not yet tagged** (2026-07-29): `__version__` is bumped
-and the changelog section is closed, on `claude/todo-item-25-vpdon3`. The tag is
-deliberately *not* created on that branch — `git describe` stamps provenance into
-every derivative, so a tag must point at the commit that actually lands on `main`,
-which a squash-merge would renumber. Tag after merging, per `docs/releasing.md`
-steps 4–6, then publish all three.
+**`v0.3.0` is cut** (2026-07-29) — bumped, changelog closed, merged to `main` and
+tagged there rather than on the feature branch, since `git describe` stamps
+provenance into every derivative and a squash-merge would have renumbered the
+commit a branch tag pointed at. So the tag sits on `main`'s tip and
+`git describe` reads exactly `v0.3.0`.
 
-Both tags are pushed; the API returns **zero releases**. A pushed tag notifies
+All three tags are pushed; the API returns **zero releases**. A pushed tag notifies
 nobody, so today the announcement channel described in `docs/releasing.md` step 7
 does not exist, and the GUI's "newer version available" line
 (`core/updates.py`, wired into `gui/app.py`) queries `releases/latest` and gets a
@@ -284,8 +283,8 @@ does not exist, and the GUI's "newer version available" line
   (`README.md#staying-up-to-date` has the wording).
 - Sanity-check afterwards: `curl -s
   https://api.github.com/repos/hulacon/duckbrain/releases/latest` should return
-  `tag_name`, and the GUI bar should show the version with no update link (the
-  checkout is ahead of `v0.2.0`, which is the correct quiet state).
+  `tag_name: v0.3.0`, and the GUI bar should show `v0.3.0` with no update link —
+  this checkout *is* the tag now, so quiet is the correct state.
 
 The **fieldmap-intent inversion fix reaching a tagged release** is what `v0.3.0`
 is for — the most consequential correctness fix in the project sat in
