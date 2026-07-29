@@ -25,6 +25,7 @@ shipped feature**) ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
+[`#26`](#26) GUI state, one home per fact (**tentative — explore before doing**) ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -1339,6 +1340,88 @@ natively now, and fMRIPrep's figures are served as individual SVGs through
 they are the ones that genuinely need an iframe: `embed_tool_report`, which shows
 MRIQC's and fMRIPrep's own Bootstrap reports, and nothing else. The exported
 duckbrain report is a *file*, not an embed, so it is unaffected either way.
+
+---
+
+<a id="26"></a>
+## #26 — GUI state: one home per fact, and a gate that can see it
+
+**TENTATIVE. Do not start this as a refactor.** The diagnosis below is worth
+more than the proposed cure, and the cure is a large diff over a 1,100-line page
+that is in active dogfooding. Do the exploration first (bottom of this item);
+it may well end somewhere cheaper than a rewrite.
+
+**The observation.** Four bugs of one class have been found in
+`3_BIDS_Conversion.py`, none of which crashed, all of which rendered a page that
+looked right:
+
+- a row edit reverted itself on the next rerun, and **Save wrote the plan the
+  user had not reviewed** (2026-07-29 — `st.data_editor` keys its state on a
+  hash of the frame handed to it, so baking the edit in discards the edit);
+- an unsatisfiable fieldmap binding was *dropped*, which handed the run back to
+  automatic assignment and silently corrected it with **a pair the user never
+  chose**, while the warning said uncorrected (2026-07-29, live in the
+  skipped-half path since it shipped);
+- the hand-edited JSON took over while the table went on accepting edits that
+  did nothing, and the save-as-default buttons persisted the table's bindings
+  rather than the reviewed ones (`#17.5`);
+- a reviewed config on disk was reused, and reconversion re-supplied the very
+  `B0FieldIdentifier` a fix had corrected (`#17.6`).
+
+Each was two representations of *what will convert* disagreeing with nothing
+forcing them to agree. That page reads or writes six `session_state` keys of its
+own (plus the widget keys Streamlit stores beside them), plus the config saved
+in `sourcedata/`, plus the project config's `[fmap_mapping]`, plus the heuristic
+seed recomputed each run, plus `series_list` mutated in place (`drop_reason`,
+classification). The bug count is a function of how many pairs among those can
+drift, which is why fixing them one at a time does not converge.
+
+**Refused: make `dcm2bids_config.json` the live model** — GUI writes the file,
+GUI renders from the file. Right principle, wrong file, for two reasons already
+visible in the page. (1) The round trip is lossy and the code says so:
+`read_config_into_table` returns an `unrepresentable` list and the page warns
+"the table can't represent everything that JSON contained". Render-from-file
+plus write-on-edit means every edit rewrites the file from a lossy projection,
+so touching one cell would silently delete config the table cannot express —
+worse than the bugs above. (2) That file is a *consumed artifact*, not scratch:
+`_build_dcm2bids`, bulk convert and the cockpit all run from it, so writing it
+per keystroke makes every half-finished edit into what a bulk convert would
+execute, and erases the reviewed-vs-being-edited distinction the reviewed-config
+banner exists to preserve.
+
+**The proposal, such as it is.** The derivation chain the page already has —
+`effective_df` → config → plan → `becomes` — is sound, and is why `becomes`
+cannot promise a filename dcm2bids won't write. Every bug above sits *upstream*
+of it, in the part that decides what `effective_df` is. So extract that part:
+a pure `(seed, edits, imported, override) -> effective plan` in `core/`, with
+the page reduced to rendering over it. Nothing about the layered config or the
+saved artifact needs to move.
+
+**The structural half, which may matter more.** Every file under `gui/pages/`
+reports **0% coverage** — check it yourself in any `--cov` run, the block is
+unmissable. They are exercised, and `tests/test_conversion_page.py` is one of
+the larger suites in the repo, but `AppTest` runs a page as a *script*, so the
+ratchet in `[tool.coverage.report]` cannot see a line of it. The one gate this
+repo does not allow you to lower therefore exerts no pressure at all on the code
+where this bug class lives, while everything it does measure — `core`, `config`,
+`slurm` — carries almost none of it. That asymmetry explains where the bugs are
+better than anything about Streamlit, and it has a cheaper fix than a refactor.
+
+**Explore first, in this order:**
+
+1. Can `AppTest` runs be made to count toward coverage (`coverage run` with the
+   page as a source file, or importing the page under a harness)? If yes, this
+   item may reduce to "turn that on and raise the floor" — do that instead.
+2. Inventory the same state question on the other pages. If the conversion page
+   is an outlier, the general refactor is not justified and the specific page
+   is; `2_Data_Ingestion.py` already passes a stable frame and reads the return
+   value, which is the immune pattern and worth reading first.
+3. Only then decide the boundary of the extracted function, and whether it earns
+   a large diff on a page users are actively running.
+
+Raised 2026-07-29 by Ben, after the fieldmap-revert bug: "why are there so many
+pernicious, subtle issues in the gui?" The honest answer is the state inventory
+above plus the coverage blind spot, not Streamlit being unusual.
 
 ---
 
