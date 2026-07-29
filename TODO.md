@@ -17,8 +17,6 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
 [`#15`](#15) BIDS validation ·
-[`#25`](#25) push the `v0.3.0` tag, then publish it as a Release (**0.1/0.2
-done; the untagged tip mis-stamps provenance**) ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
 [`#22`](#22) wire up the dcm2niix probe ·
@@ -256,52 +254,6 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   `custom_entities` per the spec unless `--do_not_reorder_entities` is passed, so
   `_fmap_description`'s manual acq/dir/run ordering might be doing work dcm2bids
   would do anyway. Harmless, but worth checking before adding more of it.
-
-<a id="25"></a>
-## #25 — Publish the tags as GitHub Releases (`v0.1.0`, `v0.2.0` done)
-
-**Needs a browser and a GitHub login, so it cannot be done from Talapas** — `gh`
-is not installed and there is no token on the cluster. That is the only reason
-this is an item rather than a commit.
-
-**`v0.3.0` is cut but its tag is not pushed** (2026-07-29). Bumped, changelog
-closed, merged to `main` and pushed. The tag is *not* on `origin`: the agent
-environment's git proxy accepts branch refs and refuses tag refs (`HTTP 403`,
-deterministic over three attempts), so it has to be pushed by hand:
-
-```bash
-git fetch origin main && git checkout main && git pull
-git tag -a v0.3.0 -m "duckbrain v0.3.0"   # on main's tip
-git push origin v0.3.0
-git describe --tags                        # must read exactly v0.3.0
-```
-
-Until that lands, a fresh clone has no `v0.3.0`, so `git describe` reads
-`v0.2.0-N-g<sha>` and **every derivative converted from such a checkout is
-stamped with the wrong provenance**. That is the reason to do it before the next
-conversion run, not merely for tidiness.
-
-**`v0.1.0` and `v0.2.0` are published** (2026-07-29), so the announcement channel
-of `docs/releasing.md` step 7 now exists and `core/updates.py` no longer 404s.
-`v0.3.0` is the only one left, and it is blocked on the tag push above — a
-Release can only be drafted against a tag that exists on `origin`.
-
-- Publish `v0.3.0` once its tag is pushed, body = that version's `CHANGELOG.md`
-  section verbatim, marked **latest**. Web UI: **Releases → Draft a new release →
-  Choose an existing tag**.
-- Then tell the two beta users to **Watch → Custom → Releases** on the repo
-  (`README.md#staying-up-to-date` has the wording). Worth saying explicitly that
-  `v0.3.0` is the one to update to, and why — see the fieldmap-intent note below.
-- Sanity-check afterwards: `curl -s
-  https://api.github.com/repos/hulacon/duckbrain/releases/latest` should return
-  `tag_name: v0.3.0`, and the GUI bar should show `v0.3.0` with no update link —
-  a checkout sitting *on* the tag is the correct quiet state.
-
-The **fieldmap-intent inversion fix reaching a tagged release** is what `v0.3.0`
-is for — the most consequential correctness fix in the project sat in
-`[Unreleased]` for eight days, so users on `main` had it and anyone pinned to a
-tag did not. That argued for cutting `v0.3.0` rather than backfilling `v0.2.0`
-and stopping, which is what was done.
 
 <a id="licensing-follow-ups"></a>
 ## Licensing follow-ups
@@ -1491,6 +1443,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-29 | `#25` | **All three tags published as GitHub Releases, and `v0.3.0` cut to make that worth doing.** A pushed tag notifies nobody and is invisible to the API, so `docs/releasing.md` step 7's announcement channel did not exist and `core/updates.py` — shipped the day before — queried `releases/latest` and got a 404, meaning the GUI's "newer version" line was dark for every user from the moment it landed. Backfilling 0.1/0.2 alone would have turned the channel on and had nothing worth announcing: the **fieldmap-intent inversion fix sat in `[Unreleased]` for eight days**, so users on `main` had it and anyone pinned to a tag did not. Hence `v0.3.0` — 50 commits, +27.8k/−1.7k. **Minor, not patch, deliberately**: `_release_line()` reduces to `major.minor` and `check_duckbrain_drift()` therefore flags every derivative built under the 0.2 line, which is *correct* here rather than collateral, because this release changes recipes duckbrain authors (which series convert, their datatype, the `B0Field*` intent in every sidecar, which reconstruction ships, which pair corrects which run) and not merely the flags passed to a container. The changelog's thirteen repeated Added/Changed/Fixed headers — one set per work session — were merged into one of each, since that section becomes the published notes; every bullet moved verbatim and the 688 content lines were diffed before and after rather than eyeballed. Two environment limits worth knowing if this is ever automated: the agent sandbox refuses tag refs (`HTTP 403`) while accepting branch refs, and the GitHub MCP server exposes releases read-only — so tag and publish stayed manual |
 | 2026-07-28 | `#13.1` | **A series can be left out of the conversion** — a `convert` checkbox on the plan table, prompted by a beta tester asking how to skip a run. The config's native spelling of "not converted" is *no description*, so `generate_config(skip=…)` simply omits one and everything downstream follows with no new state: `becomes` already rendered `— not converted` for an unclaimed series, and the skip survives save/reload through the saved JSON alone. Three things the naive version gets wrong. **A skipped fieldmap half takes its whole pair** (`_without_skipped_groups`) — half a pair is not half a fieldmap, and emitting the survivor writes a `fmap/` file nothing can be estimated from; a run still bound to a pair whose half was unticked is refused, naming the two edits that conflict rather than letting `generate_config` say the session lacks a group the user removed three rows up. **The drop carries a reason**, because the warning it otherwise raises means "nothing claimed this" — the anat-suffix bug that warning exists to catch — so the reason travels on `SeriesInfo.drop_reason` and the finding is an info note; that also fixes the pre-existing double-report where an ND-demoted anat got both the warning and the note, and the kind is `deliberate-drop` now, not `nd-duplicate`, since the ND policy was the first thing to set a reason and is no longer the only one. **A stranded SBRef is reported** (`orphan-sbref`): bold and sbref are two rows, so skipping one and not the other is a click away, and an SBRef alone is the reference volume for a run that isn't being written. Rows duckbrain has no emission path for start unticked so the box agrees with `becomes`; `EMITTED_CLASSIFICATIONS` is deliberately not "everything that isn't an expected drop", because `dwi` classifies cleanly and still converts to nothing. Per-session by construction — see `#13.1` for why a project-level skip needs the description key |
 | 2026-07-28 | — | **All duckbrain-authored output moved under `derivatives/duckbrain/`** (`qc/decisions/`, `qc/reports/`), so a project shows at a glance which derivatives a tool produced and which duckbrain did. The tool trees stay put — they are the tools' own derivative datasets and BIDS expects them at `derivatives/<pipeline>/`, and that includes `fmriprep/sourcedata/freesurfer`, which duckbrain only seeds `fsaverage` into. No file is moved: `decision_search_dirs` still reads `preprocessing_qc/`, legacy root first so the current location's entries are the newest, because mmmdata still writes there and a project reviewed before the move must not lose its history — the same treatment `_history_of` gives the two on-disk schemas, applied to the two locations. Verified live on both real projects: 1 and 609 records, all still read, none moved. The report's MRIQC links are now computed from `REPORT_SUBDIR` rather than a hardcoded `../mriqc`, since deepening the subdir would otherwise have pointed every link at a directory that does not exist — silently, a broken relative link being ordinary text |
 | 2026-07-28 | `#24` | **QC review is grouped by the question being asked** — an Overview plus one page per domain (signal, temporal, alignment, artifact) under a collapsible `QC` nav group, each measure's guidance beside the number instead of in a glossary, and each measure shown with where the run sits among the runs around it. `core/qc_domains.py` partitions all 30 registry measures at import (a measure in two domains emits duplicate `#guidance-{key}` anchors), and carries the fMRIPrep figures that can never be registry entries — which is what gives alignment, the domain with no MRIQC number on bold, anything to show. `core/qc_evidence.py` serves those figures per run: 1.1 MB against 80 MB for the subject report, with the SDC flicker intact because the animation is CSS inside each SVG, verified reaching the browser as a self-contained data URI. Matching is by BIDS entity, not by prefix join, which is what makes `sub-03_acq-MPR_dseg.svg` findable on a session dataset. An absent figure is stated, not skipped — no SDC figure means the run was preprocessed with no distortion correction. Domain reviews share the per-run decision file via an optional `domain` field, with a vocabulary disjoint from the verdicts' and `latest` meaning the newest entry carrying *no* domain, so a note about alignment can never become the run's verdict; 609 real records read unchanged. Coverage rose 70.83% → 73.51% because the five pages are four-statement declarations over one tested module, so the ratchet went 65 → 70. Slice B (regrouping the HTML export) dropped by decision, not deferred |
