@@ -17,13 +17,14 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
 [`#15`](#15) BIDS validation ·
+[`#26`](#26) GUI state, one home per fact (**explored; the coverage half is a
+4-line config fix worth +13 points**) ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
 [`#22`](#22) wire up the dcm2niix probe ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
-[`#26`](#26) GUI state, one home per fact (**tentative — explore before doing**) ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -1315,12 +1316,71 @@ duckbrain report is a *file*, not an embed, so it is unaffected either way.
 <a id="26"></a>
 ## #26 — GUI state: one home per fact, and a gate that can see it
 
-**TENTATIVE. Do not start this as a refactor.** The diagnosis below is worth
-more than the proposed cure, and the cure is a large diff over a 1,100-line page
-that is in active dogfooding. Do the exploration first (bottom of this item);
-it may well end somewhere cheaper than a rewrite.
+**Explored 2026-07-29; it ended somewhere much cheaper than a rewrite, exactly as
+the tentative note hoped.** The three exploration steps are all answered and are
+recorded below in place of the questions. **What is left to do is the numbered
+checklist under "The fix"** — four lines of config and one stale sentence. The
+refactor is deferred, with a reason.
 
-**The observation.** Four bugs of one class have been found in
+**The coverage blind spot was a config bug, and the item's own diagnosis of it was
+wrong.** `pyproject.toml:53` sets `source = ["duckbrain"]` — a package *name*, and
+coverage resolves those by **module name**, not by file path. Streamlit's
+`ScriptRunner` execs a page as a fresh module, so the page's module name is
+`5_QC_Overview`: not a `duckbrain` submodule, and not even a legal Python
+identifier, so it can never match no matter what the file path is. In coverage's
+own words (`COVERAGE_DEBUG=trace`):
+
+```
+Not tracing '.../gui/pages/5_QC_Overview.py': module '5_QC_Overview'
+    falls outside the --source spec
+```
+
+`gui/qc_panels.py` is imported normally as `duckbrain.gui.qc_panels`, so it matches
+and scores 93%. A **path-based** source matches by directory and traces the pages
+fine. Same tests, same 6459 statements, measured on this checkout:
+
+| `--cov=` | Total |
+|---|---|
+| `duckbrain` (package name — what CI runs today) | **73.20%** |
+| `src/duckbrain` (path) | **86.27%** |
+
+So there is no process boundary to lose, no `exec` of a `<string>` filename, and no
+line-number skew from streamlit's `magic` AST rewrite (it calls
+`ast.fix_missing_locations`). The pages were always traceable. They were filtered
+out at config time.
+
+**Which makes the paragraph this item used to carry false, and it mattered.** It
+claimed the ratchet "exerts no pressure at all on the code where this bug class
+lives." The pressure was there the whole time and the report discarded it:
+**`3_BIDS_Conversion.py` is already 79% covered** by the 35 tests in
+`tests/test_conversion_page.py`. Per page, once visible:
+
+| Page | Stmts | Cover |
+|---|---|---|
+| `3_BIDS_Conversion.py` | 431 | 79% |
+| `0_Project_Status.py` | 346 | 86% |
+| `1_Project_Setup.py` | 136 | 82% |
+| `2_Data_Ingestion.py` | 168 | 43% |
+| `4_Preprocessing.py` | 157 | **0%** — nothing drives it |
+| `5*_QC_*.py` | 4 each | 100% |
+| `6_Guide.py` | 4 | 0% |
+
+`4_Preprocessing.py` is the real gap the fix exposes, and it was invisible for the
+same reason.
+
+**Step 2 answered: the conversion page is an outlier, so the general refactor is
+not justified.** `0_Project_Status.py` (711 lines) and `4_Preprocessing.py` (319)
+submit SLURM jobs and write project config with **zero** `session_state` between
+them, reading every widget's return value. `1_Project_Setup.py` holds one key,
+`2_Data_Ingestion.py` three. `3_BIDS_Conversion.py` holds six plus ten write-only
+widget keys, and every one of the five representations that can drift is in that
+one file. The sharpest single difference from `2_Data_Ingestion.py`: page 2 binds
+`edited_df = st.data_editor(...)` over a frame that is byte-identical across reruns
+unless the folder set changes, and bumps `_editor_rev` when it *wants* a remount;
+page 3 calls `st.data_editor(effective_df, ...)` as a bare statement, discards the
+return, and rebuilds `effective_df` every rerun — so it remounts implicitly.
+
+**The observation that still stands.** Four bugs of one class have been found in
 `3_BIDS_Conversion.py`, none of which crashed, all of which rendered a page that
 looked right:
 
@@ -1358,39 +1418,91 @@ per keystroke makes every half-finished edit into what a bulk convert would
 execute, and erases the reviewed-vs-being-edited distinction the reviewed-config
 banner exists to preserve.
 
-**The proposal, such as it is.** The derivation chain the page already has —
-`effective_df` → config → plan → `becomes` — is sound, and is why `becomes`
-cannot promise a filename dcm2bids won't write. Every bug above sits *upstream*
-of it, in the part that decides what `effective_df` is. So extract that part:
-a pure `(seed, edits, imported, override) -> effective plan` in `core/`, with
-the page reduced to rendering over it. Nothing about the layered config or the
-saved artifact needs to move.
+### The fix — this is what is left to do
 
-**The structural half, which may matter more.** Every file under `gui/pages/`
-reports **0% coverage** — check it yourself in any `--cov` run, the block is
-unmissable. They are exercised, and `tests/test_conversion_page.py` is one of
-the larger suites in the repo, but `AppTest` runs a page as a *script*, so the
-ratchet in `[tool.coverage.report]` cannot see a line of it. The one gate this
-repo does not allow you to lower therefore exerts no pressure at all on the code
-where this bug class lives, while everything it does measure — `core`, `config`,
-`slurm` — carries almost none of it. That asymmetry explains where the bugs are
-better than anything about Streamlit, and it has a cheaper fix than a refactor.
+Do it from a login node; nothing here needs re-deriving.
 
-**Explore first, in this order:**
+1. `pyproject.toml:53` → `source = ["src/duckbrain"]`.
+2. `pyproject.toml:61-64` → rewrite that comment. It currently states the wrong
+   cause ("AppTest executes them in a way coverage does not follow"), and it was
+   load-bearing: it is why nobody re-checked for a week.
+3. `.github/workflows/ci.yml`, last step → `--cov=duckbrain` becomes bare `--cov`.
+   **Required, not cosmetic** — a `--cov=` value on the CLI overrides the config,
+   so changing `pyproject.toml` alone leaves CI measuring the old way. Verified:
+   bare `--cov` plus a path `source` reports `5a_QC_Signal.py` at 4/4.
+4. `pyproject.toml:70` → `fail_under` 70 → **85** (measured 86.27; a point of slack
+   is the same margin 60 was given when 61.0 was measured).
+5. `CLAUDE.md:189` says the floor "reads low (60%)" — it is 70 today and would
+   become 85, and the sentence explaining *why* it reads low stops being true
+   entirely. `CLAUDE.md:185` also carries `--cov=duckbrain` as the documented local
+   gate, which must match CI or a local run stops enforcing what CI does.
+   (`CHANGELOG.md:240`'s "starts at 60% (measured 61%)" is **correct as history** —
+   leave it.)
+6. Write down the caveat: a path `source` measures the source tree, so it is right
+   only because the install is editable and pytest runs from the repo root. Both
+   hold in CI. A non-editable install would report 0% everywhere — which fails
+   loudly rather than silently, so it is an acceptable trade, but say so.
 
-1. Can `AppTest` runs be made to count toward coverage (`coverage run` with the
-   page as a source file, or importing the page under a harness)? If yes, this
-   item may reduce to "turn that on and raise the floor" — do that instead.
-2. Inventory the same state question on the other pages. If the conversion page
-   is an outlier, the general refactor is not justified and the specific page
-   is; `2_Data_Ingestion.py` already passes a stable frame and reads the return
-   value, which is the immune pattern and worth reading first.
-3. Only then decide the boundary of the extracted function, and whether it earns
-   a large diff on a page users are actively running.
+Expect afterwards: page 3 ~79%, the QC pages 100%, TOTAL ~86%, and
+`4_Preprocessing.py` at 0% as a newly visible gap — do not paper that one over.
+Measured in a throwaway venv on Python 3.11.15 / streamlit 1.60.0, 1173 passed; CI
+matrixes 3.10 and 3.12 so the exact figure will shift by a fraction.
+
+### `#26.1` — a comment asserting a coupling that does not exist
+
+`3_BIDS_Conversion.py:726-729` says "`series_list` is cached across reruns, so a
+stale reason would keep claiming a converted series was skipped." It is not cached:
+`list_series` (`core/dicom_inspect.py:194`) carries no `lru_cache`, and the only
+`st.cache_data` in the repo are `gui/qc_panels.py:188` and `gui/app.py:78`. The list
+is rebuilt every rerun, so the `elif` branch guards a condition unreachable by that
+path. Delete the branch or fix the comment — but do not leave a comment describing
+state that isn't there, in the one item that exists because state has too many homes.
+
+### `#26.2` — an `st.stop()` still inside the derivation region
+
+`3_BIDS_Conversion.py:863` is `st.error` + `st.stop()` on an unsatisfiable binding
+from `generate_config`. That is the shape `28b2c5f` and `b4aa500` removed at `:790`
+and `:823` a commit apart, for the stated reason that a stop fires *above* the table
+and so removes the control that would fix the problem — a locked door now that row
+edits are durable. **Confirm reachability first:** the two upstream repair passes
+rewrite an unsatisfiable rule to `_NO_FMAP`, so this may already be dead. If it is
+reachable, make it a warning like its two neighbours; if it is not, say so there.
+
+### The refactor: deferred, not refused
+
+The derivation chain the page already has — `effective_df` → config → plan →
+`becomes` — is sound, and is why `becomes` cannot promise a filename dcm2bids won't
+write. Every bug above sits *upstream* of it, in the part that decides what
+`effective_df` is, and extracting that as a pure
+`(seed, edits, imported, override) -> effective plan` in `core/` is still the right
+shape if it is ever done. **It is not scheduled, for three reasons.**
+
+- **Its cheapest justification was the coverage gap, and that is now free.** The
+  page is 79% covered today; the extraction buys accuracy of *shape*, not
+  visibility.
+- **One of the four inputs already has one home.** `c0f4650` made the durable edit
+  store the record and demoted `st.data_editor`'s delta to a message about what
+  changed — the fix the extraction would have generalized, already applied where it
+  bit.
+- **The mechanical part is not the hard part.** ~300–330 lines are pure derivation,
+  but the diagnostics are *interleaved* with it (`st.error` at `:485`, warning
+  blocks at `:609`, `:691`, `:779`, `:808`, `:841`), so each step would have to
+  return findings the page renders — roughly the `PlanWarning` shape
+  `core/conversion_plan.py:310-323` already defines. And `effective_df` stores
+  **presentation tokens** (`🔵 1`), not group names, with `_group_token` /
+  `_token_group` (`:473-474`) as the round trip; an extraction returning group names
+  would rewrite ~18 of the 35 tests that are render-coupled only because of it.
+
+If it is ever picked up, the cheap first step is the QC-page pattern: move the body
+into an importable `gui/conversion_panels.py` and leave a ~14-line page script (see
+`5a_QC_Signal.py`, whose docstring says "so a test can import it"). No logic change,
+so the existing 35 tests are the regression net.
 
 Raised 2026-07-29 by Ben, after the fieldmap-revert bug: "why are there so many
 pernicious, subtle issues in the gui?" The honest answer is the state inventory
-above plus the coverage blind spot, not Streamlit being unusual.
+above — six keys and five representations that can disagree, in one file, unlike
+every other page. The coverage blind spot named alongside it turned out to be a
+reporting artifact, not a second cause.
 
 ---
 
