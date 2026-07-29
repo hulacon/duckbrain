@@ -597,8 +597,14 @@ def test_unticking_a_fieldmap_half_does_not_hide_the_table(two_pair_project):
     assert list(plan["Series #"]) == [1, 2, 3, 4, 9, 19, 30, 32]
     assert not dict(zip(plan["Series #"], plan["convert"]))[3]
 
-    # And re-ticking restores exactly the original plan.
-    at.session_state[EDITOR_KEY] = {"edited_rows": {}, "added_rows": [], "deleted_rows": []}
+    # And re-ticking restores exactly the original plan. Stated as a re-tick,
+    # which is what the browser sends: an *empty* delta used to pass this
+    # assertion by losing the edit, which was the revert bug, not an undo.
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {2: {"convert": True}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
     at.run()
     assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"])) == before
 
@@ -634,10 +640,9 @@ def test_a_skip_survives_the_saved_config_round_trip(two_pair_project):
     }
     at.session_state[EDITOR_KEY] = _skip_19
     at.run()
-    # Re-injected: st.data_editor writes its own (empty) delta back into
-    # session_state on each run, so the edit has to be restated for the run that
-    # actually presses Save.
-    at.session_state[EDITOR_KEY] = _skip_19
+    # Stated once, exactly as a browser states it once. This used to need the
+    # edit re-injected before the Save run, which was the bug wearing a
+    # workaround: see test_save_writes_the_reviewed_plan_not_the_seed.
     next(b for b in at.button if b.label == "Save Config JSON").click().run()
     assert not at.exception
 
@@ -653,3 +658,158 @@ def test_a_skip_survives_the_saved_config_round_trip(two_pair_project):
     plan = _plan_table(fresh)
     assert not dict(zip(plan["Series #"], plan["convert"]))[19]
     assert dict(zip(plan["Series #"], plan["becomes"]))[19] == "— not converted"
+
+
+# ---- an edit is a decision, not a delta ------------------------------------
+# st.data_editor's state does not belong to its `key`: streamlit hashes the
+# dataframe into the element id, so handing back a frame with the edit baked in
+# (what keeps `becomes` current) remounts the table as a different widget whose
+# delta starts empty. The page therefore has its own store; these pin it. A beta
+# tester reported the visible half — "it soon changes back".
+
+
+def test_a_row_edit_survives_a_later_rerun(two_pair_project):
+    """The reported bug: a fieldmap toggle undid itself on the next rerun.
+
+    The revert did not need the user to do anything recognisable — any rerun at
+    all did it: another cell, a button, or a websocket reconnect through the
+    OnDemand proxy. So the second `run()` here injects nothing, which is exactly
+    what a browser sends once the remounted table has no delta of its own.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    fmap = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))
+    other = fmap[30]  # the second pair — series 9 seeds to the first
+    assert other != fmap[9]
+
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"fieldmap": other}},  # row 4 = series 9
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == other
+
+    at.run()
+    assert not at.exception
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == other
+
+
+def test_save_writes_the_reviewed_plan_not_the_seed(two_pair_project):
+    """The silent half, and the one that cost data.
+
+    The table said `— not converted` for series 19 while the config written on
+    the very next click still contained it — and that file is what a later bulk
+    convert runs. A review that does not reach the artifact is worse than no
+    review, because it reports success.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {5: {"convert": False}},  # series 19, run 2
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[19] == (
+        "— not converted"
+    )
+
+    # She clicks Save. The browser has no edit left to re-send, and must not need one.
+    next(b for b in at.button if b.label == "Save Config JSON").click().run()
+    assert not at.exception
+
+    saved = json.loads(
+        (two_pair_project / "sourcedata/sub-001/ses-01/dcm2bids_config.json").read_text()
+    )
+    assert 19 not in {d["criteria"]["SeriesNumber"] for d in saved["descriptions"]}
+
+
+def test_discarding_row_edits_puts_the_heuristic_back(two_pair_project):
+    """Sticky edits need a way out that no edit can hide.
+
+    Before, an edit that tripped a hard stop cleared itself on the next rerun.
+    Now it doesn't, so the discard control renders above every `st.stop()` in
+    the table region — including the half-pair error, which removes the table
+    the user would otherwise fix the row in.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    seeded = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9]
+
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == "🟢 2"
+
+    # The browser ships the full widget state with every rerun, and the table
+    # keeps its delta whenever its data didn't change — so the discard has to
+    # survive the very edit it is discarding arriving alongside the click.
+    next(b for b in at.button if b.key == "reset_row_edits").click()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == seeded
+    # And it takes itself off screen once there is nothing left to discard.
+    assert not [b for b in at.button if b.key == "reset_row_edits"]
+
+
+# A lone AP: pair 1 is complete, pair 2 holds one direction and can correct
+# nothing. The dropdown still offers it, so a user can still pick it.
+HALF_PAIR_SERIES = [
+    ("01", "AAhead_scout"),
+    ("02", "t1w_mprage"),
+    ("03", "se_epi_ap"),
+    ("04", "se_epi_pa"),
+    ("09", "cmrr_mbep2d_bold_task-perFace_run-1"),
+    ("30", "se_epi_ap"),
+]
+
+
+@pytest.fixture
+def half_pair_project(tmp_path):
+    proj = tmp_path / "proj"
+    scaffold_project(str(proj))
+    dicom = proj / "sourcedata" / "sub-001" / "ses-01" / "dicom"
+    for num, desc in HALF_PAIR_SERIES:
+        d = dicom / f"Series_{num}_{desc}"
+        d.mkdir(parents=True)
+        (d / "0001.dcm").touch()
+    save_project_config(str(proj), {"project": {"name": "test", "use_sessions": "auto"}})
+    os.environ["DUCKBRAIN_PROJECT_DIR"] = str(proj)
+    yield proj
+    os.environ.pop("DUCKBRAIN_PROJECT_DIR", None)
+
+
+def test_an_edit_that_hides_the_table_can_still_be_undone(half_pair_project):
+    """Sticky edits must not become a locked door.
+
+    Binding a bold to a half pair is an error the page raises above the table,
+    so the table — and with it the cell that made the binding — leaves the
+    screen. That used to resolve itself, because the edit evaporated on the next
+    rerun; the revert bug was accidentally also the escape hatch. Fixing the
+    revert without this control would have turned a recoverable mistake into a
+    session the user can only get out of by reloading the page.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[30] == "🟢 2"
+
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"fieldmap": "🟢 2"}},  # series 9, bound to the half pair
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert any("holds only one" in e.value for e in at.error)
+    assert not [t for t in (df.value for df in at.dataframe) if "becomes" in t.columns], (
+        "the half-pair error hides the table — that is the premise of this test"
+    )
+
+    next(b for b in at.button if b.key == "reset_row_edits").click().run()
+    assert not at.exception
+    assert not at.error
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == "🔵 1"

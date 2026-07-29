@@ -308,6 +308,40 @@ from duckbrain.core.dicom_inspect import sanitize_task_label
 # unit's edits to another's rows.
 EDITOR_KEY = f"conversion_editor_{subject}_{session}"
 IMPORT_KEY = f"conversion_import_{subject}_{session}"
+# The durable record of what the user has changed. EDITOR_KEY is *not* that
+# record, however much it looks like one — see `_accumulate_edits`.
+EDITS_KEY = f"conversion_edits_{subject}_{session}"
+
+
+def _accumulate_edits(delta_key, store_key):
+    """Merge this run's editor delta into the durable per-session edit store.
+
+    `st.data_editor`'s state does not belong to its `key`: the element id is
+    computed from a hash of the dataframe handed in (streamlit passes
+    `key_as_main_identity=False` and `data=arrow_bytes` when registering it), so
+    handing back a frame with the edit baked in — which is exactly what makes
+    `becomes` current rather than a rerun behind — remounts the table as a
+    *different* widget, whose delta starts empty. The edit therefore survived
+    precisely the one render that baked it: the next rerun rebuilt the row from
+    the seed, so a fieldmap the user had just picked changed back on its own,
+    and Save wrote the plan she had not reviewed. Reported by a beta tester as
+    "it soon changes back"; the silent half was the save.
+
+    Accumulating here makes the widget's delta a *message* about what changed
+    rather than the system of record. Pinned by
+    tests/test_conversion_page.py::test_a_row_edit_survives_a_later_rerun.
+    """
+    store = st.session_state.get(store_key)
+    if store is None:
+        store = {}
+        st.session_state[store_key] = store
+    delta = st.session_state.get(delta_key) or {}
+    for row_idx, changes in (delta.get("edited_rows") or {}).items():
+        store.setdefault(int(row_idx), {}).update(changes)
+    return store
+
+
+row_edits = _accumulate_edits(EDITOR_KEY, EDITS_KEY)
 
 # ---- A previously reviewed config on disk -----------------------------------
 # `_build_dcm2bids` reuses <sourcedata>/sub-XX/[ses-YY]/dcm2bids_config.json when
@@ -477,9 +511,12 @@ if _pending_import is not None:
         st.error(f"Can't import — that JSON is invalid: {exc}")
     else:
         st.session_state[IMPORT_KEY] = read_config_into_table(_imported_config, series_list)
-        # Stale row deltas would fight the imported values, and leaving the
-        # override on would mean the import had no visible effect.
+        # Stale row edits would fight the imported values, and leaving the
+        # override on would mean the import had no visible effect. The store is
+        # cleared *and* rebound, because `row_edits` above is the same object.
         st.session_state.pop(EDITOR_KEY, None)
+        row_edits = {}
+        st.session_state[EDITS_KEY] = row_edits
         st.session_state.pop("dcm2bids_config_editor", None)
         st.session_state["dcm2bids_json_override"] = False
 
@@ -495,6 +532,33 @@ if imported is not None:
             "back on if you need them:\n"
             + "\n".join(f"- {item}" for item in imported.unrepresentable)
         )
+
+# ---- Your edits, and the way back out of them ----
+# They persist now, which is the point — but it also removes the one accidental
+# escape the old behaviour had: an edit that trips a hard stop below (a bold
+# bound to a half pair) used to clear itself on the next rerun. So this control
+# sits ABOVE every `st.stop()` in the table region. Whatever a row edit does to
+# the rest of the page, the way back from it stays on screen.
+if row_edits:
+    _e_msg, _e_btn = st.columns([3, 1], vertical_alignment="center")
+    with _e_msg:
+        st.caption(
+            f"✎ {len(row_edits)} row(s) below show your edits rather than duckbrain's "
+            "heuristic. They hold until you change them again or discard them."
+        )
+    with _e_btn:
+        if st.button(
+            "↺ Discard my row edits",
+            key="reset_row_edits",
+            width="stretch",
+            help="Put every row back to the value duckbrain derived for it.",
+        ):
+            # Dropped before the rerun, so the delta that arrived with this
+            # click cannot be re-accumulated on the way back — the discard has
+            # to survive the very edit it is discarding.
+            st.session_state.pop(EDITOR_KEY, None)
+            st.session_state[EDITS_KEY] = {}
+            st.rerun()
 
 seed_rows = []
 _unknown_groups: dict[str, list[int]] = {}
@@ -552,13 +616,11 @@ if _unknown_groups:
 seed_df = pd.DataFrame(seed_rows)
 
 
-def _apply_pending_edits(df, key):
-    state = st.session_state.get(key)
-    if not state:
+def _apply_pending_edits(df, store):
+    if not store:
         return df
     df = df.copy()
-    for row_idx, changes in (state.get("edited_rows") or {}).items():
-        idx = int(row_idx)
+    for idx, changes in store.items():
         if idx >= len(df):
             continue
         for col, value in changes.items():
@@ -567,7 +629,7 @@ def _apply_pending_edits(df, key):
     return df
 
 
-effective_df = _apply_pending_edits(seed_df, EDITOR_KEY)
+effective_df = _apply_pending_edits(seed_df, row_edits)
 
 # ---- The hand-edited JSON, resolved BEFORE anything reads the table ----------
 # When the override is on, the JSON *is* the config, and the table has to describe

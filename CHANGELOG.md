@@ -67,6 +67,27 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   if the same unwanted series appears in every session, you untick it in each.
 
 ### Fixed
+- **An edit to the conversion table stays edited.** Changing a row's `fieldmap`,
+  `task`, `run` or `convert` used to hold for one redraw and then snap back to
+  duckbrain's own value — with nothing to explain it, since the revert lands on
+  the *next* rerun, not the edit. Anything at all could trigger it: editing a
+  second row, clicking a button, or the connection dropping and re-establishing,
+  which happens by itself on an idle OnDemand tab. Reported by a beta tester as
+  "it soon changes back".
+
+  **The half nobody could see mattered more.** The table would say
+  `— not converted` for a series while **Save Config** wrote a config that still
+  contained it, and that file — not the table — is what a later bulk convert
+  runs. So a review could be made, watched to take effect, and silently not
+  reach the conversion. Anyone who edited this table and saved should reopen the
+  session, check the rows read as intended, and save again.
+
+  The cause was that `st.data_editor` keys its state on a hash of the table it
+  is handed, not on the `key` you give it, so writing an edit back into the
+  table discards the edit. duckbrain now keeps its own record of your edits.
+  They also **persist** now, so the table carries a note saying how many rows
+  are yours, with **↺ Discard my row edits** to put every row back to the
+  derived value.
 - **A series dropped on purpose no longer reads as a problem.** Where the
   duplicate-reconstruction choice left a series out, the preflight reported it
   twice — once as a warning saying nothing claimed the series (which means a
