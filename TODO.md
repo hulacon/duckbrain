@@ -258,11 +258,18 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   would do anyway. Harmless, but worth checking before adding more of it.
 
 <a id="25"></a>
-## #25 — Publish `v0.1.0` and `v0.2.0` as GitHub Releases
+## #25 — Publish `v0.1.0`, `v0.2.0` and `v0.3.0` as GitHub Releases
 
 **Needs a browser and a GitHub login, so it cannot be done from Talapas** — `gh`
 is not installed and there is no token on the cluster. That is the only reason
 this is an item rather than a commit.
+
+**`v0.3.0` is prepared but not yet tagged** (2026-07-29): `__version__` is bumped
+and the changelog section is closed, on `claude/todo-item-25-vpdon3`. The tag is
+deliberately *not* created on that branch — `git describe` stamps provenance into
+every derivative, so a tag must point at the commit that actually lands on `main`,
+which a squash-merge would renumber. Tag after merging, per `docs/releasing.md`
+steps 4–6, then publish all three.
 
 Both tags are pushed; the API returns **zero releases**. A pushed tag notifies
 nobody, so today the announcement channel described in `docs/releasing.md` step 7
@@ -280,11 +287,11 @@ does not exist, and the GUI's "newer version available" line
   `tag_name`, and the GUI bar should show the version with no update link (the
   checkout is ahead of `v0.2.0`, which is the correct quiet state).
 
-Worth noticing while doing this: the **fieldmap-intent inversion fix is still in
-`[Unreleased]`** — the most consequential correctness fix in the project has never
-appeared in a tagged release. Users on `main` have it; anyone who ever pinned a
-tag does not. That is an argument for cutting `v0.3.0` sooner rather than
-backfilling `v0.2.0` and stopping.
+The **fieldmap-intent inversion fix reaching a tagged release** is what `v0.3.0`
+is for — the most consequential correctness fix in the project sat in
+`[Unreleased]` for eight days, so users on `main` had it and anyone pinned to a
+tag did not. That argued for cutting `v0.3.0` rather than backfilling `v0.2.0`
+and stopping, which is what was done.
 
 <a id="licensing-follow-ups"></a>
 ## Licensing follow-ups
