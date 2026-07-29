@@ -88,6 +88,26 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   They also **persist** now, so the table carries a note saying how many rows
   are yours, with **↺ Discard my row edits** to put every row back to the
   derived value.
+- **A run that loses its fieldmap is now written uncorrected, as the page says
+  it is — not corrected by a different pair.** Where a binding could not be
+  honoured (you unticked one half of a pair, or pointed a run at a pair holding
+  one phase-encoding direction), duckbrain dropped the binding, which handed the
+  run back to automatic assignment. In a session with a second complete pair
+  that meant the run *was* distortion-corrected, by a pair you had not chosen,
+  while the message on screen said it was uncorrected — the one place the
+  substitution would have shown said the opposite. The binding is now stated as
+  "no distortion correction" rather than removed.
+
+  **Who should look:** anyone who unticked a fieldmap half in a session holding
+  more than one pair, and saved. Reopen those sessions and check the fieldmap
+  column reads as intended.
+- **Binding a run to an incomplete fieldmap pair no longer hides the conversion
+  table.** It was reported as an error above the table, which took the table —
+  and with it the only cell that could undo the binding — off the screen. It is
+  now a warning: the table stays, the row still shows what you picked, and the
+  run converts without distortion correction until you change it. (The sibling
+  case, unticking one half of a pair, was fixed this way earlier; this was the
+  same trap in the same page.)
 - **A series dropped on purpose no longer reads as a problem.** Where the
   duplicate-reconstruction choice left a series out, the preflight reported it
   twice — once as a warning saying nothing claimed the series (which means a

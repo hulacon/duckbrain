@@ -280,6 +280,10 @@ if fieldmaps.warnings:
 # docs/conversion-legibility.md.
 from duckbrain.core.dcm2bids_config import (
     EMITTED_CLASSIFICATIONS,
+    # The opt-out sentinel, taken from the module that acts on it rather than
+    # respelled here: this page writes the value, generate_config reads it, and a
+    # second copy of the literal is a place for them to disagree quietly.
+    _NO_FMAP,
     build_task_run_mapping,
     collapse_fmap_rules,
     generate_config,
@@ -495,7 +499,7 @@ def _seed_fieldmap(series):
     # — the reported confusion. The cell is display-only for an SBRef; only a bold
     # row makes a binding, and an edit here is flagged below rather than obeyed.
     group = seed_binding.get((sanitize_task_label(entry.task), entry.run))
-    if group is None or group == "none":
+    if group is None or group == _NO_FMAP:
         return _NO_FMAP_TOKEN if fieldmaps.groups else ""
     return _group_token.get(group, "")
 
@@ -748,7 +752,7 @@ for _, row in effective_df.iterrows():
     token = str(row["fieldmap"] or "")
     if not token:
         continue
-    group = "none" if token == _NO_FMAP_TOKEN else _token_group.get(token)
+    group = _NO_FMAP if token == _NO_FMAP_TOKEN else _token_group.get(token)
     if group is None:
         continue
     session_fmap_rules.append(
@@ -782,19 +786,32 @@ if _ignored_sbref:
     )
 
 # A bold pointed at a half pair would hand fMRIPrep a correction it cannot run.
-# generate_config raises on it; catching it here first gives the row and a fix
-# rather than a stack of config-speak.
+# generate_config raises on it, so this catches it first — but as a warning that
+# leaves the table up, not st.error + st.stop(). The stop fires *above* the
+# table, so it took away the cell that made the binding, which is the only place
+# to undo it; the skipped-half case below learned that a commit after it shipped.
+# Waiting no longer clears it either, now that a row edit is durable.
+#
+# Rewritten to `none` rather than dropped, and the difference is not cosmetic:
+# with no rule at all, `_assign_fmap_group` falls back to automatic assignment
+# and binds the run to whichever complete pair is nearest in time — a *different*
+# pair than the user picked, chosen silently, while the warning below claimed the
+# run was uncorrected. Stating `none` is what makes the warning true.
 _half_bound = sorted(
-    {r.group for r in session_fmap_rules if r.group not in complete_groups and r.group != "none"}
+    {r.group for r in session_fmap_rules if r.group not in complete_groups and r.group != _NO_FMAP}
 )
 if _half_bound:
-    st.error(
+    session_fmap_rules = [
+        dataclasses.replace(r, group=_NO_FMAP) if r.group in _half_bound else r
+        for r in session_fmap_rules
+    ]
+    st.warning(
         "These runs are bound to a fieldmap pair that holds only one "
         f"phase-encoding direction: {', '.join(f'`{g}`' for g in _half_bound)}. "
-        "A half pair can't correct anything — pick a complete pair or "
-        f"`{_NO_FMAP_TOKEN}`."
+        "A half pair can't correct anything, so they will be **written without "
+        f"distortion correction**. Pick a complete pair or `{_NO_FMAP_TOKEN}` in "
+        "the table to change that."
     )
-    st.stop()
 
 # Skipping one half of a pair takes the whole pair out — a field is estimated from
 # both halves or not at all — so the runs bound to it lose their correction. Their
@@ -803,17 +820,24 @@ if _half_bound:
 # no such group", which is true and useless when the user removed the group
 # themselves three rows up.
 #
-# Unbound and reported here rather than raised. This shipped as st.error +
-# st.stop() for exactly one commit and that was a trap: st.stop() fires *above*
-# the table, so unticking a fieldmap half made the whole table disappear — taking
-# with it the checkbox needed to undo it. A control whose misuse hides the control
-# leaves no way back, and the user cannot even see what they did. Nothing is
-# silently degraded by continuing: the runs lose B0FieldSource, this says which
-# and why, and `plan_warnings` adds its `uncorrected` note on top.
+# Reported here rather than raised. This shipped as st.error + st.stop() for
+# exactly one commit and that was a trap: st.stop() fires *above* the table, so
+# unticking a fieldmap half made the whole table disappear — taking with it the
+# checkbox needed to undo it. A control whose misuse hides the control leaves no
+# way back, and the user cannot even see what they did.
+#
+# Bound to `none`, not dropped. Dropping looked equivalent and was not: with the
+# rule gone, `_assign_fmap_group` fell through to automatic assignment, so in a
+# session holding a second complete pair the run was silently corrected by *that*
+# pair while this warning said it was written uncorrected. The message was the
+# only place the substitution would have shown, and it said the opposite.
 _skipped_groups = {g for g, dirs in fieldmaps.groups.items() if skipped_series & set(dirs.values())}
 _orphaned = sorted({r.group for r in session_fmap_rules if r.group in _skipped_groups})
 if _orphaned:
-    session_fmap_rules = [r for r in session_fmap_rules if r.group not in _skipped_groups]
+    session_fmap_rules = [
+        dataclasses.replace(r, group=_NO_FMAP) if r.group in _skipped_groups else r
+        for r in session_fmap_rules
+    ]
     st.warning(
         "You have unticked `convert` for at least one half of "
         f"{', '.join(f'`{g}`' for g in _orphaned)}. A pair estimates the field from "

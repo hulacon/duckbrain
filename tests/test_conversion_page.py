@@ -610,7 +610,13 @@ def test_unticking_a_fieldmap_half_does_not_hide_the_table(two_pair_project):
 
 
 def test_runs_bound_to_a_skipped_pair_are_still_written_uncorrected(two_pair_project):
-    """Losing the fieldmap must not lose the run — that would be data, not correction."""
+    """Losing the fieldmap must not lose the run — that would be data, not correction.
+
+    And *uncorrected* is half the claim, so it is checked rather than assumed.
+    It used to be neither: dropping the orphaned rule let the run fall through to
+    automatic assignment, which bound it to the session's other complete pair —
+    a pair the user never picked — while the warning said it was uncorrected.
+    """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
     at.session_state[EDITOR_KEY] = {
         "edited_rows": {2: {"convert": False}},
@@ -623,6 +629,16 @@ def test_runs_bound_to_a_skipped_pair_are_still_written_uncorrected(two_pair_pro
     becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
     assert becomes[9].endswith("run-1_bold.nii.gz")
     assert becomes[19].endswith("run-2_bold.nii.gz")
+
+    next(b for b in at.button if b.label == "Save Config JSON").click().run()
+    saved = json.loads(
+        (two_pair_project / "sourcedata/sub-001/ses-01/dcm2bids_config.json").read_text()
+    )
+    for num in (9, 19):
+        entry = next(d for d in saved["descriptions"] if d["criteria"]["SeriesNumber"] == num)
+        assert "B0FieldSource" not in (entry.get("sidecar_changes") or {}), (
+            f"series {num} was silently corrected by a pair the user did not pick"
+        )
 
 
 def test_a_skip_survives_the_saved_config_round_trip(two_pair_project):
@@ -785,15 +801,14 @@ def half_pair_project(tmp_path):
     os.environ.pop("DUCKBRAIN_PROJECT_DIR", None)
 
 
-def test_an_edit_that_hides_the_table_can_still_be_undone(half_pair_project):
-    """Sticky edits must not become a locked door.
+def test_binding_a_bold_to_a_half_pair_does_not_hide_the_table(half_pair_project):
+    """The undo lives in the table, so the table has to still be there.
 
-    Binding a bold to a half pair is an error the page raises above the table,
-    so the table — and with it the cell that made the binding — leaves the
-    screen. That used to resolve itself, because the edit evaporated on the next
-    rerun; the revert bug was accidentally also the escape hatch. Fixing the
-    revert without this control would have turned a recoverable mistake into a
-    session the user can only get out of by reloading the page.
+    This was st.error + st.stop(), which fires above the table and took away the
+    very cell that made the binding — the same trap the skipped-half case learned
+    a commit after it shipped. It used to resolve itself, because the row edit
+    evaporated on the next rerun; once edits became durable, that accident was
+    gone and the stop would have been a locked door.
     """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
     assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[30] == "🟢 2"
@@ -804,12 +819,57 @@ def test_an_edit_that_hides_the_table_can_still_be_undone(half_pair_project):
         "deleted_rows": [],
     }
     at.run()
-    assert any("holds only one" in e.value for e in at.error)
-    assert not [t for t in (df.value for df in at.dataframe) if "becomes" in t.columns], (
-        "the half-pair error hides the table — that is the premise of this test"
-    )
-
-    next(b for b in at.button if b.key == "reset_row_edits").click().run()
     assert not at.exception
     assert not at.error
+    assert any("holds only one" in w.value for w in at.warning)
+
+    # The table is still up, still shows what she picked, and every row survives.
+    plan = _plan_table(at)
+    assert list(plan["Series #"]) == [1, 2, 3, 4, 9, 30]
+    assert dict(zip(plan["Series #"], plan["fieldmap"]))[9] == "🟢 2"
+    # Two ways back, and both are on screen: change the cell, or discard.
+    assert [b for b in at.button if b.key == "reset_row_edits"]
+
+
+def test_a_bold_on_a_half_pair_is_written_uncorrected_not_re_bound(half_pair_project):
+    """The warning says uncorrected, so the config must be uncorrected.
+
+    Dropping the unsatisfiable rule would have fallen through to automatic
+    assignment and bound the run to pair 1 — complete, plausible, and not what
+    she picked. Silently substituting a fieldmap is the one outcome an explicit
+    binding exists to prevent.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    next(b for b in at.button if b.label == "Save Config JSON").click().run()
+    assert not at.exception
+
+    saved = json.loads(
+        (half_pair_project / "sourcedata/sub-001/ses-01/dcm2bids_config.json").read_text()
+    )
+    bold = next(d for d in saved["descriptions"] if d["criteria"]["SeriesNumber"] == 9)
+    assert "B0FieldSource" not in (bold.get("sidecar_changes") or {})
+    # And the run itself is still written — losing the correction is not losing the data.
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[9].endswith(
+        "_bold.nii.gz"
+    )
+
+
+def test_discarding_recovers_from_a_binding_that_warns(half_pair_project):
+    """The escape hatch still works where the page is complaining loudest."""
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    next(b for b in at.button if b.key == "reset_row_edits").click().run()
+    assert not at.exception
+    assert not [w for w in at.warning if "holds only one" in w.value]
     assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == "🔵 1"
