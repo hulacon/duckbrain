@@ -10,21 +10,10 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
-### Changed
-- **Everything duckbrain writes now lives under `derivatives/duckbrain/`.** QC
-  decisions go to `derivatives/duckbrain/qc/decisions/` and exported QC reports
-  to `derivatives/duckbrain/qc/reports/`, so a project shows at a glance which
-  derivatives came from a tool and which from duckbrain. The tool trees —
-  `fmriprep/`, `mriqc/`, `nordic/` — are unchanged; those are the tools' own
-  output and BIDS expects them where they are.
-
-  **Nothing needs moving, and nothing is moved for you.** Decisions written
-  before this — in `derivatives/preprocessing_qc/` — are still read, and so are
-  mmmdata's, which still writes there. New decisions go to the new location and
-  supersede the old ones for the same run, with both halves of the history
-  visible. If you had reviewed runs already, they will look exactly as they did.
+## [0.3.0] — 2026-07-29
 
 ### Added
+
 - **The GUI tells you when you are running an old duckbrain.** The bar at the top
   of every page now shows the version you are on — a `git describe` of your
   checkout, which is also what a bug report needs to quote — and links the newer
@@ -66,55 +55,6 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   survives leaving the page and coming back. It does not carry to other subjects:
   if the same unwanted series appears in every session, you untick it in each.
 
-### Fixed
-- **An edit to the conversion table stays edited.** Changing a row's `fieldmap`,
-  `task`, `run` or `convert` used to hold for one redraw and then snap back to
-  duckbrain's own value — with nothing to explain it, since the revert lands on
-  the *next* rerun, not the edit. Anything at all could trigger it: editing a
-  second row, clicking a button, or the connection dropping and re-establishing,
-  which happens by itself on an idle OnDemand tab. Reported by a beta tester as
-  "it soon changes back".
-
-  **The half nobody could see mattered more.** The table would say
-  `— not converted` for a series while **Save Config** wrote a config that still
-  contained it, and that file — not the table — is what a later bulk convert
-  runs. So a review could be made, watched to take effect, and silently not
-  reach the conversion. Anyone who edited this table and saved should reopen the
-  session, check the rows read as intended, and save again.
-
-  The cause was that `st.data_editor` keys its state on a hash of the table it
-  is handed, not on the `key` you give it, so writing an edit back into the
-  table discards the edit. duckbrain now keeps its own record of your edits.
-  They also **persist** now, so the table carries a note saying how many rows
-  are yours, with **↺ Discard my row edits** to put every row back to the
-  derived value.
-- **A run that loses its fieldmap is now written uncorrected, as the page says
-  it is — not corrected by a different pair.** Where a binding could not be
-  honoured (you unticked one half of a pair, or pointed a run at a pair holding
-  one phase-encoding direction), duckbrain dropped the binding, which handed the
-  run back to automatic assignment. In a session with a second complete pair
-  that meant the run *was* distortion-corrected, by a pair you had not chosen,
-  while the message on screen said it was uncorrected — the one place the
-  substitution would have shown said the opposite. The binding is now stated as
-  "no distortion correction" rather than removed.
-
-  **Who should look:** anyone who unticked a fieldmap half in a session holding
-  more than one pair, and saved. Reopen those sessions and check the fieldmap
-  column reads as intended.
-- **Binding a run to an incomplete fieldmap pair no longer hides the conversion
-  table.** It was reported as an error above the table, which took the table —
-  and with it the only cell that could undo the binding — off the screen. It is
-  now a warning: the table stays, the row still shows what you picked, and the
-  run converts without distortion correction until you change it. (The sibling
-  case, unticking one half of a pair, was fixed this way earlier; this was the
-  same trap in the same page.)
-- **A series dropped on purpose no longer reads as a problem.** Where the
-  duplicate-reconstruction choice left a series out, the preflight reported it
-  twice — once as a warning saying nothing claimed the series (which means a
-  misclassification, a real bug) and once as the note explaining what did. Now
-  only the note.
-
-### Added
 - **Each aspect of a run can be signed off on its own.** Every domain page now
   has *Reviewed — no concerns* / *Reviewed — concerns*, with a note, recorded
   against your username and against that aspect only. It is optional and gates
@@ -128,92 +68,6 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   participant asleep with their eyes open), so "reviewed everything" and "this run
   is usable" are different claims and only you can make the second.
 
-### Changed
-- **QC is now five pages grouped by what you are actually asking, instead of one
-  long dashboard.** The old page put every measure, every figure and every
-  decision in one scroll, with the explanation of what each number meant in a
-  glossary far from the number. QC now sits under a single collapsible **QC**
-  item in the top bar: an **Overview** with the cohort and the keep/exclude
-  verdict, then **Signal & contrast**, **Temporal stability**, **Alignment &
-  distortion** and **Artifacts & inhomogeneity** — each reviewing the selected run
-  for one question at a time, with each measure's guidance attached to it.
-
-  Each measure is now shown with **where the run sits among the runs around it**,
-  not just its value. That is the comparison the guidance has always said to make:
-  these numbers carry scanner and protocol batch effects and have almost no
-  defensible absolute cutoffs, so "unusual here" is the honest reading and a bare
-  value is not.
-
-  Your selection travels in the URL, so a link to one run's alignment review can
-  be sent to someone else, and the page it opens is the page you were looking at.
-
-  Faster, too: a domain page loads in about a second on a 65-run project where the
-  old page took eighteen, because it renders its own domain rather than a 5 MB
-  chart bundle. The standalone HTML report is still exported from the Overview,
-  now built only when you ask for it.
-
-- **The QC Dashboard shows fMRIPrep's figures one run at a time, instead of the
-  whole 80 MB subject report.** Reviewing distortion correction meant loading
-  every figure fMRIPrep wrote for a subject — 83 MB on a real project — to look
-  at one 1.1 MB picture. The panel now offers the specific figures the alignment
-  review needs (SDC before/after, BOLD-to-T1w and fieldmap coregistration, brain
-  mask and CompCor ROIs, segmentation, normalization, surface reconstruction),
-  each behind its own toggle with its size named first, scoped to a run you pick.
-  The SDC before/after animation still works: the flicker is CSS carried inside
-  each SVG, so it does not need the enclosing report. The whole report is still
-  one toggle away for anything the curated list does not cover.
-
-  Each figure now also says **what to look for in it**, and — new — what it means
-  when it is *missing*. A run with no SDC figure was preprocessed with no
-  distortion correction at all, which the old panel had no way to tell you.
-
-### Fixed
-- **Concurrent fMRIPrep jobs no longer destroy each other's FreeSurfer templates.**
-  fMRIPrep copies `fsaverage` into a SUBJECTS_DIR shared by every job in the
-  project, and a job arriving while another is copying deletes the partial tree
-  (it looks like a stale FreeSurfer-6 install). The result is a permanently
-  incomplete `fsaverage`, no error anywhere, and `recon-all` failures hours later
-  blaming a "stale freesurfer version". duckbrain now installs the templates once
-  before submitting anything and verifies them against the container's own file
-  list, so every job finds a complete tree and copies nothing. It **refuses to
-  submit** if it cannot do this, rather than launching a batch it cannot protect.
-  Submitting a whole study is unaffected in speed: the container is inspected once.
-
-  If you have a project that already hit this, the broken tree is self-perpetuating
-  — fMRIPrep's own repair check passes on it. Deleting
-  `derivatives/fmriprep/sourcedata/freesurfer/fsaverage` once is enough; the next
-  submission reinstalls it.
-- **The QC run table now says which tool produced each column.** It is a join of
-  two derivatives presented as one table, and nothing marked the seam — so MRIQC's
-  `fd_mean` and fMRIPrep's `mean_fd` sat side by side, near-anagrams of each
-  other, both mean framewise displacement, computed by different tools on
-  different images whenever NORDIC is in play. A spanning header row now attributes
-  each block to **MRIQC** or **fMRIPrep**, and the blocks are shaded to match.
-- **Missing fMRIPrep motion no longer looks like good motion.** The motion columns
-  were dropped whenever no run carried them, so a table that was entirely MRIQC
-  looked exactly like one where both tools agreed. The report now states which of
-  the reasons applies — fMRIPrep has not run, it ran but wrote no confounds files,
-  its confounds matched none of these runs, or it covered only some of them — and
-  an individual empty motion cell renders as `—` rather than blank. Found on a
-  real project where 65 MRIQC runs loaded against zero confounds files.
-- **MRIQC reports are now reachable from the QC Dashboard.** Every per-run
-  "View report" link in the embedded report did nothing when clicked — not an
-  error, nothing at all — because the link was relative to the *exported* copy's
-  location, and the embedded copy lives in a sandboxed iframe with no location of
-  its own. Under OnDemand it resolved to a path the proxy does not serve. Each
-  run's expander in the QC Decisions panel now has a **Show MRIQC report** toggle
-  that renders the real report, figures included, inside the app; the run table's
-  Report column names the report rather than offering a link that cannot work.
-  Reports open one at a time on purpose: their figures are 4–15 MB per run.
-- **The fieldmap-intent check never ran on NORDIC projects.** It looked for
-  fMRIPrep's assembled input tree under `derivatives/nordic/bids_input`, which
-  duckbrain has never written — the tree is `bids_format`. Because a missing
-  directory is skipped rather than reported, the one check that catches fMRIPrep
-  silently declining distortion correction was inert on exactly the projects
-  where the input tree is assembled by hand and can go stale on its own. The path
-  now comes from one function both ends share.
-
-### Added
 - **fMRIPrep's own report is now readable from the QC Dashboard.** A panel at the
   top of the page opens the per-subject report — tissue segmentation, spatial
   normalization, surface reconstruction, susceptibility distortion correction
@@ -306,63 +160,6 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   plan predicted a file that dcm2bids then couldn't create; the plan now checks
   the source and reports it.
 
-### Changed
-- **QC decision files are written in the same schema mmmdata uses**
-  (`{"run_key": …, "decisions": [...]}`, append-only). Both the old and new
-  shapes are read, and both flat and `sub-XX/` layouts are found, so no existing
-  file needs converting — and none is ever rewritten on read.
-
-### Fixed
-- **A duplicated gradient-echo fieldmap no longer loses a usable pair.** Where a
-  session held both reconstructions of a fieldmap — four series, two names — the
-  uncorrected magnitude was matched against the corrected *phase* and dropped on
-  the strength of it. If the corrected magnitude's folder was then empty, both
-  uncorrected series went too and the session was left with no usable fieldmap
-  even though a complete one was sitting there. The choice is now made once per
-  pair, so a fieldmap's magnitude and phase always come from the same
-  reconstruction.
-- **A session that shot the same anatomical twice and saved both reconstructions
-  gained a spurious third anatomical.** One of the four series went unclaimed and
-  converted alongside the two the setting had chosen.
-- **A turbo spin echo is now recognised as one from the scanner header.** T2w
-  anatomicals classified only because their *name* happened to contain `t2`, so a
-  site naming them anything else lost them; a dual-echo (PD+T2) turbo spin echo
-  was also on course to convert as half a fieldmap.
-- **A scanner localizer is now recognised from the sequence it ran**, not only
-  from its name — so a site whose console calls it something other than
-  `scout`/`localizer` no longer gets a warning about a series duckbrain should
-  have known to skip. A 3D SPACE anatomical named after its pulse sequence is
-  likewise no longer dropped.
-- **An unpaired gradient-echo fieldmap half no longer claims the flavour is
-  unsupported.** It has been supported since the previous release's fix; the
-  message now names what is actually missing.
-- **The QC page now finds MRIQC output on a study without sessions.** It looked
-  only for `sub-XX/ses-YY/<datatype>/`, so a single-session study matched nothing
-  and the page reported no metrics and suggested running MRIQC — which had
-  already run, successfully. Sessioned and flat layouts are unaffected.
-- **A session with two gradient-echo fieldmap pairs now converts.** Both pairs
-  were written to the same filenames, which the collision check caught as an
-  error — so nothing was ever silently overwritten, but the session could not be
-  converted at all, and the message suggested setting task or run values that a
-  fieldmap does not have. Each pair now gets its own `acq-` or `run-` entity,
-  exactly as spin-echo pairs already did. Which run each pair corrects is
-  unchanged.
-- **A complete gradient-echo fieldmap is no longer reported as unusable.** Every
-  session with one was told the fieldmap "can't correct anything and isn't
-  offered for binding". Both halves of that were false — the group was complete,
-  and the runs were bound to it — so the warning was pure noise on a correct
-  conversion.
-- **A single-volume reference is no longer mistaken for a functional run on
-  non-mosaic data.** Telling a single-band reference from its BOLD relied on the
-  file count, which equals the volume count only for Siemens mosaic exports. With
-  mosaic disabled, or on GE/Philips, a one-volume reference is one file per slice
-  and read as a multi-volume run; it is now settled by the slice geometry.
-- **A distortion-uncorrected `_ND` copy is no longer dropped when its corrected
-  twin is present but empty.** One real session had the corrected anatomical
-  folder present yet empty beside a populated `_ND` copy, and dropping the copy
-  left it with no anatomical at all.
-
-### Added
 - **Conversion now reads the DICOM header, not just the sequence name.** Which
   datatype a series is — anatomical, functional, fieldmap, single-band reference
   — is decided by what the scanner recorded, falling back to the name only when
@@ -393,39 +190,6 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   now named as such**, with the consequence spelled out, instead of being
   reported as unrecognised names you might fix on the console.
 
-### Fixed
-- **A task whose name contains `t1_` or `t2_` is no longer converted as an
-  anatomical.** The anat vocabulary matched anywhere in the name, so real
-  functional runs called `BART1_…`, `SST2_…` and `React2_…` were written as T1w
-  and T2w images — and because anatomicals carried no run entity, they landed on
-  the *same filename* as the real MPRAGE and silently replaced it.
-
-- **Repeated anatomicals get `run-` entities instead of overwriting each
-  other.** Two T1w scans in one session previously resolved to one filename.
-
-- **Siemens localizers named `AAHScout` or `aa_scout` are recognised as
-  localizers.** They previously fell through as unrecognised, one spurious
-  warning each — hundreds per project.
-
-- **The vNav navigator setter and Siemens' distortion-uncorrected `_ND` copy no
-  longer convert as extra anatomicals.** Both collided with the real MPRAGE. An
-  `_ND` series is only dropped when its corrected twin is present, so a site
-  that acquires `_ND` alone still gets its anatomical.
-
-- **Bulk convert, the cockpit and SLURM submissions now refuse a session whose
-  series would overwrite each other's output.** The Conversion page has always
-  reported these; the non-interactive path submitted anyway, and dcm2bids kept
-  whichever series it wrote last and exited successfully.
-
-- **A repeated task named by suffix — `MAB1`, `MAB2`, `MAB3` — is one task with
-  three runs**, not three tasks. Acquisition parameters in the name
-  (`GNG1_mb3_g2_2mm_te27`) are no longer part of the task label.
-
-- **Fieldmap pairs whose name contains the letters `ap` or `pa` outside the
-  direction token** are grouped correctly. `AP_fieldmap_se_epi_2mm_ap` was split
-  into two groups and never paired, and `se_epi_pa_apex` was read as AP.
-
-### Added
 - **Declared study expectations, and the checks that read them** (`[expected]` in
   a project's `code/duckbrain.toml`). You can now state what a session of your
   study is *supposed* to contain — how many participants, how many T1w scans,
@@ -532,7 +296,238 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   usually means the console protocol is misnamed — which every downstream
   assumption about that study would inherit.
 
+### Changed
+
+- **Everything duckbrain writes now lives under `derivatives/duckbrain/`.** QC
+  decisions go to `derivatives/duckbrain/qc/decisions/` and exported QC reports
+  to `derivatives/duckbrain/qc/reports/`, so a project shows at a glance which
+  derivatives came from a tool and which from duckbrain. The tool trees —
+  `fmriprep/`, `mriqc/`, `nordic/` — are unchanged; those are the tools' own
+  output and BIDS expects them where they are.
+
+  **Nothing needs moving, and nothing is moved for you.** Decisions written
+  before this — in `derivatives/preprocessing_qc/` — are still read, and so are
+  mmmdata's, which still writes there. New decisions go to the new location and
+  supersede the old ones for the same run, with both halves of the history
+  visible. If you had reviewed runs already, they will look exactly as they did.
+
+- **QC is now five pages grouped by what you are actually asking, instead of one
+  long dashboard.** The old page put every measure, every figure and every
+  decision in one scroll, with the explanation of what each number meant in a
+  glossary far from the number. QC now sits under a single collapsible **QC**
+  item in the top bar: an **Overview** with the cohort and the keep/exclude
+  verdict, then **Signal & contrast**, **Temporal stability**, **Alignment &
+  distortion** and **Artifacts & inhomogeneity** — each reviewing the selected run
+  for one question at a time, with each measure's guidance attached to it.
+
+  Each measure is now shown with **where the run sits among the runs around it**,
+  not just its value. That is the comparison the guidance has always said to make:
+  these numbers carry scanner and protocol batch effects and have almost no
+  defensible absolute cutoffs, so "unusual here" is the honest reading and a bare
+  value is not.
+
+  Your selection travels in the URL, so a link to one run's alignment review can
+  be sent to someone else, and the page it opens is the page you were looking at.
+
+  Faster, too: a domain page loads in about a second on a 65-run project where the
+  old page took eighteen, because it renders its own domain rather than a 5 MB
+  chart bundle. The standalone HTML report is still exported from the Overview,
+  now built only when you ask for it.
+
+- **The QC Dashboard shows fMRIPrep's figures one run at a time, instead of the
+  whole 80 MB subject report.** Reviewing distortion correction meant loading
+  every figure fMRIPrep wrote for a subject — 83 MB on a real project — to look
+  at one 1.1 MB picture. The panel now offers the specific figures the alignment
+  review needs (SDC before/after, BOLD-to-T1w and fieldmap coregistration, brain
+  mask and CompCor ROIs, segmentation, normalization, surface reconstruction),
+  each behind its own toggle with its size named first, scoped to a run you pick.
+  The SDC before/after animation still works: the flicker is CSS carried inside
+  each SVG, so it does not need the enclosing report. The whole report is still
+  one toggle away for anything the curated list does not cover.
+
+  Each figure now also says **what to look for in it**, and — new — what it means
+  when it is *missing*. A run with no SDC figure was preprocessed with no
+  distortion correction at all, which the old panel had no way to tell you.
+
+- **QC decision files are written in the same schema mmmdata uses**
+  (`{"run_key": …, "decisions": [...]}`, append-only). Both the old and new
+  shapes are read, and both flat and `sub-XX/` layouts are found, so no existing
+  file needs converting — and none is ever rewritten on read.
+
 ### Fixed
+
+- **An edit to the conversion table stays edited.** Changing a row's `fieldmap`,
+  `task`, `run` or `convert` used to hold for one redraw and then snap back to
+  duckbrain's own value — with nothing to explain it, since the revert lands on
+  the *next* rerun, not the edit. Anything at all could trigger it: editing a
+  second row, clicking a button, or the connection dropping and re-establishing,
+  which happens by itself on an idle OnDemand tab. Reported by a beta tester as
+  "it soon changes back".
+
+  **The half nobody could see mattered more.** The table would say
+  `— not converted` for a series while **Save Config** wrote a config that still
+  contained it, and that file — not the table — is what a later bulk convert
+  runs. So a review could be made, watched to take effect, and silently not
+  reach the conversion. Anyone who edited this table and saved should reopen the
+  session, check the rows read as intended, and save again.
+
+  The cause was that `st.data_editor` keys its state on a hash of the table it
+  is handed, not on the `key` you give it, so writing an edit back into the
+  table discards the edit. duckbrain now keeps its own record of your edits.
+  They also **persist** now, so the table carries a note saying how many rows
+  are yours, with **↺ Discard my row edits** to put every row back to the
+  derived value.
+- **A run that loses its fieldmap is now written uncorrected, as the page says
+  it is — not corrected by a different pair.** Where a binding could not be
+  honoured (you unticked one half of a pair, or pointed a run at a pair holding
+  one phase-encoding direction), duckbrain dropped the binding, which handed the
+  run back to automatic assignment. In a session with a second complete pair
+  that meant the run *was* distortion-corrected, by a pair you had not chosen,
+  while the message on screen said it was uncorrected — the one place the
+  substitution would have shown said the opposite. The binding is now stated as
+  "no distortion correction" rather than removed.
+
+  **Who should look:** anyone who unticked a fieldmap half in a session holding
+  more than one pair, and saved. Reopen those sessions and check the fieldmap
+  column reads as intended.
+- **Binding a run to an incomplete fieldmap pair no longer hides the conversion
+  table.** It was reported as an error above the table, which took the table —
+  and with it the only cell that could undo the binding — off the screen. It is
+  now a warning: the table stays, the row still shows what you picked, and the
+  run converts without distortion correction until you change it. (The sibling
+  case, unticking one half of a pair, was fixed this way earlier; this was the
+  same trap in the same page.)
+- **A series dropped on purpose no longer reads as a problem.** Where the
+  duplicate-reconstruction choice left a series out, the preflight reported it
+  twice — once as a warning saying nothing claimed the series (which means a
+  misclassification, a real bug) and once as the note explaining what did. Now
+  only the note.
+
+- **Concurrent fMRIPrep jobs no longer destroy each other's FreeSurfer templates.**
+  fMRIPrep copies `fsaverage` into a SUBJECTS_DIR shared by every job in the
+  project, and a job arriving while another is copying deletes the partial tree
+  (it looks like a stale FreeSurfer-6 install). The result is a permanently
+  incomplete `fsaverage`, no error anywhere, and `recon-all` failures hours later
+  blaming a "stale freesurfer version". duckbrain now installs the templates once
+  before submitting anything and verifies them against the container's own file
+  list, so every job finds a complete tree and copies nothing. It **refuses to
+  submit** if it cannot do this, rather than launching a batch it cannot protect.
+  Submitting a whole study is unaffected in speed: the container is inspected once.
+
+  If you have a project that already hit this, the broken tree is self-perpetuating
+  — fMRIPrep's own repair check passes on it. Deleting
+  `derivatives/fmriprep/sourcedata/freesurfer/fsaverage` once is enough; the next
+  submission reinstalls it.
+- **The QC run table now says which tool produced each column.** It is a join of
+  two derivatives presented as one table, and nothing marked the seam — so MRIQC's
+  `fd_mean` and fMRIPrep's `mean_fd` sat side by side, near-anagrams of each
+  other, both mean framewise displacement, computed by different tools on
+  different images whenever NORDIC is in play. A spanning header row now attributes
+  each block to **MRIQC** or **fMRIPrep**, and the blocks are shaded to match.
+- **Missing fMRIPrep motion no longer looks like good motion.** The motion columns
+  were dropped whenever no run carried them, so a table that was entirely MRIQC
+  looked exactly like one where both tools agreed. The report now states which of
+  the reasons applies — fMRIPrep has not run, it ran but wrote no confounds files,
+  its confounds matched none of these runs, or it covered only some of them — and
+  an individual empty motion cell renders as `—` rather than blank. Found on a
+  real project where 65 MRIQC runs loaded against zero confounds files.
+- **MRIQC reports are now reachable from the QC Dashboard.** Every per-run
+  "View report" link in the embedded report did nothing when clicked — not an
+  error, nothing at all — because the link was relative to the *exported* copy's
+  location, and the embedded copy lives in a sandboxed iframe with no location of
+  its own. Under OnDemand it resolved to a path the proxy does not serve. Each
+  run's expander in the QC Decisions panel now has a **Show MRIQC report** toggle
+  that renders the real report, figures included, inside the app; the run table's
+  Report column names the report rather than offering a link that cannot work.
+  Reports open one at a time on purpose: their figures are 4–15 MB per run.
+- **The fieldmap-intent check never ran on NORDIC projects.** It looked for
+  fMRIPrep's assembled input tree under `derivatives/nordic/bids_input`, which
+  duckbrain has never written — the tree is `bids_format`. Because a missing
+  directory is skipped rather than reported, the one check that catches fMRIPrep
+  silently declining distortion correction was inert on exactly the projects
+  where the input tree is assembled by hand and can go stale on its own. The path
+  now comes from one function both ends share.
+
+- **A duplicated gradient-echo fieldmap no longer loses a usable pair.** Where a
+  session held both reconstructions of a fieldmap — four series, two names — the
+  uncorrected magnitude was matched against the corrected *phase* and dropped on
+  the strength of it. If the corrected magnitude's folder was then empty, both
+  uncorrected series went too and the session was left with no usable fieldmap
+  even though a complete one was sitting there. The choice is now made once per
+  pair, so a fieldmap's magnitude and phase always come from the same
+  reconstruction.
+- **A session that shot the same anatomical twice and saved both reconstructions
+  gained a spurious third anatomical.** One of the four series went unclaimed and
+  converted alongside the two the setting had chosen.
+- **A turbo spin echo is now recognised as one from the scanner header.** T2w
+  anatomicals classified only because their *name* happened to contain `t2`, so a
+  site naming them anything else lost them; a dual-echo (PD+T2) turbo spin echo
+  was also on course to convert as half a fieldmap.
+- **A scanner localizer is now recognised from the sequence it ran**, not only
+  from its name — so a site whose console calls it something other than
+  `scout`/`localizer` no longer gets a warning about a series duckbrain should
+  have known to skip. A 3D SPACE anatomical named after its pulse sequence is
+  likewise no longer dropped.
+- **An unpaired gradient-echo fieldmap half no longer claims the flavour is
+  unsupported.** It has been supported since the previous release's fix; the
+  message now names what is actually missing.
+- **The QC page now finds MRIQC output on a study without sessions.** It looked
+  only for `sub-XX/ses-YY/<datatype>/`, so a single-session study matched nothing
+  and the page reported no metrics and suggested running MRIQC — which had
+  already run, successfully. Sessioned and flat layouts are unaffected.
+- **A session with two gradient-echo fieldmap pairs now converts.** Both pairs
+  were written to the same filenames, which the collision check caught as an
+  error — so nothing was ever silently overwritten, but the session could not be
+  converted at all, and the message suggested setting task or run values that a
+  fieldmap does not have. Each pair now gets its own `acq-` or `run-` entity,
+  exactly as spin-echo pairs already did. Which run each pair corrects is
+  unchanged.
+- **A complete gradient-echo fieldmap is no longer reported as unusable.** Every
+  session with one was told the fieldmap "can't correct anything and isn't
+  offered for binding". Both halves of that were false — the group was complete,
+  and the runs were bound to it — so the warning was pure noise on a correct
+  conversion.
+- **A single-volume reference is no longer mistaken for a functional run on
+  non-mosaic data.** Telling a single-band reference from its BOLD relied on the
+  file count, which equals the volume count only for Siemens mosaic exports. With
+  mosaic disabled, or on GE/Philips, a one-volume reference is one file per slice
+  and read as a multi-volume run; it is now settled by the slice geometry.
+- **A distortion-uncorrected `_ND` copy is no longer dropped when its corrected
+  twin is present but empty.** One real session had the corrected anatomical
+  folder present yet empty beside a populated `_ND` copy, and dropping the copy
+  left it with no anatomical at all.
+
+- **A task whose name contains `t1_` or `t2_` is no longer converted as an
+  anatomical.** The anat vocabulary matched anywhere in the name, so real
+  functional runs called `BART1_…`, `SST2_…` and `React2_…` were written as T1w
+  and T2w images — and because anatomicals carried no run entity, they landed on
+  the *same filename* as the real MPRAGE and silently replaced it.
+
+- **Repeated anatomicals get `run-` entities instead of overwriting each
+  other.** Two T1w scans in one session previously resolved to one filename.
+
+- **Siemens localizers named `AAHScout` or `aa_scout` are recognised as
+  localizers.** They previously fell through as unrecognised, one spurious
+  warning each — hundreds per project.
+
+- **The vNav navigator setter and Siemens' distortion-uncorrected `_ND` copy no
+  longer convert as extra anatomicals.** Both collided with the real MPRAGE. An
+  `_ND` series is only dropped when its corrected twin is present, so a site
+  that acquires `_ND` alone still gets its anatomical.
+
+- **Bulk convert, the cockpit and SLURM submissions now refuse a session whose
+  series would overwrite each other's output.** The Conversion page has always
+  reported these; the non-interactive path submitted anyway, and dcm2bids kept
+  whichever series it wrote last and exited successfully.
+
+- **A repeated task named by suffix — `MAB1`, `MAB2`, `MAB3` — is one task with
+  three runs**, not three tasks. Acquisition parameters in the name
+  (`GNG1_mb3_g2_2mm_te27`) are no longer part of the task label.
+
+- **Fieldmap pairs whose name contains the letters `ap` or `pa` outside the
+  direction token** are grouped correctly. `AP_fieldmap_se_epi_2mm_ap` was split
+  into two groups and never paired, and `se_epi_pa_apex` was read as AP.
+
 
 - **"Force overwrite existing BIDS output" overwrote nothing.** duckbrain passed
   dcm2bids `--force_dcm2bids`, which only overwrites the *temporary* dcm2niix
@@ -910,6 +905,7 @@ Notable bugs caught by live validation rather than unit tests:
 - Released under **GPL-3.0-or-later**. Supersedes an unbacked `license = "MIT"`
   claim in `pyproject.toml` (no `LICENSE` file had ever existed).
 
-[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hulacon/duckbrain/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hulacon/duckbrain/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hulacon/duckbrain/releases/tag/v0.1.0
