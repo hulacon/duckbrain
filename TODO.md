@@ -264,13 +264,24 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
 is not installed and there is no token on the cluster. That is the only reason
 this is an item rather than a commit.
 
-**`v0.3.0` is cut** (2026-07-29) — bumped, changelog closed, merged to `main` and
-tagged there rather than on the feature branch, since `git describe` stamps
-provenance into every derivative and a squash-merge would have renumbered the
-commit a branch tag pointed at. So the tag sits on `main`'s tip and
-`git describe` reads exactly `v0.3.0`.
+**`v0.3.0` is cut but its tag is not pushed** (2026-07-29). Bumped, changelog
+closed, merged to `main` and pushed. The tag is *not* on `origin`: the agent
+environment's git proxy accepts branch refs and refuses tag refs (`HTTP 403`,
+deterministic over three attempts), so it has to be pushed by hand:
 
-All three tags are pushed; the API returns **zero releases**. A pushed tag notifies
+```bash
+git fetch origin main && git checkout main && git pull
+git tag -a v0.3.0 -m "duckbrain v0.3.0"   # on main's tip
+git push origin v0.3.0
+git describe --tags                        # must read exactly v0.3.0
+```
+
+Until that lands, a fresh clone has no `v0.3.0`, so `git describe` reads
+`v0.2.0-N-g<sha>` and **every derivative converted from such a checkout is
+stamped with the wrong provenance**. That is the reason to do it before the next
+conversion run, not merely for tidiness.
+
+Two of the three tags are pushed; the API returns **zero releases**. A pushed tag notifies
 nobody, so today the announcement channel described in `docs/releasing.md` step 7
 does not exist, and the GUI's "newer version available" line
 (`core/updates.py`, wired into `gui/app.py`) queries `releases/latest` and gets a
