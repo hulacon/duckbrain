@@ -321,6 +321,7 @@ def classify_series(
             s.classification = _classify_one(s.description)
             s.suffix_hint = ""
             s.classified_by = "name"
+    _recover_dwi_sbref_from_sibling(series_list)
     _recover_func_from_sbref(series_list)
     _resolve_nd_duplicates(series_list, nd_duplicates)
     return series_list
@@ -492,6 +493,69 @@ def _resolve_nd_duplicates(series_list: list[SeriesInfo], policy: str = "correct
             s.drop_reason = reason
 
 
+# Verdicts a diffusion sibling may overturn on an ``_SBRef`` series. Each is a
+# fall-through rather than a positive identification: ``fmap`` is what the header
+# tier returns for any 2D spin-echo EPI it did not otherwise place, ``sbref`` is
+# the name tier reading Siemens' suffix without knowing what it references, and
+# ``unknown`` is nothing at all. A positively-identified datatype is left alone.
+_DWI_SBREF_DEMOTABLE = frozenset({"fmap", "sbref", "unknown"})
+
+
+def _recover_dwi_sbref_from_sibling(series_list: list[SeriesInfo]) -> None:
+    """Reclaim a diffusion reference that classified as a pepolar fieldmap half.
+
+    ``cmrr_diff_3shell_ap_SBRef`` carries no ``DIFFUSION`` token in ImageType, so
+    ``is_diffusion`` is false and it falls through to ``2D and is_epi and
+    is_spin_echo`` → ``("fmap", "epi")``. That branch is not being sloppy —
+    diffusion *is* spin-echo EPI, so a diffusion reference genuinely is a
+    single-volume spin-echo EPI, which is the definition of a pepolar half. On a
+    real fieldmap beside it (``se_epi_ap_encoding``) ``is_epi``, ``is_spin_echo``,
+    ``mr_acquisition_type`` and the volume count are all identical, and
+    ``ImageType[2]`` does not separate them either: it reads ``M`` on the
+    diffusion reference, but 48 of 60 sampled pepolar fieldmaps in the LCNI
+    corpus also read ``M``.
+
+    What does separate them is the sibling: strip ``_SBRef`` and
+    ``cmrr_diff_3shell_ap`` is in the session, classified ``dwi`` on its own
+    header's ``DIFFUSION`` token. So this reference belongs to a diffusion
+    acquisition, and duckbrain reports it as diffusion it cannot yet convert
+    rather than converting it as something it is not.
+
+    **This is the one place a sibling's header overrules a series' own**, which
+    :func:`_recover_func_from_sbref` deliberately refuses to do. The asymmetry is
+    the evidence, not the direction: the sibling's ``DIFFUSION`` token is a
+    positive statement, and what it overturns is a fall-through that reached
+    ``fmap`` by exhausting the alternatives. A project declaration still wins over
+    both — see :data:`_DWI_SBREF_DEMOTABLE` for what may be overturned.
+
+    Left as a fieldmap this is silently wrong, not untidy: the two direction
+    halves pair with each other, and on all five ``ses-01`` sessions of
+    /projects/hulacon/shared/mmmsourcedata the resting run and its own reference
+    bound to that pair while the real fieldmap in the same session bound nothing.
+    fMRIPrep would then estimate the field from two diffusion references and
+    apply it to a functional run, with no tool complaining.
+    """
+    dwi_bases = {s.description.strip().lower() for s in series_list if s.classification == "dwi"}
+    if not dwi_bases:
+        return
+    for s in series_list:
+        if s.classified_by == "project":
+            continue
+        if s.classification not in _DWI_SBREF_DEMOTABLE:
+            continue
+        if not _SBREF_SUFFIX.search(s.description):
+            continue
+        if _SBREF_SUFFIX.sub("", s.description).strip().lower() not in dwi_bases:
+            continue
+        s.classification = "dwi"
+        # Not emitted today, but it is what the series *is*: BIDS spells a
+        # diffusion reference `dwi/..._sbref`. Also keeps an ND twin match from
+        # pairing a reference with the volume series it references, since
+        # _nd_twin_groups buckets on (classification, suffix_hint).
+        s.suffix_hint = "sbref"
+        s.classified_by = "sibling"
+
+
 # A matching SBRef sibling is definitive: whatever the description pass guessed,
 # such a series is a functional run. Only these non-definitive guesses may be
 # overridden — never sbref/physio/fmap, which the SBRef signal can't contradict.
@@ -512,6 +576,12 @@ def _recover_func_from_sbref(series_list: list[SeriesInfo]) -> None:
         # rescue a series whose *name* said nothing useful; it cannot outrank
         # what the scanner recorded about the acquisition itself, nor a project
         # declaration, which is the user overruling this very inference.
+        #
+        # The rule is about the evidence, not about siblings: here the sibling
+        # offers only the *existence* of a reference, which is compatible with
+        # several datatypes, so it must not overturn a header. Where a sibling
+        # carries a positive token of its own it may — see
+        # _recover_dwi_sbref_from_sibling, the one case that does.
         if s.classified_by in ("header", "project"):
             continue
         if s.classification in _SBREF_PROMOTABLE and s.description.lower() in sbref_bases:

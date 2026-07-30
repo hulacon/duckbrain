@@ -18,7 +18,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#13`](#13) conversion legibility (`#13.1` only, and it waits on `#16`) ·
 [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
-[`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
+[`#19`](#19) conversion coverage ·
 [`#22`](#22) wire up the dcm2niix probe ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#27`](#27) `4_Preprocessing.py` has no test ·
@@ -218,8 +218,9 @@ trust — the item is justified, but not by either example it used to cite.**
 `_ND`/non-`_ND` twin pairs `nd_twin_bases` cannot see (`#19.8`; fixing it hands
 them to `[conversion] nd_duplicates`, which already has a save-as-project-default
 button) and 4 are diffusion SBRefs classified `fmap` (`#19.9`, where they are
-wrong bindings rather than clutter). **Those two bugs are still what to build
-first.**
+wrong bindings rather than clutter). **`#19.9` closed 2026-07-30** and its 4 are
+gone — the session now ticks 10, of which 8 are the ND twins and 2 are wanted —
+so `#19.8` is the whole remainder of this measurement.
 
 *Second pass, on the LCNI repository, prompted by Ben pointing out that
 `mmmsourcedata` was pruned on its way out of `lcni/dcm` and that most studies
@@ -242,14 +243,14 @@ class, and it is neither of the ones above:
 - **The control holds.** Where the curator converted everything — GAME,
   Dissonance, Crave_control, HOYA, JABBA — duckbrain shows *no* systematic
   disagreement at all. So there is no hidden class of junk duckbrain wrongly
-  emits beyond `#19.8`/`#19.9`.
+  emits beyond `#19.8` (and `#19.9`, closed).
 - **Scouts, which prompted the question, already cost nothing.** `scout` is not in
   `EMITTED_CLASSIFICATIONS`, so a scout is never ticked; nor are the MPR
   reformats, vNav setters, ADC/FA/TENSOR maps, PhysioLogs or PhoenixZIPReport,
   which all classify `derived`/`physio`. On the ABCD session above that is 39 of
   53 series already free.
 
-So build it, after `#19.8`/`#19.9`, and motivate it by the anat-only curation
+So build it, after `#19.8`, and motivate it by the anat-only curation
 rather than by junk removal. Notes for whoever does:
 
 - **Key it on *description*,** the same key `[task_mapping]` and `[series_types]`
@@ -438,6 +439,16 @@ entangled with `#19.1` rather than absent; and when this is built, the general
 case should read the probe's direction instead of widening `PE_FOR_DIR` — the
 table can then be deleted rather than taught about oblique acquisitions.
 
+**Unblocked 2026-07-30 by `#19.9`, which this used to have to follow.** On
+`mmmsourcedata` the `rl`/`lr` diffusion SBRefs were classified `fmap` and escaped
+pairing *only* because those directions went unrecognised, so widening `dir-`
+first would have built a second spurious fieldmap pair out of them. They now
+classify `dwi` on their sibling's authority and never reach `detect_fieldmaps`,
+so the order no longer constrains this. Keep the tree as the fixture — it is the
+only LR/RL data on the filesystem — but note the caveat that has not changed:
+what it holds is LR/RL *diffusion*, not an LR/RL fieldmap, so the emission still
+has nothing to validate against and `#19.1` is the item that would give it one.
+
 ### `#19.3` — Which fieldmap pair, when a session has more than one
 
 **Bold→fmap binding uses acquisition time** (2026-07-24, in the ledger): a run
@@ -546,8 +557,9 @@ the reconstruction choice.
 
 **Re-measured 2026-07-30 while answering a question about `#13.1`:** on
 `sub-03/ses-01` this accounts for **8 of the 12 junk rows** that arrive ticked
-for conversion (`#19.9` accounts for the other 4, and only 2 of the session's 14
-ticked rows are actually wanted). So this is not only a wrong anatomical count —
+for conversion (`#19.9` accounted for the other 4; since it closed on 2026-07-30
+the session ticks 10, of which these 8 are junk and 2 are wanted — so this item
+is now the entire remainder). So this is not only a wrong anatomical count —
 it is most of the per-session clicking a user of this protocol does, 95 sessions
 over. Fixing it makes `[conversion] nd_duplicates`, which already has a
 save-as-project-default button, handle the whole class.
@@ -579,61 +591,7 @@ which is the argument for the project-level skip in `#13.1`.
 **Her tree is also a live fixture for two things that had none.** It carries
 `cmrr_diff_3shell` in **four** phase-encoding directions — `ap`, `pa`, `rl`, `lr`
 — so `#19.2` (LR/RL) finally has real data, and `#19.1` (DWI) has a multi-shell
-fixture with an SBRef per direction. That last one is also `#19.9`.
-
-### `#19.9` — A diffusion SBRef is converted as a pepolar fieldmap, and runs bind to it
-
-🔴 **Correctness bug, confirmed 2026-07-28 on `/projects/hulacon/shared/mmmsourcedata`.**
-Not cosmetic: in **all five `ses-01` sessions** the resting-state BOLD *and* its
-SBRef take `B0FieldSource: B0map_cmrr_diff_3shell_sbref` — 10 descriptions, and
-**zero** bound to the real `se_epi_ap/pa_encoding` pair that is sitting in the
-same session. fMRIPrep would estimate the field from two diffusion SBRefs and
-apply it to the functional run: valid dataset, no tool complains, silently wrong
-preprocessing. The `ses-28` task sessions are clean (10/10 correct), because
-there the real pair is adjacent to the task runs.
-
-**duckbrain identifies DWI correctly** — that is not the gap. `cmrr_diff_3shell_ap`
-carries `DIFFUSION` in `ImageType`, `is_diffusion` fires, `classify_from_header`
-returns `dwi`. The gap is its **SBRef**, which reads
-`('ORIGINAL','PRIMARY','M','NONE')` — the token is absent — so `is_diffusion` is
-false and it falls through to the next branch: `2D and is_epi and is_spin_echo`
-→ `("fmap","epi")`. Diffusion *is* spin-echo EPI, so a diffusion SBRef is a
-single-volume spin-echo EPI, which is precisely the definition that branch uses
-for a pepolar half. Compare series 20 (diffusion SBRef) with series 5 (real
-fieldmap): `is_epi`, `is_spin_echo`, `mr_acquisition_type` and volume count are
-identical on both. Note the asymmetry that hides it — the *gradient*-echo branch
-below asks `single_volume` to separate an SBRef from its BOLD; the spin-echo
-branch returns `fmap` without ever asking anything.
-
-`detect_fieldmaps` then does the rest, correctly given bad input: strip the
-direction token off `cmrr_diff_3shell_{ap,pa}_SBRef`, get one base
-`cmrr_diff_3shell_sbref` holding both directions, call it a complete pair. The
-`rl`/`lr` SBRefs escape only because those directions aren't recognised at all
-(`#19.2`) — fix that in isolation and this gets *worse*, producing a second
-spurious pair. **The two items are coupled; don't do `#19.2` first.**
-
-**The obvious fix does not work.** `ImageType[2]` is `M` on the diffusion SBRef
-and `FMRI` on her real fieldmap, which looks like the discriminator — but 48 of
-60 sampled pepolar fieldmaps in the LCNI corpus also read `M`
-(`ORIGINAL/PRIMARY/M/ND/MOSAIC`), so `M` cannot mean "not a fieldmap". Verified,
-not assumed.
-
-**What looks right is the sibling relation**, which is already this module's
-idiom: `cmrr_diff_3shell_ap_SBRef` strips to `cmrr_diff_3shell_ap`, which is in
-the session and is `dwi` *on its own header's authority*. So an SBRef whose base
-sibling is `dwi` is a diffusion reference, not a fieldmap half — the same shape
-`_recover_func_from_sbref` uses in the opposite direction. One real wrinkle: that
-function refuses to override a header verdict on principle ("it cannot outrank
-what the scanner recorded"), and this would use a *sibling's* header to overturn
-this series' own. Defensible — the sibling's `DIFFUSION` token is positive
-evidence and the verdict it overturns is a fall-through, not a positive
-identification — but it is a change to the precedence rule and wants stating
-where the rule is stated.
-
-**Why it was never caught:** the LCNI corpus contains **zero** diffusion SBRefs
-(searched all 2139 series directories). Her tree is the only fixture for this
-shape on the filesystem, which is also why it needs a unit test built from these
-headers rather than a corpus run.
+fixture with an SBRef per direction.
 
 ---
 
@@ -1311,6 +1269,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-30 | `#19.9` | **A diffusion SBRef converted as a pepolar fieldmap half, and functional runs bound to it** — silently wrong preprocessing, not clutter, since fMRIPrep would have estimated the field from two diffusion references and applied it to a BOLD run with nothing complaining. The header tier was not being sloppy and is unchanged: diffusion *is* spin-echo EPI, so a diffusion reference genuinely satisfies `2D and is_epi and is_spin_echo`, and against the real `se_epi_ap_encoding` beside it `is_epi`, `is_spin_echo`, `mr_acquisition_type` and the volume count are identical. `ImageType[2]` is not the discriminator either — `M` on the reference, but 48 of 60 sampled corpus pepolar fieldmaps also read `M`. The fix is the sibling: `_recover_dwi_sbref_from_sibling` strips `_SBRef`, and a base sibling carrying `DIFFUSION` makes this a diffusion reference (`dwi`/`sbref`, `classified_by = "sibling"`). **It is the one place a sibling's header overrules a series' own**, which `_recover_func_from_sbref` refuses to do — the asymmetry is the evidence, not the direction: `DIFFUSION` is a positive statement and what it overturns is a fall-through, so the rule is now stated at both ends. A project declaration still wins over both. Measured before and after across 263 sessions: on the LCNI corpus (166) **nothing changed at all**, as predicted — it holds zero diffusion SBRefs across all 2139 series directories, which is why the tests are synthesised from the real `mmmsourcedata` headers rather than from a corpus run. On `mmmsourcedata` exactly 28 series moved, one transition only (`fmap/epi` → `dwi/sbref`), the spurious `cmrr_diff_3shell_sbref` group was the only group removed and none was added, and 12 direction warnings went to 0. All 10 bindings the item named are corrected: `sub-06`/`sub-07` `ses-01` now bind the resting run and its reference to the real `encoding` pair, `sub-03`/`04`/`05` to nothing, which is right because those sessions contain no fieldmap. Two neighbours moved with it — `#19.2` is unblocked (the `rl`/`lr` references escaped pairing only through going unrecognised, so widening `dir-` first would have built a second spurious pair), and `#13.1`'s ABCD session drops from 14 ticked rows to 10, leaving `#19.8` as the whole remainder of that measurement |
 | 2026-07-30 | `#13.1` | **The `Type` column is editable, and a correction generalizes to the study** — a `SelectboxColumn` plus a new `[series_types]` project section read by `classify_series` as a tier above header and name (`core/series_types.py`, `save_project_series_types`). The item's own warning about the write-back was right and its fix was not: the edit is read **above** `classify_series`, so `detect_fieldmaps`, the task/run seeding, the fieldmap bindings and `generate_config`'s dispatch all see one datatype instead of the column and the emission following different ones — there is no second copy to keep in sync. `generate_session_config` takes `type_rules` for the same reason it takes `fmap_rules`, or bulk convert would write a different datatype than the one reviewed. Three refusals carry the honesty. **An anat declaration names its suffix** (`anat/T1w`): `_anat_description` reads the suffix off the *name* vocabulary and returns `None` when nothing fires, so a bare `anat` on a study-specific label writes nothing and says nothing — and the declaration outranks that vocabulary, where `suffix_hint` deliberately cannot, or a misread `t1w_mprage` would be uncorrectable. **`fmap` and `dwi` are not declarable**, since a label alone can't make either emit (pairing reads the direction from the description; `#19.1`). **A non-declarable pick is refused by name** rather than accepted and ignored — the dropdown must still *offer* the inferred classifications because a select cell cannot render a value outside its options. The `convert` checkbox stayed the way to drop a series. One neighbouring silence closed on the way: the one-shot JSON import now reports a datatype it will not carry over, which it had always dropped under a banner saying the JSON had loaded |
 | 2026-07-30 | `#26` | **The coverage gate could not see a single Streamlit page, and the item's own diagnosis of why was wrong.** `source = ["duckbrain"]` is a package *name*, and coverage resolves those by **module name**: streamlit execs a page as a module called `5_QC_Overview`, which is not a `duckbrain` submodule and is not a legal Python identifier, so it could never match — `COVERAGE_DEBUG=trace` says exactly that. Not AppTest, not a process boundary, not the `magic` AST rewrite; a path source traces the pages fine. Same tests, same 6466 statements, **73% → 87%**, floor 70 → 85. The load-bearing part is what the false explanation cost: the item claimed the ratchet "exerts no pressure at all on the code where this bug class lives" and that was never true — `3_BIDS_Conversion.py` was **80% covered** by tests already passing, and the report was throwing it away. Also required, not cosmetic: CI's `--cov=duckbrain` *overrides* the config source, so fixing `pyproject.toml` alone would have left CI measuring the old way. The floor was measured after the fact rather than reused from the exploration, since two pages had changed since. One real gap fell out and is open as `#27` (`4_Preprocessing.py`, 0%). Two notes cleared with it: `#26.1`, a comment asserting `series_list` is cached across reruns — it is not (no `lru_cache`, no `st.cache_data`, no fragment; `list_series` runs at page top every rerun), so the `elif` it guarded was dead and is gone. `#26.2`, the `st.stop()` at the config call: **reachable, but not by the binding its comment named** — the two repair passes above it rewrite every unsatisfiable rule to `none`, so what still lands there is `generate_config`'s *other* raise, two fieldmap groups colliding on one B0 identifier (`2.5mm`/`25mm`). No table cell repairs that and the call already raised, so there is no config to render from: it stays a stop where its neighbours warn, now with a test that says so. **The refactor is deferred, not refused** — extracting `(seed, edits, imported, override) -> effective plan` into `core/` is still the right shape, but its cheapest justification was the coverage gap and that is now free, one of the four inputs already got one home in `c0f4650`, and the diagnostics are interleaved with the derivation so ~18 of the 36 render-coupled tests would be rewritten for a presentation-token round trip |
 | 2026-07-29 | `#25` | **All three tags published as GitHub Releases, and `v0.3.0` cut to make that worth doing.** A pushed tag notifies nobody and is invisible to the API, so `docs/releasing.md` step 7's announcement channel did not exist and `core/updates.py` — shipped the day before — queried `releases/latest` and got a 404, meaning the GUI's "newer version" line was dark for every user from the moment it landed. Backfilling 0.1/0.2 alone would have turned the channel on and had nothing worth announcing: the **fieldmap-intent inversion fix sat in `[Unreleased]` for eight days**, so users on `main` had it and anyone pinned to a tag did not. Hence `v0.3.0` — 50 commits, +27.8k/−1.7k. **Minor, not patch, deliberately**: `_release_line()` reduces to `major.minor` and `check_duckbrain_drift()` therefore flags every derivative built under the 0.2 line, which is *correct* here rather than collateral, because this release changes recipes duckbrain authors (which series convert, their datatype, the `B0Field*` intent in every sidecar, which reconstruction ships, which pair corrects which run) and not merely the flags passed to a container. The changelog's thirteen repeated Added/Changed/Fixed headers — one set per work session — were merged into one of each, since that section becomes the published notes; every bullet moved verbatim and the 688 content lines were diffed before and after rather than eyeballed. Two environment limits worth knowing if this is ever automated: the agent sandbox refuses tag refs (`HTTP 403`) while accepting branch refs, and the GitHub MCP server exposes releases read-only — so tag and publish stayed manual |

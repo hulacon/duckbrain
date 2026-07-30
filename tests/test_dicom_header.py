@@ -251,6 +251,172 @@ def test_the_sbref_rescue_cannot_outrank_the_header():
     assert series[1].classification == "sbref"
 
 
+# --- the diffusion reference, and the one sibling that may outrank a header ---
+#
+# Headers below are the values actually read from
+# /projects/hulacon/shared/mmmsourcedata/sub-06/ses-01, which is the only fixture
+# on this filesystem with diffusion SBRefs at all — the LCNI corpus has zero
+# across all 2139 series directories, which is why this shape needs unit tests
+# rather than a corpus run.
+
+
+def _diffusion_session() -> list[SeriesInfo]:
+    """A CMRR multi-shell block: reference then volumes, per direction."""
+    return [
+        SeriesInfo(
+            series_number=5,
+            description="se_epi_ap_encoding",
+            path=Path("/nonexistent"),
+            file_count=3,
+            header=classic(is_spin_echo=True, volumes=3),
+        ),
+        SeriesInfo(
+            series_number=20,
+            description="cmrr_diff_3shell_ap_SBRef",
+            path=Path("/nonexistent"),
+            file_count=1,
+            # No DIFFUSION token — this is the whole problem.
+            header=classic(
+                image_type=("ORIGINAL", "PRIMARY", "M", "NONE"),
+                is_spin_echo=True,
+                volumes=1,
+            ),
+        ),
+        SeriesInfo(
+            series_number=21,
+            description="cmrr_diff_3shell_ap",
+            path=Path("/nonexistent"),
+            file_count=104,
+            header=classic(
+                image_type=("ORIGINAL", "PRIMARY", "DIFFUSION", "NONE"),
+                is_spin_echo=True,
+                volumes=104,
+            ),
+        ),
+    ]
+
+
+def test_a_diffusion_reference_is_not_a_pepolar_fieldmap_half():
+    """It is a single-volume spin-echo EPI, which is also the fieldmap definition.
+
+    Everything the header offers is identical to the real ``se_epi_ap_encoding``
+    beside it — ``is_epi``, ``is_spin_echo``, ``mr_acquisition_type``, volume
+    count — so the series' own header cannot settle it and the branch returns
+    ``fmap``. The base sibling can: it carries ``DIFFUSION``.
+    """
+    ap_sbref, ap = _diffusion_session()[1], _diffusion_session()[2]
+    assert classify_from_header(ap_sbref.header) == ("fmap", "epi"), (
+        "the header alone still says fieldmap; the fix is not in this tier"
+    )
+    assert classify_from_header(ap.header) == ("dwi", "")
+
+    series = _diffusion_session()
+    classify_series(series)
+    assert [s.classification for s in series] == ["fmap", "dwi", "dwi"]
+    assert series[1].suffix_hint == "sbref"
+    assert series[1].classified_by == "sibling"
+
+
+def test_the_real_fieldmap_beside_it_is_left_alone():
+    """The demotion is keyed on the sibling, not on 'looks like a reference'.
+
+    ``se_epi_ap_encoding`` has no ``_SBRef`` suffix and no diffusion sibling, so
+    nothing about this pass may touch it — it is the pair the functional runs
+    should have been binding to all along.
+    """
+    series = _diffusion_session()
+    classify_series(series)
+    assert (series[0].classification, series[0].suffix_hint) == ("fmap", "epi")
+    assert series[0].classified_by == "header"
+
+
+def test_a_functional_reference_keeps_its_own_header_verdict():
+    """A sibling only speaks for the series that actually references it.
+
+    ``Resting_baseline_SBRef`` sits in the same session as the diffusion block
+    and must stay ``sbref``: its own base sibling is the BOLD run, not a
+    diffusion series, so the demotion has nothing to key on.
+    """
+    series = _diffusion_session() + [
+        SeriesInfo(
+            series_number=58,
+            description="Resting_baseline_SBRef",
+            path=Path("/nonexistent"),
+            file_count=1,
+            header=classic(image_type=("ORIGINAL", "PRIMARY", "FMRI", "NONE"), volumes=1),
+        ),
+        SeriesInfo(
+            series_number=59,
+            description="Resting_baseline",
+            path=Path("/nonexistent"),
+            file_count=390,
+            header=classic(image_type=("ORIGINAL", "PRIMARY", "FMRI", "NONE"), volumes=390),
+        ),
+    ]
+    classify_series(series)
+    by_number = {s.series_number: s for s in series}
+    assert by_number[58].classification == "sbref"
+    assert by_number[59].classification == "func"
+
+
+def test_the_spurious_pair_the_diffusion_references_used_to_form():
+    """The end-to-end failure: two directions of one diffusion block pair up.
+
+    ``detect_fieldmaps`` was not at fault — given two single-volume spin-echo
+    EPIs named ``..._ap_SBRef`` and ``..._pa_SBRef`` it strips the direction
+    token, finds one base holding both directions, and correctly calls it a
+    complete pair. On the five ``ses-01`` sessions of the fixture, the resting
+    run and its reference bound to *that* pair and nothing bound to the real
+    ``encoding`` one, so fMRIPrep would have estimated the field from two
+    diffusion references and applied it to a functional run.
+    """
+    from duckbrain.core.dicom_inspect import detect_fieldmaps
+
+    series = _diffusion_session() + [
+        SeriesInfo(
+            series_number=7,
+            description="se_epi_pa_encoding",
+            path=Path("/nonexistent"),
+            file_count=3,
+            header=classic(is_spin_echo=True, volumes=3),
+        ),
+        SeriesInfo(
+            series_number=29,
+            description="cmrr_diff_3shell_pa_SBRef",
+            path=Path("/nonexistent"),
+            file_count=1,
+            header=classic(
+                image_type=("ORIGINAL", "PRIMARY", "M", "NONE"),
+                is_spin_echo=True,
+                volumes=1,
+            ),
+        ),
+        SeriesInfo(
+            series_number=30,
+            description="cmrr_diff_3shell_pa",
+            path=Path("/nonexistent"),
+            file_count=104,
+            header=classic(
+                image_type=("ORIGINAL", "PRIMARY", "DIFFUSION", "NONE"),
+                is_spin_echo=True,
+                volumes=104,
+            ),
+        ),
+    ]
+    detection = detect_fieldmaps(classify_series(series))
+    assert detection.groups == {"encoding": {"ap": 5, "pa": 7}}
+
+
+def test_a_project_declaration_still_outranks_the_diffusion_sibling():
+    """The tier order is unchanged: a declaration is the study saying what it is."""
+    from duckbrain.core.series_types import TypeRule
+
+    series = _diffusion_session()
+    classify_series(series, type_rules=[TypeRule("cmrr_diff_3shell_ap_SBRef", "func", "sbref")])
+    assert series[1].classification == "func"
+    assert series[1].classified_by == "project"
+
+
 # --- reading real DICOM files ----------------------------------------------
 # The tests above exercise the rules; these exercise the tag navigation, which
 # is where the two dialects actually diverge.

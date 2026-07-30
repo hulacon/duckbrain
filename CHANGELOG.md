@@ -44,6 +44,29 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **A diffusion reference scan was converted as a fieldmap, and functional runs
+  were distortion-corrected from it.** If your protocol acquires a multi-shell
+  diffusion series in two phase-encoding directions, each with its own SBRef,
+  duckbrain paired the two SBRefs into a pepolar fieldmap — and because that
+  false pair often sits nearer in time to a BOLD run than the real fieldmap does,
+  the run bound to it. The dataset validates, dcm2bids is happy and nothing warns,
+  but fMRIPrep then estimates the field from two diffusion reference volumes and
+  applies it to your functional data.
+
+  **Check any project with diffusion in the protocol.** In the BOLD sidecars,
+  `B0FieldSource` naming a diffusion series (e.g. `B0map_cmrr_diff_3shell_sbref`)
+  rather than your fieldmap is the symptom; anything preprocessed that way should
+  be reconverted and re-run. On the tree this was found on, all five sessions that
+  had both were affected, and none bound to the real fieldmap sitting beside it.
+
+  A diffusion SBRef carries no `DIFFUSION` token in `ImageType`, and diffusion
+  *is* spin-echo EPI — so a single-volume one is genuinely indistinguishable, on
+  its own header, from half a pepolar fieldmap. duckbrain now settles it from the
+  series it references: strip `_SBRef`, and if that sibling is diffusion, so is
+  this. Such a series is reported as diffusion duckbrain cannot yet convert
+  instead of being converted as something it is not, and shows `sibling` in the
+  Conversion page's `Type from` column.
+
 - **A comment inside an sbatch command truncated the command.** fMRIPrep runs
   that reused anat derivatives failed with BIDS validation errors, and every
   dcm2bids job exited 127. Reported by the same beta tester as the anat-reuse fix
