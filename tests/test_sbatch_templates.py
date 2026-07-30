@@ -14,12 +14,42 @@ BASE_PATHS = {
 
 def _cfg():
     return {
-        "paths": dict(BASE_PATHS),
+        "paths": dict(BASE_PATHS, nordic_toolbox_dir="/projects/study/NORDIC"),
         "slurm": {},
         "containers": {},
         "fmriprep": {"nprocs": 8, "mem_gb": 32},
-        "nordic": {},
+        "nordic": {"matlab_module": "matlab/R2024a", "excluded_nodes": ""},
     }
+
+
+# A minimal valid context per template, for tests that vary one toggle at a time.
+_TEMPLATE_DEFAULTS = {
+    "dcm2bids": dict(
+        subject="04",
+        session="01",
+        dicom_dir="/d",
+        config_json="/c.json",
+        config_json_dir="/",
+        container_path="/x.sif",
+        force=False,
+    ),
+    "fmriprep": dict(
+        subject="04",
+        session="01",
+        bids_dir="/b",
+        output_dir="/projects/study/derivatives/fmriprep",
+        container_path="/x.sif",
+        fs_license="/l",
+        fs_license_dir="/",
+        output_spaces=["func"],
+        filter_file="",
+        anat_only=False,
+        derivatives="",
+    ),
+    "mriqc": dict(subject="04", session="01", container_path="/x.sif", mem_gb=8),
+    "nordic_denoise": dict(subject="04", session="01", bold_count=2, scripts_dir="/s"),
+    "nordic_bids_input": dict(subject="04", session="01", python_cmd="/usr/bin/python3"),
+}
 
 
 def _dcm2bids(session, force=False):
@@ -284,6 +314,49 @@ def test_mriqc_survives_a_path_with_spaces_and_metacharacters():
     )
     argv = _singularity_argv(render_sbatch("mriqc", ctx))
     assert f"{NASTY}/bids" in argv
+
+
+def _flag_lines_outside_a_command(script):
+    """Logical lines that begin with a flag, i.e. flags that fell out of a command.
+
+    Splices the backslash continuations the way bash does, so what comes back is
+    the list of commands the shell would actually run.
+    """
+    spliced = script.replace("\\\n", " ").splitlines()
+    return [line.strip() for line in spliced if line.strip().startswith("-")]
+
+
+@pytest.mark.parametrize(
+    "step,extra",
+    [
+        # Both toggles that gate a comment-adjacent branch, in both positions.
+        ("dcm2bids", dict(force=True)),
+        ("dcm2bids", dict(force=False)),
+        ("fmriprep", dict(derivatives="/projects/study/derivatives/fmriprep")),
+        ("fmriprep", dict(derivatives="/projects/study/derivatives/anat", anat_only=True)),
+        ("fmriprep", dict(derivatives="", extra_flags="--use-syn-sdc")),
+        ("fmriprep", dict(derivatives="/d", extra_flags="--use-syn-sdc")),
+        ("mriqc", {}),
+        ("nordic_denoise", {}),
+        ("nordic_bids_input", {}),
+    ],
+)
+def test_no_comment_breaks_a_line_continuation(step, extra):
+    """A flag can never be a command, so a flag starting a line means the command
+    above it ended early.
+
+    A Jinja comment renders to nothing but still emits its own trailing newline.
+    Parked between two continued lines that blank line terminates the command at
+    the backslash above it, and every flag after it becomes a separate command
+    that bash reports as "not found". It cost fMRIPrep `--skip-bids-validation
+    --notrack` on exactly the anat-reuse job — the comment sat inside the
+    `derivatives` branch, so ses-01 was fine and ses-02+ failed BIDS validation —
+    and cost dcm2bids `--bids_validate --force_dcm2bids --clobber` on every job.
+
+    Keep template comments above `singularity run`, never inside it.
+    """
+    ctx = build_context(_cfg(), step, **dict(_TEMPLATE_DEFAULTS[step], **extra))
+    assert _flag_lines_outside_a_command(render_sbatch(step, ctx)) == []
 
 
 @pytest.mark.parametrize(

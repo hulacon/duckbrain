@@ -15,7 +15,19 @@ echo "Node: $(hostname)"
 
 {# Paths carry `| sh` — one interpolation, one shell argument. Expansions of the
    variables assigned here need their own quotes ("$WORK_DIR"), since the filter
-   only protects the assignment, not every later use of it. #}
+   only protects the assignment, not every later use of it.
+
+   `extra_flags` is the one deliberate exception: it is a shell fragment the
+   operator supplies and it must word-split (`--use-syn-sdc --fd-spike-threshold
+   0.5` is three arguments), so it is the one unquoted field in this template.
+
+   Every note about the command belongs HERE, above it. A Jinja comment parked
+   between two continued lines still emits its own newline, and a blank line
+   after a trailing backslash ends the command right there — which is how the
+   anat-reuse job (and only that job, since the comment sat inside the
+   `derivatives` branch) shipped without `--skip-bids-validation --notrack` and
+   failed BIDS validation on every session past the first. Pinned by
+   test_no_comment_breaks_a_line_continuation. #}
 WORK_DIR={{ (paths.work_dir ~ "/sub-" ~ subject ~ ("_ses-" ~ session if session else "")) | sh }}
 
 # TemplateFlow home and tmpdir are per-job (under WORK_DIR): a shared home on the
@@ -49,9 +61,6 @@ singularity run --cleanenv \
   -w "$WORK_DIR" \
 {% if anat_only %}  --anat-only \
 {% endif %}{% if derivatives %}  --derivatives {{ derivatives | sh }} \
-{# extra_flags is deliberately NOT quoted: it is a shell fragment the operator
-   supplies, and it must word-split (`--use-syn-sdc --fd-spike-threshold 0.5` is
-   three arguments). That makes it the one trusted field in this template. #}
 {% endif %}{% if extra_flags is defined and extra_flags %}  {{ extra_flags }} \
 {% endif %}  --skip-bids-validation --notrack
 

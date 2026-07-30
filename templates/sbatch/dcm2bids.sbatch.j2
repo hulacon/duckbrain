@@ -15,7 +15,19 @@ echo "Node: $(hostname)"
 
 {# Every interpolation below is ONE shell argument, so every one carries `| sh`.
    A bind spec is built and quoted whole: source:destination:mode is a single
-   argument to singularity, not three. #}
+   argument to singularity, not three.
+
+   force needs BOTH flags: --force_dcm2bids overwrites the temporary dcm2niix
+   output, --clobber overwrites the BIDS output. Without the second, dcm2bids
+   skips every destination file that already exists and exits 0, so a reconvert
+   silently kept the old sidecars. See build_dcm2bids_command for the full note.
+
+   Every note about the command belongs HERE, above it. A Jinja comment parked
+   between two continued lines still emits its own newline, and a blank line
+   after a trailing backslash ends the command right there — which is how the
+   note above, when it sat next to the flags it describes, stopped those flags
+   from ever reaching dcm2bids. Pinned by
+   test_no_comment_breaks_a_line_continuation. #}
 singularity run --cleanenv \
   -B {{ (dicom_dir ~ ":" ~ dicom_dir ~ ":ro") | sh }} \
   -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir) | sh }} \
@@ -26,10 +38,6 @@ singularity run --cleanenv \
 {% if session %}  -s {{ session | sh }} \
 {% endif %}  -c {{ config_json | sh }} \
   -o {{ paths.bids_dir | sh }} \
-{# force needs BOTH flags: --force_dcm2bids overwrites the temporary dcm2niix
-   output, --clobber overwrites the BIDS output. Without the second, dcm2bids
-   skips every destination file that already exists and exits 0, so a reconvert
-   silently kept the old sidecars. See build_dcm2bids_command for the full note. #}
   {% if bids_validate %}--bids_validate {% endif %}{% if force %}--force_dcm2bids --clobber{% endif %}
 
 EXIT_CODE=$?

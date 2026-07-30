@@ -12,6 +12,33 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **A comment inside an sbatch command truncated the command.** fMRIPrep runs
+  that reused anat derivatives failed with BIDS validation errors, and every
+  dcm2bids job exited 127. Reported by the same beta tester as the anat-reuse fix
+  below, on sessions 2+ — and their diagnosis was exactly right.
+
+  A Jinja comment renders to nothing but still emits its own trailing newline.
+  Two of them sat *between* continued lines of a `singularity run ... \`
+  invocation, so each rendered a blank line after a trailing backslash, which
+  ends the command right there. Everything below it became a separate command
+  that bash reported as "not found" — and `EXIT_CODE=$?` then captured that 127
+  instead of the container's exit status, so the job reported failure regardless
+  of what the tool did.
+
+  fMRIPrep lost `--skip-bids-validation --notrack`, and only on the anat-reuse
+  path: the comment was inside the `{% if derivatives %}` branch, so a plain run
+  rendered nothing there and worked, while a reuse run dropped the flags and let
+  fMRIPrep's own validator reject the dataset. That is precisely the ses-01-fine
+  / ses-03-broken split that was reported. dcm2bids lost `--bids_validate` and
+  `--force_dcm2bids --clobber` on *every* job — unconditionally, since 2026-07-24
+  — so a forced reconvert silently kept the old sidecars, undoing the fix that
+  introduced the comment.
+
+  Template comments now live above `singularity run`, never inside it. Pinned for
+  all five templates by `test_no_comment_breaks_a_line_continuation`, which
+  splices the continuations the way bash does and asserts no command begins with
+  a flag.
+
 - **Anat reuse now works across sessions — the whole point of it in a
   longitudinal study.** "Reuse anat derivatives" refused every session except the
   one the anatomical was acquired in, with *"no preprocessed anatomicals exist for
