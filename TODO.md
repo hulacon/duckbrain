@@ -15,7 +15,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 
 **Open items, in priority order:**
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
-[`#13`](#13) conversion legibility (`#13.1` justified; do `#19.8`/`#19.9` first) ·
+[`#13`](#13) conversion legibility (`#13.1` only, and it waits on `#16`) ·
 [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
@@ -71,6 +71,13 @@ BIDS filter path, `use_nordic`, SLURM resources. `script_path` makes them
   common**. The free half: `nordic.write_nordic_sidecars` writes one sidecar per
   intended run at launch already, so NORDIC could be graded by "every sidecar has
   a matching NIfTI" without inventing anything.
+- **`#13.1` is waiting on this layer to settle** (Ben, 2026-07-30). A study that
+  converts only part of what it acquired — five of the LCNI corpus's fifteen
+  curate `anat/T1w` alone — currently has to say so as a per-session skip. That
+  may be a *statement of intent* rather than a config toggle, and `[expected]` is
+  the only statement of intent duckbrain has. Whoever shapes this should decide
+  whether "which series this study converts" belongs in it; if it does, `#13.1`'s
+  separate section never gets built.
 
 ### `#16.2` — Outcome checks, and duckbrain's first cache
 
@@ -261,6 +268,45 @@ rather than by junk removal. Notes for whoever does:
   include-by-datatype would express it in one line — but it is a different
   feature with its own failure mode (a study that adds a sequence gets it
   silently), so decide rather than drift into it.
+
+**Folding the skip into the `Type` column as an `IGNORE` value was explored
+2026-07-30 and rejected** — recorded here because it is the obvious
+simplification and will otherwise be re-proposed. It would replace this whole
+item with one `[series_types]` rule, and it does not work as a *classification*:
+
+- **It would not reliably drop a fieldmap.** `detect_fieldmaps` selects on
+  `classification == "fmap"` **or** `_is_fieldmap(description)`, and
+  `generate_config` emits fieldmaps by walking `fieldmaps.groups` without
+  consulting `classification` at all. What actually implements a skip is
+  `generate_config(skip=…)` plus `_without_skipped_groups`, both keyed on series
+  numbers — so `IGNORE` would bypass the mechanism it is meant to drive.
+- **It cannot express the per-session case, which is real.** `fmap_eyeball`'s
+  `sub-01` holds `cued_recall_encoding_run2` twice — aborted at 14 volumes and
+  complete at 210, **identical descriptions**. Dropping the aborted one is a
+  fact about that session; a description-keyed `IGNORE` drops both. The key that
+  makes a rule generalize is exactly what makes this inexpressible, and an
+  aborted run is common enough that the collision check exists for it.
+- **It erases what the row is**, and the preflight needs both facts: that a
+  dropped series was a *functional run* rather than a scout, that an SBRef was
+  stranded by dropping only its BOLD, that unticking one fieldmap half took the
+  whole pair. All read `classification` alongside the skip.
+
+**The version that does work** keeps `convert` per-session and makes `ignore` a
+project-level *skip flag* rather than a classification — leaving the inferred
+datatype intact, so detection, the checks and the series-number `skip` set all
+keep working. Which reduces the question to spelling: `[series_types]` with
+`type = "ignore"`, or its own `[series_skip]` section. Own section is the
+current lean, because every value in `[series_types]` is today a
+datatype-and-suffix that something emits, and the one member that isn't reads
+later as a bug.
+
+**Deferred until `#16`'s expectations/manifest layer takes shape** (Ben,
+2026-07-30), and the reason is worth keeping: "which series this study converts"
+may not be a config toggle at all but a *statement of intent*, which is what
+`[expected]` already is and the only such statement duckbrain has
+(`core/expectations.py`, `docs/sanity-checks.md`). If the skip belongs there, the
+spelling question above answers itself and the separate section never gets built.
+Decide that before writing either one.
 
 ---
 
