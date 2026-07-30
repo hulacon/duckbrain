@@ -14,11 +14,13 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
+[`#19.8`](#19) **next** — the ND twin guard never fires on a scanner that omits
+the tag (the fix shape is now measured on both fixtures; start there) ·
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (`#13.1` only, and it waits on `#16`) ·
 [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
-[`#19`](#19) conversion coverage ·
+[`#19`](#19) conversion coverage (rest of it) ·
 [`#22`](#22) wire up the dcm2niix probe ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#27`](#27) `4_Preprocessing.py` has no test ·
@@ -406,7 +408,13 @@ after a change with every difference triaged rather than counted — independent
 a tree someone else is editing. `#19.7` carries the numbers and the re-measure
 protocol.
 
-What it does *not* cover, in the order the corpus argues for:
+**`#19.8` is the next thing to build** — it is a live correctness bug on a beta
+tester's data, it is the whole remainder of `#13.1`'s ticked-row measurement, and
+as of 2026-07-30 its fix shape is measured on both fixtures rather than proposed.
+`#19.9` closed the same day; the sweep harness it used is the one to reuse, and
+`#19.2` is unblocked by it.
+
+The rest, in the order the corpus argues for:
 
 ### `#19.1` — DWI is recognised and still not convertible
 
@@ -542,8 +550,11 @@ diff is the wrong instrument for that part.
 
 The one thing worth asking the curator directly is which reconstruction their
 re-conversion keeps. If they keep the `_ND` copy where both exist, duckbrain's
-default (`corrected`) will disagree on every twinned session — 47 of them — and
-that would be a *default* to reconsider, not a bug to fix.
+default (`corrected`) will disagree on every twinned session — **46 of the 166**,
+re-counted 2026-07-30 with `nd_twin_bases`, one twin base each — and that would be
+a *default* to reconsider, not a bug to fix. (This line said 47; the ledger's
+"52 corpus sessions" is a different quantity — sessions that gained a drop
+*notice*, which is not only the twinned ones.)
 
 ### `#19.8` — ND twin detection never fires on a scanner that omits the tag
 
@@ -580,9 +591,44 @@ to confirm: only skip when the image type is present **and** carries a
 distortion-correction token of its own (`DIS2D`/`DIS3D`), which is what a site
 reusing the name for something else would look like. An `image_type` that names
 no reconstruction at all says nothing either way, and should fall through to the
-name. Validate against both this tree and the LCNI corpus's 47 twinned sessions
-before changing it — the corpus is the only place the guard's original case
-exists.
+name.
+
+**Measured 2026-07-30 on both fixtures in full, and the proposed shape survives —
+build it.** Whole LCNI corpus (166/166 sessions, all 2139 series directories) and
+all 97 `mmmsourcedata` sessions:
+
+| | ND-*named* series | their `image_type` | corrected twin's `image_type` |
+|---|---|---|---|
+| LCNI corpus | 53 (49 readable, 4 no header) | `DERIVED/SECONDARY/M/`**`ND`**`/NORM` | `DERIVED/SECONDARY/M/NORM/`**`DIS3D/DIS2D`** |
+| `mmmsourcedata` | 26 | `ORIGINAL/PRIMARY/M/NONE` | `ORIGINAL/PRIMARY/M/NONE` |
+
+So `DIS2D`/`DIS3D` is exactly the **complement** of `ND` — the token the
+*corrected* copy carries, which is what the Siemens semantics imply (`ND` = no
+distortion correction) and what makes "named ND, header says corrected" a genuine
+contradiction rather than a guess. Corpus-wide the tokens are ordinary and
+plentiful: `DIS2D` 278×, `DIS3D` 86×. On `mmmsourcedata` **neither ever appears**
+(0 occurrences anywhere in the tree), which is the same scanner silence that
+causes the bug. Both halves of the new rule therefore check out: LCNI ND-named
+series carry `ND` and no `DIS*`, so they keep passing exactly as today; her
+ND-named series carry neither, so the guard stops firing and the twins become
+visible.
+
+**One claim this item used to make is wrong, and it is the one that would have
+shaped the validation plan.** It said the corpus "is the only place the guard's
+original case exists". It is not: the guard **never fires on the corpus at all** —
+0 of 53 ND-named series are skipped, because every readable one carries `ND`. It
+fires on 26 of 26 in `mmmsourcedata`, all of them wrongly. So the case the guard
+was written to defend against has **no measured instance in either fixture**, and
+the corpus's role here is a regression fixture (any change must leave all 53
+alone), not a validation of the guard's discriminating purpose. Nothing available
+can validate that half; the argument for keeping a narrowed guard is the Siemens
+semantics above, not evidence.
+
+Reuse `#19.9`'s harness rather than writing a new one: classify every session in
+both trees before and after, diff the per-series `(classification, suffix_hint)`
+and the fieldmap groups, and require the corpus diff to be **empty**. That is what
+caught the pMAP101 third-anatomical case the unit tests could not (see the
+2026-07-24 ledger row), and it is what makes "no regression" a measurement.
 
 Until it is fixed the `convert` control is the workaround, and it is per-session:
 5 subjects × 95 sessions × 3 twins is not a workaround anybody will keep up with,
