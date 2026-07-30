@@ -227,6 +227,28 @@ version:
   fix at the source; the declaration is for what no rule can reach. See
   `memory/header-based-classification`.
 
+## Validated in the browser — 2026-07-30
+
+Phases 1–8 were carried by unit and AppTest tests only; the colour tokens in
+particular could be asserted as *strings* and nothing more. Ben looked at the
+running GUI on a three-fieldmap-pair session
+(`/projects/hulacon/bhutch/fmap_eyeball`, `sub-02`) and the central bet of the
+whole document held: the third pair read as "orange and easy to see", so one
+stable colour per group does let the eye make the join. Density and the phase 8
+`Type` dropdown were fine too.
+
+Two things the pass deliberately did **not** settle, recorded so they are not
+re-discovered as bugs:
+
+- **Dark theme was not tested** — it belongs to `TODO.md` `#8`, since a theming
+  pass is coming. The specific risk to carry there: the badges above the table
+  are theme-aware `:blue-badge[…]` markdown while the tokens inside it are plain
+  emoji, which do not shift with the theme. Divergence breaks the join.
+- **Whether phase 4 is redundant with phase 6.** Phase 4 was designed before the
+  unified table existed, and the table now carries the same relation on every
+  row in both directions; what the grouped sections still add is aggregation.
+  Left standing, as a density question that depends on the theme.
+
 ## The granularity decision — settled 2026-07-21
 
 **Bindings attach at series/run level.** Ben's call, on the case of a fieldmap

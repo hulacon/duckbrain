@@ -15,7 +15,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 
 **Open items, in priority order:**
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
-[`#13`](#13) conversion legibility (browser validation; `#13.1` project-level skip) ·
+[`#13`](#13) conversion legibility (`#13.1` project-level skip) ·
 [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
@@ -27,7 +27,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
-stages · [`#8`](#8) branding ·
+stages · [`#8`](#8) branding + dark theme ·
 [Provenance residuals](#provenance--consistency-residuals) ·
 [Loose ideas](#loose-ideas-not-scheduled)
 
@@ -144,26 +144,46 @@ data-migration problem, not just a fix. duckbrain's shipped default partition wa
 ---
 
 <a id="13"></a>
-## #13 — Conversion legibility: the browser validation that is still owed
+## #13 — Conversion legibility: what the eyeball pass left
 
-**Phases 1–8 shipped and granularity is settled (see the ledger).
-What remains is the eyeball pass, plus `#13.1` below.** Full design in
-**`docs/conversion-legibility.md`**.
+**Phases 1–8 shipped, granularity is settled, and the browser validation is
+done** (see the ledger). What is left is `#13.1` below plus three notes the
+eyeball pass produced. Full design in **`docs/conversion-legibility.md`**.
 
-- **UNVALIDATED in the browser.** Covered by unit + AppTest tests, but nobody has
-  looked at it in the running GUI. The colour tokens in particular are only
-  asserted as *strings*; whether the board reads well on a real session (and in
-  the dark theme) is an eyeball question, and it is the only part of this item a
-  human has to do.
-- **The fixture for it is staged**: `/projects/hulacon/bhutch/fmap_eyeball`,
-  `sub-01` (two pairs) and `sub-02` (**three** pairs), symlinked at the `dicom`
-  level into the read-only `mmmdata` export — so the hardest case the view exists
-  to show is one launch away, and nothing needs converting first (the Conversion
-  Plan renders from DICOMs). The two-pair case had no fixture at all after
-  `#14`'s cleanup deleted `mmm_fmap_check`. Both render clean and both surface a
-  *real* preflight error worth eyeballing on purpose: each session reacquired a
-  run under the same console name, so two series collide on one filename.
-  92 of the export's 109 sessions have ≥2 complete pairs if another is wanted.
+- **The eyeball pass is done, 2026-07-30, on
+  `/projects/hulacon/bhutch/fmap_eyeball`** (`sub-01` two fieldmap pairs,
+  `sub-02` three; symlinked at the `dicom` level into the read-only `mmmdata`
+  export, nothing converted because the Conversion Plan renders from DICOMs).
+  Ben's verdict: the board works. **The central bet holds** — the third pair's
+  colour was "orange and easy to see", which is the thing the whole
+  one-stable-colour-per-group design was for and the thing tests could only
+  assert as a string. Density fine, the `Type` dropdown fine. Keep the fixture:
+  92 of the export's 109 sessions have ≥2 complete pairs, max 4 groups against a
+  5-colour palette, so the wrap-around is unreachable in this study.
+- **Three residual notes, none blocking, all deliberately not acted on** — they
+  are polish, and polish before the theme is settled is work done twice:
+  - `anat/T1w` reads slightly filenamey; `anat (T1w)` was floated and explicitly
+    called non-essential. Not free either: the token *is* the persisted
+    `[series_types]` value, so changing the display changes the config format.
+  - The grouped fieldmap view (phase 4) may be **redundant with the table**
+    (phase 6). Fair: phase 4 was designed before the unified table existed, and
+    the table now carries the same relation on every row in both directions.
+    What the section still adds is *aggregation* — every bold for one pair in one
+    place, versus scanning 40 rows for a colour — and Ben found it "good for
+    sanity checking". So the question is whether that earns a surface, and the
+    cheap middle is an expander rather than deletion. Decide with `#8`, since it
+    is a density judgment and density depends on the theme.
+  - Judged on a desktop monitor only. Narrow widths are untested, and OnDemand
+    users are often on laptops.
+- **Dark theme was not tested and is now `#8`'s**, by Ben's call — a theming pass
+  is coming and testing against defaults would be work done twice. One specific
+  thing for whoever does it, or it will be missed: the Fieldmap Detection badges
+  use Streamlit's theme-aware `:blue-badge[…]` markdown while the tokens *inside*
+  the table are plain emoji, which are font-rendered and do not shift with the
+  theme. If those two diverge, the colour join breaks exactly where it carries
+  information. `docs/conversion-legibility.md` phase 3 also names
+  `5_QC_Dashboard.py`'s hardcoded `#ffcccc` as the existing example of getting
+  this wrong.
 - **The anti-drift rule this hangs on**, and the reason the phases were built
   this way: the preview is derived **from the generated config dict**, never
   re-derived from the series list. Same stance `resolve_fmap_assignments` takes.
@@ -1109,6 +1129,19 @@ Gated behind functionality + onboarding (`#2`); captured so it isn't forgotten.
 Logo/wordmark that works small (favicon) and as a banner; a considered Streamlit
 theme instead of defaults; favicon for the GUI tab and the OOD tile; README banner.
 Tasteful, not over-designed, and after the product behavior is locked.
+
+**Dark theme is this item's, not `#13`'s** (Ben's call, 2026-07-30 — a facelift is
+coming, so testing against the defaults would be work done twice). Two things
+already known to check when it happens, both of which a screenshot at the time
+will not remind you of:
+
+- The Conversion page's fieldmap colour join spans **two rendering mechanisms** —
+  `:blue-badge[…]` markdown above the table (theme-aware) and plain emoji inside
+  it (font-rendered, theme-blind). They must still read as the same colour or the
+  join breaks where it carries information. See `#13`.
+- `5_QC_Dashboard.py` hardcodes `#ffcccc`, which reads poorly on a dark
+  background. Flagged in `docs/conversion-legibility.md` phase 3 as the thing not
+  to repeat, and never fixed.
 
 ---
 
