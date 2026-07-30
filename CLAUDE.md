@@ -162,6 +162,14 @@ what's open, `docs/releasing.md` to cut the next one.
   race, so don't treat its derivatives as a clean fixture without checking.
   `memory/mmmduck-multisession-fixture` names a third (`/projects/hulacon/shared/mmmduck`,
   read-only), which is the only *longitudinal* fMRIPrep tree on Talapas.
+- **The fieldmap fixture — `/projects/hulacon/bhutch/fmap_eyeball`.** Two
+  sessions symlinked at the `dicom` level into the read-only `mmmdata` export:
+  `sub-01` has two complete fieldmap pairs, `sub-02` has **three**. Staged
+  2026-07-30 for `#13`'s browser eyeball pass, because the two-pair case lost its
+  only fixture when `#14` deleted `mmm_fmap_check`. Nothing is converted and
+  nothing needs to be — the Conversion Plan renders from DICOMs. Both also carry
+  a real filename collision (a run reacquired under the same console name), so
+  the preflight has something true to say.
 - **The three projects this file used to name are gone** (`divatten`,
   `divatten_gui_beta`, `mmm_fmap_check`), deleted 2026-07-22 as `#14`'s cleanup.
   Two capabilities lost their live fixture with them: two-fieldmap-pair

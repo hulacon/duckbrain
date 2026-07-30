@@ -153,12 +153,17 @@ What remains is the eyeball pass, plus `#13.1` below.** Full design in
 - **UNVALIDATED in the browser.** Covered by unit + AppTest tests, but nobody has
   looked at it in the running GUI. The colour tokens in particular are only
   asserted as *strings*; whether the board reads well on a real session (and in
-  the dark theme) is an eyeball question. Do it on `divatten_beta` — note the
-  projects this used to name (`divatten_gui_beta`, `mmm_fmap_check`) were deleted
-  with `#14`, and with them the two-pair case the view most exists to show. A
-  session with two fieldmap pairs is worth re-converting from
-  `/projects/lcni/dcm/hulacon/mmmdata/` before the eyeball pass, or the hardest
-  case goes unlooked-at.
+  the dark theme) is an eyeball question, and it is the only part of this item a
+  human has to do.
+- **The fixture for it is staged**: `/projects/hulacon/bhutch/fmap_eyeball`,
+  `sub-01` (two pairs) and `sub-02` (**three** pairs), symlinked at the `dicom`
+  level into the read-only `mmmdata` export — so the hardest case the view exists
+  to show is one launch away, and nothing needs converting first (the Conversion
+  Plan renders from DICOMs). The two-pair case had no fixture at all after
+  `#14`'s cleanup deleted `mmm_fmap_check`. Both render clean and both surface a
+  *real* preflight error worth eyeballing on purpose: each session reacquired a
+  run under the same console name, so two series collide on one filename.
+  92 of the export's 109 sessions have ≥2 complete pairs if another is wanted.
 - **The anti-drift rule this hangs on**, and the reason the phases were built
   this way: the preview is derived **from the generated config dict**, never
   re-derived from the series list. Same stance `resolve_fmap_assignments` takes.
