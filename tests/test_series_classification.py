@@ -1,10 +1,15 @@
 """Series-classification rules, pinned against real LCNI protocol names.
 
-Every description in this file is taken verbatim from the LCNI repository at
+Descriptions here are taken verbatim from the LCNI repository at
 ``/projects/lcni/dcm/repository`` (15 studies, 189 distinct series descriptions,
 paired with the BIDS the LCNI curator produced from them). They are the cases
 that were classified wrongly before, so each one is a regression guard rather
 than an invented example.
+
+Two blocks are marked exceptions, each because the corpus does not contain the
+shape at all: the ND fieldmap layout LCNI described from a session outside it,
+and the ABCD tree at ``/projects/hulacon/shared/mmmsourcedata`` whose scanner
+writes no reconstruction token. Both say so where they begin.
 """
 
 from pathlib import Path
@@ -288,8 +293,15 @@ def test_a_repeated_description_does_not_collapse_the_twin_lookup():
     assert sorted(s.series_number for s in groups[0].corrected) == [28, 29]
 
 
-def test_an_nd_named_series_whose_header_denies_it_is_left_alone():
-    """If the header carries no ND token the name means something else here."""
+def test_an_nd_named_series_the_header_contradicts_is_left_alone():
+    """If the header says this copy *was* distortion-corrected, the name is not about ND.
+
+    ``DIS2D``/``DIS3D`` is Siemens' complement of ``ND`` (No Distortion
+    correction), so it is a genuine contradiction of an ``_ND`` name and the only
+    thing that overrules it. An ``image_type`` that merely names no
+    reconstruction is *not* this case — see
+    :func:`test_a_scanner_that_writes_no_reconstruction_token_still_twins`.
+    """
     from duckbrain.core.dicom_header import SeriesHeader
 
     corrected = ("DERIVED", "SECONDARY", "M", "NORM", "DIS3D", "DIS2D")
@@ -311,6 +323,189 @@ def test_an_nd_named_series_whose_header_denies_it_is_left_alone():
     ]
     dicom_inspect.classify_series(series)
     assert [s.classification for s in series] == ["anat", "anat"]
+    # Assert on the resolver directly, not only through the demotion it drives:
+    # a future change could keep both series `anat` for some other reason.
+    assert dicom_inspect._nd_twin_groups(series) == []
+
+
+def test_the_lcni_twin_is_matched_on_its_own_token_not_its_partners():
+    """The corrected copy carries ``DIS2D``/``DIS3D``, and the guard must ignore that.
+
+    Real corpus headers: 1009 ``mprage_p2_ND_defaced`` reads
+    ``DERIVED/SECONDARY/M/ND/NORM``, its twin 1010 reads
+    ``DERIVED/SECONDARY/M/NORM/DIS3D/DIS2D``. Applying the contradiction test to
+    the *corrected* side too would look symmetrical and would delete the pair on
+    every scanner that writes neither token — which is the whole defect
+    :func:`test_a_scanner_that_writes_no_reconstruction_token_still_twins` covers.
+    """
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    def anat(image_type):
+        return SeriesHeader(modality="MR", image_type=image_type, mr_acquisition_type="3D")
+
+    series = [
+        SeriesInfo(
+            1009,
+            "mprage_p2_ND_defaced",
+            Path("/nonexistent"),
+            176,
+            header=anat(("DERIVED", "SECONDARY", "M", "ND", "NORM")),
+        ),
+        SeriesInfo(
+            1010,
+            "mprage_p2_defaced",
+            Path("/nonexistent"),
+            176,
+            header=anat(("DERIVED", "SECONDARY", "M", "NORM", "DIS3D", "DIS2D")),
+        ),
+    ]
+    dicom_inspect.classify_series(series)
+    assert {s.series_number: s.classification for s in series} == {1009: "derived", 1010: "anat"}
+
+
+# --- the scanner that writes no reconstruction token -----------------------
+# Exception to this file's LCNI provenance, and the second one. Headers, series
+# numbers, descriptions and file counts below are the values actually read from
+# /projects/hulacon/shared/mmmsourcedata/sub-03/ses-01 — an ABCD-protocol tree
+# where every series reads ('ORIGINAL','PRIMARY','M','NONE') and DIS2D/DIS3D
+# appear nowhere in its 97 sessions.
+#
+# The LCNI corpus cannot pin this shape: all 53 of its ND-named series carry the
+# `ND` token, so the guard never fires there and a corpus run is blind to the
+# case by construction. (The 4 corpus ND series with no readable header are
+# already covered by `_nd_anat_pair` below, which builds twins with header=None.)
+
+
+def _abcd(**kwargs):
+    """An enhanced-dialect (XA30) header from that tree. No reconstruction token."""
+    from duckbrain.core.dicom_header import SeriesHeader
+
+    base = dict(
+        modality="MR",
+        image_type=("ORIGINAL", "PRIMARY", "M", "NONE"),
+        mr_acquisition_type="3D",
+        is_epi=False,
+        is_spin_echo=False,
+        sequence_name="tfl_me3d1_16ns",
+        dialect="enhanced",
+        volumes=1,
+    )
+    base.update(kwargs)
+    return SeriesHeader(**base)
+
+
+def _abcd_anat_session() -> list[SeriesInfo]:
+    """sub-03/ses-01's anatomicals: the T1w acquired twice, both copies of each.
+
+    Two roles, so the twin match has something to be wrong about — the T1w and
+    the SPACE T2w classify by *name* (no ``suffix_hint``), the coronal TSE by
+    *header* (``T2w``). One file per series: this is enhanced multiframe.
+    """
+    tse = dict(mr_acquisition_type="2D", is_spin_echo=True, sequence_name="*tse2d1_18")
+    spc = dict(is_spin_echo=True, sequence_name="spc_200ns")
+    return [
+        SeriesInfo(7, "ABCD_T1w_MPR_vNav_ND", Path("/nonexistent"), 1, header=_abcd()),
+        SeriesInfo(8, "ABCD_T1w_MPR_vNav", Path("/nonexistent"), 1, header=_abcd()),
+        SeriesInfo(10, "ABCD_T1w_MPR_vNav_ND", Path("/nonexistent"), 1, header=_abcd()),
+        SeriesInfo(11, "ABCD_T1w_MPR_vNav", Path("/nonexistent"), 1, header=_abcd()),
+        SeriesInfo(12, "T2_coronal_1.8_ND", Path("/nonexistent"), 1, header=_abcd(**tse)),
+        SeriesInfo(13, "T2_coronal_1.8", Path("/nonexistent"), 1, header=_abcd(**tse)),
+        SeriesInfo(16, "ABCD_T2w_SPC_vNav_ND", Path("/nonexistent"), 1, header=_abcd(**spc)),
+        SeriesInfo(17, "ABCD_T2w_SPC_vNav", Path("/nonexistent"), 1, header=_abcd(**spc)),
+    ]
+
+
+def test_a_scanner_that_writes_no_reconstruction_token_still_twins():
+    """An image_type naming no reconstruction says nothing, and must not deny the name.
+
+    Read as a denial it hid every twin this scanner has — 26 of 26 ND-named
+    series across the tree — so both copies of every anatomical converted and the
+    Conversion page, which gates the reconstruction radio on this function,
+    never offered the choice.
+    """
+    assert dicom_inspect.nd_twin_bases(_abcd_anat_session()) == [
+        "ABCD_T1w_MPR_vNav",
+        "ABCD_T2w_SPC_vNav",
+        "T2_coronal_1.8",
+    ]
+
+
+def test_an_image_type_that_names_no_reconstruction_does_not_deny_the_name():
+    """The rule in isolation, on one pair.
+
+    Resolved under ``both`` so nothing is demoted and each series keeps the role
+    the twin match is made on.
+    """
+    series = [s for s in _abcd_anat_session() if s.series_number in (12, 13)]
+    dicom_inspect.classify_series(series, nd_duplicates="both")
+    groups = dicom_inspect._nd_twin_groups(series)
+    assert len(groups) == 1
+    assert [s.series_number for s in groups[0].nd] == [12]
+    assert [s.series_number for s in groups[0].corrected] == [13]
+
+
+def test_the_nd_copy_drops_under_the_default_policy_on_that_scanner():
+    series = dicom_inspect.classify_series(_abcd_anat_session())
+    by_num = {s.series_number: s for s in series}
+    assert {n: s.classification for n, s in by_num.items()} == {
+        7: "derived",
+        8: "anat",
+        10: "derived",
+        11: "anat",
+        12: "derived",
+        13: "anat",
+        16: "derived",
+        17: "anat",
+    }
+    # The notice names what was kept, which is what the preflight renders.
+    assert "Series_8" in by_num[7].drop_reason
+    assert "Series_13" in by_num[12].drop_reason
+
+
+def test_two_acquisitions_of_one_protocol_stay_two_runs():
+    """The user-visible defect: `run-1` … `run-4` where two of the four are one image.
+
+    ``ABCD_T1w_MPR_vNav`` really was acquired twice, so ``run-1``/``run-2`` is
+    correct — the surplus was its ND copies, not a repeat. A second real instance
+    of pMAP101's many-to-one pairing, on a different scanner: each ND must claim
+    a distinct twin in acquisition order or one corrected copy goes unclaimed and
+    converts as a third anatomical.
+    """
+    from duckbrain.core.conversion_plan import plan_conversion
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    # Pair on a `both` pass, which demotes nothing, so every series still carries
+    # the role the match is made on.
+    probe = dicom_inspect.classify_series(_abcd_anat_session(), nd_duplicates="both")
+    (group,) = [g for g in dicom_inspect._nd_twin_groups(probe) if g.base == "ABCD_T1w_MPR_vNav"]
+    assert [s.series_number for s in group.nd] == [7, 10]
+    assert [s.series_number for s in group.corrected] == [8, 11]
+
+    series = dicom_inspect.classify_series(_abcd_anat_session())
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    plan = plan_conversion(generate_config(series, fmaps, "01", "01"), series, "01", "01")
+    assert sorted(f.filename for f in plan.files) == [
+        "sub-01_ses-01_run-1_T1w.nii.gz",
+        "sub-01_ses-01_run-1_T2w.nii.gz",
+        "sub-01_ses-01_run-2_T1w.nii.gz",
+        "sub-01_ses-01_run-2_T2w.nii.gz",
+    ]
+
+
+def test_both_reconstructions_keep_their_runs_within_each_acq():
+    """Where the two disambiguators meet: `acq-` separates the copies, `run-` the repeats."""
+    from duckbrain.core.conversion_plan import plan_conversion
+    from duckbrain.core.dcm2bids_config import generate_config
+
+    series = dicom_inspect.classify_series(_abcd_anat_session(), nd_duplicates="both")
+    fmaps = dicom_inspect.detect_fieldmaps(series)
+    plan = plan_conversion(generate_config(series, fmaps, "01", "01"), series, "01", "01")
+    assert sorted(f.filename for f in plan.files if "T1w" in f.filename) == [
+        "sub-01_ses-01_acq-dis_run-1_T1w.nii.gz",
+        "sub-01_ses-01_acq-dis_run-2_T1w.nii.gz",
+        "sub-01_ses-01_acq-nd_run-1_T1w.nii.gz",
+        "sub-01_ses-01_acq-nd_run-2_T1w.nii.gz",
+    ]
 
 
 def test_a_demoted_copy_records_why():

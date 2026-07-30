@@ -333,6 +333,12 @@ def classify_series(
 _ND_TOKEN = re.compile(r"(?<![A-Za-z0-9])ND(?=[_-]|$)")
 _ND_STRIP = re.compile(r"[_-]?(?<![A-Za-z0-9])ND(?=[_-]|$)")
 
+# Siemens' complement of ND: the distortion correction the *corrected* copy
+# advertises. Read only as a contradiction of an `_ND` name — presence says "this
+# copy was corrected", absence says nothing at all, because a scanner may write
+# neither token.
+_DIS_TOKENS = frozenset({"DIS2D", "DIS3D"})
+
 # What may be asked of a twinned pair. "corrected" is the historical behaviour
 # and the default.
 ND_POLICIES = ("corrected", "uncorrected", "both")
@@ -402,13 +408,27 @@ def _nd_twin_groups(series_list: list[SeriesInfo]) -> list[_NDGroup]:
     for s in series_list:
         if not _ND_TOKEN.search(s.description):
             continue
-        # The name says ND; if the header is readable and disagrees, the token
-        # means something else at this site. One-sided on purpose: the corrected
-        # twin is not required to carry DIS2D/DIS3D, because requiring an
-        # unmeasured cross-site assumption would turn a working session into an
-        # error. Those tokens are only used for labelling.
+        # The name says ND; only a header that *contradicts* it may overrule the
+        # name. `ND` is Siemens for "No Distortion correction", so its complement
+        # is what the corrected copy carries — and a series named `_ND` whose
+        # header says it was distortion-corrected is a site reusing the token for
+        # something else, which is the case this guard exists for. An image_type
+        # naming no reconstruction at all says nothing either way and falls
+        # through to the name: read as a denial, ('ORIGINAL','PRIMARY','M','NONE')
+        # — every series on one beta tester's scanner — hid all 26 of that tree's
+        # twins and converted both copies of every anatomical.
+        #
+        # Two asymmetries are deliberate. Only the ND-*named* side is tested: the
+        # corrected twin carries DIS2D/DIS3D by definition, so checking it here
+        # would delete the pair on any scanner that writes neither. And the case
+        # still guarded has no measured instance in either fixture — the LCNI
+        # corpus never trips it, all 53 of its ND-named series carry `ND` — so
+        # what keeps the guard is the Siemens semantics above, not evidence.
+        # Both halves are pinned in tests/test_series_classification.py, by
+        # test_an_nd_named_series_the_header_contradicts_is_left_alone and
+        # test_a_scanner_that_writes_no_reconstruction_token_still_twins.
         image_type = tuple(getattr(s.header, "image_type", ()) or ())
-        if image_type and "ND" not in image_type:
+        if _DIS_TOKENS.intersection(image_type):
             continue
         base = _ND_STRIP.sub("", s.description, count=1)
         if base.lower() == s.description.lower():
