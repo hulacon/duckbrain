@@ -31,8 +31,37 @@ def write_session_filter(path: str | Path, session: str) -> Path:
     return path
 
 
-def has_anat_derivatives(derivatives_dir: str | Path, subject: str, session: str = "") -> bool:
-    """True if a prior fMRIPrep run left reusable preprocessed anatomicals for this unit.
+def find_anat_derivatives(derivatives_dir: str | Path, subject: str) -> list[Path]:
+    """Reusable preprocessed anatomicals for *subject*, newest-path-sorted.
+
+    **Subject-scoped on purpose, not session-scoped.** fMRIPrep's own precomputed
+    lookup (``smriprep.utils.bids.collect_derivatives``) queries by subject and
+    never filters on session, so an anat preprocessed in ses-01 is reused for
+    every other session of that subject — which is exactly the longitudinal
+    pattern (recon-all once, share it) mmmdata-style studies run. Looking under
+    ``sub-XX/ses-YY/`` instead refused reuse for every session but the one the
+    T1w was acquired in, since fMRIPrep 24.x stamps the anat with its *source*
+    session and writes it to ``sub-XX/ses-01/anat/``.
+
+    Native space only (``_space-`` excluded), matching smriprep's ``space: null``
+    query — the standard-space copies are not what ``--derivatives`` reads, and
+    counting them would make a single anat look like several.
+    """
+    root = Path(derivatives_dir) / "fmriprep"
+    if not root.is_dir():
+        return []
+    try:
+        return sorted(
+            p
+            for p in root.glob(f"sub-{subject}/**/anat/sub-{subject}*_desc-preproc_T1w.nii.gz")
+            if p.is_file() and p.stat().st_size > 0 and "_space-" not in p.name
+        )
+    except (OSError, ValueError):
+        return []
+
+
+def has_anat_derivatives(derivatives_dir: str | Path, subject: str) -> bool:
+    """True if a prior fMRIPrep run left reusable preprocessed anatomicals for *subject*.
 
     Gates the "reuse anat derivatives" option. Pointing ``--derivatives`` at a tree
     that holds no anat for *subject* is a silent no-op: fMRIPrep rebuilds the whole
@@ -40,19 +69,21 @@ def has_anat_derivatives(derivatives_dir: str | Path, subject: str, session: str
     believes they saved hours that were in fact spent. Pattern matches the
     surveyor's ``_fmriprep_status`` so both agree on what a finished anat looks like.
     """
-    from .ingestion import sub_ses_relpath
+    return bool(find_anat_derivatives(derivatives_dir, subject))
 
-    root = Path(derivatives_dir) / "fmriprep"
-    if not root.is_dir():
-        return False
-    ss = sub_ses_relpath(subject, session)
-    try:
-        return any(
-            p.is_file() and p.stat().st_size > 0
-            for p in root.glob(f"{ss}/**/anat/sub-{subject}*_desc-preproc_T1w.nii.gz")
-        )
-    except (OSError, ValueError):
-        return False
+
+def anat_derivative_session(derivatives_dir: str | Path, subject: str) -> str:
+    """Session label the reusable anat was preprocessed under, or ``""``.
+
+    For messages only — reuse itself is subject-scoped. ``""`` covers both "no
+    anat" and a subject-level ``sub-XX/anat/`` layout (older fMRIPrep), so ask
+    :func:`has_anat_derivatives` whether reuse is possible at all.
+    """
+    found = find_anat_derivatives(derivatives_dir, subject)
+    if not found:
+        return ""
+    ses = found[0].parent.parent.name
+    return ses[4:] if ses.startswith("ses-") else ""
 
 
 def build_fmriprep_command(

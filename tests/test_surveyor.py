@@ -158,6 +158,20 @@ def test_fmriprep_sessionless_and_multisession_same_tracker(tmp_path):
     assert row["fmriprep"] == Status.COMPLETE
 
 
+def test_fmriprep_complete_when_anat_lives_in_another_session(tmp_path):
+    # Longitudinal shape: the anatomical is acquired in ses-01 and shared, so
+    # fMRIPrep writes it to sub-01/ses-01/anat/ and ses-02 has func output only.
+    # A session-scoped anat glob pinned ses-02 at PARTIAL with nothing missing.
+    _bids_anat_func(tmp_path, ses="01")
+    _touch(tmp_path / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_bold.nii.gz")
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01.html")
+    _touch(fp / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_desc-preproc_T1w.nii.gz")
+    _touch(fp / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_desc-preproc_bold.nii.gz")
+    df = survey_project(_config(tmp_path))
+    assert df[df.session == "02"].iloc[0]["fmriprep"] == Status.COMPLETE
+
+
 # ---- mriqc ------------------------------------------------------------------
 
 

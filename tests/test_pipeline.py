@@ -219,13 +219,41 @@ def test_has_anat_derivatives_detects_finished_anat(tmp_path):
     assert has_anat_derivatives(deriv, "014") is False  # other subject's anat
 
 
-def test_has_anat_derivatives_is_per_session(tmp_path):
-    from duckbrain.core.fmriprep import has_anat_derivatives
+def test_has_anat_derivatives_is_per_subject_not_per_session(tmp_path):
+    # The longitudinal case: one anat, acquired in ses-01, shared by every later
+    # session. fMRIPrep 24.x stamps it with its source session and writes it to
+    # sub-XX/ses-01/anat/, while smriprep's precomputed lookup queries by subject
+    # only — so ses-02 can and must reuse it. Scoping this glob to the session was
+    # what refused reuse for every session but the anat's own.
+    from duckbrain.core.fmriprep import anat_derivative_session, has_anat_derivatives
 
     deriv = str(tmp_path / "derivatives")
     _write_anat_deriv(tmp_path, "008", "01")
-    assert has_anat_derivatives(deriv, "008", "01") is True
-    assert has_anat_derivatives(deriv, "008", "02") is False
+    assert has_anat_derivatives(deriv, "008") is True
+    assert anat_derivative_session(deriv, "008") == "01"
+    assert has_anat_derivatives(deriv, "014") is False
+
+
+def test_find_anat_derivatives_ignores_standard_space_copies(tmp_path):
+    # smriprep queries `space: null`, so only the native-space image is a
+    # reusable anat. Counting the MNI copy would make one anat look like two.
+    from duckbrain.core.fmriprep import find_anat_derivatives
+
+    _write_anat_deriv(tmp_path, "008", "01")
+    anat = tmp_path / "derivatives" / "fmriprep" / "sub-008" / "ses-01" / "anat"
+    (anat / "sub-008_space-MNI152NLin2009cAsym_res-2_desc-preproc_T1w.nii.gz").write_text("x")
+    assert [p.name for p in find_anat_derivatives(str(tmp_path / "derivatives"), "008")] == [
+        "sub-008_desc-preproc_T1w.nii.gz"
+    ]
+
+
+def test_fmriprep_reuse_across_sessions_passes_derivatives_path(monkeypatch, tmp_path):
+    # The beta-tester report: anat preprocessed in ses-01, ses-02 refused.
+    cap = {}
+    _patch_fmriprep(monkeypatch, tmp_path, cap)
+    _write_anat_deriv(tmp_path, "008", "01")
+    advance_one(_config(tmp_path), "fmriprep", "008", "02", use_derivatives=True)
+    assert cap["ctx"]["derivatives"] == str(tmp_path / "derivatives" / "fmriprep")
 
 
 def test_has_anat_derivatives_ignores_empty_file(tmp_path):

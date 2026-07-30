@@ -10,6 +10,34 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **Anat reuse now works across sessions — the whole point of it in a
+  longitudinal study.** "Reuse anat derivatives" refused every session except the
+  one the anatomical was acquired in, with *"no preprocessed anatomicals exist for
+  sub-06/ses-02. Run fMRIPrep once with Anat-only first"* — even though sub-06's
+  anat was sitting finished in ses-01. Found by a beta tester on an mmmdata-shaped
+  project, where the design is exactly recon-all once and share it.
+
+  duckbrain looked for the anat under `sub-06/ses-02/`, but fMRIPrep 24.x stamps
+  the anat with the session it came *from* and writes it to `sub-06/ses-01/anat/`.
+  So the gate was stricter than the thing it guards: fMRIPrep's own precomputed
+  lookup (`smriprep.utils.bids.collect_derivatives`) queries by **subject** and
+  never filters on session. Verified against the tester's real derivatives — run
+  on ses-02, it returns the complete ses-01 cache (preprocessed T1w, brain mask,
+  dseg, TPMs, MNI and fsnative transforms, all eight surface pairs), so the anat
+  workflow is skipped in full. The reuse would have worked all along; only
+  duckbrain's check said otherwise.
+
+  The checkbox now names its source ("reuses the anatomicals already on disk for
+  ses-01") rather than reusing another session's anat silently.
+
+- **The Project Status board no longer pins a finished session at PARTIAL for a
+  missing anat that is not missing.** Same session-scoped assumption, same fix:
+  the fMRIPrep tracker looks for the subject's anat anywhere under `sub-XX/`. A
+  multi-session subject with every BOLD preprocessed used to read partial forever
+  in every session but its anat's.
+
 ## [0.3.0] — 2026-07-29
 
 ### Added

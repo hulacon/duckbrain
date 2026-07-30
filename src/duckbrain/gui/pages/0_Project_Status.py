@@ -143,25 +143,27 @@ def _stage_params(stage, config, key_prefix, subject="", session=""):
             "mem_gb", value=fp.get("mem_gb", 32), min_value=4, key=f"{key_prefix}_mem"
         )
         params["anat_only"] = st.checkbox("Anat-only", key=f"{key_prefix}_anat")
-        # Reuse needs preprocessed anatomicals already on disk for this unit;
-        # offering it otherwise submits a job that silently rebuilds the anat.
-        from duckbrain.core.fmriprep import has_anat_derivatives
+        # Reuse needs preprocessed anatomicals already on disk for this SUBJECT —
+        # any session, since the anat is typically acquired once and shared. Offering
+        # it otherwise submits a job that silently rebuilds the anat.
+        from duckbrain.core.fmriprep import anat_derivative_session, has_anat_derivatives
 
-        reusable = (
-            has_anat_derivatives(config["paths"]["derivatives_dir"], subject, session)
-            if subject
-            else False
-        )
+        deriv_dir = config["paths"]["derivatives_dir"]
+        reusable = has_anat_derivatives(deriv_dir, subject) if subject else False
+        anat_ses = anat_derivative_session(deriv_dir, subject) if reusable else ""
+        # Name the source session: reusing another session's anat is the intended
+        # longitudinal behaviour, but silently is how it reads as a bug.
+        source = f"ses-{anat_ses}" if anat_ses else "this subject"
         params["use_derivatives"] = st.checkbox(
             "Reuse anat derivatives",
             key=f"{key_prefix}_deriv",
             disabled=not reusable,
-            help="Skips anat preprocessing and reuses what is already on disk. If "
-            "you are re-running because the anat stage itself went wrong, leave "
-            "this off — it would reuse the bad anat."
+            help=f"Skips anat preprocessing and reuses the anatomicals already on disk "
+            f"for {source}. If you are re-running because the anat stage itself went "
+            "wrong, leave this off — it would reuse the bad anat."
             if reusable
-            else "No preprocessed anatomicals for this unit yet — run fMRIPrep with "
-            "Anat-only first.",
+            else f"No preprocessed anatomicals for sub-{subject} in any session yet — "
+            "run fMRIPrep with Anat-only first.",
         )
         params["extra_flags"] = st.text_input(
             "Custom fMRIPrep flags", value=fp.get("extra_flags", ""), key=f"{key_prefix}_flags"

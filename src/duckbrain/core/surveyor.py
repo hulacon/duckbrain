@@ -319,9 +319,15 @@ def _fmriprep_status(config: dict, subject: str, session: str) -> Status:
     # the workflow finishes, and the anat preproc image. Anat is deliberately not
     # counted — fMRIPrep merges N input T1w into one preprocessed image, so there
     # is no run-to-output correspondence to check.
+    #
+    # The anat glob is subject-scoped, not session-scoped, for the same reason
+    # anat reuse is (see fmriprep.find_anat_derivatives): in a longitudinal study
+    # the anatomical is acquired once and fMRIPrep writes it under the session it
+    # came from, so every *other* session's cell would sit at PARTIAL forever
+    # with its func complete and nothing missing.
     anat_required = [
         f"sub-{subject}.html",
-        _fmt("{ss}/**/anat/sub-{sub}*_desc-preproc_T1w.nii.gz", subject, session),
+        f"sub-{subject}/**/anat/sub-{subject}*_desc-preproc_T1w.nii.gz",
     ]
     anat_ok = all(_has_match(root, p) for p in anat_required)
 

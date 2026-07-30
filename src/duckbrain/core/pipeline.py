@@ -175,15 +175,17 @@ def _build_fmriprep(config, subject, session, log_dir, params):
         spaces = spaces.split()
     anat_only = bool(params.get("anat_only", False))
     use_derivatives = bool(params.get("use_derivatives", False))
-    # Reuse is only meaningful when this unit already has preprocessed anatomicals.
-    # Without the check fMRIPrep accepts --derivatives pointing at a tree with no
-    # anat for the subject, rebuilds the anat workflow, and reports nothing —
-    # the option looks honoured but did nothing.
-    if use_derivatives and not has_anat_derivatives(derivatives_dir, subject, session):
+    # Reuse is only meaningful when this SUBJECT already has preprocessed
+    # anatomicals — in any session, because fMRIPrep's precomputed lookup is
+    # subject-scoped (see has_anat_derivatives). Without the check fMRIPrep
+    # accepts --derivatives pointing at a tree with no anat for the subject,
+    # rebuilds the anat workflow, and reports nothing — the option looks honoured
+    # but did nothing.
+    if use_derivatives and not has_anat_derivatives(derivatives_dir, subject):
         raise PipelineError(
-            "Reuse anat derivatives is on, but no preprocessed anatomicals exist for "
-            f"sub-{subject}{('/ses-' + session) if session else ''}. Run fMRIPrep once "
-            "with Anat-only first, or clear the reuse option."
+            f"Reuse anat derivatives is on, but sub-{subject} has no preprocessed "
+            "anatomicals in any session. Run fMRIPrep once with Anat-only first, or "
+            "clear the reuse option."
         )
     extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", ""))).strip()
     nprocs = int(params.get("nprocs", fp_cfg.get("nprocs", 8)))

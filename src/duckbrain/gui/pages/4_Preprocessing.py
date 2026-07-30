@@ -125,10 +125,12 @@ with tab_fmriprep:
         fp_use_derivatives = st.checkbox(
             "Reuse anat derivatives",
             value=False,
-            help="Reuses preprocessed anatomicals instead of rebuilding them. "
-            "Requires a prior Anat-only run: any selected subject without one is "
-            "reported as an error below rather than submitted. If you are "
-            "re-running because the anat went wrong, leave this off.",
+            help="Reuses preprocessed anatomicals instead of rebuilding them. The "
+            "anat may come from any session of the subject — that is the point in a "
+            "longitudinal study, where it is acquired once and shared. Requires a "
+            "prior Anat-only run: any selected subject without one is reported as an "
+            "error below rather than submitted. If you are re-running because the "
+            "anat went wrong, leave this off.",
         )
 
     fp_extra_flags = st.text_input(
