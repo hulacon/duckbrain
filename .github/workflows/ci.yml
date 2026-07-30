@@ -78,4 +78,9 @@ jobs:
       - name: Tests
         # --cov-fail-under lives in pyproject ([tool.coverage.report]) so a local
         # run and CI enforce the same floor.
-        run: pytest tests/ -q --cov=duckbrain --cov-report=term-missing
+        #
+        # Bare `--cov`, deliberately: a `--cov=<value>` here *overrides* the
+        # source in [tool.coverage.run], so `--cov=duckbrain` measured by module
+        # name and silently excluded every Streamlit page — for a week after the
+        # config was fixed, this line alone would have kept CI on the old way.
+        run: pytest tests/ -q --cov --cov-report=term-missing

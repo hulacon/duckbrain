@@ -38,6 +38,23 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   multi-session subject with every BOLD preprocessed used to read partial forever
   in every session but its anat's.
 
+- **The coverage gate could never see a single Streamlit page, and had been tuned
+  to a total that left them out.** The source was `duckbrain` — a package *name*,
+  which coverage resolves by module name. Streamlit execs a page as a module
+  called `5_QC_Overview`, not a `duckbrain` submodule and not even a legal Python
+  identifier, so no page could match and all seven reported 0%. Roughly 1200
+  statements of the code users actually click were excluded from the ratchet the
+  whole time it existed, and the comment explaining the low number named the wrong
+  cause, which is why it went a week unexamined.
+
+  A path source (`src/duckbrain`) matches by directory and traces them. Nothing
+  about the tests changed and the total went 73% → 87%, because the pressure was
+  already there and the report was discarding it: the Conversion page is 80%
+  covered by tests that were already passing. The floor moves 70 → 85. One real
+  gap surfaced with it — `4_Preprocessing.py` at 0%, a page that submits SLURM
+  jobs and writes project config with no test driving it — and is left visible
+  rather than papered over.
+
 ## [0.3.0] — 2026-07-29
 
 ### Added

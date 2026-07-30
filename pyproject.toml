@@ -50,24 +50,36 @@ testpaths = ["tests"]
 # --cov flags; a single test file run locally stays fast.
 
 [tool.coverage.run]
-source = ["duckbrain"]
+# A **path**, not the package name, and the difference is the whole reason the
+# Streamlit pages were invisible to this gate for a week. Coverage resolves a
+# package-name source by *module name*: streamlit's ScriptRunner execs a page as
+# a fresh module named `5_QC_Overview`, which is not a `duckbrain` submodule and
+# is not even a legal Python identifier, so it could never match no matter where
+# the file sat. `COVERAGE_DEBUG=trace` says so outright — "module '5_QC_Overview'
+# falls outside the --source spec". A path source matches by directory instead,
+# and traces the pages fine.
+#
+# The caveat that buys: this measures the source *tree*, so it is right only
+# because the install is editable and pytest runs from the repo root. Both hold
+# in CI and in the documented local gate. A non-editable install would report 0%
+# everywhere — which fails loudly rather than degrading quietly, so it is an
+# acceptable trade, but it is a trade.
+#
+# A `--cov=<value>` on the pytest command line *overrides* this. That is why CI
+# and CLAUDE.md both pass a bare `--cov`.
+source = ["src/duckbrain"]
 
 [tool.coverage.report]
-# A ratchet, not a target. Measured 61.0% when the gate was added (2026-07-22);
-# the floor sits a point under so a statement-count difference between Python
-# versions can't fail CI on its own. Raise it when coverage rises — never lower
-# it to make a red build green.
+# A ratchet, not a target. The floor sits about a point under the last measured
+# total, so a statement-count difference between Python versions can't fail CI on
+# its own. Raise it when coverage rises — never lower it to make a red build
+# green.
 #
-# The number reads low because the Streamlit pages (~1200 statements) score 0%:
-# they are scripts, not importable modules, and AppTest executes them in a way
-# coverage does not follow. Core, config and slurm — the code the floor is
-# actually protecting — sit between 84% and 100%.
-#
-# The QC pages show the way out of that, and it is worth copying rather than
-# admiring: they are four-statement declarations calling one tested module
+# Now that the pages are measured, the QC pages are the pattern to copy rather
+# than admire: they are four-statement declarations calling one tested module
 # (`gui.qc_panels`), so splitting one 108-statement page into five *raised* the
 # total. A page that holds logic is a page that holds untested logic.
-fail_under = 70
+fail_under = 85
 
 [tool.ruff]
 line-length = 100

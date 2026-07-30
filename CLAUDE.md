@@ -182,12 +182,15 @@ the next one.
   Python 3.10 and 3.12) — run them locally before committing, since every setting
   lives in `pyproject.toml` and a local run enforces exactly what CI does:
   ```bash
-  ruff check . && ruff format . && python -m pytest tests/ -q --cov=duckbrain
+  ruff check . && ruff format --check . && python -m pytest tests/ -q --cov --cov-report=term-missing
   ```
-  The coverage floor (`[tool.coverage.report] fail_under`) is a **ratchet**:
-  raise it when coverage rises, never lower it to green a build. It reads low
-  (60%) because the seven Streamlit pages are scripts no test imports; core,
-  config and slurm run 84–100%.
+  `--check` and the bare `--cov` are both load-bearing: `ruff format .` *rewrites*
+  instead of failing, and a `--cov=<value>` overrides the source in
+  `pyproject.toml` — which is exactly how the Streamlit pages went unmeasured.
+  The coverage floor (`[tool.coverage.report] fail_under`) is a **ratchet**: raise
+  it when coverage rises, never lower it to green a build. Read the current value
+  from `pyproject.toml`, not from here. Everything under `src/duckbrain` is
+  measured, pages included.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
   Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.

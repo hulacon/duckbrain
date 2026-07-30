@@ -720,14 +720,14 @@ skipped_series = {
 # the preflight would report each skipped run as a series nothing claimed —
 # indistinguishable from the anat-suffix bug that warning exists to catch.
 _SKIP_REASON = "you unticked `convert` for it on this page"
+#
+# One-way on purpose: there is no branch clearing a stale reason, because there
+# is no state for one to survive in. `series_list` is rebuilt by `list_series`
+# at the top of every rerun and nothing caches it, so a re-ticked series arrives
+# as a fresh `SeriesInfo` with `drop_reason` already empty.
 for _s in series_list:
     if _s.series_number in skipped_series:
         _s.drop_reason = _SKIP_REASON
-    elif _s.drop_reason == _SKIP_REASON:
-        # Re-ticked within the same session: `series_list` is cached across
-        # reruns, so a stale reason would keep claiming a converted series was
-        # skipped.
-        _s.drop_reason = ""
 
 edited_mapping = [
     TaskRunEntry(
@@ -857,8 +857,19 @@ try:
         skip=skipped_series,
     )
 except ValueError as exc:
-    # An unsatisfiable fieldmap binding. Refuse to show a config rather than
-    # generate one that quietly uses a different pair than the project asked for.
+    # Still a stop, and not the trap `:790`/`:823` were — because the cause that
+    # made those a locked door can no longer arrive here. Both repair passes above
+    # rewrite an unsatisfiable rule to `none`, so nothing the table can produce
+    # reaches `_assign_fmap_group`'s raise; a bad binding is now a warning with the
+    # table still up, which is where the fix is.
+    #
+    # What lands here is generate_config's *other* ValueError: two detected
+    # fieldmap groups reducing to one B0 identifier once characters illegal in a
+    # nipype node name are stripped (`2.5mm` and `25mm`). That depends on the
+    # series descriptions alone, not on any binding, so no upstream pass repairs
+    # it and no cell in the table can either — the fix is renaming a sequence on
+    # the console. And the call raised, so there is no config to render the plan,
+    # the relation view or `becomes` from. Stopping is the honest outcome.
     st.error(f"Cannot generate a config: {exc}")
     st.stop()
 auto_json = config_to_json(auto_config)

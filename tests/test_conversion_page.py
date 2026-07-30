@@ -873,3 +873,50 @@ def test_discarding_recovers_from_a_binding_that_warns(half_pair_project):
     assert not at.exception
     assert not [w for w in at.warning if "holds only one" in w.value]
     assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == "🔵 1"
+
+
+# Two pairs whose names differ only by a period, which `_b0_identifier` has to
+# strip: nipype rejects a node name containing one, so both groups reduce to
+# `B0map_25mm_…` and fMRIPrep would estimate one field from four images.
+COLLIDING_SERIES = [
+    ("01", "AAhead_scout"),
+    ("02", "t1w_mprage"),
+    ("03", "se_epi_2.5mm_ap"),
+    ("04", "se_epi_2.5mm_pa"),
+    ("05", "se_epi_25mm_ap"),
+    ("06", "se_epi_25mm_pa"),
+    ("09", "cmrr_mbep2d_bold_task-perFace_run-1"),
+]
+
+
+@pytest.fixture
+def colliding_fmap_project(tmp_path):
+    proj = tmp_path / "proj"
+    scaffold_project(str(proj))
+    dicom = proj / "sourcedata" / "sub-001" / "ses-01" / "dicom"
+    for num, desc in COLLIDING_SERIES:
+        d = dicom / f"Series_{num}_{desc}"
+        d.mkdir(parents=True)
+        (d / "0001.dcm").touch()
+    save_project_config(str(proj), {"project": {"name": "test", "use_sessions": "auto"}})
+    os.environ["DUCKBRAIN_PROJECT_DIR"] = str(proj)
+    yield proj
+    os.environ.pop("DUCKBRAIN_PROJECT_DIR", None)
+
+
+def test_colliding_b0_identifiers_stop_the_page(colliding_fmap_project):
+    """The one thing that still reaches the page's st.stop(), pinned as such.
+
+    Its two neighbours warn instead of stopping, because the binding they catch
+    is undone in the table and a stop fires above it. This is the opposite case
+    and it is why the stop stays: the collision comes off the series descriptions
+    alone, so no cell repairs it (the fix is renaming a sequence on the console),
+    and `generate_config` has already raised, so there is no config to render the
+    plan from. Nothing else survives the two repair passes to get here — if this
+    test ever becomes the only caller of that branch, the branch is still live.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=90).run()
+    assert not at.exception
+    assert any("B0map_25mm" in e.value for e in at.error)
+    # Stopped above the table, which is the point: there is no plan to show.
+    assert not [t for t in _tables(at) if "becomes" in getattr(t, "columns", [])]

@@ -17,13 +17,12 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
 [`#15`](#15) BIDS validation ·
-[`#26`](#26) GUI state, one home per fact (**explored; the coverage half is a
-4-line config fix worth +13 points**) ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
 [`#22`](#22) wire up the dcm2niix probe ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#21`](#21) fsaverage race ·
+[`#27`](#27) `4_Preprocessing.py` has no test ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
@@ -1313,196 +1312,31 @@ duckbrain report is a *file*, not an embed, so it is unaffected either way.
 
 ---
 
-<a id="26"></a>
-## #26 — GUI state: one home per fact, and a gate that can see it
+<a id="27"></a>
+## #27 — `4_Preprocessing.py` has no test driving it
 
-**Explored 2026-07-29; it ended somewhere much cheaper than a rewrite, exactly as
-the tentative note hoped.** The three exploration steps are all answered and are
-recorded below in place of the questions. **What is left to do is the numbered
-checklist under "The fix"** — four lines of config and one stale sentence. The
-refactor is deferred, with a reason.
+Surfaced by `#26`'s fix, which is the only reason it is legible: the coverage
+source was a package name and could never match a Streamlit page, so all seven
+read 0% and nothing distinguished a page that was well covered from one that was
+not covered at all. With a path source the other six land between 43% and 100%
+and this one is **0% — 157 of 157 statements**.
 
-**The coverage blind spot was a config bug, and the item's own diagnosis of it was
-wrong.** `pyproject.toml:53` sets `source = ["duckbrain"]` — a package *name*, and
-coverage resolves those by **module name**, not by file path. Streamlit's
-`ScriptRunner` execs a page as a fresh module, so the page's module name is
-`5_QC_Overview`: not a `duckbrain` submodule, and not even a legal Python
-identifier, so it can never match no matter what the file path is. In coverage's
-own words (`COVERAGE_DEBUG=trace`):
+It is not a small page and it is not a read-only one. It builds and submits
+fMRIPrep, MRIQC and NORDIC jobs, and it writes project config. It is also where
+the anat-reuse silent no-op lived (`memory/silent-nooption-failures`) — the exact
+bug class that renders a page which looks right, and the one CLAUDE.md's
+"a silently-degrading option is worse than one that fails" rule exists for.
 
-```
-Not tracing '.../gui/pages/5_QC_Overview.py': module '5_QC_Overview'
-    falls outside the --source spec
-```
+The pattern to copy is the QC pages': `5a_QC_Signal.py` is a four-statement
+declaration over `gui/qc_panels.py`, and splitting one 108-statement page into
+five *raised* the total, because the logic moved somewhere a test can import it.
+`3_BIDS_Conversion.py` is the counter-example — 80% covered by 36 AppTest tests
+without any extraction, so AppTest alone is enough if the page is driven. Either
+route is fine; the cheap first move is a handful of AppTest runs asserting the
+rendered submission command, since that is what the suite already asserts against
+everywhere else.
 
-`gui/qc_panels.py` is imported normally as `duckbrain.gui.qc_panels`, so it matches
-and scores 93%. A **path-based** source matches by directory and traces the pages
-fine. Same tests, same 6459 statements, measured on this checkout:
-
-| `--cov=` | Total |
-|---|---|
-| `duckbrain` (package name — what CI runs today) | **73.20%** |
-| `src/duckbrain` (path) | **86.27%** |
-
-So there is no process boundary to lose, no `exec` of a `<string>` filename, and no
-line-number skew from streamlit's `magic` AST rewrite (it calls
-`ast.fix_missing_locations`). The pages were always traceable. They were filtered
-out at config time.
-
-**Which makes the paragraph this item used to carry false, and it mattered.** It
-claimed the ratchet "exerts no pressure at all on the code where this bug class
-lives." The pressure was there the whole time and the report discarded it:
-**`3_BIDS_Conversion.py` is already 79% covered** by the 35 tests in
-`tests/test_conversion_page.py`. Per page, once visible:
-
-| Page | Stmts | Cover |
-|---|---|---|
-| `3_BIDS_Conversion.py` | 431 | 79% |
-| `0_Project_Status.py` | 346 | 86% |
-| `1_Project_Setup.py` | 136 | 82% |
-| `2_Data_Ingestion.py` | 168 | 43% |
-| `4_Preprocessing.py` | 157 | **0%** — nothing drives it |
-| `5*_QC_*.py` | 4 each | 100% |
-| `6_Guide.py` | 4 | 0% |
-
-`4_Preprocessing.py` is the real gap the fix exposes, and it was invisible for the
-same reason.
-
-**Step 2 answered: the conversion page is an outlier, so the general refactor is
-not justified.** `0_Project_Status.py` (711 lines) and `4_Preprocessing.py` (319)
-submit SLURM jobs and write project config with **zero** `session_state` between
-them, reading every widget's return value. `1_Project_Setup.py` holds one key,
-`2_Data_Ingestion.py` three. `3_BIDS_Conversion.py` holds six plus ten write-only
-widget keys, and every one of the five representations that can drift is in that
-one file. The sharpest single difference from `2_Data_Ingestion.py`: page 2 binds
-`edited_df = st.data_editor(...)` over a frame that is byte-identical across reruns
-unless the folder set changes, and bumps `_editor_rev` when it *wants* a remount;
-page 3 calls `st.data_editor(effective_df, ...)` as a bare statement, discards the
-return, and rebuilds `effective_df` every rerun — so it remounts implicitly.
-
-**The observation that still stands.** Four bugs of one class have been found in
-`3_BIDS_Conversion.py`, none of which crashed, all of which rendered a page that
-looked right:
-
-- a row edit reverted itself on the next rerun, and **Save wrote the plan the
-  user had not reviewed** (2026-07-29 — `st.data_editor` keys its state on a
-  hash of the frame handed to it, so baking the edit in discards the edit);
-- an unsatisfiable fieldmap binding was *dropped*, which handed the run back to
-  automatic assignment and silently corrected it with **a pair the user never
-  chose**, while the warning said uncorrected (2026-07-29, live in the
-  skipped-half path since it shipped);
-- the hand-edited JSON took over while the table went on accepting edits that
-  did nothing, and the save-as-default buttons persisted the table's bindings
-  rather than the reviewed ones (`#17.5`);
-- a reviewed config on disk was reused, and reconversion re-supplied the very
-  `B0FieldIdentifier` a fix had corrected (`#17.6`).
-
-Each was two representations of *what will convert* disagreeing with nothing
-forcing them to agree. That page reads or writes six `session_state` keys of its
-own (plus the widget keys Streamlit stores beside them), plus the config saved
-in `sourcedata/`, plus the project config's `[fmap_mapping]`, plus the heuristic
-seed recomputed each run, plus `series_list` mutated in place (`drop_reason`,
-classification). The bug count is a function of how many pairs among those can
-drift, which is why fixing them one at a time does not converge.
-
-**Refused: make `dcm2bids_config.json` the live model** — GUI writes the file,
-GUI renders from the file. Right principle, wrong file, for two reasons already
-visible in the page. (1) The round trip is lossy and the code says so:
-`read_config_into_table` returns an `unrepresentable` list and the page warns
-"the table can't represent everything that JSON contained". Render-from-file
-plus write-on-edit means every edit rewrites the file from a lossy projection,
-so touching one cell would silently delete config the table cannot express —
-worse than the bugs above. (2) That file is a *consumed artifact*, not scratch:
-`_build_dcm2bids`, bulk convert and the cockpit all run from it, so writing it
-per keystroke makes every half-finished edit into what a bulk convert would
-execute, and erases the reviewed-vs-being-edited distinction the reviewed-config
-banner exists to preserve.
-
-### The fix — this is what is left to do
-
-Do it from a login node; nothing here needs re-deriving.
-
-1. `pyproject.toml:53` → `source = ["src/duckbrain"]`.
-2. `pyproject.toml:61-64` → rewrite that comment. It currently states the wrong
-   cause ("AppTest executes them in a way coverage does not follow"), and it was
-   load-bearing: it is why nobody re-checked for a week.
-3. `.github/workflows/ci.yml`, last step → `--cov=duckbrain` becomes bare `--cov`.
-   **Required, not cosmetic** — a `--cov=` value on the CLI overrides the config,
-   so changing `pyproject.toml` alone leaves CI measuring the old way. Verified:
-   bare `--cov` plus a path `source` reports `5a_QC_Signal.py` at 4/4.
-4. `pyproject.toml:70` → `fail_under` 70 → **85** (measured 86.27; a point of slack
-   is the same margin 60 was given when 61.0 was measured).
-5. `CLAUDE.md:189` says the floor "reads low (60%)" — it is 70 today and would
-   become 85, and the sentence explaining *why* it reads low stops being true
-   entirely. `CLAUDE.md:185` also carries `--cov=duckbrain` as the documented local
-   gate, which must match CI or a local run stops enforcing what CI does.
-   (`CHANGELOG.md:240`'s "starts at 60% (measured 61%)" is **correct as history** —
-   leave it.)
-6. Write down the caveat: a path `source` measures the source tree, so it is right
-   only because the install is editable and pytest runs from the repo root. Both
-   hold in CI. A non-editable install would report 0% everywhere — which fails
-   loudly rather than silently, so it is an acceptable trade, but say so.
-
-Expect afterwards: page 3 ~79%, the QC pages 100%, TOTAL ~86%, and
-`4_Preprocessing.py` at 0% as a newly visible gap — do not paper that one over.
-Measured in a throwaway venv on Python 3.11.15 / streamlit 1.60.0, 1173 passed; CI
-matrixes 3.10 and 3.12 so the exact figure will shift by a fraction.
-
-### `#26.1` — a comment asserting a coupling that does not exist
-
-`3_BIDS_Conversion.py:726-729` says "`series_list` is cached across reruns, so a
-stale reason would keep claiming a converted series was skipped." It is not cached:
-`list_series` (`core/dicom_inspect.py:194`) carries no `lru_cache`, and the only
-`st.cache_data` in the repo are `gui/qc_panels.py:188` and `gui/app.py:78`. The list
-is rebuilt every rerun, so the `elif` branch guards a condition unreachable by that
-path. Delete the branch or fix the comment — but do not leave a comment describing
-state that isn't there, in the one item that exists because state has too many homes.
-
-### `#26.2` — an `st.stop()` still inside the derivation region
-
-`3_BIDS_Conversion.py:863` is `st.error` + `st.stop()` on an unsatisfiable binding
-from `generate_config`. That is the shape `28b2c5f` and `b4aa500` removed at `:790`
-and `:823` a commit apart, for the stated reason that a stop fires *above* the table
-and so removes the control that would fix the problem — a locked door now that row
-edits are durable. **Confirm reachability first:** the two upstream repair passes
-rewrite an unsatisfiable rule to `_NO_FMAP`, so this may already be dead. If it is
-reachable, make it a warning like its two neighbours; if it is not, say so there.
-
-### The refactor: deferred, not refused
-
-The derivation chain the page already has — `effective_df` → config → plan →
-`becomes` — is sound, and is why `becomes` cannot promise a filename dcm2bids won't
-write. Every bug above sits *upstream* of it, in the part that decides what
-`effective_df` is, and extracting that as a pure
-`(seed, edits, imported, override) -> effective plan` in `core/` is still the right
-shape if it is ever done. **It is not scheduled, for three reasons.**
-
-- **Its cheapest justification was the coverage gap, and that is now free.** The
-  page is 79% covered today; the extraction buys accuracy of *shape*, not
-  visibility.
-- **One of the four inputs already has one home.** `c0f4650` made the durable edit
-  store the record and demoted `st.data_editor`'s delta to a message about what
-  changed — the fix the extraction would have generalized, already applied where it
-  bit.
-- **The mechanical part is not the hard part.** ~300–330 lines are pure derivation,
-  but the diagnostics are *interleaved* with it (`st.error` at `:485`, warning
-  blocks at `:609`, `:691`, `:779`, `:808`, `:841`), so each step would have to
-  return findings the page renders — roughly the `PlanWarning` shape
-  `core/conversion_plan.py:310-323` already defines. And `effective_df` stores
-  **presentation tokens** (`🔵 1`), not group names, with `_group_token` /
-  `_token_group` (`:473-474`) as the round trip; an extraction returning group names
-  would rewrite ~18 of the 35 tests that are render-coupled only because of it.
-
-If it is ever picked up, the cheap first step is the QC-page pattern: move the body
-into an importable `gui/conversion_panels.py` and leave a ~14-line page script (see
-`5a_QC_Signal.py`, whose docstring says "so a test can import it"). No logic change,
-so the existing 35 tests are the regression net.
-
-Raised 2026-07-29 by Ben, after the fieldmap-revert bug: "why are there so many
-pernicious, subtle issues in the gui?" The honest answer is the state inventory
-above — six keys and five representations that can disagree, in one file, unlike
-every other page. The coverage blind spot named alongside it turned out to be a
-reporting artifact, not a second cause.
+Do not lower the floor to accommodate it.
 
 ---
 
@@ -1555,6 +1389,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-30 | `#26` | **The coverage gate could not see a single Streamlit page, and the item's own diagnosis of why was wrong.** `source = ["duckbrain"]` is a package *name*, and coverage resolves those by **module name**: streamlit execs a page as a module called `5_QC_Overview`, which is not a `duckbrain` submodule and is not a legal Python identifier, so it could never match — `COVERAGE_DEBUG=trace` says exactly that. Not AppTest, not a process boundary, not the `magic` AST rewrite; a path source traces the pages fine. Same tests, same 6466 statements, **73% → 87%**, floor 70 → 85. The load-bearing part is what the false explanation cost: the item claimed the ratchet "exerts no pressure at all on the code where this bug class lives" and that was never true — `3_BIDS_Conversion.py` was **80% covered** by tests already passing, and the report was throwing it away. Also required, not cosmetic: CI's `--cov=duckbrain` *overrides* the config source, so fixing `pyproject.toml` alone would have left CI measuring the old way. The floor was measured after the fact rather than reused from the exploration, since two pages had changed since. One real gap fell out and is open as `#27` (`4_Preprocessing.py`, 0%). Two notes cleared with it: `#26.1`, a comment asserting `series_list` is cached across reruns — it is not (no `lru_cache`, no `st.cache_data`, no fragment; `list_series` runs at page top every rerun), so the `elif` it guarded was dead and is gone. `#26.2`, the `st.stop()` at the config call: **reachable, but not by the binding its comment named** — the two repair passes above it rewrite every unsatisfiable rule to `none`, so what still lands there is `generate_config`'s *other* raise, two fieldmap groups colliding on one B0 identifier (`2.5mm`/`25mm`). No table cell repairs that and the call already raised, so there is no config to render from: it stays a stop where its neighbours warn, now with a test that says so. **The refactor is deferred, not refused** — extracting `(seed, edits, imported, override) -> effective plan` into `core/` is still the right shape, but its cheapest justification was the coverage gap and that is now free, one of the four inputs already got one home in `c0f4650`, and the diagnostics are interleaved with the derivation so ~18 of the 36 render-coupled tests would be rewritten for a presentation-token round trip |
 | 2026-07-29 | `#25` | **All three tags published as GitHub Releases, and `v0.3.0` cut to make that worth doing.** A pushed tag notifies nobody and is invisible to the API, so `docs/releasing.md` step 7's announcement channel did not exist and `core/updates.py` — shipped the day before — queried `releases/latest` and got a 404, meaning the GUI's "newer version" line was dark for every user from the moment it landed. Backfilling 0.1/0.2 alone would have turned the channel on and had nothing worth announcing: the **fieldmap-intent inversion fix sat in `[Unreleased]` for eight days**, so users on `main` had it and anyone pinned to a tag did not. Hence `v0.3.0` — 50 commits, +27.8k/−1.7k. **Minor, not patch, deliberately**: `_release_line()` reduces to `major.minor` and `check_duckbrain_drift()` therefore flags every derivative built under the 0.2 line, which is *correct* here rather than collateral, because this release changes recipes duckbrain authors (which series convert, their datatype, the `B0Field*` intent in every sidecar, which reconstruction ships, which pair corrects which run) and not merely the flags passed to a container. The changelog's thirteen repeated Added/Changed/Fixed headers — one set per work session — were merged into one of each, since that section becomes the published notes; every bullet moved verbatim and the 688 content lines were diffed before and after rather than eyeballed. Two environment limits worth knowing if this is ever automated: the agent sandbox refuses tag refs (`HTTP 403`) while accepting branch refs, and the GitHub MCP server exposes releases read-only — so tag and publish stayed manual |
 | 2026-07-28 | `#13.1` | **A series can be left out of the conversion** — a `convert` checkbox on the plan table, prompted by a beta tester asking how to skip a run. The config's native spelling of "not converted" is *no description*, so `generate_config(skip=…)` simply omits one and everything downstream follows with no new state: `becomes` already rendered `— not converted` for an unclaimed series, and the skip survives save/reload through the saved JSON alone. Three things the naive version gets wrong. **A skipped fieldmap half takes its whole pair** (`_without_skipped_groups`) — half a pair is not half a fieldmap, and emitting the survivor writes a `fmap/` file nothing can be estimated from; a run still bound to a pair whose half was unticked is refused, naming the two edits that conflict rather than letting `generate_config` say the session lacks a group the user removed three rows up. **The drop carries a reason**, because the warning it otherwise raises means "nothing claimed this" — the anat-suffix bug that warning exists to catch — so the reason travels on `SeriesInfo.drop_reason` and the finding is an info note; that also fixes the pre-existing double-report where an ND-demoted anat got both the warning and the note, and the kind is `deliberate-drop` now, not `nd-duplicate`, since the ND policy was the first thing to set a reason and is no longer the only one. **A stranded SBRef is reported** (`orphan-sbref`): bold and sbref are two rows, so skipping one and not the other is a click away, and an SBRef alone is the reference volume for a run that isn't being written. Rows duckbrain has no emission path for start unticked so the box agrees with `becomes`; `EMITTED_CLASSIFICATIONS` is deliberately not "everything that isn't an expected drop", because `dwi` classifies cleanly and still converts to nothing. Per-session by construction — see `#13.1` for why a project-level skip needs the description key |
 | 2026-07-28 | — | **All duckbrain-authored output moved under `derivatives/duckbrain/`** (`qc/decisions/`, `qc/reports/`), so a project shows at a glance which derivatives a tool produced and which duckbrain did. The tool trees stay put — they are the tools' own derivative datasets and BIDS expects them at `derivatives/<pipeline>/`, and that includes `fmriprep/sourcedata/freesurfer`, which duckbrain only seeds `fsaverage` into. No file is moved: `decision_search_dirs` still reads `preprocessing_qc/`, legacy root first so the current location's entries are the newest, because mmmdata still writes there and a project reviewed before the move must not lose its history — the same treatment `_history_of` gives the two on-disk schemas, applied to the two locations. Verified live on both real projects: 1 and 609 records, all still read, none moved. The report's MRIQC links are now computed from `REPORT_SUBDIR` rather than a hardcoded `../mriqc`, since deepening the subdir would otherwise have pointed every link at a directory that does not exist — silently, a broken relative link being ordinary text |
