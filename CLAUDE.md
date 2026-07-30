@@ -40,10 +40,10 @@ build history; those drifted out of date every time they were duplicated here.
 
 | Question | Read |
 |---|---|
-| What's left to do? | `TODO.md` (open work; closed items are a one-line ledger) |
+| What's left to do? | `TODO.md` — opens with a priority-ordered index; the body follows that order, closed items are a ledger at the bottom |
 | How did we get here / why does this code look like this? | `git log` — the commit message is the record |
 | What changed for users? | `CHANGELOG.md` |
-| How does subsystem X work? | `docs/` (`pipeline-cockpit.md`, `pipeline-extras.md`, `conversion-legibility.md`, `sanity-checks.md`, `handoff-cluster-session.md`) |
+| How does subsystem X work? | `docs/` — `ls` it rather than trusting a list here; `pipeline-cockpit.md`, `pipeline-extras.md`, `conversion-legibility.md`, `sanity-checks.md`, `qc-dashboard-migration.md`, `qc-review-domains.md`, `handoff-cluster-session.md` |
 | Why don't we just use Nipoppy / CuBIDS / mrQA? | `docs/sanity-checks.md` — surveyed and each refused or borrowed for a stated reason |
 | What did the 2026-07-22 external audit say? | `docs/code-review-260722.md` — answered and closed; see the `#18` ledger row |
 | How do I cut a release? | `docs/releasing.md` (incl. why the minor bump is not just bookkeeping) |
@@ -59,10 +59,11 @@ Run `git log --oneline -1`, `git status`, `python -m pytest tests/ -q`.
 Feature-complete across all three planned phases, plus a project surveyor and an
 actionable pipeline cockpit. **Every core stage is validated live on real data**
 on Talapas: DICOM→BIDS (output matches canonical heudiconv), fMRIPrep, MRIQC, and
-NORDIC (producer *and* `use_nordic`→fMRIPrep chaining). Semver, git tags,
-`CHANGELOG.md`; latest release `v0.2.0` (2026-07-21), first was `v0.1.0`. The GUI
-is in active dogfooding. See `TODO.md` for what's open, `docs/releasing.md` to cut
-the next one.
+NORDIC (producer *and* `use_nordic`→fMRIPrep chaining). Semver, git tags, and all
+three tags published as GitHub Releases; `CHANGELOG.md`. Read the current release
+from `git tag` rather than from here — this sentence claimed `v0.2.0` for eight
+days after `v0.3.0` shipped. The GUI is in active dogfooding. See `TODO.md` for
+what's open, `docs/releasing.md` to cut the next one.
 
 ## Rules that bind (read before changing related code)
 
@@ -152,10 +153,15 @@ the next one.
   **diffusion SBRefs** (the corpus has zero, and they are what `#19.9` is about),
   **LR/RL phase-encoding**, and **a scanner that writes no `ND` token in
   `ImageType`** (`#19.8`). See `memory/mmmsourcedata-fixture`.
-- **BIDS project — there is exactly one, `/projects/hulacon/bhutch/divatten_beta`**
-  (sub-015…019; MRIQC and NORDIC derivatives, no fMRIPrep yet). Converted
-  2026-07-22, i.e. *after* the fieldmap-intent fix, and verified correct — it is
-  the only dataset on this filesystem known clean.
+- **BIDS projects — `ls /projects/hulacon/bhutch` rather than trusting a list
+  here; this entry has been wrong about both the count and the derivatives.**
+  `divatten_beta` (sub-015…019) is the one *known clean*: converted 2026-07-22,
+  i.e. after the fieldmap-intent fix, and verified. `divatten_beta_v2` is the
+  larger working project and is what `#28` and the QC work were dogfooded on — 70
+  MRIQC reports, and an fMRIPrep tree whose `fsaverage` was damaged by the `#21`
+  race, so don't treat its derivatives as a clean fixture without checking.
+  `memory/mmmduck-multisession-fixture` names a third (`/projects/hulacon/shared/mmmduck`,
+  read-only), which is the only *longitudinal* fMRIPrep tree on Talapas.
 - **The three projects this file used to name are gone** (`divatten`,
   `divatten_gui_beta`, `mmm_fmap_check`), deleted 2026-07-22 as `#14`'s cleanup.
   Two capabilities lost their live fixture with them: two-fieldmap-pair

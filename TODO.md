@@ -21,13 +21,15 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
 [`#22`](#22) wire up the dcm2niix probe ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
-[`#21`](#21) fsaverage race ·
 [`#27`](#27) `4_Preprocessing.py` has no test ·
+[`#28`](#28) an fMRIPrep run that produced almost nothing and exited 0 ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
-stages · [`#8`](#8) branding · [Loose ideas](#loose-ideas-not-scheduled)
+stages · [`#8`](#8) branding ·
+[Provenance residuals](#provenance--consistency-residuals) ·
+[Loose ideas](#loose-ideas-not-scheduled)
 
 ---
 
@@ -59,6 +61,16 @@ BIDS filter path, `use_nordic`, SLURM resources. `script_path` makes them
   derivative tree (fMRIPrep/MRIQC overwrite their own `dataset_description.json`,
   which is why `consistency.py`'s source rule routes tool-produced derivatives to
   the log).
+- **This is also DB-002's "persisted expected-output manifest"** (external review,
+  2026-07-22), arrived at from the other direction — one feature, so build it
+  once. What that framing adds is a trigger and a free half. The trigger:
+  counting expected-vs-found already covers the failure DB-002 reported and needs
+  no state store, so the manifest earns its keep only for the two things counting
+  can't see — a missing output *space* (the bullet above) and config drift between
+  runs — which means **revisit when per-launch `output_spaces` overrides become
+  common**. The free half: `nordic.write_nordic_sidecars` writes one sidecar per
+  intended run at launch already, so NORDIC could be graded by "every sidecar has
+  a matching NIfTI" without inventing anything.
 
 ### `#16.2` — Outcome checks, and duckbrain's first cache
 
@@ -128,6 +140,8 @@ never took effect was never tested by reality, so activating one is a
 data-migration problem, not just a fix. duckbrain's shipped default partition was
 `medium` — not a Talapas partition at all — and that was invisible for months
 *because* the field was inert.
+
+---
 
 <a id="13"></a>
 ## #13 — Conversion legibility: browser validation, and an editable Type
@@ -223,6 +237,8 @@ correct one is the hand-edited JSON override.
   which is the same key `[task_mapping]` uses — and is the same read-modify-write
   shape as the project-level classification tier above, so build them together.
 
+---
+
 <a id="15"></a>
 ## #15 — Validate output against the BIDS standard, as a habit not a one-off
 
@@ -254,6 +270,8 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   `custom_entities` per the spec unless `--do_not_reorder_entities` is passed, so
   `_fmap_description`'s manual acq/dir/run ordering might be doing work dcm2bids
   would do anyway. Harmless, but worth checking before adding more of it.
+
+---
 
 <a id="licensing-follow-ups"></a>
 ## Licensing follow-ups
@@ -295,712 +313,7 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   reconcile duckbrain's GPL *against*. Give it a licence before, not after, any
   code moves between them.
 
-<a id="18"></a>
-## #18 — Static analysis: type checking, and widening the lint
-
-The external review of 2026-07-22 is otherwise closed (see the ledger), as is the
-CI work under `#18.1`. Two follow-ons, both deliberately deferred rather than
-forgotten:
-
-- **No `[tool.mypy]`.** Start on new and high-risk core modules —
-  `conversion_plan`, `dcm2bids_config`, `consistency` — not repo-wide.
-- **Widening ruff.** Bugbear, isort and pyupgrade have 59 findings between them
-  (measured 2026-07-22); each wants its own commit, or the gate arrives as one
-  unreviewable diff. `B905` (`zip(..., strict=)`) is the one with real
-  bug-catching value; start there. The eight sites each need a judgment about
-  whether the lengths must match.
-
-**DB-002's fuller recommendation, deferred with a trigger:** a **persisted
-expected-output manifest**, written at launch. Counting expected-vs-found covers
-the reported failure and needs no state store, which the surveyor's docstring
-names as a virtue. A manifest additionally catches only two things: a missing
-output *space* (stripped by `_entity_key`, and overridable per launch, so the
-filesystem holds no record of what was asked for), and config drift between runs.
-**Revisit when per-launch `output_spaces` overrides become common.** Half of it
-exists for free already — `nordic.write_nordic_sidecars` writes one sidecar per
-intended run at launch, so NORDIC could be graded by "every sidecar has a
-matching NIfTI" without inventing anything.
-
-<a id="22"></a>
-## #22 — The dcm2niix probe: wire it into the Conversion page
-
-**The probe itself landed 2026-07-24** (`core/dcm2niix_probe.py`, ledger row), and
-`plan_warnings` takes an optional `probes=` and grows two checks from it. What is
-open is the last mile: **nothing calls it yet**, so the checks are dead code in
-practice. Read the module docstring first — it carries the measurements, and they
-are the reason the shape is what it is.
-
-**The one-line case for it.** `dicom_header` normalises the two Siemens dialects
-by hand, and the two fields the conversion plan most wants are ones it cannot
-reach at all: the *signed* phase-encoding direction (the raw tag is `ROW`/`COL`
-with no polarity, and absent on XA30) and `ShimSetting`. dcm2niix has both, is
-the tool that will do the conversion anyway, and is Chris Rorden's to maintain.
-
-**Cost is settled, and it is the objection people will raise first.** `dcm2niix
--b o` over a session *directory* is 90 s for REV055 — 2155 files, 2.5 GB, and 1.2 s
-of that is CPU. One file per series is enough, so the probe stages a directory of
-symlinks and makes a single call: **0.15 s warm, 0.7 s cold, per session**, host
-or container. Validated one-file-vs-whole-series on REV055 at 259/272 key/value
-pairs identical, every difference confined to multi-echo GRE fieldmaps and
-sub-second `AcquisitionTime` jitter.
-
-Open work, in order:
-
-- **Call it from `3_BIDS_Conversion.py`** and pass `probes=` into `plan_warnings`.
-  Resolve the container from `containers_dir` + the `dcm2bids_version` pin —
-  **prefer the container over a host `dcm2niix`**, because it holds the same build
-  that will convert, so the preview cannot disagree with the result for a reason
-  duckbrain can't see. (Verified identical on REV055: same v1.0.20240202, zero key
-  differences, +0.2 s of apptainer startup.)
-- **Say when it didn't run.** `probe_unavailable_reason()` exists for exactly
-  this and currently has no caller. A skipped check that renders as a clean panel
-  is the silently-degrading behaviour `CLAUDE.md` forbids, and it is the specific
-  way this item could ship broken.
-- **Cache per session** keyed on the session directory + its newest mtime. 0.7 s
-  is fine once and not fine on every Streamlit rerun. Note this is the same
-  shape `#16.2` needs and has been deferred twice — if that cache gets built
-  first, use it rather than adding a second one.
-- **The bulk/SLURM path too.** It skipped `plan_warnings` entirely once already
-  and submitted the collisions the GUI refused (2026-07-24 ledger). Same trap.
-
-Not in scope, deliberately: replacing anything in `dicom_header`. The probe reads
-one file, so it cannot count volumes or see a second echo — which is precisely
-what `dicom_header`'s three-file read exists to do. They are complementary, and a
-migration would trade a validated classifier for an unvalidated one.
-
-<a id="21"></a>
-## #21 — The shared `fsaverage` race: N concurrent fMRIPrep jobs, one SUBJECTS_DIR
-
-**FIXED 2026-07-27 — `core/fsaverage.py`, wired into `advance_one`.** duckbrain
-installs every `fsaverage*` template fMRIPrep will want *before* it submits, so
-each job finds the directory present and the FreeSurfer-7 sentinel present and
-takes neither the `rmtree` nor the copy branch. Completeness is judged against
-the container's manifest (312 files for `fsaverage`, 109 for `fsaverage6` in the
-24.1.1 image), never against the sentinel — see below for why that distinction is
-the fix rather than a detail. Pinned by `tests/test_fsaverage.py`, including the
-exact `divatten_beta_v2` shape. The rest of this item is the record of what was
-wrong and stays because the reasoning is not re-derivable from the code.
-
-**Flagged by LCNI (2026-07-24) from their own runs, then traced to the code in the
-24.1.1 image on disk. duckbrain has this exposure today** — it is not something
-the FreeSurfer-8 plan (`#7` item 7) would introduce, though that plan makes it
-sharper.
-
-**Observed locally 2026-07-27 on `divatten_beta_v2`, and it took out 4 of 5
-subjects.** All five jobs (`45644650`–`45644654`) started within one second of
-each other, which is the precondition at its worst. `sub-010` finished; `sub-011`
-through `sub-014` all died at `recon-all` with
-
-```
-ERROR: Label BA1_exvivo does not exist in SUBJECTS_DIR fsaverage!
-       The fsaverage link probably points to an older freesurfer version
-```
-
-**It is not the `FileExistsError` branch below, and it is worse than it.** Zero
-jobs logged `exists; if multiple jobs are running in parallel`. The destroyer is
-an `rmtree` a few lines *above* that `try`, which the excerpt below originally
-omitted:
-
-```python
-if space == "fsaverage" and dest.exists() and self.inputs.minimum_fs_version == "7.0.0":
-    label = dest / "label" / "rh.FG1.mpm.vpnl.label"  # new in FS7
-    if not label.exists():
-        shutil.rmtree(dest)  # <-- deletes a copy that is still in progress
-```
-
-fMRIPrep always passes `minimum_fs_version='7.0.0'` (`fmriprep/workflows/base.py`),
-so this branch is armed on every run. Job A creates `fsaverage/` and begins
-streaming 312 files into it. Job B arrives inside that window, sees `dest.exists()`
-is true, looks for the FreeSurfer-7 sentinel `rh.FG1.mpm.vpnl.label` — which A has
-not written yet — concludes the tree is a stale FreeSurfer-6 copy, and **deletes it
-out from under A**. Both then write into the same path and the result is a merged,
-permanently incomplete tree. No exception is raised anywhere, so nothing appears in
-any log.
-
-Measured on this filesystem 2026-07-27, copying from the 24.1.1 image to
-`/projects/hulacon/bhutch`: a clean `fsaverage` copytree is **312 files / 261 MB
-in 1.83 s**, and the sentinel lands at **+0.39 s**. So the window splits in two —
-arrive before +0.39 s and you *destroy* the tree; arrive between +0.39 s and
-+1.83 s and you skip both the `rmtree` and the copy (`if not dest.exists()`) and
-start `recon-all` against a tree that is only partly there. Either way the damage
-is silent and does not surface until `recon-all`'s BA_exvivo stage, which here was
-**~3 hours later**. `divatten_beta_v2` ended up with 259 of 312 `fsaverage` files —
-53 missing, including `lh.BA1_exvivo.label`, which is exactly what the error names.
-`fsaverage6` came through complete (109/109).
-
-FreeSurfer's error text blames a stale version link. That is wrong and sends you to
-the wrong place.
-
-**The broken tree is sticky, and this is the part that bites twice.** It *does*
-contain `rh.FG1.mpm.vpnl.label`, so the self-repair branch above will never fire
-again: every future fMRIPrep run on this project reuses the incomplete `fsaverage`
-and fails identically. Re-submitting without first deleting
-`sourcedata/freesurfer/fsaverage` cannot work.
-
-**Staggering submissions is the wrong fix.** The window is ~2 s, but the quantity
-you would have to stagger against is the *spread in when jobs reach the copy*,
-which is fMRIPrep's workflow-build time — 61 s in this run (18:33:33 submit →
-18:34:34 copy) and dependent on BIDS indexing, node load and container cold-start.
-Two jobs launched a minute apart can still collide; you cannot bound the variance,
-so any fixed delay is a probabilistic dodge of a failure that is silent, sticky and
-three hours deferred. **Pre-populate instead:** copy `fsaverage` and any
-`fsaverageN` in `--output-spaces` into `<derivatives>/fmriprep/sourcedata/freesurfer/`
-once, before submitting anything. Every job then takes the "present, sentinel
-present" path — no `rmtree`, no copy, no window. `overwrite_fsaverage` defaults to
-False and fMRIPrep never sets it, so this is stable. That is the fix to build:
-a pre-flight in the bulk-submit path, not a `--begin` offset.
-
-Two things this run showed that are **not** explained and should not be assumed
-to be this race: `sub-010` exited 0 but never ran `recon-all` (it has no entry
-under `sourcedata/freesurfer/`) and produced only minimal-level output — no
-confounds, no `space-MNI152NLin2009cAsym` or `fsaverage6` resampling — despite
-`--output-spaces MNI152NLin2009cAsym:res-2 fsaverage6 func` and no `--level` flag.
-Net effect across the project: **zero** `*_desc-confounds_timeseries.tsv` files,
-so the QC dashboard had no fMRIPrep input at all (see `#7.4`).
-
-**The second mechanism, read from
-`niworkflows/interfaces/bids.py::BIDSFreeSurferDir`** — real, but *not* what was
-observed above, and the milder of the two. At the start of *every* fMRIPrep run it
-copies `fsaverage`, and any `fsaverageN` in `--output-spaces`, from
-`$FREESURFER_HOME/subjects` into SUBJECTS_DIR. The copy is check-then-act:
-
-```python
-if not dest.exists():
-    try:
-        shutil.copytree(source, dest, copy_function=shutil.copy)
-    except FileExistsError:
-        LOGGER.warning(
-            "%s exists; if multiple jobs are running in parallel, this can be safely ignored", dest
-        )
-```
-
-Two jobs both see `dest` missing and both start copying. The loser raises
-`FileExistsError`, **which is caught and downgraded to a warning whose text tells
-you to ignore it** — and then proceeds while the winner is still copying. In FS
-8.2.0 `fsaverage` is 482 MB and `fsaverage6` 113 MB, so the window is seconds to
-minutes on GPFS, not microseconds. The loser's downstream `mri_surf2surf
---trgsubject fsaverage6` then reads a half-populated tree, so the failure surfaces
-somewhere else entirely and the one log line that would explain it says to ignore
-it. 🔴 **Two paths in the same function are worse**: `overwrite_fsaverage`, and a
-staleness check keyed on an FS7-era label, both `shutil.rmtree(dest)` — deleting
-fsaverage out from under jobs currently reading it.
-
-**Why duckbrain is exposed right now.** Four things, all true today: every unit's
-fMRIPrep writes to the same `<derivatives>/fmriprep`; `fs_subjects_dir` defaults
-to `<output_dir>/sourcedata/freesurfer` (`fmriprep/cli/parser.py`), so **one
-SUBJECTS_DIR is shared by every concurrent job**; the shipped default
-`output_spaces` includes `fsaverage6`; and the cockpit's column-header bulk
-submits every runnable unit at once. It has likely just never been run at the
-scale that triggers it — the projects that held fMRIPrep derivatives were deleted
-under `#14`.
-
-**This is the third instance of one bug shape, and duckbrain already fixed the
-first.** The TemplateFlow race in `templates/sbatch/fmriprep.sbatch.j2` is the
-same thing down to the exception type, fixed by giving each job its own
-`SINGULARITYENV_TEMPLATEFLOW_HOME` under `$WORK_DIR`. **That fix does not transfer
-here**: TemplateFlow is a pure cache, so isolating it costs nothing, whereas
-SUBJECTS_DIR holds the recon outputs whose whole value is being shared and reused.
-Per-job isolation would close the race by throwing away the feature.
-
-**The fix: seed once, before fan-out.** Copy `fsaverage`/`fsaverage5`/`fsaverage6`
-into the shared SUBJECTS_DIR serially, then submit. Every job's
-`BIDSFreeSurferDir` then sees `dest.exists()` and skips the copy entirely — the
-window closes because nobody races. `_build_fmriprep` is the right home: it
-already does synchronous filesystem prep at submit time
-(`build_nordic_bids_input`, `write_session_filter`), and the cockpit's bulk loop
-runs in a single process, so the first unit seeds and the rest no-op. Small and
-contained.
-
-- 🔴 **Seed from inside the fMRIPrep container (`$FREESURFER_HOME` in the `.sif`),
-  not from the FreeSurfer 8 module.** The two trees differ, and the staleness
-  check's failure mode is a destructive `rmtree` under concurrency. Checked: FS
-  8.2.0's `fsaverage` *does* carry `label/rh.FG1.mpm.vpnl.label`, so seeding from
-  it would not trip that path today — but that is luck, not a guarantee, and
-  copying from the image gives exactly what fMRIPrep would have produced itself.
-- **Add a check, not just a fix.** This is `#16`'s shape: a cheap consistency check
-  that every `fsaverageN` named in `output_spaces` exists in SUBJECTS_DIR and is
-  complete before a bulk launch. The failure it guards is one whose only symptom
-  today is a log line advertising itself as ignorable.
-- **Ties to `#7` item 7:** an external FreeSurfer 8 stage makes a shared
-  SUBJECTS_DIR the entire point *and* adds a second writer to it, so seeding stops
-  being a nicety and becomes a precondition of that plan.
-
-<a id="20"></a>
-## #20 — Ship a conda environment, not a `.venv`
-
-**Asked for by RACS and LCNI** (relayed 2026-07-24). It is the same institutional
-argument as `#2`'s distribution question: conda is what neuroimaging users on
-Talapas already have and what RACS supports, `module load miniconda3` needs no
-build node, and `environment.yml` pins the *interpreter* as well as the packages
-— which `pip install -e ".[dev]"` cannot, so today a new user's Python version is
-whatever `python3` happened to be.
-
-**Checked on-cluster 2026-07-24, before designing anything.** Four findings, two
-of which change the shape of the work:
-
-- 🔴 **`~/.condarc` is FSL's, and it is hostile.** The `fslinstaller` wrote it and
-  says in the file that it *rewrites it without warning*. It pins
-  `channel_priority: strict` with the FSL channel `#!top` and conda-forge
-  `#!bottom`, and pins `pkgs_dirs` to the read-only `/packages/fsl/.../pkgs` — all
-  marked `#!final`, so a lower-priority condarc cannot override them. This is not
-  a local quirk: **any user who ran `fslinstaller` has it**, which on an fMRI
-  cluster is most of them. So the env file must carry
-  `--override-channels -c conda-forge` semantics explicitly, and setup docs must
-  set `CONDA_PKGS_DIRS`. The first `conda env create` on a stock account will
-  otherwise resolve against FSL's channel and fail to write its package cache.
-  Also note `conda` on a bare `$PATH` here is *FSL's* conda, not a module's.
-- 🔴 **`ruff>=0.16,<0.17` does not exist on conda-forge** — it tops out at
-  0.15.22. That pin is a deliberate gate (see the comment on it in
-  `pyproject.toml`: unpinned, CI re-resolves the formatter and the same commit
-  goes red with nothing changed). So the dev extra **must** stay pip-installed
-  inside the conda env; conda cannot own the whole dependency set. Don't
-  "simplify" this away by relaxing the pin — that re-opens the bug the pin closed.
-- ✅ **Every runtime dependency solves cleanly from conda-forge on Python 3.11**,
-  verified by dry-run solve, and at essentially the versions the working `.venv`
-  already has: streamlit 1.60.0 (venv 1.59.1), pandas 3.0.3 (same), nibabel 5.4.2
-  (same), pydicom 3.0.2 (same), plotly 6.9.0 (venv 6.8.0), jinja2 3.1.6, tomli-w
-  1.2.0. So there is **no version-jump risk** — this is a packaging change, not a
-  dependency upgrade, and it should be kept that way.
-- ✅ Modules available: `miniconda3/20260319` and `miniconda3/20240410` (the
-  module's own `conda` is 23.11.0). `mamba`/`micromamba` are **not** on `$PATH`.
-
-**`neuroconda3` is not reusable — build a fresh one.** The existing env
-(`~/.conda/envs/neuroconda3`, Python 3.10.15, 359 packages, 2.2 GB) was created
-2024-10-08 for the mmmdata era and is missing four of duckbrain's eight runtime
-deps (streamlit, plotly, tomli-w — plus ruff). It carries a lot duckbrain never
-uses (gtk3, graphviz, nipype, h5py, dcm2niix), the `conda env create` source file
-it was built from (`~/tmp/neuroconda-20241006.yml`) **is gone**, so it is not
-reproducible except by `conda env export`, which would pin 2024 builds. And it
-lives under `~/.conda` — personal, un-shareable, which defeats the point.
-Its one useful property: it still imports fine, so it is a working fallback while
-this is built, not something to delete in a hurry.
-
-The work, then:
-
-- Add `environment.yml` (name `duckbrain`, conda-forge only, `python=3.11`, the
-  runtime deps) with a `pip:` section for `-e ".[dev]"` — which is what pulls the
-  pinned ruff and duckbrain itself. One file, and `pyproject.toml` stays the
-  single source of the dependency list as far as possible.
-- Decide **coexist or replace**. Coexisting is the cheap, honest answer:
-  `scripts/launch.sh` and `ondemand/template/script.sh.erb` already probe for
-  `.venv` and fall through, so they gain a conda branch ahead of it and nobody's
-  working checkout breaks. `#2`'s `UNVALIDATED` new-user walk should then be
-  walked on the **conda** path, since that becomes the documented one.
-- Decide **where the env lives**. `~/.conda/envs` is per-user and invisible to
-  others (`/home/bhutch` is `drwx------` — the same wall `#2` hit with the
-  containers). A shared `--prefix` under `/projects/hulacon/shared` would let one
-  build serve the PIRG, and there is no shared env there today. That is a
-  distribution decision, not a packaging one, and it belongs with `#2`.
-- CI (`.github/workflows/ci.yml`) is a separate call: GitHub runners have no FSL
-  condarc and pip works fine there, so switching CI to conda buys little and
-  costs solve time on every push. Leaving CI on pip while users get conda means
-  the gate no longer tests the path users take — say which trade-off was taken,
-  in the commit.
-- Update `README.md`, `QUICKSTART.md` and `CLAUDE.md` together; five places
-  currently instruct `python -m venv .venv`.
-
-<a id="2"></a>
-## #2 — Onboarding for external users
-
-**The writing is done; the dogfooding and the distribution story are open. Do not
-tick this off.** `QUICKSTART.md` and `README.md` are written and current.
-
-- **`UNVALIDATED` — the new-user path on a clean account.** Flagged inline in the
-  docs too. Nobody has walked: fresh `git clone` → venv → `pip install -e ".[dev]"`
-  → tests pass; the three `singularity build` commands actually building on Talapas
-  (and whether it's `apptainer` or `singularity` under current module policy); the
-  exact config key set the Setup page emits matching the hand-written shapes in the
-  docs; `scripts/launch.sh` srun flags under current partition/account policy; and
-  personal-OOD-sandbox registration for a *new* user.
-- **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —
-  needs a real walkthrough to know where the friction actually is.
-- **Distribution story — needs RACS.** The OOD app is a personal sandbox today.
-  Three candidates laid out but not picked in
-  `QUICKSTART.md#the-distribution-question`.
-
-### Second-user blockers, actually checked (2026-07-20)
-
-Checked on-cluster rather than inferred, and it is **less blocked than this item
-implied** — one assumed gate turned out not to exist, and the real cost is
-elsewhere.
-
-- ✅ **Getting the code is not a gate. The GitHub repo is PUBLIC** (verified
-  against the API; GPL-3.0 detected). Notes previously said "private" — wrong.
-  Which is what makes the licensing question above urgent rather than academic.
-- 🔴 **Containers are the real blocker — ~8.6 GB and unshareable as things
-  stand.** `/home/bhutch` is `drwx------`, so nobody can traverse to
-  `~/containers` even though that directory is itself world-readable. And there
-  is **no mutually-writable space** to stage copies into: `/gpfs/projects/hulacon`
-  is `0770` (invisible to a non-hulacon user) and `/projects/lcni` is not
-  writable by Ben (he is in `hulacon`/`psy607`, not `lcni`). So a second user
-  either builds their own (needs a build node and time — the long-lead item) or
-  Ben opens home traversal (`chmod o+x ~`, reversible, minimal, but it does make
-  home traversable).
-- 🔴 **OOD sandbox is NOT self-service — this likely needs RACS per user.** On
-  OnDemand ≥1.6 creating `~/ondemand/dev` is not enough: an admin must also
-  create a symlink under `/var/www/ood/apps/dev/<user>/` before the **Develop**
-  menu appears at all. Sites can opt back into "everyone a developer"
-  (`nginx_stage.yml`) or restrict it to a group, and **which Talapas does is not
-  checkable from a login node** — `/var/www/ood` lives on the OnDemand web hosts.
-  The maintainer's own sandbox working proves nothing either way (he is a PIRG
-  admin). **Ask RACS.** If it is per-user-on-request, that settles the
-  distribution question: if RACS has to touch every user anyway, publishing one
-  shared app is strictly cheaper than N tickets. Written up in `QUICKSTART.md` §4
-  Option B (with the `mkdir`/`ln -s` steps) *pending* that answer.
-- **FreeSurfer license** — free, but per-user registration; not shareable.
-- **SLURM account** — theirs, not Ben's. Feeds the OOD form's `bc_account`.
-- **NORDIC constraint that shapes all of this:** the licence forbids
-  redistribution and the PIRG root is `0770`, so every user must fetch their own
-  toolbox copy and each will sit at a different SHA. Already the config shape. See
-  `memory/nordic-versioning-and-licence`.
-- **What already works in a second user's favour:** the config layering was built
-  for exactly this — machine resources in the user config, study specifics in the
-  project config, project dir as the anchor.
-- **For a first meeting, don't do any of this.** Driving it yourself costs zero
-  setup and answers "is this worth doing / what scope should it cover". Do the
-  container prep only if hands-on-their-account is the actual goal, and *before*
-  the meeting rather than during.
-
-<a id="9"></a>
-## #9 — Launch surface: one place to run, everywhere else prepares
-
-**PUNTED 2026-07-20** pending more discussion + hands-on time in the GUI. Ben's
-question was whether the non-dashboard pages should be config-only, with all
-running done from the cockpit.
-
-Assessment so far, to pick up from — the answer is *mostly yes, but not
-uniformly*, because the redundancy is not evenly spread:
-
-- **Preprocessing is almost pure duplication** of the cockpit and the best
-  candidate. But deleting its Submit buttons leaves the page purposeless; the
-  better move is to turn it into where you set **per-stage defaults persisted to
-  the project config**, so the cockpit's one-click launch inherits them. That
-  converts a redundant launcher into the thing that makes one-click *correct*.
-  Overlaps `#10` — per-session template groups want the same persistence
-  mechanism, so design them together rather than twice.
-- **BIDS Conversion is a mix.** The per-session mapping surface (series
-  inspection, fieldmap detection, task/run mapping) is a work surface, not
-  settings, and must stay. Its *bulk* submit duplicates the cockpit and can go;
-  the *single-session* submit is worth keeping — you have just fixed that
-  subject's mapping, which is the moment of highest intent.
-- **Data Ingestion must keep its actions.** Ingestion is deliberately read-only
-  in the cockpit (Ben agreed), and the page also does local work that is not a
-  SLURM stage at all (`participants.tsv`, `dataset_description.json`, DICOM
-  sorting).
-- **QC Dashboard is not duplication** — keep/exclude decisions are their own job.
-- **Two capabilities exist only on the pages — do not lose them.** "Export
-  Scripts" (write the sbatch without submitting) has no cockpit equivalent and is
-  genuinely useful on HPC; and bulk-with-shared-non-default-params, since the
-  cockpit's column-header bulk runs a stage with *defaults* and its per-cell
-  params are per-cell. Either move both into the cockpit first, or keep them a home.
-
-<a id="5"></a>
-## #5 — Config / mapping niceties
-
-Deliberate deferrals, each fine as-is — listed so they aren't rediscovered as bugs.
-
-### The standing rule on messy source labeling: surface it, don't parse it
-
-Validating `#4` against real exports showed how sloppy scanner-console labeling
-gets — `MMM03_sess04CR`, `MMM_15_sess3.2`, `MMM_sub005_sess08`, `MMM_test002`,
-`mmm0_230718`, and a `sess04` that means two different sessions for one subject.
-**That is the experimenter's data-hygiene problem, not duckbrain's parsing
-problem,** and the line is drawn here on purpose:
-
-- **duckbrain accommodates a naming *form*** when it is a form — a regular
-  pattern a study actually uses, e.g. the session-label qualifiers handled by
-  `_SESSION_TOKEN_RE`. Cheap, and they prevent the dangerous failure: a real
-  subject silently disappearing.
-- **duckbrain does not chase one-off typos.** A folder the heuristics can't read
-  gets a **Notes** entry in the ingestion table and an editable subject/session
-  cell. Making a bad guess *visible and overridable* is the whole job; growing a
-  parser branch per malformed folder is how the heuristics become unmaintainable
-  and start misreading the well-formed ones.
-- **So the fix for a study like mmmdata is upstream**, in how sessions are named
-  at the console — or a one-time rename of the export. If a *pattern* emerges (not
-  an instance), that's when it earns code.
-- Parsed session labels are **not unique per subject**, so auto-numbering by date
-  is the reliable path and the parsed labels are a suggestion. See
-  `memory/validation-discovery-and-fieldmaps`.
-
-### Accepted edges
-
-- **`G##_S##` parsing is unit-tested only and stays that way.** No export on this
-  filesystem uses it and it isn't expected to be common. Just **don't record it as
-  live-validated**; close it for free if such an export turns up.
-- **bold→fmap linking binds by acquisition time** (since 2026-07-24, `#19.3`) —
-  an unbound task goes to the complete group it was acquired *nearest in time*,
-  not the first one. This bullet asserted the opposite for three days after the
-  change landed; the ledger row and `memory/fieldmap-binding-and-heudiconv` are
-  the record. A project can still declare `task -> group` outright in
-  `[fmap_mapping]` (`FmapRule`, with optional per-run granularity), which wins
-  over the name match, the timing, and the first-group fallback. A tie falls
-  through to first-group, which is what a session shooting two pairs
-  back-to-back hits — that residue is `#19.3`, and it belongs with `#16`'s
-  `[expected]` rather than a heuristic. A rule naming a group a session lacks
-  **raises**; see the silently-degrading rule in `CLAUDE.md`.
-- **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
-  becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
-  alone on purpose: renaming it would change the `B0FieldIdentifier` of
-  already-converted data for no functional gain.
-- Task rules are dataset-wide; there's no per-subject *rule* scoping. Per-subject
-  *edits* already cover the exception case.
-- `directory_picker` is dirs-only; `fs_license` stays a text field. File-mode
-  deferred until something needs it.
-
-<a id="10"></a>
-## #10 — Template groups: config defaults that vary within a project
-
-**Captured 2026-07-20.** Today the config layers are base → user → project, and
-the project layer is flat: one set of defaults for the whole study. That breaks
-when sessions genuinely differ — session 1 on a different protocol from session 2
-wants different dcm2bids expectations, task mapping, maybe different fMRIPrep
-params or SLURM resources.
-
-- **Prefer named groups over keying on the session label.** `ses-01` / `ses-02` is
-  the obvious key but the wrong one: the real distinction is usually *protocol*
-  ("pilot" vs "main", "7T" vs "3T"), several sessions can share one, and a
-  sessionless project can still want two groups. So: define named template groups,
-  assign units to a group, fall back to project defaults when unassigned.
-- **There is already a pattern to follow, not invent.** Project-wide task mapping
-  does exactly this shape one layer down — project-wide rules, per-session
-  overrides, persisted read-modify-write into a `[task_mapping]` section
-  (`save_project_task_map`). Template groups generalize it from "task labels" to
-  "any default". Reuse the mechanism; don't grow a second one.
-- **Open questions to settle first:** does a group override the *whole* section or
-  merge key-by-key (merge, presumably — the same deep-merge the config layers
-  already use)? Where does assignment live, the project config or per-unit? And
-  does the surveyor need to know about groups, or is this purely a launch-time
-  concern (probably the latter — completion is still completion)?
-- **Design with `#9` together.** Same persistence mechanism, so designing them
-  separately would build it twice.
-
-<a id="11"></a>
-## #11 — Automated pipeline: DICOMs in, derivatives out (exploratory)
-
-**Captured 2026-07-20, Ben's idea.** Given source DICOMs, run every step
-unattended — either by periodically checking in, or by chaining dependencies.
-
-- **duckbrain already has both ingredients.** `survey_live` + `stage_runnable`
-  answer "what could run right now" for every unit, and `advance_one` launches
-  exactly one stage for one unit. An unattended driver is close to a loop over
-  those two — most of the work is deciding the *policy*, not the mechanism.
-- **Two mechanisms, and they are not equivalent:**
-  - **SLURM dependency chaining** (`--dependency=afterok:<jobid>`) submits the
-    whole chain up front. No polling, and the scheduler enforces order. But a
-    failed stage strands its dependents in a held state, and re-planning after a
-    partial failure is awkward.
-  - **A periodic reconciler** (wake, survey, launch whatever is runnable) is **the
-    better fit for this codebase.** duckbrain keeps no state store — every page
-    re-derives what exists from the filesystem — which is exactly what a
-    reconciler needs, and it self-heals after partial failures instead of
-    stranding them.
-- **The failure mode to design against is a resubmission loop.** A stage that
-  always fails would be relaunched forever. Needs a retry cap and backoff, and a
-  durable record of attempts per unit/stage — `submissions.tsv` is already that
-  record. The no-double-submit guard exists (`stage_runnable` refuses a
-  running/queued unit); the missing piece is "stop retrying a *failing* one".
-- **Unresolved, and it gates the whole thing:** where does the driver actually
-  run? Cron on a Talapas login node may be discouraged or disallowed — a RACS
-  question, and the answer may push this toward a long-lived SLURM job or an
-  OOD-launched daemon.
-- Related but distinct from `#12`: a deterministic reconciler and an agent that
-  decides what to run next are alternative drivers over the same core API.
-
-<a id="12"></a>
-## #12 — Merge with mmmdata-agents (exploratory)
-
-**Captured 2026-07-20, Ben's idea.**
-`/gpfs/projects/hulacon/shared/mmmdata/code/mmmdata-agents` is a Claude-powered
-agent repo over the mmmdata dataset: a data agent (natural language BIDS
-queries), a QC agent (MRIQC outliers), an orchestrator, and a tool registry under
-`src/tools/` — `bids_tools`, `conversion_tools`, `manifest_tools`, `qc_tools`,
-`slurm_tools`, `sourcedata_tools`.
-
-- **The overlap is close to one-to-one**, which is the argument for merging rather
-  than a second implementation: those tool modules map onto duckbrain's
-  `core/surveyor.py` (inventory/status), `core/consistency.py`, `slurm/monitor.py`
-  + `core/pipeline.py`, and the `core/` BIDS modules. mmmdata-agents even carries
-  its own `pipeline_status_*.tsv` — the thing the surveyor exists to produce.
-- **duckbrain is already shaped for this.** The core/GUI split means the useful
-  surface is plain Python with no Streamlit in it (`survey_project`, `survey_live`,
-  `stage_runnable`, `advance_one`, `check_consistency`). Backing agent tools with
-  that core is mostly wiring, not redesign.
-- **⚠️ Check the licence before any code moves** — see Licensing above.
-- **Cheapest first step, if this proceeds:** point one existing agent tool at
-  duckbrain's surveyor instead of its own status code, and see whether the
-  abstraction actually fits before committing to a merge.
-
-<a id="5b"></a>
-## #5b — NORDIC Case 2: same-project raw-vs-NORDIC comparison
-
-Deferred until actually needed. Case 1 (the `use_nordic` toggle) is validated live.
-
-- **Try the zero-code fallback first:** two project dirs over the same BIDS, one
-  with `use_nordic` on.
-- If it needs building: **do not branch the pipeline.** Use distinct derivative
-  names (`derivatives/fmriprep/` vs `derivatives/fmriprep-nordic/`) and
-  parameterize the hardcoded derivative dir in `_fmriprep_status` and the builder,
-  so a variant appears as an *additive extra column* only when the project opts in.
-  Matches BIDS-derivatives norms.
-- **Case 3, full named-pipeline DAG: PARKED.** Only if branch counts grow (multiple
-  denoisers / fMRIPrep configs routinely). This is the complexity to avoid.
-- **Candidate affordance** (ties to `#2`): the Setup page validates containers
-  exist; give NORDIC the same treatment — "toolbox not found → fetch pinned
-  version", cloning upstream at a duckbrain-pinned SHA into the user's own space.
-  Not redistribution (the user pulls from UMN) and it gives version uniformity.
-
-<a id="7"></a>
-## #7 — Pipeline extras: candidate stages (backlog, none started)
-
-Each is its own focused effort. Full annotated backlog — candidate tools, ties to
-existing duckbrain/mmmdata work, open questions per item — in
-**`docs/pipeline-extras.md`**.
-
-1. **De-identification for sharing — highest value.** Defacing **+** metadata/header
-   PII scrubbing (DICOM headers *and* BIDS sidecars), "derive-then-torch" policy
-   (age ok, name/DOB auto-removed). Candidate: `bidsonym`. *(The precomputed-mask
-   fast-track is a different feature, deliberately deferred — see the doc.)*
-   **Sequencing note:** an identity sanity check wants to run *immediately before*
-   this — see Loose ideas. Once the headers are scrubbed, a wrong subject mapping
-   can no longer be detected or proven.
-   **The sidecar-scrubbing half has a candidate implementation, and it waits for
-   this item on purpose:** `cubids remove-metadata-fields --fields PatientName`
-   does exactly the BIDS-sidecar half. It **mutates sidecars in place**, so it
-   needs this item's PII policy (age ok, name/DOB auto-removed, derive-then-torch)
-   decided *first* — shipping a scrubber under `#16` would have fixed the
-   mechanism before the policy, and it breaks the report-never-repair rule.
-   Read-only *detection* (`cubids print-metadata-fields`) is `#16.3`'s, not this
-   item's. Same reasoning that defers the identity check's mechanism to here.
-2. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
-3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
-   bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
-4. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC; layer norms
-   on the existing surveyor/QC pages. **Scoped 2026-07-24 and ready to execute —
-   full plan in `docs/qc-dashboard-migration.md`.** mmmdata built and vetted the
-   layer this item describes: a registry of 30 measures, each stating why it is
-   shown, what a human should check by eye, what is flagged automatically, and
-   its source — 29 citations verified against MRIQC/fMRIPrep/AFNI source rather
-   than common practice, which is how it establishes that most IQMs have **no**
-   defensible absolute cutoff. It moves here because that claim is untestable in
-   a single-project repo, and because this item's own "group-level IQM
-   comparison" only becomes answerable in a multi-project tool.
-   Three independently-mergeable slices: the registry plus a `[qc]` config
-   section, the report renderer plus its embed, then the decision model.
-   **Slice 1 landed 2026-07-24** on `qc-guidance-migration`, and the plan's
-   "cannot be verified without data" table was worked first, against 717 real
-   MRIQC JSONs across both projects: the registry was right about every content
-   question it raised, so nothing needed correcting on the way in — `tpm_overlap_*`
-   is what MRIQC really writes (its *docs* are the stale side), and `fd_perc`
-   counts frames at 0.2 mm in **65/65** runs and at no other threshold, which is
-   what makes the Parkes 20% rule citable. Real output is now committed as
-   `tests/fixtures/mriqc/` with identifiers stripped, so a wrong key name fails a
-   test instead of rendering a blank column. **Two findings for the later slices:**
-   mmmdata's dashboard carries 837 absolute `file:///` links, every one of which a
-   browser blocks from an HTTP page — Slice 2 must emit relative paths or the
-   "View report" link is a silent no-op under OnDemand; and all **609** decision
-   records in mmmdata are machine-written `auto-stub`/`keep` with zero human
-   sign-offs, which is Slice 3's whole case.
-   **Slice 2 landed 2026-07-24**: the renderer is `core/qc_report.py`, page 5 is
-   wiring only, and links are relative rather than `file://`. Two corrections to
-   the plan, both in the doc — the `fmriprep_dir`/`use_nordic` "fix" would have
-   *created* a bug (duckbrain has one fMRIPrep tree, not mmmdata's two, so
-   branching on `use_nordic` points at a directory that never exists; the real gap
-   was that nothing told the reviewer which variant the motion numbers came from,
-   and that is now read from provenance) — and `load_mriqc_metrics` was finding
-   **zero** runs on any sessionless study, so the QC page had never worked on
-   `divatten_beta`. **The link question is settled 2026-07-27, dogfooding
-   `divatten_beta_v2`: duckbrain serves the reports itself.** Relative links fixed
-   the exported copy and could never fix the embedded one — a `srcdoc` iframe's
-   base URL is the *page's*, so under OnDemand `../mriqc/…` addressed
-   `/node/<host>/mriqc/…`, which nothing serves. The mechanism is Streamlit's own
-   media endpoint (`core/report_embed.py` rewrites each relative asset reference;
-   `gui/components.embed_tool_report` supplies the URLs): same origin, so the
-   OnDemand proxy carries it with no route, launch flag or symlink of duckbrain's.
-   Two rejected alternatives are recorded in `components.py` because both look
-   right from outside — `server.enableStaticServing` cannot reach a project
-   directory (its handler resolves symlinks then demands the result stay under the
-   static root, and making the static folder itself the symlink trips a 1 GB size
-   check that disables serving *silently*), and an OnDemand Files deep link does
-   not exist in the SSH-tunnel workflow. Reports open per run from the decisions
-   panel rather than from the table, because the figures run 4–15 MB per run; the
-   table now names its report instead of offering a link that does nothing.
-   Validated across all **70** MRIQC reports in `divatten_beta_v2`: zero
-   unresolved assets. **Left open by this:** `st.components.v1.html` is deprecated
-   with a removal date already past (2026-06-01), and `st.iframe` replaces it but
-   does not exist at our `streamlit>=1.48` floor — switching means raising the
-   floor, which is a decision about who can install duckbrain, not a rename.
-   **Slice 3 landed 2026-07-24, and migrated nothing because nothing needed it**:
-   the unified on-disk schema is mmmdata's append-only
-   `{"run_key", "decisions"}`, so its 609 existing records read as-is (verified:
-   609/609 read, 0 files modified) while the zero duckbrain-schema files on disk
-   cost nothing to leave behind. Both shapes and both layouts are read; reading
-   never rewrites, and that is a test — restamping an old record would give it a
-   provenance it does not have. `save_decision` now raises on a blank reviewer,
-   and the page takes the reviewer from the session rather than a text box. Live
-   data forced a **third** count bucket: `automated` (author known to be a
-   machine) and `unattributed` (author unidentifiable) are different provenance
-   situations and only the second is closable by re-reviewing — merging them
-   misreported all 609 `auto-stub` records as decisions by an unknown person.
-   **The
-   last has teeth:** `core/qc.py` accepts `reviewer` and page 5 never passes it,
-   so *every QC decision duckbrain has written is anonymous*, and legacy records
-   cannot be attributed retroactively. Settled in the doc so they are not
-   re-argued — Streamlit stays the control plane and only the QC *report* becomes
-   a document (one renderer, embedded **and** exported; not two versions), and
-   mmmdata will depend on duckbrain rather than keep a copy, which makes
-   [Licensing](#licensing-follow-ups) a precondition for that end state rather
-   than background. Note `core/qc.py` is the only untested module in `core/`.
-5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
-   confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
-6. **ReproIn** — **reading it is DONE** (2026-07-21): duckbrain parses the naming
-   convention and trusts its entities over the heuristics, still converting with
-   dcm2bids. What's left is the *social* half — recommending the convention to
-   LCNI so exports arrive already carrying their entities, which is `#5`'s "fix it
-   at the console" rule in concrete form. Open: does duckbrain also read the
-   `ses-` entity (it currently takes session from the ingestion mapping), and is a
-   ReproIn-named study worth acquiring as a test case.
-7. **External FreeSurfer 8 feeding fMRIPrep 25** instead of fMRIPrep's bundled
-   recon — **asked for by LCNI**, who already run it this way. Cheaper than it
-   looks: **FS 8.2.0 is already installed on Talapas and on the default `PATH`**,
-   so this is the one candidate stage with nothing to build, and NORDIC is the
-   precedent for an `--array` stage that shells out. Writing to
-   `<derivatives>/fmriprep/sourcedata/freesurfer/` means fMRIPrep finds it with
-   **no flag at all** (that is its default `fs_subjects_dir` under
-   `--output-layout bids`). Two traps and the real cost — including why
-   `--fs-subjects-dir` without `--fs-no-resume` re-creates the anat-reuse silent
-   no-op, and why fMRIPrep-25-against-FS-8 is a question for LCNI/nipreps and not
-   for us — in `docs/pipeline-extras.md` §9. **If taken, it forces `#5b` Case 3's
-   DAG decision**: fMRIPrep would depend on two producers and
-   `effective_depends_on` is a single string with one special case already.
-8. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
-   actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
-   path off raw/minimal data. Low demand, unique requirements.
-
-<a id="8"></a>
-## #8 — Visual identity & branding (someday)
-
-Gated behind functionality + onboarding (`#2`); captured so it isn't forgotten.
-Logo/wordmark that works small (favicon) and as a banner; a considered Streamlit
-theme instead of defaults; favicon for the GUI tab and the OOD tile; README banner.
-Tasteful, not over-designed, and after the product behavior is locked.
-
-## Provenance / consistency residuals
-
-The item is closed and shipping; these are the accepted edges.
-
-- **The mixing check has never been driven by two *completed* real fMRIPrep runs.**
-  It costs hours of compute and works by deliberately corrupting a derivative.
-  Every *input* to the check is live-validated, so what's unproven is grouping
-  logic over real values. **Close it for free** the next time a project genuinely
-  mixes variants.
-- Config-vs-provenance is dataset-level; per-subject would be finer.
-- An mriqc `DatasetLinks` check, if MRIQC ever records one.
-- `tool_version` is overloaded — a container *tag* for container stages, a
-  `git describe` for NORDIC. Defensible (both are "what we pinned"), not worth its
-  own migration. Fold in if those columns are ever touched again.
-- NORDIC log rows still write `tool_version`/`runtime`/`code_source` that nothing
-  reads now that sidecars are the source. The row still earns its place via `job_id`.
+---
 
 <a id="19"></a>
 ## #19 — Conversion coverage: what the LCNI repository still shows missing
@@ -1011,24 +324,15 @@ series descriptions, 112 sessions paired with the BIDS the LCNI curator produced
 read-only, and it is the only place these cases exist together. Write scratch
 output to `/projects/hulacon/bhutch`.
 
-**The 391-of-392 number is a measurement dated 2026-07-24, not a standing
-claim.** As of that date duckbrain reproduced 391 of the 392 canonical files (the
-miss is `anat/T1wa`, a curator typo and not a valid BIDS suffix). LCNI has since
-said **many anatomicals in that repository are missing and will be
-re-converted** — in exactly the datatype `#19.4`/`#19.6` and the ND work touch.
-So the number must be **re-measured rather than carried forward**, and a lower
-agreement afterwards is not by itself a regression: it may only mean the curator's
-denominator moved.
-
-**What actually gates now is duckbrain's own frozen inventory** — the planned-file
-set across all sessions, snapshotted before a change and diffed after, with every
-difference triaged rather than counted. That is independent of a tree someone else
-is editing. Canonical stays useful as a one-way check for *new* disagreements,
-each looked at individually — and no more than that, because it is not an oracle:
-it holds illegal subject labels (`#19.5`), it silently kept one of two fieldmap
-pairs on six sessions (`#19.6`), and now it is known to be missing anatomicals.
-That is three independent ways it is wrong, so "matches the curator" has never
-been a correctness argument on its own.
+**Agreement against the canonical tree is a dated measurement, never a standing
+claim, and canonical is not an oracle** — it holds illegal subject labels
+(`#19.5`), it silently kept one of two fieldmap pairs on six sessions (`#19.6`),
+and LCNI says many of its anatomicals are missing. Three independent ways it is
+wrong, so "matches the curator" has never been a correctness argument on its own.
+**What gates instead is duckbrain's own frozen inventory**, diffed before and
+after a change with every difference triaged rather than counted — independent of
+a tree someone else is editing. `#19.7` carries the numbers and the re-measure
+protocol.
 
 What it does *not* cover, in the order the corpus argues for:
 
@@ -1097,57 +401,35 @@ session gets its own group. Pinned by
 `test_probe_reads_a_real_dicom_when_dcm2niix_is_available`, which fails if a pair
 ever *does* differ. So: don't "upgrade" this to shim later.
 
-### `#19.6` — Gradient-echo (GRE) fieldmaps — the two defects are DONE (2026-07-24, see ledger)
+### `#19.6` — Gradient-echo (GRE) fieldmaps: what is still open
 
-**Prompted by LCNI**, who flagged that older fieldmaps are gradient double-echo
-rather than spin-echo and that converters mispair them when the magnitude and
-phase series aren't neighbouring. **The adjacency concern was unfounded** —
-`_detect_gre_fieldmaps` pairs on header `ImageType` (`P` marks phase) plus an
-identical `SeriesDescription` and ordering, never on `SeriesNumber + 1`; fed a
-magnitude at 5 and a phase at 12 it pairs them. All 38 GRE pairs the corpus
-actually holds are `+1`, so that robustness is by design rather than by
-validation. Checking it surfaced two real defects, both since fixed:
-`plan_warnings` calling `is_complete_group` rather than testing `ap`/`pa`, and
-GRE groups getting the same `acq-`/`run-` entities spin-echo pairs already had.
+**The two defects LCNI's report surfaced are fixed (2026-07-24, see the ledger),
+and the mispairing concern that prompted the look was unfounded** — pairing is
+header `ImageType` plus an identical `SeriesDescription` plus ordering, never
+`SeriesNumber + 1`. What stands:
 
-**What the corpus proved about the rest of it.** duckbrain agrees with the
-curator on 26 of 32 GRE sessions and the other 6 are the ones above — where
-duckbrain finds a **second** GRE pair the canonical tree lost. REV055 ses-1 holds
-`fieldmap1` (series 7/8) and `fieldmap2` (13/14); canonical kept one unentitled
-`phasediff`, i.e. the curator hit this same collision and silently kept the last.
-So on these six duckbrain is right and canonical is wrong — another instance of
-`memory/lcni-repository-corpus`'s point that the canonical tree is not an oracle.
-Also confirmed: no BIDS Case-2 (`phase1`/`phase2`) or Case-3 (`_fieldmap`) data
-exists in the corpus, so `phasediff` is the only GRE flavour implemented and the
-only one present; and `EchoTime1`/`EchoTime2` are correctly left to dcm2niix
-(present in the canonical sidecars at 0.00437/0.00683) rather than injected.
-
-**Two fragilities left standing, neither observed in the corpus**, both of which
-drop a fieldmap *with warnings* rather than silently: a phase series that
-*precedes* its magnitude (the pairing requires the phase to sort after), and
-halves whose `SeriesDescription` differs (the pairing requires them equal, e.g.
-`gre_field_mapping` vs `gre_field_mapping_phase`). A magnitude split into two
-single-echo series also fails, since a magnitude is recognised by
-`len(echo_numbers) > 1`. Worth a decision, not a speculative fix — there is
-nothing local to validate against, which is `#19.2`'s reasoning.
-
-**Still true, and now load-bearing for a second reason.** Pairing on an identical
-`SeriesDescription` is what makes `nd_duplicates = "both"` work with no
-fieldmap-specific code at all: the two reconstructions are named
-`fieldmap_2mm` and `fieldmap_2mm_ND`, so they fall into separate groups, get
-separate `acq-` entities from the existing multi-pair machinery, and end up as
-two independent `B0FieldIdentifier`s. Loosening the description match to fix the
-`gre_field_mapping` / `gre_field_mapping_phase` case would have to keep that
-separation, or it would merge the two reconstructions into one group and pair a
-corrected magnitude with an uncorrected phase — precisely the mispairing LCNI
-reported from another converter.
-
-### `#19.4` — DONE (2026-07-24, see ledger)
-
-An empty series directory now raises an `empty-source` error in `plan_warnings`
-instead of silently predicting a file dcm2bids can't produce. Finding it exposed
-and fixed a worse bug: an `_ND` copy dropped because its corrected twin existed
-*but was empty*, leaving the session with no anatomical.
+- **`phasediff` is the only GRE flavour implemented, and the only one present.**
+  No BIDS Case-2 (`phase1`/`phase2`) or Case-3 (`_fieldmap`) data exists in the
+  corpus. `EchoTime1`/`EchoTime2` are deliberately left to dcm2niix rather than
+  injected.
+- **Two fragilities left standing, neither observed in the corpus**, both of which
+  drop a fieldmap *with warnings* rather than silently: a phase series that
+  *precedes* its magnitude (the pairing requires the phase to sort after), and
+  halves whose `SeriesDescription` differs (e.g. `gre_field_mapping` vs
+  `gre_field_mapping_phase`). A magnitude split into two single-echo series also
+  fails, since a magnitude is recognised by `len(echo_numbers) > 1`. Worth a
+  decision, not a speculative fix — there is nothing local to validate against,
+  which is `#19.2`'s reasoning.
+- **Pairing on an identical `SeriesDescription` is load-bearing for a second
+  reason, so any loosening has to preserve it.** It is what makes
+  `nd_duplicates = "both"` work with no fieldmap-specific code at all: the two
+  reconstructions are named `fieldmap_2mm` and `fieldmap_2mm_ND`, so they fall
+  into separate groups, take separate `acq-` entities from the existing
+  multi-pair machinery, and end up as two independent `B0FieldIdentifier`s.
+  Loosening the match to fix the `gre_field_mapping` case above would otherwise
+  merge the two reconstructions into one group and pair a corrected magnitude
+  with an uncorrected phase — precisely the mispairing LCNI reported from another
+  converter.
 
 ### `#19.5` — Subject labels the corpus contains but BIDS forbids
 
@@ -1160,10 +442,13 @@ correctness argument.
 
 ### `#19.7` — Re-measure agreement once LCNI re-converts the anatomicals
 
-LCNI reported (2026-07-24) that many anatomicals in the repository are missing
-and will be redone. Until then the canonical anat coverage is incomplete, so the
-headline agreement number in the preamble above is frozen at its 2026-07-24
-measurement and must not be quoted as current.
+**The number, and why it is frozen.** As of 2026-07-24 duckbrain reproduced 391
+of the 392 canonical files — the miss is `anat/T1wa`, a curator typo and not a
+valid BIDS suffix. LCNI reported that same day that many anatomicals in the
+repository are missing and will be redone, in exactly the datatype `#19.6` and
+the ND work touch. So the canonical anat denominator is about to move: **391/392
+must be re-measured rather than carried forward**, it must not be quoted as
+current, and a lower figure afterwards is not by itself a regression.
 
 When the re-conversion lands: re-run the corpus harness, diff duckbrain's own
 inventory against the frozen baseline first (that is the regression gate), and
@@ -1271,44 +556,97 @@ where the rule is stated.
 shape on the filesystem, which is also why it needs a unit test built from these
 headers rather than a corpus run.
 
+---
+
+<a id="22"></a>
+## #22 — The dcm2niix probe: wire it into the Conversion page
+
+**The probe itself landed 2026-07-24** (`core/dcm2niix_probe.py`, ledger row), and
+`plan_warnings` takes an optional `probes=` and grows two checks from it. What is
+open is the last mile: **nothing calls it yet**, so the checks are dead code in
+practice. Read the module docstring first — it carries the measurements, and they
+are the reason the shape is what it is.
+
+**The one-line case for it.** `dicom_header` normalises the two Siemens dialects
+by hand, and the two fields the conversion plan most wants are ones it cannot
+reach at all: the *signed* phase-encoding direction (the raw tag is `ROW`/`COL`
+with no polarity, and absent on XA30) and `ShimSetting`. dcm2niix has both, is
+the tool that will do the conversion anyway, and is Chris Rorden's to maintain.
+
+**Cost is settled, and it is the objection people will raise first.** `dcm2niix
+-b o` over a session *directory* is 90 s for REV055 — 2155 files, 2.5 GB, and 1.2 s
+of that is CPU. One file per series is enough, so the probe stages a directory of
+symlinks and makes a single call: **0.15 s warm, 0.7 s cold, per session**, host
+or container. Validated one-file-vs-whole-series on REV055 at 259/272 key/value
+pairs identical, every difference confined to multi-echo GRE fieldmaps and
+sub-second `AcquisitionTime` jitter.
+
+Open work, in order:
+
+- **Call it from `3_BIDS_Conversion.py`** and pass `probes=` into `plan_warnings`.
+  Resolve the container from `containers_dir` + the `dcm2bids_version` pin —
+  **prefer the container over a host `dcm2niix`**, because it holds the same build
+  that will convert, so the preview cannot disagree with the result for a reason
+  duckbrain can't see. (Verified identical on REV055: same v1.0.20240202, zero key
+  differences, +0.2 s of apptainer startup.)
+- **Say when it didn't run.** `probe_unavailable_reason()` exists for exactly
+  this and currently has no caller. A skipped check that renders as a clean panel
+  is the silently-degrading behaviour `CLAUDE.md` forbids, and it is the specific
+  way this item could ship broken.
+- **Cache per session** keyed on the session directory + its newest mtime. 0.7 s
+  is fine once and not fine on every Streamlit rerun. Note this is the same
+  shape `#16.2` needs and has been deferred twice — if that cache gets built
+  first, use it rather than adding a second one.
+- **The bulk/SLURM path too.** It skipped `plan_warnings` entirely once already
+  and submitted the collisions the GUI refused (2026-07-24 ledger). Same trap.
+
+Not in scope, deliberately: replacing anything in `dicom_header`. The probe reads
+one file, so it cannot count volumes or see a second echo — which is precisely
+what `dicom_header`'s three-file read exists to do. They are complementary, and a
+migration would trade a validated classifier for an unvalidated one.
+
+---
+
 <a id="23"></a>
 ## #23 — `st.components.v1.html` is past its announced removal date
 
-Streamlit 1.56 emits, every time the QC page renders:
+**One call site left** — `gui/components.py::embed_tool_report`, which shows
+MRIQC's and fMRIPrep's own Bootstrap reports and is the one place that genuinely
+needs an iframe. `#24` slices C and D (2026-07-28) removed the rest: the QC pages
+render natively now, and fMRIPrep's figures are served as individual SVGs through
+`st.image` rather than through an embedded document. The exported duckbrain
+report is a *file*, not an embed, so it is unaffected either way.
+
+Streamlit 1.56 still emits, on every render:
 
 > Please replace `st.components.v1.html` with `st.iframe`. `st.components.v1.html`
 > will be removed after 2026-06-01.
 
 That date has passed. It still works in 1.56, but `pyproject.toml` pins only
 `streamlit>=1.48`, so the next upgrade a user happens to install can take it
-away — and it is what renders **both** the QC report itself and every embedded
-MRIQC/fMRIPrep report (`gui/components.py` `embed_tool_report`,
-`5_QC_Dashboard.py`). Losing it silently blanks the whole QC surface.
+away — and losing it silently blanks every embedded tool report.
 
-Two calls to change, but do not do it blind:
+Do not swap it blind:
 
 - `st.iframe` is newer than the floor. Check which version introduced it and
   raise the `streamlit>=` floor to match in the same commit, or the fix breaks
-  1.48 users instead.
+  1.48 users instead. That is a decision about who can install duckbrain, not a
+  rename.
 - The sandbox is weaker than it looks, so don't budget for losing protection
   that isn't there. Streamlit 1.56 sets `allow-same-origin` *and* `allow-scripts`
   together (`static/js/IFrameUtil.*.js`), which cancels the isolation: a `srcdoc`
   document inherits the parent origin, shared under OnDemand with the OnDemand
   dashboard. `embed_tool_report`'s docstring asserted the opposite until
-  2026-07-28. Swapping to `st.iframe` therefore cannot make this *worse*, but
-  check whether it makes it better — and if it offers real sandboxing, take it.
-- `tests/test_qc_page.py` and `tests/test_gui_components.py` exercise both call
-  sites, so a swap that breaks rendering should fail rather than go quiet.
+  2026-07-28. Swapping therefore cannot make this *worse*, but check whether it
+  makes it better — and if it offers real sandboxing, take it.
+- `tests/test_qc_page.py` and `tests/test_gui_components.py` exercise the call
+  site, so a swap that breaks rendering should fail rather than go quiet.
+- **`core/qc_report.py`'s module docstring is stale on this** — it still says the
+  report is shown "via `st.components.v1.html()`", which slice C made false. Fix
+  it in the same commit.
 
 Found 2026-07-28 while adding the fMRIPrep report panel; the deprecation warning
-is visible in any `AppTest` run of the QC page.
-
-**Mostly closed for QC by `#24` slices C and D, 2026-07-28.** The QC pages render
-natively now, and fMRIPrep's figures are served as individual SVGs through
-`st.image` rather than through an embedded document. Two call sites remain, and
-they are the ones that genuinely need an iframe: `embed_tool_report`, which shows
-MRIQC's and fMRIPrep's own Bootstrap reports, and nothing else. The exported
-duckbrain report is a *file*, not an embed, so it is unaffected either way.
+is visible in any `AppTest` run of a QC page.
 
 ---
 
@@ -1337,6 +675,495 @@ rendered submission command, since that is what the suite already asserts agains
 everywhere else.
 
 Do not lower the floor to accommodate it.
+
+---
+
+<a id="28"></a>
+## #28 — An fMRIPrep run produced almost nothing and exited 0
+
+🔴 **Observed 2026-07-27 on `divatten_beta_v2` and never explained.** Carried out
+of `#21` when that item closed, because it was found in the same run and was
+explicitly *not* the fsaverage race: `sub-010` is the one subject of five that
+the race did **not** take out.
+
+It exited 0. It also never ran `recon-all` — it has no entry under
+`sourcedata/freesurfer/` at all — and produced only minimal-level output: no
+confounds, and no `space-MNI152NLin2009cAsym` or `fsaverage6` resampling, despite
+`--output-spaces MNI152NLin2009cAsym:res-2 fsaverage6 func` and no `--level` flag.
+
+**The consequence is what makes this worth an item rather than a note.** Across
+the whole project the run wrote **zero** `*_desc-confounds_timeseries.tsv` files,
+so the QC dashboard had no fMRIPrep input whatsoever (`#7.4`). A stage that exits
+0 and silently produces a fraction of what was asked for is the exact shape of
+`CLAUDE.md`'s silently-degrading rule, one level up: the surveyor grades on
+expected-output globs, so this is also a live test of whether `#16`'s `[expected]`
+declaration would have caught it.
+
+Nothing here is diagnosed. First moves: read `sub-010`'s fMRIPrep log in
+`log_dir` (it is on shared FS, so it survived), check whether the submitted
+sbatch actually carried the flags the cockpit rendered, and check whether
+`--level` or an `anat_only` parameter reached the command by some path the GUI
+doesn't show. `#16.1`'s request record is what would make this answerable rather
+than archaeological.
+
+---
+
+<a id="18"></a>
+## #18 — Static analysis: type checking, and widening the lint
+
+The external review of 2026-07-22 is otherwise closed (see the ledger), as is the
+CI work under `#18.1`. Two follow-ons, both deliberately deferred rather than
+forgotten:
+
+- **No `[tool.mypy]`.** Start on new and high-risk core modules —
+  `conversion_plan`, `dcm2bids_config`, `consistency` — not repo-wide.
+- **Widening ruff.** Bugbear, isort and pyupgrade have 59 findings between them
+  (measured 2026-07-22); each wants its own commit, or the gate arrives as one
+  unreviewable diff. `B905` (`zip(..., strict=)`) is the one with real
+  bug-catching value; start there. The eight sites each need a judgment about
+  whether the lengths must match.
+
+**DB-002's fuller recommendation — a persisted expected-output manifest — is the
+same feature as `#16.1`'s request record**, and is folded in there along with the
+trigger for building it. Don't build it twice.
+
+---
+
+<a id="20"></a>
+## #20 — Ship a conda environment, not a `.venv`
+
+**Asked for by RACS and LCNI** (relayed 2026-07-24). It is the same institutional
+argument as `#2`'s distribution question: conda is what neuroimaging users on
+Talapas already have and what RACS supports, `module load miniconda3` needs no
+build node, and `environment.yml` pins the *interpreter* as well as the packages
+— which `pip install -e ".[dev]"` cannot, so today a new user's Python version is
+whatever `python3` happened to be.
+
+**Checked on-cluster 2026-07-24, before designing anything.** Four findings, two
+of which change the shape of the work:
+
+- 🔴 **`~/.condarc` is FSL's, and it is hostile.** The `fslinstaller` wrote it and
+  says in the file that it *rewrites it without warning*. It pins
+  `channel_priority: strict` with the FSL channel `#!top` and conda-forge
+  `#!bottom`, and pins `pkgs_dirs` to the read-only `/packages/fsl/.../pkgs` — all
+  marked `#!final`, so a lower-priority condarc cannot override them. This is not
+  a local quirk: **any user who ran `fslinstaller` has it**, which on an fMRI
+  cluster is most of them. So the env file must carry
+  `--override-channels -c conda-forge` semantics explicitly, and setup docs must
+  set `CONDA_PKGS_DIRS`. The first `conda env create` on a stock account will
+  otherwise resolve against FSL's channel and fail to write its package cache.
+  Also note `conda` on a bare `$PATH` here is *FSL's* conda, not a module's.
+- 🔴 **`ruff>=0.16,<0.17` does not exist on conda-forge** — it tops out at
+  0.15.22. That pin is a deliberate gate (see the comment on it in
+  `pyproject.toml`: unpinned, CI re-resolves the formatter and the same commit
+  goes red with nothing changed). So the dev extra **must** stay pip-installed
+  inside the conda env; conda cannot own the whole dependency set. Don't
+  "simplify" this away by relaxing the pin — that re-opens the bug the pin closed.
+- ✅ **Every runtime dependency solves cleanly from conda-forge on Python 3.11**,
+  verified by dry-run solve, and at essentially the versions the working `.venv`
+  already has: streamlit 1.60.0 (venv 1.59.1), pandas 3.0.3 (same), nibabel 5.4.2
+  (same), pydicom 3.0.2 (same), plotly 6.9.0 (venv 6.8.0), jinja2 3.1.6, tomli-w
+  1.2.0. So there is **no version-jump risk** — this is a packaging change, not a
+  dependency upgrade, and it should be kept that way.
+- ✅ Modules available: `miniconda3/20260319` and `miniconda3/20240410` (the
+  module's own `conda` is 23.11.0). `mamba`/`micromamba` are **not** on `$PATH`.
+
+**`neuroconda3` is not reusable — build a fresh one.** The existing env
+(`~/.conda/envs/neuroconda3`, Python 3.10.15, 359 packages, 2.2 GB) was created
+2024-10-08 for the mmmdata era and is missing four of duckbrain's eight runtime
+deps (streamlit, plotly, tomli-w — plus ruff). It carries a lot duckbrain never
+uses (gtk3, graphviz, nipype, h5py, dcm2niix), the `conda env create` source file
+it was built from (`~/tmp/neuroconda-20241006.yml`) **is gone**, so it is not
+reproducible except by `conda env export`, which would pin 2024 builds. And it
+lives under `~/.conda` — personal, un-shareable, which defeats the point.
+Its one useful property: it still imports fine, so it is a working fallback while
+this is built, not something to delete in a hurry.
+
+The work, then:
+
+- Add `environment.yml` (name `duckbrain`, conda-forge only, `python=3.11`, the
+  runtime deps) with a `pip:` section for `-e ".[dev]"` — which is what pulls the
+  pinned ruff and duckbrain itself. One file, and `pyproject.toml` stays the
+  single source of the dependency list as far as possible.
+- Decide **coexist or replace**. Coexisting is the cheap, honest answer:
+  `scripts/launch.sh` and `ondemand/template/script.sh.erb` already probe for
+  `.venv` and fall through, so they gain a conda branch ahead of it and nobody's
+  working checkout breaks. `#2`'s `UNVALIDATED` new-user walk should then be
+  walked on the **conda** path, since that becomes the documented one.
+- Decide **where the env lives**. `~/.conda/envs` is per-user and invisible to
+  others (`/home/bhutch` is `drwx------` — the same wall `#2` hit with the
+  containers). A shared `--prefix` under `/projects/hulacon/shared` would let one
+  build serve the PIRG, and there is no shared env there today. That is a
+  distribution decision, not a packaging one, and it belongs with `#2`.
+- CI (`.github/workflows/ci.yml`) is a separate call: GitHub runners have no FSL
+  condarc and pip works fine there, so switching CI to conda buys little and
+  costs solve time on every push. Leaving CI on pip while users get conda means
+  the gate no longer tests the path users take — say which trade-off was taken,
+  in the commit.
+- Update `README.md`, `QUICKSTART.md` and `CLAUDE.md` together; five places
+  currently instruct `python -m venv .venv`.
+
+---
+
+<a id="2"></a>
+## #2 — Onboarding for external users
+
+**The writing is done; the dogfooding and the distribution story are open. Do not
+tick this off.** `QUICKSTART.md` and `README.md` are written and current.
+
+- **`UNVALIDATED` — the new-user path on a clean account.** Flagged inline in the
+  docs too. Nobody has walked: fresh `git clone` → venv → `pip install -e ".[dev]"`
+  → tests pass; the three `singularity build` commands actually building on Talapas
+  (and whether it's `apptainer` or `singularity` under current module policy); the
+  exact config key set the Setup page emits matching the hand-written shapes in the
+  docs; `scripts/launch.sh` srun flags under current partition/account policy; and
+  personal-OOD-sandbox registration for a *new* user.
+- **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —
+  needs a real walkthrough to know where the friction actually is.
+- **Distribution story — needs RACS.** The OOD app is a personal sandbox today.
+  Three candidates laid out but not picked in
+  `QUICKSTART.md#the-distribution-question`.
+
+### Second-user blockers, actually checked (2026-07-20)
+
+Checked on-cluster rather than inferred, and it is **less blocked than this item
+implied** — one assumed gate turned out not to exist, and the real cost is
+elsewhere.
+
+- ✅ **Getting the code is not a gate. The GitHub repo is PUBLIC** (verified
+  against the API; GPL-3.0 detected). Notes previously said "private" — wrong.
+  Which is what makes the licensing question above urgent rather than academic.
+- 🔴 **Containers are the real blocker — ~8.6 GB and unshareable as things
+  stand.** `/home/bhutch` is `drwx------`, so nobody can traverse to
+  `~/containers` even though that directory is itself world-readable. And there
+  is **no mutually-writable space** to stage copies into: `/gpfs/projects/hulacon`
+  is `0770` (invisible to a non-hulacon user) and `/projects/lcni` is not
+  writable by Ben (he is in `hulacon`/`psy607`, not `lcni`). So a second user
+  either builds their own (needs a build node and time — the long-lead item) or
+  Ben opens home traversal (`chmod o+x ~`, reversible, minimal, but it does make
+  home traversable).
+- 🔴 **OOD sandbox is NOT self-service — this likely needs RACS per user.** On
+  OnDemand ≥1.6 creating `~/ondemand/dev` is not enough: an admin must also
+  create a symlink under `/var/www/ood/apps/dev/<user>/` before the **Develop**
+  menu appears at all. Sites can opt back into "everyone a developer"
+  (`nginx_stage.yml`) or restrict it to a group, and **which Talapas does is not
+  checkable from a login node** — `/var/www/ood` lives on the OnDemand web hosts.
+  The maintainer's own sandbox working proves nothing either way (he is a PIRG
+  admin). **Ask RACS.** If it is per-user-on-request, that settles the
+  distribution question: if RACS has to touch every user anyway, publishing one
+  shared app is strictly cheaper than N tickets. Written up in `QUICKSTART.md` §4
+  Option B (with the `mkdir`/`ln -s` steps) *pending* that answer.
+- **FreeSurfer license** — free, but per-user registration; not shareable.
+- **SLURM account** — theirs, not Ben's. Feeds the OOD form's `bc_account`.
+- **NORDIC constraint that shapes all of this:** the licence forbids
+  redistribution and the PIRG root is `0770`, so every user must fetch their own
+  toolbox copy and each will sit at a different SHA. Already the config shape. See
+  `memory/nordic-versioning-and-licence`.
+- **What already works in a second user's favour:** the config layering was built
+  for exactly this — machine resources in the user config, study specifics in the
+  project config, project dir as the anchor.
+- **For a first meeting, don't do any of this.** Driving it yourself costs zero
+  setup and answers "is this worth doing / what scope should it cover". Do the
+  container prep only if hands-on-their-account is the actual goal, and *before*
+  the meeting rather than during.
+
+---
+
+<a id="9"></a>
+## #9 — Launch surface: one place to run, everywhere else prepares
+
+**PUNTED 2026-07-20** pending more discussion + hands-on time in the GUI. Ben's
+question was whether the non-dashboard pages should be config-only, with all
+running done from the cockpit.
+
+Assessment so far, to pick up from — the answer is *mostly yes, but not
+uniformly*, because the redundancy is not evenly spread:
+
+- **Preprocessing is almost pure duplication** of the cockpit and the best
+  candidate. But deleting its Submit buttons leaves the page purposeless; the
+  better move is to turn it into where you set **per-stage defaults persisted to
+  the project config**, so the cockpit's one-click launch inherits them. That
+  converts a redundant launcher into the thing that makes one-click *correct*.
+  Overlaps `#10` — per-session template groups want the same persistence
+  mechanism, so design them together rather than twice.
+- **BIDS Conversion is a mix.** The per-session mapping surface (series
+  inspection, fieldmap detection, task/run mapping) is a work surface, not
+  settings, and must stay. Its *bulk* submit duplicates the cockpit and can go;
+  the *single-session* submit is worth keeping — you have just fixed that
+  subject's mapping, which is the moment of highest intent.
+- **Data Ingestion must keep its actions.** Ingestion is deliberately read-only
+  in the cockpit (Ben agreed), and the page also does local work that is not a
+  SLURM stage at all (`participants.tsv`, `dataset_description.json`, DICOM
+  sorting).
+- **QC Dashboard is not duplication** — keep/exclude decisions are their own job.
+- **Two capabilities exist only on the pages — do not lose them.** "Export
+  Scripts" (write the sbatch without submitting) has no cockpit equivalent and is
+  genuinely useful on HPC; and bulk-with-shared-non-default-params, since the
+  cockpit's column-header bulk runs a stage with *defaults* and its per-cell
+  params are per-cell. Either move both into the cockpit first, or keep them a home.
+
+---
+
+<a id="5"></a>
+## #5 — Config / mapping niceties
+
+Deliberate deferrals, each fine as-is — listed so they aren't rediscovered as bugs.
+
+### The standing rule on messy source labeling: surface it, don't parse it
+
+Validating `#4` against real exports showed how sloppy scanner-console labeling
+gets — `MMM03_sess04CR`, `MMM_15_sess3.2`, `MMM_sub005_sess08`, `MMM_test002`,
+`mmm0_230718`, and a `sess04` that means two different sessions for one subject.
+**That is the experimenter's data-hygiene problem, not duckbrain's parsing
+problem,** and the line is drawn here on purpose:
+
+- **duckbrain accommodates a naming *form*** when it is a form — a regular
+  pattern a study actually uses, e.g. the session-label qualifiers handled by
+  `_SESSION_TOKEN_RE`. Cheap, and they prevent the dangerous failure: a real
+  subject silently disappearing.
+- **duckbrain does not chase one-off typos.** A folder the heuristics can't read
+  gets a **Notes** entry in the ingestion table and an editable subject/session
+  cell. Making a bad guess *visible and overridable* is the whole job; growing a
+  parser branch per malformed folder is how the heuristics become unmaintainable
+  and start misreading the well-formed ones.
+- **So the fix for a study like mmmdata is upstream**, in how sessions are named
+  at the console — or a one-time rename of the export. If a *pattern* emerges (not
+  an instance), that's when it earns code.
+- Parsed session labels are **not unique per subject**, so auto-numbering by date
+  is the reliable path and the parsed labels are a suggestion. See
+  `memory/validation-discovery-and-fieldmaps`.
+
+### Accepted edges
+
+- **`G##_S##` parsing is unit-tested only and stays that way.** No export on this
+  filesystem uses it and it isn't expected to be common. Just **don't record it as
+  live-validated**; close it for free if such an export turns up.
+- **bold→fmap linking binds by acquisition time** (since 2026-07-24) — the rule,
+  its precedence over a declared `[fmap_mapping]`, and the one residue (a tie,
+  when a session shoots two pairs back-to-back) are all in `#19.3`. Nothing about
+  it is an accepted edge any more; it is live work with a live home, and this
+  bullet asserted the *opposite* rule for three days after the change landed,
+  which is why it now points instead of restating.
+- **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
+  becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
+  alone on purpose: renaming it would change the `B0FieldIdentifier` of
+  already-converted data for no functional gain.
+- Task rules are dataset-wide; there's no per-subject *rule* scoping. Per-subject
+  *edits* already cover the exception case.
+- `directory_picker` is dirs-only; `fs_license` stays a text field. File-mode
+  deferred until something needs it.
+
+---
+
+<a id="10"></a>
+## #10 — Template groups: config defaults that vary within a project
+
+**Captured 2026-07-20.** Today the config layers are base → user → project, and
+the project layer is flat: one set of defaults for the whole study. That breaks
+when sessions genuinely differ — session 1 on a different protocol from session 2
+wants different dcm2bids expectations, task mapping, maybe different fMRIPrep
+params or SLURM resources.
+
+- **Prefer named groups over keying on the session label.** `ses-01` / `ses-02` is
+  the obvious key but the wrong one: the real distinction is usually *protocol*
+  ("pilot" vs "main", "7T" vs "3T"), several sessions can share one, and a
+  sessionless project can still want two groups. So: define named template groups,
+  assign units to a group, fall back to project defaults when unassigned.
+- **There is already a pattern to follow, not invent.** Project-wide task mapping
+  does exactly this shape one layer down — project-wide rules, per-session
+  overrides, persisted read-modify-write into a `[task_mapping]` section
+  (`save_project_task_map`). Template groups generalize it from "task labels" to
+  "any default". Reuse the mechanism; don't grow a second one.
+- **Open questions to settle first:** does a group override the *whole* section or
+  merge key-by-key (merge, presumably — the same deep-merge the config layers
+  already use)? Where does assignment live, the project config or per-unit? And
+  does the surveyor need to know about groups, or is this purely a launch-time
+  concern (probably the latter — completion is still completion)?
+- **Design with `#9` together.** Same persistence mechanism, so designing them
+  separately would build it twice.
+
+---
+
+<a id="11"></a>
+## #11 — Automated pipeline: DICOMs in, derivatives out (exploratory)
+
+**Captured 2026-07-20, Ben's idea.** Given source DICOMs, run every step
+unattended — either by periodically checking in, or by chaining dependencies.
+
+- **duckbrain already has both ingredients.** `survey_live` + `stage_runnable`
+  answer "what could run right now" for every unit, and `advance_one` launches
+  exactly one stage for one unit. An unattended driver is close to a loop over
+  those two — most of the work is deciding the *policy*, not the mechanism.
+- **Two mechanisms, and they are not equivalent:**
+  - **SLURM dependency chaining** (`--dependency=afterok:<jobid>`) submits the
+    whole chain up front. No polling, and the scheduler enforces order. But a
+    failed stage strands its dependents in a held state, and re-planning after a
+    partial failure is awkward.
+  - **A periodic reconciler** (wake, survey, launch whatever is runnable) is **the
+    better fit for this codebase.** duckbrain keeps no state store — every page
+    re-derives what exists from the filesystem — which is exactly what a
+    reconciler needs, and it self-heals after partial failures instead of
+    stranding them.
+- **The failure mode to design against is a resubmission loop.** A stage that
+  always fails would be relaunched forever. Needs a retry cap and backoff, and a
+  durable record of attempts per unit/stage — `submissions.tsv` is already that
+  record. The no-double-submit guard exists (`stage_runnable` refuses a
+  running/queued unit); the missing piece is "stop retrying a *failing* one".
+- **Unresolved, and it gates the whole thing:** where does the driver actually
+  run? Cron on a Talapas login node may be discouraged or disallowed — a RACS
+  question, and the answer may push this toward a long-lived SLURM job or an
+  OOD-launched daemon.
+- Related but distinct from `#12`: a deterministic reconciler and an agent that
+  decides what to run next are alternative drivers over the same core API.
+
+---
+
+<a id="12"></a>
+## #12 — Merge with mmmdata-agents (exploratory)
+
+**Captured 2026-07-20, Ben's idea.**
+`/gpfs/projects/hulacon/shared/mmmdata/code/mmmdata-agents` is a Claude-powered
+agent repo over the mmmdata dataset: a data agent (natural language BIDS
+queries), a QC agent (MRIQC outliers), an orchestrator, and a tool registry under
+`src/tools/` — `bids_tools`, `conversion_tools`, `manifest_tools`, `qc_tools`,
+`slurm_tools`, `sourcedata_tools`.
+
+- **The overlap is close to one-to-one**, which is the argument for merging rather
+  than a second implementation: those tool modules map onto duckbrain's
+  `core/surveyor.py` (inventory/status), `core/consistency.py`, `slurm/monitor.py`
+  + `core/pipeline.py`, and the `core/` BIDS modules. mmmdata-agents even carries
+  its own `pipeline_status_*.tsv` — the thing the surveyor exists to produce.
+- **duckbrain is already shaped for this.** The core/GUI split means the useful
+  surface is plain Python with no Streamlit in it (`survey_project`, `survey_live`,
+  `stage_runnable`, `advance_one`, `check_consistency`). Backing agent tools with
+  that core is mostly wiring, not redesign.
+- **⚠️ Check the licence before any code moves** — see Licensing above.
+- **Cheapest first step, if this proceeds:** point one existing agent tool at
+  duckbrain's surveyor instead of its own status code, and see whether the
+  abstraction actually fits before committing to a merge.
+
+---
+
+<a id="5b"></a>
+## #5b — NORDIC Case 2: same-project raw-vs-NORDIC comparison
+
+Deferred until actually needed. Case 1 (the `use_nordic` toggle) is validated live.
+
+- **Try the zero-code fallback first:** two project dirs over the same BIDS, one
+  with `use_nordic` on.
+- If it needs building: **do not branch the pipeline.** Use distinct derivative
+  names (`derivatives/fmriprep/` vs `derivatives/fmriprep-nordic/`) and
+  parameterize the hardcoded derivative dir in `_fmriprep_status` and the builder,
+  so a variant appears as an *additive extra column* only when the project opts in.
+  Matches BIDS-derivatives norms.
+- **Case 3, full named-pipeline DAG: PARKED.** Only if branch counts grow (multiple
+  denoisers / fMRIPrep configs routinely). This is the complexity to avoid.
+- **Candidate affordance** (ties to `#2`): the Setup page validates containers
+  exist; give NORDIC the same treatment — "toolbox not found → fetch pinned
+  version", cloning upstream at a duckbrain-pinned SHA into the user's own space.
+  Not redistribution (the user pulls from UMN) and it gives version uniformity.
+
+---
+
+<a id="7"></a>
+## #7 — Pipeline extras: candidate stages
+
+Each is its own focused effort. Full annotated backlog — candidate tools, ties to
+existing duckbrain/mmmdata work, open questions per item — in
+**`docs/pipeline-extras.md`**. Items 4 and 6 are **partly built** and say so
+below; the other six are unstarted.
+
+1. **De-identification for sharing — highest value.** Defacing **+** metadata/header
+   PII scrubbing (DICOM headers *and* BIDS sidecars), "derive-then-torch" policy
+   (age ok, name/DOB auto-removed). Candidate: `bidsonym`. *(The precomputed-mask
+   fast-track is a different feature, deliberately deferred — see the doc.)*
+   **Sequencing note:** an identity sanity check wants to run *immediately before*
+   this — see Loose ideas. Once the headers are scrubbed, a wrong subject mapping
+   can no longer be detected or proven.
+   **The sidecar-scrubbing half has a candidate implementation, and it waits for
+   this item on purpose:** `cubids remove-metadata-fields --fields PatientName`
+   does exactly the BIDS-sidecar half. It **mutates sidecars in place**, so it
+   needs this item's PII policy (age ok, name/DOB auto-removed, derive-then-torch)
+   decided *first* — shipping a scrubber under `#16` would have fixed the
+   mechanism before the policy, and it breaks the report-never-repair rule.
+   Read-only *detection* (`cubids print-metadata-fields`) is `#16.3`'s, not this
+   item's. Same reasoning that defers the identity check's mechanism to here.
+2. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
+3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
+   bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
+4. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC; layer norms
+   on the existing surveyor/QC pages. **Largely built: all three slices landed
+   2026-07-24 (ledger), and `#24` regrouped the result by the question being
+   asked.** The plan, the two corrections real data forced, and the decisions
+   settled so they are not re-argued are in `docs/qc-dashboard-migration.md` —
+   Streamlit stays the control plane and only the QC *report* becomes a document
+   (one renderer, embedded **and** exported, not two versions), and mmmdata will
+   depend on duckbrain rather than keep a copy, which makes
+   [Licensing](#licensing-follow-ups) a precondition for that end state rather
+   than background.
+   **What is left is this item's original ask:** group-level IQM comparison, which
+   is the part that only becomes answerable in a multi-project tool and is why the
+   layer moved here from mmmdata in the first place.
+   Two accepted residues. `core/qc.py` accepted a `reviewer` argument that the
+   page never passed, so **every QC decision duckbrain wrote before 2026-07-24 is
+   anonymous** and legacy records cannot be attributed retroactively;
+   `save_decision` raises on a blank reviewer now and the page takes it from the
+   session, but the existing records are what they are. And `core/qc.py` is the
+   only untested module in `core/`.
+5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
+   confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
+6. **ReproIn** — **reading it is DONE** (2026-07-21): duckbrain parses the naming
+   convention and trusts its entities over the heuristics, still converting with
+   dcm2bids. What's left is the *social* half — recommending the convention to
+   LCNI so exports arrive already carrying their entities, which is `#5`'s "fix it
+   at the console" rule in concrete form. Open: does duckbrain also read the
+   `ses-` entity (it currently takes session from the ingestion mapping), and is a
+   ReproIn-named study worth acquiring as a test case.
+7. **External FreeSurfer 8 feeding fMRIPrep 25** instead of fMRIPrep's bundled
+   recon — **asked for by LCNI**, who already run it this way. Cheaper than it
+   looks: **FS 8.2.0 is already installed on Talapas and on the default `PATH`**,
+   so this is the one candidate stage with nothing to build, and NORDIC is the
+   precedent for an `--array` stage that shells out. Writing to
+   `<derivatives>/fmriprep/sourcedata/freesurfer/` means fMRIPrep finds it with
+   **no flag at all** (that is its default `fs_subjects_dir` under
+   `--output-layout bids`). Two traps and the real cost — including why
+   `--fs-subjects-dir` without `--fs-no-resume` re-creates the anat-reuse silent
+   no-op, and why fMRIPrep-25-against-FS-8 is a question for LCNI/nipreps and not
+   for us — in `docs/pipeline-extras.md` §9. **If taken, it forces `#5b` Case 3's
+   DAG decision**: fMRIPrep would depend on two producers and
+   `effective_depends_on` is a single string with one special case already.
+8. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
+   actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
+   path off raw/minimal data. Low demand, unique requirements.
+
+---
+
+<a id="8"></a>
+## #8 — Visual identity & branding (someday)
+
+Gated behind functionality + onboarding (`#2`); captured so it isn't forgotten.
+Logo/wordmark that works small (favicon) and as a banner; a considered Streamlit
+theme instead of defaults; favicon for the GUI tab and the OOD tile; README banner.
+Tasteful, not over-designed, and after the product behavior is locked.
+
+---
+
+## Provenance / consistency residuals
+
+The item is closed and shipping; these are the accepted edges.
+
+- **The mixing check has never been driven by two *completed* real fMRIPrep runs.**
+  It costs hours of compute and works by deliberately corrupting a derivative.
+  Every *input* to the check is live-validated, so what's unproven is grouping
+  logic over real values. **Close it for free** the next time a project genuinely
+  mixes variants.
+- Config-vs-provenance is dataset-level; per-subject would be finer.
+- An mriqc `DatasetLinks` check, if MRIQC ever records one.
+- `tool_version` is overloaded — a container *tag* for container stages, a
+  `git describe` for NORDIC. Defensible (both are "what we pinned"), not worth its
+  own migration. Fold in if those columns are ever touched again.
+- NORDIC log rows still write `tool_version`/`runtime`/`code_source` that nothing
+  reads now that sidecars are the source. The row still earns its place via `job_id`.
 
 ---
 
@@ -1380,10 +1207,13 @@ Do not lower the floor to accommodate it.
 
 # Closed
 
-One line each. Detail is in `git log` (the commit message is the record),
-`CHANGELOG.md` for anything user-facing, `docs/` for design, and `memory/` for
-validation findings. Design rules that still bind live as comments on the code
-that enforces them — the provenance source rule in `consistency.py`'s module
+**A row is a pointer, not the account.** Detail is in `git log` (the commit
+message is the record), `CHANGELOG.md` for anything user-facing, `docs/` for
+design, and `memory/` for validation findings. Rows through 2026-07-24 keep to
+one line; several later ones ran to paragraphs, which is drift and not a change
+of contract — don't take them as the pattern, and don't move a closed item's
+reasoning here when the commit that made the change already carries it. Design
+rules that still bind live as comments on the code that enforces them — the provenance source rule in `consistency.py`'s module
 docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule in
 `core/dcm2bids_config.py`.
 
@@ -1391,9 +1221,11 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 |---|---|---|
 | 2026-07-30 | `#26` | **The coverage gate could not see a single Streamlit page, and the item's own diagnosis of why was wrong.** `source = ["duckbrain"]` is a package *name*, and coverage resolves those by **module name**: streamlit execs a page as a module called `5_QC_Overview`, which is not a `duckbrain` submodule and is not a legal Python identifier, so it could never match — `COVERAGE_DEBUG=trace` says exactly that. Not AppTest, not a process boundary, not the `magic` AST rewrite; a path source traces the pages fine. Same tests, same 6466 statements, **73% → 87%**, floor 70 → 85. The load-bearing part is what the false explanation cost: the item claimed the ratchet "exerts no pressure at all on the code where this bug class lives" and that was never true — `3_BIDS_Conversion.py` was **80% covered** by tests already passing, and the report was throwing it away. Also required, not cosmetic: CI's `--cov=duckbrain` *overrides* the config source, so fixing `pyproject.toml` alone would have left CI measuring the old way. The floor was measured after the fact rather than reused from the exploration, since two pages had changed since. One real gap fell out and is open as `#27` (`4_Preprocessing.py`, 0%). Two notes cleared with it: `#26.1`, a comment asserting `series_list` is cached across reruns — it is not (no `lru_cache`, no `st.cache_data`, no fragment; `list_series` runs at page top every rerun), so the `elif` it guarded was dead and is gone. `#26.2`, the `st.stop()` at the config call: **reachable, but not by the binding its comment named** — the two repair passes above it rewrite every unsatisfiable rule to `none`, so what still lands there is `generate_config`'s *other* raise, two fieldmap groups colliding on one B0 identifier (`2.5mm`/`25mm`). No table cell repairs that and the call already raised, so there is no config to render from: it stays a stop where its neighbours warn, now with a test that says so. **The refactor is deferred, not refused** — extracting `(seed, edits, imported, override) -> effective plan` into `core/` is still the right shape, but its cheapest justification was the coverage gap and that is now free, one of the four inputs already got one home in `c0f4650`, and the diagnostics are interleaved with the derivation so ~18 of the 36 render-coupled tests would be rewritten for a presentation-token round trip |
 | 2026-07-29 | `#25` | **All three tags published as GitHub Releases, and `v0.3.0` cut to make that worth doing.** A pushed tag notifies nobody and is invisible to the API, so `docs/releasing.md` step 7's announcement channel did not exist and `core/updates.py` — shipped the day before — queried `releases/latest` and got a 404, meaning the GUI's "newer version" line was dark for every user from the moment it landed. Backfilling 0.1/0.2 alone would have turned the channel on and had nothing worth announcing: the **fieldmap-intent inversion fix sat in `[Unreleased]` for eight days**, so users on `main` had it and anyone pinned to a tag did not. Hence `v0.3.0` — 50 commits, +27.8k/−1.7k. **Minor, not patch, deliberately**: `_release_line()` reduces to `major.minor` and `check_duckbrain_drift()` therefore flags every derivative built under the 0.2 line, which is *correct* here rather than collateral, because this release changes recipes duckbrain authors (which series convert, their datatype, the `B0Field*` intent in every sidecar, which reconstruction ships, which pair corrects which run) and not merely the flags passed to a container. The changelog's thirteen repeated Added/Changed/Fixed headers — one set per work session — were merged into one of each, since that section becomes the published notes; every bullet moved verbatim and the 688 content lines were diffed before and after rather than eyeballed. Two environment limits worth knowing if this is ever automated: the agent sandbox refuses tag refs (`HTTP 403`) while accepting branch refs, and the GitHub MCP server exposes releases read-only — so tag and publish stayed manual |
-| 2026-07-28 | `#13.1` | **A series can be left out of the conversion** — a `convert` checkbox on the plan table, prompted by a beta tester asking how to skip a run. The config's native spelling of "not converted" is *no description*, so `generate_config(skip=…)` simply omits one and everything downstream follows with no new state: `becomes` already rendered `— not converted` for an unclaimed series, and the skip survives save/reload through the saved JSON alone. Three things the naive version gets wrong. **A skipped fieldmap half takes its whole pair** (`_without_skipped_groups`) — half a pair is not half a fieldmap, and emitting the survivor writes a `fmap/` file nothing can be estimated from; a run still bound to a pair whose half was unticked is refused, naming the two edits that conflict rather than letting `generate_config` say the session lacks a group the user removed three rows up. **The drop carries a reason**, because the warning it otherwise raises means "nothing claimed this" — the anat-suffix bug that warning exists to catch — so the reason travels on `SeriesInfo.drop_reason` and the finding is an info note; that also fixes the pre-existing double-report where an ND-demoted anat got both the warning and the note, and the kind is `deliberate-drop` now, not `nd-duplicate`, since the ND policy was the first thing to set a reason and is no longer the only one. **A stranded SBRef is reported** (`orphan-sbref`): bold and sbref are two rows, so skipping one and not the other is a click away, and an SBRef alone is the reference volume for a run that isn't being written. Rows duckbrain has no emission path for start unticked so the box agrees with `becomes`; `EMITTED_CLASSIFICATIONS` is deliberately not "everything that isn't an expected drop", because `dwi` classifies cleanly and still converts to nothing. Per-session by construction — see `#13.1` for why a project-level skip needs the description key |
+| 2026-07-28 | — | **A series can be left out of the conversion** — a `convert` checkbox on the plan table, prompted by a beta tester asking how to skip a run. The config's native spelling of "not converted" is *no description*, so `generate_config(skip=…)` simply omits one and everything downstream follows with no new state: `becomes` already rendered `— not converted` for an unclaimed series, and the skip survives save/reload through the saved JSON alone. Three things the naive version gets wrong. **A skipped fieldmap half takes its whole pair** (`_without_skipped_groups`) — half a pair is not half a fieldmap, and emitting the survivor writes a `fmap/` file nothing can be estimated from; a run still bound to a pair whose half was unticked is refused, naming the two edits that conflict rather than letting `generate_config` say the session lacks a group the user removed three rows up. **The drop carries a reason**, because the warning it otherwise raises means "nothing claimed this" — the anat-suffix bug that warning exists to catch — so the reason travels on `SeriesInfo.drop_reason` and the finding is an info note; that also fixes the pre-existing double-report where an ND-demoted anat got both the warning and the note, and the kind is `deliberate-drop` now, not `nd-duplicate`, since the ND policy was the first thing to set a reason and is no longer the only one. **A stranded SBRef is reported** (`orphan-sbref`): bold and sbref are two rows, so skipping one and not the other is a click away, and an SBRef alone is the reference volume for a run that isn't being written. Rows duckbrain has no emission path for start unticked so the box agrees with `becomes`; `EMITTED_CLASSIFICATIONS` is deliberately not "everything that isn't an expected drop", because `dwi` classifies cleanly and still converts to nothing. Per-session by construction — see `#13.1` for why a project-level skip needs the description key |
 | 2026-07-28 | — | **All duckbrain-authored output moved under `derivatives/duckbrain/`** (`qc/decisions/`, `qc/reports/`), so a project shows at a glance which derivatives a tool produced and which duckbrain did. The tool trees stay put — they are the tools' own derivative datasets and BIDS expects them at `derivatives/<pipeline>/`, and that includes `fmriprep/sourcedata/freesurfer`, which duckbrain only seeds `fsaverage` into. No file is moved: `decision_search_dirs` still reads `preprocessing_qc/`, legacy root first so the current location's entries are the newest, because mmmdata still writes there and a project reviewed before the move must not lose its history — the same treatment `_history_of` gives the two on-disk schemas, applied to the two locations. Verified live on both real projects: 1 and 609 records, all still read, none moved. The report's MRIQC links are now computed from `REPORT_SUBDIR` rather than a hardcoded `../mriqc`, since deepening the subdir would otherwise have pointed every link at a directory that does not exist — silently, a broken relative link being ordinary text |
 | 2026-07-28 | `#24` | **QC review is grouped by the question being asked** — an Overview plus one page per domain (signal, temporal, alignment, artifact) under a collapsible `QC` nav group, each measure's guidance beside the number instead of in a glossary, and each measure shown with where the run sits among the runs around it. `core/qc_domains.py` partitions all 30 registry measures at import (a measure in two domains emits duplicate `#guidance-{key}` anchors), and carries the fMRIPrep figures that can never be registry entries — which is what gives alignment, the domain with no MRIQC number on bold, anything to show. `core/qc_evidence.py` serves those figures per run: 1.1 MB against 80 MB for the subject report, with the SDC flicker intact because the animation is CSS inside each SVG, verified reaching the browser as a self-contained data URI. Matching is by BIDS entity, not by prefix join, which is what makes `sub-03_acq-MPR_dseg.svg` findable on a session dataset. An absent figure is stated, not skipped — no SDC figure means the run was preprocessed with no distortion correction. Domain reviews share the per-run decision file via an optional `domain` field, with a vocabulary disjoint from the verdicts' and `latest` meaning the newest entry carrying *no* domain, so a note about alignment can never become the run's verdict; 609 real records read unchanged. Coverage rose 70.83% → 73.51% because the five pages are four-statement declarations over one tested module, so the ratchet went 65 → 70. Slice B (regrouping the HTML export) dropped by decision, not deferred |
+| 2026-07-27 | `#21` | **The shared `fsaverage` race is closed by seeding, not staggering** — `core/fsaverage.py`, wired into `advance_one` so no launcher can forget it. fMRIPrep's `BIDSFreeSurferDir` deletes an fsaverage tree that lacks the FreeSurfer-7 sentinel, and a tree being copied into lacks it for the first 0.39 s of a 1.83 s copy, so job B `rmtree`s job A's copy in progress and nothing raises — surfacing ~3 hours later at `recon-all`'s BA_exvivo stage, and stickily, since the merged tree *does* carry the sentinel so the self-repair can never fire again. Took out 4 of 5 subjects on `divatten_beta_v2`. Completeness is judged against the container's own manifest (312 files / 109), never the sentinel — a checker asking fMRIPrep's question would have called the 259-file tree fine. The full reasoning is the `core/fsaverage.py` module docstring and commit `a6eb399`; pinned by `tests/test_fsaverage.py`. One thing from that run is **not** explained by the race and is open as `#28` |
+| 2026-07-24 | `#7.4` | **The QC norms layer migrated from mmmdata in three slices.** Slice 1, the 30-measure registry plus a `[qc]` config section, worked the plan's "cannot be verified without data" table first against 717 real MRIQC JSONs — the registry was right about every content question it raised, and real output is now committed as `tests/fixtures/mriqc/` so a wrong key name fails a test instead of rendering a blank column. Slice 2, `core/qc_report.py` plus the embed, settled the link question by having duckbrain serve the reports itself through Streamlit's media endpoint (`core/report_embed.py`) — relative paths fix the exported copy and can never fix a `srcdoc` iframe, whose base URL is the page's; two alternatives that look right from outside are recorded in `components.py`. It also found `load_mriqc_metrics` returning **zero** runs on any sessionless study, so the QC page had never worked on `divatten_beta`. Slice 3 migrated nothing because nothing needed it: mmmdata's append-only schema reads as-is (609/609, 0 files modified), and live data forced a third count bucket, `automated` vs `unattributed`, because only the second is closable by re-reviewing. Plan and the two corrections it forced: `docs/qc-dashboard-migration.md`. Group-level IQM comparison stays open under `#7` |
 | 2026-07-24 | — | **A project chooses which reconstruction converts, prompted by LCNI** asking that the user be able to select the distortion-corrected copy, the `_ND` copy, or both. `[conversion] nd_duplicates`, defaulting to today's behaviour. Project-level and not a table column: bulk and cockpit converts go through `generate_session_config` and have no table, so a table-only control would mean the reviewed session and the bulk-converted session held different images with nothing saying so. `both` needed new code only for anatomicals — `acq-nd`/`acq-dis`, with `_disambiguate_anat` now bucketing by `(suffix, custom_entities)` so `run-` still means *acquired* twice rather than *reconstructed* twice. The fieldmap half falls out of description-matched pairing for free (two groups, two `B0FieldIdentifier`s), except that both pairs share an acquisition time, so nearest-in-time cannot separate them and fell through to insertion order — hence `FieldmapDetection.deprioritized`, which narrows the *automatic* candidates only. Validated live through dcm2bids on Crave_control/CC052: both reconstructions land, they differ across 61% of voxels, and the B0 intent is correct |
 | 2026-07-24 | — | **The ND choice is made per twin pair, not per series** — the defect LCNI's fieldmap layout exposed (27 `fieldmap_2mm_ND` mag, 28 `fieldmap_2mm` mag, 29 `fieldmap_2mm` phase, 30 `fieldmap_2mm_ND` phase). The twin lookup was a dict comprehension keyed on the description, so of the two series sharing `fieldmap_2mm` it kept only the last — the *phase* — and demoted the ND *magnitude* on the strength of it, never checking the role. And deciding per series can keep one half of each reconstruction, which the identical-description pairing then refuses entirely. Together those reproduced CC056 with a fieldmap: both ND series demoted, the group built on an empty directory, a complete populated pair discarded. LCNI's other worry — that the halves get matched in order, so 27 pairs with 29 — cannot happen here; pairing is `ImageType` + identical description, never ordering. The corpus run then found a third case the unit tests could not: pMAP101 shoots its mprage twice and saves both copies of each, and with each ND picking its own nearest twin one corrected series went unclaimed and converted as a spurious third anatomical **under every policy including the default**. Sides are now paired in acquisition order. The drop is also no longer invisible — `DroppedSeries.reason` and an `nd-duplicate` notice, on 52 corpus sessions that previously said nothing |
 | 2026-07-24 | — | **Spin echo read from both witnesses, and the pulse sequence name read at all.** `is_spin_echo` asked only whether `SequenceName` started `epse`, which is right for the pepolar fieldmap and wrong for every other spin-echo family: `*tse2d1_18` does not, so a classic turbo spin echo read as gradient echo — leaving the `anat`/`T2w` rule unreachable in that dialect (those series classified only because their *name* said `t2`) and putting a dual-echo TSE on course to convert as half a fieldmap. Neither witness subsumes the other: the pepolar `epse2d1_104` reports `ScanningSequence ('EP',)` with no `SE`, `*tse2d1_18` reports `('SE',)` with the wrong name — so it is a union. Separately, LCNI's note that the field to read is `PulseSequenceName` (post XA30) else `SequenceName`: duckbrain read only the latter, used it for one bit, and never stored it. Now on `SeriesHeader` and used as a last tier for the two classes nothing else reaches — `*fl3d1_ns` scouts (previously name-only, so a localizer called anything else was `unknown`) and `*spcR` SPACE. The plan for that said SPACE was absent from the corpus and would ship on a synthetic test; the corpus run said otherwise — WMS179 Series_21 is a real undefaced 3D SPACE, and enhanced-dialect, so it exercises exactly the tag that was never read |
