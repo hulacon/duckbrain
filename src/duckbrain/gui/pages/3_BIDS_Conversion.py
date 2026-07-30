@@ -214,7 +214,110 @@ if _nd_twins:
             "change what they do."
         )
 
-classify_series(series_list, nd_duplicates=nd_policy)
+# The editor's pending edits live in session_state *before* it renders, which is
+# what lets `becomes` be computed from this run's edits rather than lagging a
+# rerun behind them. Keyed per subject/session so switching units can't apply one
+# unit's edits to another's rows.
+EDITOR_KEY = f"conversion_editor_{subject}_{session}"
+IMPORT_KEY = f"conversion_import_{subject}_{session}"
+# The durable record of what the user has changed. EDITOR_KEY is *not* that
+# record, however much it looks like one — see `_accumulate_edits`.
+EDITS_KEY = f"conversion_edits_{subject}_{session}"
+
+
+def _accumulate_edits(delta_key, store_key):
+    """Merge this run's editor delta into the durable per-session edit store.
+
+    `st.data_editor`'s state does not belong to its `key`: the element id is
+    computed from a hash of the dataframe handed in (streamlit passes
+    `key_as_main_identity=False` and `data=arrow_bytes` when registering it), so
+    handing back a frame with the edit baked in — which is exactly what makes
+    `becomes` current rather than a rerun behind — remounts the table as a
+    *different* widget, whose delta starts empty. The edit therefore survived
+    precisely the one render that baked it: the next rerun rebuilt the row from
+    the seed, so a fieldmap the user had just picked changed back on its own,
+    and Save wrote the plan she had not reviewed. Reported by a beta tester as
+    "it soon changes back"; the silent half was the save.
+
+    Accumulating here makes the widget's delta a *message* about what changed
+    rather than the system of record. Pinned by
+    tests/test_conversion_page.py::test_a_row_edit_survives_a_later_rerun.
+    """
+    store = st.session_state.get(store_key)
+    if store is None:
+        store = {}
+        st.session_state[store_key] = store
+    delta = st.session_state.get(delta_key) or {}
+    for row_idx, changes in (delta.get("edited_rows") or {}).items():
+        store.setdefault(int(row_idx), {}).update(changes)
+    return store
+
+
+row_edits = _accumulate_edits(EDITOR_KEY, EDITS_KEY)
+
+
+# ---- Declared series types ---------------------------------------------------
+# A Type edit is read *here*, above classify_series, rather than written back onto
+# series_list after the table is built. The write-back version is the bug TODO
+# #13.1 warned about from the other side: everything downstream of the table
+# (task/run seeding, the fieldmap column, generate_config's dispatch, and
+# detect_fieldmaps itself, which reads `classification`) would be looking at the
+# old datatype while the column showed the new one. Declaring the type before
+# anything is derived from it means there is no second copy to keep in sync.
+#
+# The edit is keyed on the row's *description*, not its series number, because
+# that is what a declaration is: the same protocol produces the same misread
+# label for every subject, so the correction has to be sayable once. Two series
+# sharing a description therefore move together, which is the same semantics
+# [task_mapping] has had all along.
+from duckbrain.core.series_types import (
+    DECLARABLE_TYPES,
+    TypeRule,
+    format_type_token,
+    parse_type_token,
+    token_datatype,
+    type_rules_from_config,
+)
+
+project_type_rules = type_rules_from_config(config)
+
+session_type_rules = []
+_unusable_types = {}
+for _idx, _changes in list(row_edits.items()):
+    if "Type" not in _changes or _idx >= len(series_list):
+        continue
+    try:
+        _datatype, _suffix = parse_type_token(_changes["Type"])
+    except ValueError as _exc:
+        # The dropdown has to *offer* the classifications duckbrain inferred for
+        # this session — a Selectbox cell can't render a value absent from its
+        # options — and those include the ones no declaration can honour. So
+        # picking `scout` or `fmap` lands here. Refused by name rather than
+        # accepted and quietly ignored, and dropped from the store rather than
+        # merely skipped: left there, `_apply_pending_edits` would keep painting
+        # it into the column and the table would show a type nothing downstream
+        # acts on.
+        _unusable_types[str(_changes["Type"])] = str(_exc)
+        _changes.pop("Type")
+        continue
+    session_type_rules.append(TypeRule(series_list[_idx].description, _datatype, _suffix))
+
+if _unusable_types:
+    st.warning(
+        "**That Type can't be declared, so the rows concerned keep the type "
+        "duckbrain read from their headers or names.**\n"
+        + "\n".join(f"- `{tok}` — {why}" for tok, why in _unusable_types.items())
+        + "\n\nTo leave a series out of the conversion, untick `convert` — "
+        "that is a different question from what the series is."
+    )
+
+# Session edits go last so they win: type_rule_lookup is last-wins, and the row
+# in front of you outranks the project default exactly as it does for task/run.
+classify_series(
+    series_list,
+    nd_duplicates=nd_policy,
+    type_rules=[*project_type_rules, *session_type_rules],
+)
 
 # ReproIn-named sequences carry their BIDS entities explicitly, so duckbrain uses
 # those instead of inferring them. Worth saying out loud: it tells the user the
@@ -284,6 +387,7 @@ from duckbrain.core.dcm2bids_config import (
     # respelled here: this page writes the value, generate_config reads it, and a
     # second copy of the literal is a place for them to disagree quietly.
     _NO_FMAP,
+    anat_suffix_for,
     build_task_run_mapping,
     collapse_fmap_rules,
     generate_config,
@@ -306,46 +410,6 @@ from duckbrain.core.conversion import (
 )
 from duckbrain.core.dicom_inspect import sanitize_task_label
 
-# The editor's pending edits live in session_state *before* it renders, which is
-# what lets `becomes` be computed from this run's edits rather than lagging a
-# rerun behind them. Keyed per subject/session so switching units can't apply one
-# unit's edits to another's rows.
-EDITOR_KEY = f"conversion_editor_{subject}_{session}"
-IMPORT_KEY = f"conversion_import_{subject}_{session}"
-# The durable record of what the user has changed. EDITOR_KEY is *not* that
-# record, however much it looks like one — see `_accumulate_edits`.
-EDITS_KEY = f"conversion_edits_{subject}_{session}"
-
-
-def _accumulate_edits(delta_key, store_key):
-    """Merge this run's editor delta into the durable per-session edit store.
-
-    `st.data_editor`'s state does not belong to its `key`: the element id is
-    computed from a hash of the dataframe handed in (streamlit passes
-    `key_as_main_identity=False` and `data=arrow_bytes` when registering it), so
-    handing back a frame with the edit baked in — which is exactly what makes
-    `becomes` current rather than a rerun behind — remounts the table as a
-    *different* widget, whose delta starts empty. The edit therefore survived
-    precisely the one render that baked it: the next rerun rebuilt the row from
-    the seed, so a fieldmap the user had just picked changed back on its own,
-    and Save wrote the plan she had not reviewed. Reported by a beta tester as
-    "it soon changes back"; the silent half was the save.
-
-    Accumulating here makes the widget's delta a *message* about what changed
-    rather than the system of record. Pinned by
-    tests/test_conversion_page.py::test_a_row_edit_survives_a_later_rerun.
-    """
-    store = st.session_state.get(store_key)
-    if store is None:
-        store = {}
-        st.session_state[store_key] = store
-    delta = st.session_state.get(delta_key) or {}
-    for row_idx, changes in (delta.get("edited_rows") or {}).items():
-        store.setdefault(int(row_idx), {}).update(changes)
-    return store
-
-
-row_edits = _accumulate_edits(EDITOR_KEY, EDITS_KEY)
 
 # ---- A previously reviewed config on disk -----------------------------------
 # `_build_dcm2bids` reuses <sourcedata>/sub-XX/[ses-YY]/dcm2bids_config.json when
@@ -401,6 +465,7 @@ if _saved_config_path.exists():
             session,
             rules=task_rules_from_config(config),
             fmap_rules=fmap_rules_from_config(config),
+            type_rules=project_type_rules,
             series_list=[dataclasses.replace(s) for s in series_list],
             nd_duplicates=_project_nd_policy,
         )
@@ -437,7 +502,7 @@ if st.session_state.get("dcm2bids_json_override"):
 else:
     st.markdown(
         "One row per DICOM series. **This table is the source of truth** — edit "
-        "`convert`, `task`, `run` or `fieldmap` and everything downstream "
+        "`Type`, `convert`, `task`, `run` or `fieldmap` and everything downstream "
         "regenerates from it. `becomes` is the BIDS file that will actually be "
         "written, or *not converted* for a series you have left out."
     )
@@ -452,9 +517,10 @@ template = st.text_input(
 
 project_rules = task_rules_from_config(config)
 project_fmap_rules = fmap_rules_from_config(config)
-if project_rules or project_fmap_rules:
+if project_rules or project_fmap_rules or project_type_rules:
     st.caption(
-        f"↪ {len(project_rules)} project-wide task rule(s) and "
+        f"↪ {len(project_type_rules)} project-wide type declaration(s), "
+        f"{len(project_rules)} task rule(s) and "
         f"{len(project_fmap_rules)} fieldmap binding(s) applied as defaults. "
         "Edit any row to override them for this session only."
     )
@@ -596,7 +662,13 @@ for s in series_list:
         {
             "Series #": s.series_number,
             "Description": s.description,
-            "Type": s.classification,
+            # An anatomical shows its suffix, because for anat alone the datatype
+            # does not determine the output — and the suffix comes from the
+            # emitter (anat_suffix_for calls it) rather than from a second
+            # derivation, so the cell cannot claim a suffix the file won't carry.
+            # A bare `anat` here means nothing pinned one, which is a series that
+            # converts to nothing and the case the dropdown exists to fix.
+            "Type": format_type_token(s.classification, anat_suffix_for(s)),
             "Type from": s.classified_by,
             "# Files": s.file_count,
             "convert": convert,
@@ -712,7 +784,7 @@ def _row_run(value):
 skipped_series = {
     int(row["Series #"])
     for _, row in effective_df.iterrows()
-    if row["Type"] in EMITTED_CLASSIFICATIONS and not row["convert"]
+    if token_datatype(row["Type"]) in EMITTED_CLASSIFICATIONS and not row["convert"]
 }
 
 # Stamp the reason on the series themselves, which is what carries it into the
@@ -733,12 +805,12 @@ edited_mapping = [
     TaskRunEntry(
         series_number=int(row["Series #"]),
         description=row["Description"],
-        role="bold" if row["Type"] == "func" else "sbref",
+        role="bold" if token_datatype(row["Type"]) == "func" else "sbref",
         task=str(row["task"]),
         run=_row_run(row["run"]),
     )
     for _, row in effective_df.iterrows()
-    if row["Type"] in ("func", "sbref")
+    if token_datatype(row["Type"]) in ("func", "sbref")
 ]
 
 # Bindings come off the bold rows, one per run — the grain the table edits at.
@@ -747,7 +819,7 @@ edited_mapping = [
 # st.data_editor disables columns, not cells.
 session_fmap_rules = []
 for _, row in effective_df.iterrows():
-    if row["Type"] != "func":
+    if token_datatype(row["Type"]) != "func":
         continue
     token = str(row["fieldmap"] or "")
     if not token:
@@ -767,12 +839,12 @@ for _, row in effective_df.iterrows():
 _bold_group = {
     (str(r["task"]), _row_run(r["run"])): str(r["fieldmap"] or "")
     for _, r in effective_df.iterrows()
-    if r["Type"] == "func"
+    if token_datatype(r["Type"]) == "func"
 }
 _ignored_sbref = [
     int(r["Series #"])
     for _, r in effective_df.iterrows()
-    if r["Type"] == "sbref"
+    if token_datatype(r["Type"]) == "sbref"
     and (key := (str(r["task"]), _row_run(r["run"]))) in _bold_group
     and str(r["fieldmap"] or "") != _bold_group[key]
 ]
@@ -921,9 +993,9 @@ with st.container(border=True):
 # read-only and show what the JSON says. Left editable they were three controls
 # that silently did nothing, and the only notice sat inside a collapsed expander
 # at the bottom of the page (TODO #17.5).
-_locked = ["Series #", "Description", "Type", "Type from", "# Files", "becomes"]
+_locked = ["Series #", "Description", "Type from", "# Files", "becomes"]
 if _override_config is not None:
-    _locked += ["convert", "task", "run", "fieldmap"]
+    _locked += ["Type", "convert", "task", "run", "fieldmap"]
     st.info(
         "**The hand-edited JSON is driving this conversion.** The columns below "
         "show what that JSON says and are read-only — edit it in ⚙️ Advanced at "
@@ -931,18 +1003,44 @@ if _override_config is not None:
         "editing rows."
     )
 
+# What the Type dropdown offers: every declaration duckbrain can honour, plus
+# whatever it already inferred for a row in this session. The second half is not
+# a second set of choices — a `SelectboxColumn` cell whose value is absent from
+# the options has nothing to render, and most rows hold an inferred
+# classification (`scout`, `fmap`, `unknown`) that is deliberately *not*
+# declarable. Choosing one of those is refused above, by name, rather than
+# accepted and ignored; core/series_types says why each is excluded.
+_type_options = list(DECLARABLE_TYPES) + sorted(
+    {str(t) for t in effective_df["Type"] if str(t) not in DECLARABLE_TYPES}
+)
+
 st.data_editor(
     effective_df,
     width="stretch",
     hide_index=True,
     disabled=_locked,
     column_config={
+        "Type": st.column_config.SelectboxColumn(
+            "Type",
+            options=_type_options,
+            help="What this series *is*. Change it when duckbrain read the "
+            "datatype wrong — check `Type from` first, because a wrong `header` "
+            "verdict is a bug to report rather than something to paper over. "
+            "An anatomical names its BIDS suffix, because `anat` alone doesn't "
+            "say which file to write. Not a way to drop a series: untick "
+            "`convert` for that. Types duckbrain can't write from a label alone "
+            "(`fmap`, `dwi`) aren't offered — a fieldmap has to be *paired*, and "
+            "diffusion has no conversion path yet.",
+            width="medium",
+        ),
         "Type from": st.column_config.TextColumn(
             "Type from",
             help="Where the Type came from. `header` means the DICOM headers "
             "state it; `name` means it was inferred from the series description, "
             "which is a guess and the one worth checking — a study-specific name "
-            "like `food` or `Whack` says nothing about datatype.",
+            "like `food` or `Whack` says nothing about datatype. `project` means "
+            "a `[series_types]` declaration in the project config states it, and "
+            "outranks both.",
             width="small",
         ),
         "convert": st.column_config.CheckboxColumn(
@@ -1016,7 +1114,39 @@ if _nd_twins:
                 "keep whatever they were converted with — re-run them to change it."
             )
 
-_save_task_col, _save_fmap_col = st.columns(2)
+# What a save would write: the project's declarations with this session's edits
+# layered on, deduped by description and last-wins — the same list handed to
+# classify_series above, so the button persists exactly what the table is showing
+# rather than a second reconstruction of it.
+from duckbrain.core.series_types import type_rule_lookup
+
+_effective_type_rules = list(type_rule_lookup([*project_type_rules, *session_type_rules]).values())
+
+_save_type_col, _save_task_col, _save_fmap_col = st.columns(3)
+
+with _save_type_col:
+    if st.button(
+        "⭑ Save series types as project default",
+        key="save_project_series_types",
+        width="stretch",
+        disabled=_effective_type_rules == project_type_rules,
+        help="Writes the Type column's corrections to the project config's "
+        "[series_types], keyed on series description. Every other subject then "
+        "classifies the same way, and so do bulk convert and the cockpit — a "
+        "datatype duckbrain misreads it misreads for the whole study.",
+    ):
+        from duckbrain.config import resolve_project_dir, save_project_series_types
+
+        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
+        if not project_dir:
+            st.error("No project directory resolved — can't save the default.")
+        else:
+            save_project_series_types(project_dir, _effective_type_rules)
+            st.success(
+                f"Saved {len(_effective_type_rules)} type declaration(s) to "
+                f"`{project_dir}/code/duckbrain.toml`. Sessions already converted "
+                "keep what they were converted with — re-run them to change it."
+            )
 
 with _save_task_col:
     if st.button(

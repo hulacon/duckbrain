@@ -449,6 +449,27 @@ def save_project_expectations(project_dir: str | Path, section: dict) -> Path:
     return _dump_toml(path, data)
 
 
+def save_project_series_types(project_dir: str | Path, rules: list) -> Path:
+    """Persist project-wide series type declarations into the project config.
+
+    Read-modify-write so it only touches the ``[series_types]`` section and
+    preserves every other project setting — same contract as
+    :func:`save_project_task_map`. ``rules`` is a list of
+    :class:`~duckbrain.core.series_types.TypeRule`; an empty list removes the
+    section entirely, which is how a project goes back to classifying purely
+    from the DICOM headers and the series names.
+    """
+    from .core.series_types import type_rules_to_config_section
+
+    path = project_config_path(project_dir)
+    data = _load_toml(path)
+    if rules:
+        data["series_types"] = type_rules_to_config_section(rules)
+    else:
+        data.pop("series_types", None)
+    return _dump_toml(path, data)
+
+
 def save_project_fmap_map(project_dir: str | Path, rules: list) -> Path:
     """Persist project-wide ``task -> fieldmap group`` bindings into the project config.
 

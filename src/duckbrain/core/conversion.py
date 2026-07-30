@@ -183,6 +183,7 @@ def generate_session_config(
     series_list: list | None = None,
     nd_duplicates: str = "corrected",
     skip: Collection[int] | None = None,
+    type_rules: list | None = None,
 ) -> dict:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
@@ -207,6 +208,12 @@ def generate_session_config(
     does — a bulk convert that fell back to the default while the GUI honoured
     the project's setting would ship a different image than the one reviewed.
 
+    ``type_rules`` are the project's ``[series_types]`` declarations, and they
+    reach here for the same reason ``rules`` and ``nd_duplicates`` do: a bulk
+    convert that fell back to the header/name classification while the GUI
+    honoured the study's declaration would write a *different datatype* than the
+    one reviewed, or write nothing at all for a series the declaration rescued.
+
     ``skip`` is a set of series numbers to leave unconverted. It is per-session
     by nature — series numbers do not generalize across sessions, which is the
     same reason :class:`~duckbrain.core.dcm2bids_config.TaskRule` is keyed on
@@ -230,7 +237,7 @@ def generate_session_config(
         series_list = list_series(dicom_dir)
     if not series_list:
         raise ValueError(f"No series directories found in {dicom_dir}")
-    classify_series(series_list, nd_duplicates=nd_duplicates)
+    classify_series(series_list, nd_duplicates=nd_duplicates, type_rules=type_rules)
     fieldmaps = detect_fieldmaps(series_list)
     mapping = build_task_run_mapping(series_list, template=template or None, rules=rules)
     config = generate_config(

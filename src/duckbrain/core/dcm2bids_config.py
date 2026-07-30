@@ -70,6 +70,12 @@ from .dicom_inspect import (
     split_trailing_index,
 )
 
+# One vocabulary, two consumers: the emitter below picks from it and the
+# Conversion page's Type dropdown offers it. Kept in series_types because that
+# module is what makes a declaration legal, so a suffix duckbrain can write and a
+# suffix a user may declare cannot drift apart.
+from .series_types import BIDS_ANAT_SUFFIXES as _BIDS_ANAT_SUFFIXES
+
 
 @dataclass
 class TaskRunEntry:
@@ -732,14 +738,15 @@ def resolve_fmap_assignments(
 # BIDS anatomical suffixes a ReproIn ``anat-<label>`` may name. Spelled out
 # rather than passed through, so a console typo becomes an unconverted series the
 # user can see rather than an invalid BIDS suffix written into the dataset.
-_BIDS_ANAT_SUFFIXES = {
-    s.lower(): s
-    for s in ("T1w", "T2w", "T1map", "T2map", "T2star", "FLAIR", "PDw", "PDT2", "UNIT1", "angio")
-}
-
-
 def _anat_description(series: SeriesInfo) -> dict | None:
     """Build an anat description entry.
+
+    A project ``[series_types]`` declaration outranks everything here, ReproIn
+    included: it is the study stating the suffix, where all three paths below
+    infer one. That is also what makes an editable Type honest — declaring an
+    anatomical without saying *which* would fall through to the name vocabulary,
+    which for a study-specific name fires nothing and returns ``None``, dropping
+    the series without a word. See :mod:`duckbrain.core.series_types`.
 
     A ReproIn ``anat-<label>`` names its BIDS suffix outright, so it is trusted
     ahead of the vocabulary matching below. Without this, an anat whose label
@@ -751,6 +758,13 @@ def _anat_description(series: SeriesInfo) -> dict | None:
     dropped — never relabel one the name already named. A ``mprage``-named series
     stays ``T1w`` whatever the header hints.
     """
+    # Used verbatim, with no membership check: parse_type_token is the only thing
+    # that sets this field and it canonicalizes against the same vocabulary, so a
+    # `.get()` here would be a fallback for a state that cannot arise — and a
+    # fallback is precisely what a declaration must not have.
+    if series.declared_suffix:
+        return _anat_entry(series, series.declared_suffix)
+
     reproin = reproin_entities(series.description)
     if reproin.get("seqtype") == "anat":
         suffix = _BIDS_ANAT_SUFFIXES.get(reproin.get("suffix", "").lower())
@@ -774,6 +788,23 @@ def _anat_description(series: SeriesInfo) -> dict | None:
             return None
 
     return _anat_entry(series, suffix)
+
+
+def anat_suffix_for(series: SeriesInfo) -> str:
+    """The BIDS suffix this anatomical will actually be written under, or ``""``.
+
+    Answered by *calling the emitter* rather than by re-running its vocabulary,
+    which is the same anti-drift stance :func:`resolve_fmap_assignments` takes
+    and the reason the Conversion page's Type column can show ``anat/T1w``
+    without inventing a second suffix derivation. ``""`` is the honest answer for
+    an anat nothing pins a suffix on — that series converts to nothing, and the
+    bare ``anat`` the page then shows is exactly the case the Type control exists
+    to let a user fix.
+    """
+    if series.classification != "anat":
+        return ""
+    entry = _anat_description(series)
+    return entry["suffix"] if entry else ""
 
 
 def _func_entities(task: str, acq_label: str, run: int | None) -> str:

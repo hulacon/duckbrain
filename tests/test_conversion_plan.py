@@ -325,6 +325,55 @@ def test_read_config_into_table_reports_what_it_cannot_represent():
     assert got.run_by_series[9] == 1
 
 
+def test_the_import_reports_a_datatype_it_will_not_carry_over():
+    """The Type column is seeded by classify_series, which the import runs
+    downstream of — so a config that converts a series as something else loses
+    that on regeneration. Reported, because the banner says the JSON loaded."""
+    series = [_bold(9, "perFace", 1)]
+    classify_series(series)
+    config = {
+        "descriptions": [
+            {
+                "id": "anat-T1w",
+                "datatype": "anat",
+                "suffix": "T1w",
+                "criteria": {"SeriesNumber": 9},
+            }
+        ]
+    }
+
+    from duckbrain.core.conversion_plan import read_config_into_table
+
+    joined = " | ".join(read_config_into_table(config, series).unrepresentable)
+    assert "as `anat`" in joined and "reads it as `func`" in joined
+    assert "Type" in joined  # names the control that makes it stick
+
+
+def test_an_sbref_description_is_not_reported_as_a_disagreement():
+    """dcm2bids spells the sbref classification `func` + suffix `sbref`, so a
+    naive datatype comparison would flag every SBRef in every config."""
+    series = [
+        _bold(9, "perFace", 1),
+        _series(10, "cmrr_mbep2d_bold_task-perFace_run-1_SBRef", n=1),
+    ]
+    classify_series(series)
+    config = {
+        "descriptions": [
+            {
+                "id": "func-sbref-perFace",
+                "datatype": "func",
+                "suffix": "sbref",
+                "criteria": {"SeriesNumber": 10},
+                "custom_entities": "task-perFace_run-1",
+            }
+        ]
+    }
+
+    from duckbrain.core.conversion_plan import read_config_into_table
+
+    assert read_config_into_table(config, series).unrepresentable == []
+
+
 # ---- BIDS fieldmap intent: which side carries which key ----
 # These pin a direction that was inverted in shipped code and produced no error
 # anywhere — fMRIPrep simply reported "Susceptibility distortion correction:

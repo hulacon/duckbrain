@@ -664,6 +664,7 @@ def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> Confi
     out = ConfigImport()
     descriptions = config.get("descriptions") or []
     group_by_id = _group_by_identifier(descriptions)
+    _classification = {s.series_number: s.classification for s in series_list}
 
     for key in sorted(set(config) - {"descriptions"}):
         out.unrepresentable.append(
@@ -687,6 +688,25 @@ def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> Confi
         extra_keys = sorted(set(d) - _KNOWN_DESC_KEYS)
         if extra_keys:
             out.unrepresentable.append(f"`{label}` sets {', '.join(extra_keys)}")
+
+        # A description states a datatype/suffix, and the table's Type column is
+        # not seeded from it — Type comes from `classify_series`, which the import
+        # runs downstream of and cannot reach. So a config disagreeing with how
+        # duckbrain classified a series loses that disagreement on regeneration,
+        # and silently: the table would show duckbrain's datatype under a banner
+        # saying the JSON had loaded. Reported instead, naming the control that
+        # makes the change stick. (`func`+`sbref` is the sbref classification;
+        # every other datatype names itself.)
+        want = str(d.get("datatype", ""))
+        if want == "func" and str(d.get("suffix", "")) == "sbref":
+            want = "sbref"
+        got = _classification.get(series_number)
+        if want and got and want != got:
+            out.unrepresentable.append(
+                f"`{label}` converts series {series_number} as `{want}` but duckbrain "
+                f"reads it as `{got}`, and the table keeps `{got}`. Set the Type "
+                "column to make the change stick."
+            )
 
         sidecar = d.get("sidecar_changes") or {}
         extra_sidecar = sorted(set(sidecar) - _KNOWN_SIDECAR_KEYS)

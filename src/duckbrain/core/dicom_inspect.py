@@ -24,12 +24,20 @@ class SeriesInfo:
     # BIDS suffix the header pinned (``T1w``, ``epi``, ``phasediff``, …), or ""
     # when only the datatype is known.
     suffix_hint: str = ""
-    # Where ``classification`` came from: "header" or "name". Shown as the
-    # Conversion page's "Type from" column, so a datatype inferred from a
-    # study-specific string doesn't look like one the headers stated. This
-    # comment claimed that surfacing for three days before it was true; pinned
-    # now by test_the_table_says_whether_a_type_was_read_or_guessed.
+    # Where ``classification`` came from: "header", "name", or "project" for a
+    # [series_types] declaration. Shown as the Conversion page's "Type from"
+    # column, so a datatype inferred from a study-specific string doesn't look
+    # like one the headers stated. This comment claimed that surfacing for three
+    # days before it was true; pinned now by
+    # test_the_table_says_whether_a_type_was_read_or_guessed.
     classified_by: str = ""
+    # BIDS suffix a project declaration *states* for this series, as opposed to
+    # the one ``suffix_hint`` reports the header implying. The distinction is
+    # load-bearing: ``_anat_description`` consults the hint only as a last resort
+    # (so a hint can never relabel a series the name already named) but takes a
+    # declaration verbatim, because a declaration is the user correcting exactly
+    # that naming. Empty for everything the header or the name classified.
+    declared_suffix: str = ""
     # Why a series was demoted out of conversion, when something chose to demote
     # it. Empty for series nothing dropped on purpose. Surfaced by plan_warnings
     # so a deliberate drop is visible rather than folded into an "expected" count.
@@ -245,7 +253,9 @@ _SBREF_SUFFIX = re.compile(r"_SBRef$", re.IGNORECASE)
 
 
 def classify_series(
-    series_list: list[SeriesInfo], nd_duplicates: str = "corrected"
+    series_list: list[SeriesInfo],
+    nd_duplicates: str = "corrected",
+    type_rules: list | None = None,
 ) -> list[SeriesInfo]:
     """Classify each series as anat/func/fmap/sbref/physio/scout/derived/dwi/unknown.
 
@@ -265,13 +275,25 @@ def classify_series(
     which the description pass would otherwise treat as a scanner localizer) and
     runs with study-specific names (e.g. DIVATTEN's ``div_perFace_perTone_r1``).
 
+    ``type_rules`` are project-wide :class:`~duckbrain.core.series_types.TypeRule`
+    declarations, and they are a tier **above** both — they are the study saying
+    what a series is, where the header and the name are duckbrain working it out.
+    A declaration also carries the BIDS suffix, because the datatype alone
+    under-determines what gets written; see :mod:`duckbrain.core.series_types`
+    for why, and for the datatypes a declaration deliberately cannot name.
+
     ``nd_duplicates`` chooses which reconstruction survives where Siemens saved
     both a distortion-corrected series and an ``_ND`` copy of it — one of
-    :data:`ND_POLICIES`. See :func:`_resolve_nd_duplicates`.
+    :data:`ND_POLICIES`. See :func:`_resolve_nd_duplicates`. It still applies to
+    a declared series: which of two copies of one acquisition to convert is a
+    different question from what that acquisition is.
 
     Modifies series in-place and returns the list.
     """
     from .dicom_header import classify_from_header
+    from .series_types import type_rule_lookup
+
+    declared = type_rule_lookup(type_rules)
 
     for s in series_list:
         # Reset what a previous pass derived. The Conversion page classifies the
@@ -280,6 +302,14 @@ def classify_series(
         # survive into a policy that doesn't want one.
         s.drop_reason = ""
         s.acq_label = ""
+        s.declared_suffix = ""
+        rule = declared.get(s.description.strip().lower())
+        if rule is not None:
+            s.classification = rule.datatype
+            s.suffix_hint = rule.suffix
+            s.declared_suffix = rule.suffix
+            s.classified_by = "project"
+            continue
         classification, suffix = ("", "")
         if s.header is not None:
             classification, suffix = classify_from_header(s.header)
@@ -480,8 +510,9 @@ def _recover_func_from_sbref(series_list: list[SeriesInfo]) -> None:
     for s in series_list:
         # Only a name-derived guess is overridden. The SBRef signal exists to
         # rescue a series whose *name* said nothing useful; it cannot outrank
-        # what the scanner recorded about the acquisition itself.
-        if s.classified_by == "header":
+        # what the scanner recorded about the acquisition itself, nor a project
+        # declaration, which is the user overruling this very inference.
+        if s.classified_by in ("header", "project"):
             continue
         if s.classification in _SBREF_PROMOTABLE and s.description.lower() in sbref_bases:
             s.classification = "func"

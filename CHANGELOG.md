@@ -10,6 +10,38 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **The Conversion page's `Type` column is editable, and a correction can be
+  saved for the whole study.** Until now the only way to fix a datatype duckbrain
+  read wrong was to hand-edit the dcm2bids JSON. The column is now a dropdown,
+  and a `⭑ Save series types as project default` button writes the corrections to
+  the project config's new `[series_types]` section, keyed on series description —
+  so every other subject, bulk convert and the cockpit classify the same way. A
+  declared series shows `project` in `Type from`.
+
+  Two things the naive version gets wrong. **An anatomical names its BIDS
+  suffix** (`anat/T1w`, not `anat`): the suffix comes from the series *name*
+  vocabulary, which for a study-specific label fires nothing and drops the series
+  without a word — so declaring `food_r1` an anatomical would write no file, the
+  exact failure the control exists to prevent. A declaration therefore outranks
+  the name, where the header's suffix hint deliberately does not. **`fmap` and
+  `dwi` are not offered**, because a label alone cannot make either emit: a
+  fieldmap has to be *paired* (the direction is read from the description) and
+  diffusion has no conversion path yet.
+
+  The dropdown still lists the classifications duckbrain inferred for the session
+  — a select cell cannot render a value outside its options — and picking one of
+  those is refused by name rather than accepted and ignored. Dropping a series is
+  still the `convert` checkbox: what a series *is* and what to do with it stayed
+  two questions.
+
+- **Loading a hand-edited JSON back into the table now reports a datatype it
+  won't carry over.** The Type column is seeded by classification, which the
+  import runs downstream of, so a config converting a series as something else
+  lost that on regeneration — silently, under a banner saying the JSON had
+  loaded.
+
 ### Fixed
 
 - **A comment inside an sbatch command truncated the command.** fMRIPrep runs

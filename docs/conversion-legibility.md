@@ -178,6 +178,55 @@ this JSON back into the table"** that *reports what it could not represent*. The
 reading half already exists — `plan_conversion` parses task, run and group back
 out of the descriptions today.
 
+## Phase 8 — an editable `Type` (`#13.1`, shipped 2026-07-30)
+
+Captured from Ben's question about a naive user; no live misclassification
+prompted it. `Type` was read-only, so the only correction was the hand-edited
+JSON.
+
+Unlocking the column is one line and would have been a bug — the page derives
+task/run and the fieldmap bindings from `row["Type"]` while `generate_config`
+dispatches on `SeriesInfo.classification`, so the column and the emission would
+have followed different datatypes. The fix is not a write-back: the edit is read
+**above** `classify_series`, so nothing downstream has a second copy to keep in
+sync, and `detect_fieldmaps` (which reads `classification`) sees the corrected
+list too.
+
+The rest of the design is about what a declaration is allowed to *say*. It lives
+in `core/series_types.py`, whose module docstring is the reference; the short
+version:
+
+- **The datatype alone under-determines the output, so the control is not a
+  datatype dropdown.** `func`→`bold` and `sbref`→`sbref` are fixed; `anat` is
+  not. `_anat_description` picks the suffix from the *name* vocabulary and
+  returns `None` when nothing fires, so `anat` on a study-specific label writes
+  nothing and says nothing. An anat declaration therefore names its suffix, and
+  the emitter takes it verbatim — **above** ReproIn and above the name, unlike
+  `suffix_hint`, which is consulted last precisely so it can never relabel a
+  series the name already named. Correcting a misread `t1w_mprage` is impossible
+  otherwise.
+- **`fmap` and `dwi` are not declarable.** `_fmap_description` only writes for a
+  series `detect_fieldmaps` has already paired, and pairing reads the
+  phase-encoding direction out of the description; `dwi` has no emission path at
+  all (`#19.1`). A dropdown value that cannot produce a file is the
+  silently-degrading option `CLAUDE.md` forbids.
+- **Per-session was the wrong grain.** A scanner label duckbrain misreads is
+  misread for every subject, so the rule is keyed on description and persisted to
+  `[series_types]`, read by `classify_series` as a tier above header and name —
+  the same read-modify-write shape as `save_project_task_map`.
+- **A bad declaration raises**, where `task_rules_from_config` and its neighbours
+  skip a malformed row. A skipped task rule falls back to a heuristic duckbrain
+  then states in the table; a skipped declaration falls back to the very
+  misclassification it was written to correct.
+- **The skip control stayed separate.** A datatype is a claim about what a series
+  *is*; the `convert` checkbox is a decision about what to do with it. The
+  dropdown must still *offer* the inferred classifications (`scout`, `fmap`) —
+  a select cell cannot render a value outside its options — so picking one is
+  refused by name rather than accepted and ignored.
+- **Check `Type from` first.** A wrong `header` verdict is a classifier bug to
+  fix at the source; the declaration is for what no rule can reach. See
+  `memory/header-based-classification`.
+
 ## The granularity decision — settled 2026-07-21
 
 **Bindings attach at series/run level.** Ben's call, on the case of a fieldmap

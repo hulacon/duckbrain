@@ -920,3 +920,144 @@ def test_colliding_b0_identifiers_stop_the_page(colliding_fmap_project):
     assert any("B0map_25mm" in e.value for e in at.error)
     # Stopped above the table, which is the point: there is no plan to show.
     assert not [t for t in _tables(at) if "becomes" in getattr(t, "columns", [])]
+
+
+# ---- TODO #13.1: the Type column is editable, and honest about it -------------
+
+
+def test_type_shows_the_suffix_where_the_datatype_alone_underdetermines_it(project):
+    """An anat names its file; everything else is determined by the datatype.
+
+    Not cosmetic — it is what makes the dropdown's values legal declarations.
+    """
+    plan = _plan_table(at := AppTest.from_file(PAGE, default_timeout=60).run())
+    assert not at.exception
+    types = dict(zip(plan["Series #"], plan["Type"]))
+    assert types[2] == "anat/T1w"
+    assert types[9] == "func"
+    assert types[1] == "scout"
+
+
+def _plan_columns(at):
+    """The plan editor's column config, where `disabled` and the options live."""
+    for el in at.dataframe:
+        if "becomes" in str(getattr(el.proto, "columns", "")):
+            return json.loads(el.proto.columns)
+    raise AssertionError("no plan table rendered")
+
+
+def test_type_is_editable_and_offers_only_what_can_be_written(project):
+    columns = _plan_columns(AppTest.from_file(PAGE, default_timeout=60).run())
+    assert not columns["Type"].get("disabled")
+
+    options = columns["Type"]["type_config"]["options"]
+    assert "anat/T1w" in options and "func" in options and "sbref" in options
+    # `fmap` and `scout` appear only because this session holds rows classified
+    # that way and a Selectbox cell cannot render a value outside its options —
+    # picking either is refused, by the test below.
+    assert "dwi" not in options
+    assert "anat" not in options
+
+
+def test_the_hand_edited_json_locks_type_like_every_other_decision_column(project):
+    """With the JSON driving, a Type edit would be a fourth control that silently
+    did nothing — the exact shape TODO #17.5 closed for task/run/fieldmap."""
+    at = _override_with(AppTest.from_file(PAGE, default_timeout=60).run(), {"descriptions": []})
+    assert not at.exception
+    assert _plan_columns(at)["Type"]["disabled"] is True
+
+
+def test_relabelling_a_series_converts_it_in_the_same_rerun(project):
+    """The half-applied version of this edit is the bug TODO #13.1 warned about:
+    the column would follow the new type while the emission followed the old one."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[1] == (
+        "— not converted"
+    )
+
+    # Row 0 is series 1, the scout — really a functional run this study named badly.
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {0: {"Type": "func"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    assert not at.error
+
+    plan = _plan_table(at)
+    row = dict(zip(plan["Series #"], plan["becomes"]))
+    assert row[1].endswith("_bold.nii.gz")
+    assert dict(zip(plan["Series #"], plan["Type from"]))[1] == "project"
+
+
+def test_relabelling_an_anat_writes_the_declared_suffix_not_the_named_one(project):
+    """`t1w_mprage` says T1w in its name, so this is the case a suffix *hint*
+    could never have reached — the hint is consulted last and only rescues a
+    series the name dropped."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {1: {"Type": "anat/FLAIR"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    assert becomes[2] == "sub-001_ses-01_FLAIR.nii.gz"
+
+
+def test_a_type_that_cannot_be_declared_is_refused_by_name(project):
+    """The dropdown must offer `scout` (a Selectbox cell can't render a value
+    outside its options), so picking one has to be refused rather than ignored."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"Type": "scout"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    assert any("can't be declared" in w.value for w in at.warning)
+    # And the row keeps the type duckbrain read, rather than showing a dead value.
+    plan = _plan_table(at)
+    assert dict(zip(plan["Series #"], plan["Type"]))[9] == "func"
+    assert dict(zip(plan["Series #"], plan["becomes"]))[9].endswith("_bold.nii.gz")
+
+
+def test_saving_types_as_the_project_default_makes_every_session_follow(project):
+    """A datatype duckbrain misreads it misreads for the whole study, which is
+    why the correction is keyed on description and lives in the project config."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    save = next(b for b in at.button if b.key == "save_project_series_types")
+    assert save.disabled  # nothing declared yet
+
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {0: {"Type": "func"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    next(b for b in at.button if b.key == "save_project_series_types").click().run()
+    assert not at.exception
+    assert any("type declaration" in s.value for s in at.success)
+
+    from duckbrain.config import load_config
+    from duckbrain.core.series_types import TypeRule, type_rules_from_config
+
+    saved = type_rules_from_config(load_config(project_dir=str(project)))
+    assert saved == [TypeRule("AAhead_scout", "func", "bold")]
+
+
+def test_a_project_declaration_seeds_the_table(project):
+    """Read back through the same path bulk convert reads it: the page must not
+    be the only thing that honours a declaration."""
+    from duckbrain.config import save_project_series_types
+    from duckbrain.core.series_types import TypeRule
+
+    save_project_series_types(str(project), [TypeRule("AAhead_scout", "anat", "T2w")])
+    plan = _plan_table(at := AppTest.from_file(PAGE, default_timeout=60).run())
+    assert not at.exception
+    assert dict(zip(plan["Series #"], plan["Type"]))[1] == "anat/T2w"
+    assert dict(zip(plan["Series #"], plan["Type from"]))[1] == "project"
+    assert dict(zip(plan["Series #"], plan["becomes"]))[1] == "sub-001_ses-01_T2w.nii.gz"

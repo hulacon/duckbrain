@@ -15,7 +15,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 
 **Open items, in priority order:**
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
-[`#13`](#13) conversion legibility (browser validation; `#13.1` open) ·
+[`#13`](#13) conversion legibility (browser validation; `#13.1` project-level skip) ·
 [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (**`#19.9` is a live correctness bug**) ·
@@ -144,9 +144,9 @@ data-migration problem, not just a fix. duckbrain's shipped default partition wa
 ---
 
 <a id="13"></a>
-## #13 — Conversion legibility: browser validation, and an editable Type
+## #13 — Conversion legibility: the browser validation that is still owed
 
-**Phases 1–7 shipped 2026-07-21 and granularity is settled (see the ledger).
+**Phases 1–8 shipped and granularity is settled (see the ledger).
 What remains is the eyeball pass, plus `#13.1` below.** Full design in
 **`docs/conversion-legibility.md`**.
 
@@ -172,70 +172,29 @@ What remains is the eyeball pass, plus `#13.1` below.** Full design in
   would drop them silently. The import is explicit, one-shot, and reports what it
   couldn't represent.
 
-### `#13.1` — An editable `Type`, if it can be made honest
+### `#13.1` — A project-level skip, keyed on description
 
-**Captured 2026-07-24, Ben's question thinking about a naive user** — no live
-misclassification prompted it. Today `Type` is read-only and the only way to
-correct one is the hand-edited JSON override.
+**The editable `Type` shipped 2026-07-30** — see the ledger and
+`docs/conversion-legibility.md` phase 8 for the design and the refusals it rests
+on. What that work left open is one bullet of the original item.
 
-- **Unlocking the column is one line and would be a bug.** Drop `"Type"` from
-  `_locked` (`3_BIDS_Conversion.py`) and the edit half-applies: the page builds
-  `edited_mapping` and `session_fmap_rules` off `row["Type"]`, but `generate_config`
-  dispatches on `SeriesInfo.classification`, and nothing writes the column back
-  onto `series_list`. Task/run and the bindings would follow the new type while
-  the emission followed the old one. Writing it back is mechanical — the honest
-  part is below.
-- **The datatype alone under-determines the output, so the control is not a
-  datatype dropdown.** `func`→`bold` and `sbref`→`sbref` are fixed, and nothing
-  else is: `_anat_description` picks the suffix from the *name* vocabulary
-  (`t1`/`t2`/`mprage`/`flair`) and falls back to `suffix_hint` — **and returns
-  `None` when neither fires, dropping the series**. So relabelling `food_r1` as
-  anat writes no file and says nothing, which is the failure the feature exists
-  to prevent, reintroduced by the feature. `fmap` is worse: `_fmap_description`
-  only emits for series `detect_fieldmaps` already grouped, so a manual label
-  creates no pair. And `dwi` has no emission path at all (`#19.1`).
-- **So: datatype+suffix (`anat/T1w`, `fmap/epi`) as a `SelectboxColumn`,
-  restricted to combinations that actually emit, and anything unhandled raises.**
-  The silently-degrading rule in `CLAUDE.md` is the whole difficulty here, not an
-  afterthought.
-- **Per-session is the wrong grain.** A table edit reaches conversion only
-  because the page saves `dcm2bids_config.json` before `advance_one` and
-  `_build_dcm2bids` reuses it; bulk convert and the cockpit re-derive through
-  `generate_session_config` ("no manual edits"). A scanner label duckbrain
-  misreads is misread for every subject, so this wants a project-level section
-  read by `classify_series` as a tier above header and name — same read-modify-write
-  shape as `save_project_task_map` / `save_project_fmap_map`, and the same
-  argument `docs/conversion-legibility.md` makes for keeping bindings declarative.
-- **Check first whether the case is a classifier bug.** The `Type from` column
-  (added 2026-07-24) now says `header` or `name`; a wrong `header` verdict is a
-  bug to fix at the source, and the override is for what no rule can reach.
-  `memory/header-based-classification` is the record of that distinction.
-- **The adjacent skip control is now built** (2026-07-28, see the ledger) — a
-  `convert` checkbox, separate from `Type`. So "don't convert this" is *not* one
-  of the Type control's values; it already has its own, and the two questions
-  stayed apart. Whoever builds the Type dropdown should keep them apart: a
-  datatype is a claim about what the series *is*, a skip is a decision about what
-  to do with it, and collapsing them would make relabelling a series the only way
-  to drop it.
-- **`_half_bound` is the same trap, still armed** (noticed 2026-07-28 while fixing
-  the `convert` one). The fieldmap dropdown offers *every* detected group,
-  incomplete ones included, and picking an incomplete one hits `st.error` +
-  `st.stop()` — which fires above the table, so the page loses the dropdown the
-  user needs to change their mind. Same shape as the bug the `convert` control
-  shipped with for one commit, same fix available (unbind, warn, keep rendering),
-  but it is a *different* semantic: skipping a fieldmap half makes a run
-  uncorrected as a consequence, whereas binding a run to a half pair is a request
-  duckbrain cannot honor at all, and quietly downgrading that to "uncorrected" is
-  closer to the silently-degrading shape than the skip case is. Decide which
-  before copying the fix across. The standing rule the two share: **never
-  `st.stop()` above the table over something the table is the fix for.**
-- **What the skip does not do is generalize.** It is keyed on series number, so
-  it is per-session by construction and reaches a later convert only through the
-  saved `dcm2bids_config.json`. A study whose protocol always produces the same
-  unwanted series (her `_ND` twins, the DWI derivatives) still has to untick them
-  once per session. A project-level skip would have to be keyed on *description*,
-  which is the same key `[task_mapping]` uses — and is the same read-modify-write
-  shape as the project-level classification tier above, so build them together.
+- **The `convert` checkbox does not generalize.** It is keyed on series number,
+  so it is per-session by construction and reaches a later convert only through
+  the saved `dcm2bids_config.json`. A study whose protocol always produces the
+  same unwanted series (a beta tester's `_ND` twins, the DWI derivatives) still
+  has to untick them once per session.
+- **Key it on *description*,** the same key `[task_mapping]` and now
+  `[series_types]` use, in its own section rather than as a `[series_types]`
+  value — a datatype is a claim about what a series *is*, a skip is a decision
+  about what to do with it, and collapsing them would make relabelling a series
+  the only way to drop it. The read-modify-write shape is
+  `save_project_series_types`; copy it.
+- **Reaching the non-GUI path is the part with a decision in it.**
+  `generate_session_config` takes `skip` as series numbers and its docstring
+  says, correctly for today, that "nothing here reads it from the project
+  config". A description-keyed skip resolves to series numbers only once the
+  session is listed, so it has to be applied *inside* that function, next to
+  where `type_rules` is applied — not passed in as `skip`.
 
 ---
 
@@ -1219,6 +1178,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-30 | `#13.1` | **The `Type` column is editable, and a correction generalizes to the study** — a `SelectboxColumn` plus a new `[series_types]` project section read by `classify_series` as a tier above header and name (`core/series_types.py`, `save_project_series_types`). The item's own warning about the write-back was right and its fix was not: the edit is read **above** `classify_series`, so `detect_fieldmaps`, the task/run seeding, the fieldmap bindings and `generate_config`'s dispatch all see one datatype instead of the column and the emission following different ones — there is no second copy to keep in sync. `generate_session_config` takes `type_rules` for the same reason it takes `fmap_rules`, or bulk convert would write a different datatype than the one reviewed. Three refusals carry the honesty. **An anat declaration names its suffix** (`anat/T1w`): `_anat_description` reads the suffix off the *name* vocabulary and returns `None` when nothing fires, so a bare `anat` on a study-specific label writes nothing and says nothing — and the declaration outranks that vocabulary, where `suffix_hint` deliberately cannot, or a misread `t1w_mprage` would be uncorrectable. **`fmap` and `dwi` are not declarable**, since a label alone can't make either emit (pairing reads the direction from the description; `#19.1`). **A non-declarable pick is refused by name** rather than accepted and ignored — the dropdown must still *offer* the inferred classifications because a select cell cannot render a value outside its options. The `convert` checkbox stayed the way to drop a series. One neighbouring silence closed on the way: the one-shot JSON import now reports a datatype it will not carry over, which it had always dropped under a banner saying the JSON had loaded |
 | 2026-07-30 | `#26` | **The coverage gate could not see a single Streamlit page, and the item's own diagnosis of why was wrong.** `source = ["duckbrain"]` is a package *name*, and coverage resolves those by **module name**: streamlit execs a page as a module called `5_QC_Overview`, which is not a `duckbrain` submodule and is not a legal Python identifier, so it could never match — `COVERAGE_DEBUG=trace` says exactly that. Not AppTest, not a process boundary, not the `magic` AST rewrite; a path source traces the pages fine. Same tests, same 6466 statements, **73% → 87%**, floor 70 → 85. The load-bearing part is what the false explanation cost: the item claimed the ratchet "exerts no pressure at all on the code where this bug class lives" and that was never true — `3_BIDS_Conversion.py` was **80% covered** by tests already passing, and the report was throwing it away. Also required, not cosmetic: CI's `--cov=duckbrain` *overrides* the config source, so fixing `pyproject.toml` alone would have left CI measuring the old way. The floor was measured after the fact rather than reused from the exploration, since two pages had changed since. One real gap fell out and is open as `#27` (`4_Preprocessing.py`, 0%). Two notes cleared with it: `#26.1`, a comment asserting `series_list` is cached across reruns — it is not (no `lru_cache`, no `st.cache_data`, no fragment; `list_series` runs at page top every rerun), so the `elif` it guarded was dead and is gone. `#26.2`, the `st.stop()` at the config call: **reachable, but not by the binding its comment named** — the two repair passes above it rewrite every unsatisfiable rule to `none`, so what still lands there is `generate_config`'s *other* raise, two fieldmap groups colliding on one B0 identifier (`2.5mm`/`25mm`). No table cell repairs that and the call already raised, so there is no config to render from: it stays a stop where its neighbours warn, now with a test that says so. **The refactor is deferred, not refused** — extracting `(seed, edits, imported, override) -> effective plan` into `core/` is still the right shape, but its cheapest justification was the coverage gap and that is now free, one of the four inputs already got one home in `c0f4650`, and the diagnostics are interleaved with the derivation so ~18 of the 36 render-coupled tests would be rewritten for a presentation-token round trip |
 | 2026-07-29 | `#25` | **All three tags published as GitHub Releases, and `v0.3.0` cut to make that worth doing.** A pushed tag notifies nobody and is invisible to the API, so `docs/releasing.md` step 7's announcement channel did not exist and `core/updates.py` — shipped the day before — queried `releases/latest` and got a 404, meaning the GUI's "newer version" line was dark for every user from the moment it landed. Backfilling 0.1/0.2 alone would have turned the channel on and had nothing worth announcing: the **fieldmap-intent inversion fix sat in `[Unreleased]` for eight days**, so users on `main` had it and anyone pinned to a tag did not. Hence `v0.3.0` — 50 commits, +27.8k/−1.7k. **Minor, not patch, deliberately**: `_release_line()` reduces to `major.minor` and `check_duckbrain_drift()` therefore flags every derivative built under the 0.2 line, which is *correct* here rather than collateral, because this release changes recipes duckbrain authors (which series convert, their datatype, the `B0Field*` intent in every sidecar, which reconstruction ships, which pair corrects which run) and not merely the flags passed to a container. The changelog's thirteen repeated Added/Changed/Fixed headers — one set per work session — were merged into one of each, since that section becomes the published notes; every bullet moved verbatim and the 688 content lines were diffed before and after rather than eyeballed. Two environment limits worth knowing if this is ever automated: the agent sandbox refuses tag refs (`HTTP 403`) while accepting branch refs, and the GitHub MCP server exposes releases read-only — so tag and publish stayed manual |
 | 2026-07-28 | — | **A series can be left out of the conversion** — a `convert` checkbox on the plan table, prompted by a beta tester asking how to skip a run. The config's native spelling of "not converted" is *no description*, so `generate_config(skip=…)` simply omits one and everything downstream follows with no new state: `becomes` already rendered `— not converted` for an unclaimed series, and the skip survives save/reload through the saved JSON alone. Three things the naive version gets wrong. **A skipped fieldmap half takes its whole pair** (`_without_skipped_groups`) — half a pair is not half a fieldmap, and emitting the survivor writes a `fmap/` file nothing can be estimated from; a run still bound to a pair whose half was unticked is refused, naming the two edits that conflict rather than letting `generate_config` say the session lacks a group the user removed three rows up. **The drop carries a reason**, because the warning it otherwise raises means "nothing claimed this" — the anat-suffix bug that warning exists to catch — so the reason travels on `SeriesInfo.drop_reason` and the finding is an info note; that also fixes the pre-existing double-report where an ND-demoted anat got both the warning and the note, and the kind is `deliberate-drop` now, not `nd-duplicate`, since the ND policy was the first thing to set a reason and is no longer the only one. **A stranded SBRef is reported** (`orphan-sbref`): bold and sbref are two rows, so skipping one and not the other is a click away, and an SBRef alone is the reference volume for a run that isn't being written. Rows duckbrain has no emission path for start unticked so the box agrees with `becomes`; `EMITTED_CLASSIFICATIONS` is deliberately not "everything that isn't an expected drop", because `dwi` classifies cleanly and still converts to nothing. Per-session by construction — see `#13.1` for why a project-level skip needs the description key |

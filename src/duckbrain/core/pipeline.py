@@ -87,6 +87,7 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
     if not cfg_path.exists():
         from .dcm2bids_config import fmap_rules_from_config, task_rules_from_config
         from .dicom_inspect import nd_policy_from_config
+        from .series_types import type_rules_from_config
 
         rules = task_rules_from_config(config)
         fmap_rules = fmap_rules_from_config(config)
@@ -98,6 +99,7 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
                 rules=rules,
                 fmap_rules=fmap_rules,
                 nd_duplicates=nd_policy_from_config(config),
+                type_rules=type_rules_from_config(config),
             ),
             cfg_path,
         )
