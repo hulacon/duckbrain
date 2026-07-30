@@ -150,9 +150,12 @@ what's open, `docs/releasing.md` to cut the next one.
   and duckbrain writes each session's `dcm2bids_config.json` back into the tree,
   so symlink at the `dicom` level into your own project instead of pointing
   `sourcedata_dir` at it. It holds three shapes the LCNI corpus does not:
-  **diffusion SBRefs** (the corpus has zero, and they are what `#19.9` is about),
-  **LR/RL phase-encoding**, and **a scanner that writes no `ND` token in
-  `ImageType`** (`#19.8`). See `memory/mmmsourcedata-fixture`.
+  **diffusion SBRefs** (the corpus has zero across all 2139 series directories —
+  they are what `_recover_dwi_sbref_from_sibling` and its tests in
+  `tests/test_dicom_header.py` exist for), **LR/RL phase-encoding** (still
+  unexploited — `TODO.md` `#19.2`), and **a scanner that writes no `ND` token in
+  `ImageType`**, the only fixture for the twin guard's contradiction rule
+  (`tests/test_series_classification.py`). See `memory/mmmsourcedata-fixture`.
 - **BIDS projects — `ls /projects/hulacon/bhutch` rather than trusting a list
   here; this entry has been wrong about both the count and the derivatives.**
   `divatten_beta` (sub-015…019) is the one *known clean*: converted 2026-07-22,

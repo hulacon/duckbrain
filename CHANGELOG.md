@@ -44,6 +44,27 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Both reconstructions of an anatomical were converted, on scanners that don't
+  write the `ND` tag.** Siemens saves some series twice — `ABCD_T1w_MPR_vNav`
+  beside `ABCD_T1w_MPR_vNav_ND` — and duckbrain converts whichever copy your
+  project asks for (`[conversion] nd_duplicates`, distortion-corrected by
+  default). But it only recognised the pair when the *header* also carried an
+  `ND` token, and some scanners write no reconstruction token at all. On those,
+  duckbrain read the silence as "the name must mean something else here",
+  converted both copies, and never showed the reconstruction choice on the
+  Conversion page. A session that acquired the T1w twice then wrote `run-1`
+  through `run-4`, two of which are one acquisition reconstructed twice.
+
+  **Check any project whose anatomicals came out with more `run-` entities than
+  you acquired.** Reconverting keeps one copy and states which, the choice now
+  appears on the Conversion page for those sessions, and the copy left behind is
+  reported as a note rather than dropped in silence. On the tree this was found
+  on, 26 series across 11 sessions were affected.
+
+  The header now has to *contradict* the name rather than merely fail to confirm
+  it: only a `DIS2D`/`DIS3D` token — what the distortion-corrected copy carries —
+  overrules an `_ND` name. Nothing changes for scanners that do write the token.
+
 - **A diffusion reference scan was converted as a fieldmap, and functional runs
   were distortion-corrected from it.** If your protocol acquires a multi-shell
   diffusion series in two phase-encoding directions, each with its own SBRef,

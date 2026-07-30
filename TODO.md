@@ -14,9 +14,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#19.8`](#19) **next** — the ND twin guard never fires on a scanner that omits
-the tag (the fix shape is now measured on both fixtures; start there) ·
-[`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
+[`#16`](#16) **next** — sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (`#13.1` only, and it waits on `#16`) ·
 [`#15`](#15) BIDS validation ·
 [Licensing](#licensing-follow-ups) ·
@@ -215,14 +213,16 @@ on. What that work left open is one bullet of the original item.
 **Measured twice on 2026-07-30, and the second measurement is the one to
 trust — the item is justified, but not by either example it used to cite.**
 
-*First pass, on `mmmsourcedata/sub-03/ses-01`:* 14 of 53 series arrive ticked and
-12 are junk, over 95 sessions. But none of the 12 wants a skip — 8 are
-`_ND`/non-`_ND` twin pairs `nd_twin_bases` cannot see (`#19.8`; fixing it hands
-them to `[conversion] nd_duplicates`, which already has a save-as-project-default
-button) and 4 are diffusion SBRefs classified `fmap` (`#19.9`, where they are
-wrong bindings rather than clutter). **`#19.9` closed 2026-07-30** and its 4 are
-gone — the session now ticks 10, of which 8 are the ND twins and 2 are wanted —
-so `#19.8` is the whole remainder of this measurement.
+*First pass, on `mmmsourcedata/sub-03/ses-01`:* 14 of 53 series arrived ticked
+and 12 looked like junk. **Both causes closed 2026-07-30** (see the ledger), and
+the pass no longer supports the item at all — it also **overcounted**. Four of
+the 12 were diffusion SBRefs classified `fmap`, and four were `_ND` copies of a
+twin pair `nd_twin_bases` could not see; the other four rows it called junk are
+the *corrected* copies, which are genuine anatomicals. The session now ticks **6
+rows and none of them is junk** — two acquisitions of `ABCD_T1w_MPR_vNav` (a real
+repeat, so `run-1`/`run-2` is right), the two T2 anatomicals, and the resting run
+with its reference. So this measurement is spent; the second pass below is the
+whole case.
 
 *Second pass, on the LCNI repository, prompted by Ben pointing out that
 `mmmsourcedata` was pruned on its way out of `lcni/dcm` and that most studies
@@ -245,15 +245,16 @@ class, and it is neither of the ones above:
 - **The control holds.** Where the curator converted everything — GAME,
   Dissonance, Crave_control, HOYA, JABBA — duckbrain shows *no* systematic
   disagreement at all. So there is no hidden class of junk duckbrain wrongly
-  emits beyond `#19.8` (and `#19.9`, closed).
+  emits beyond the twin and SBRef defects above, both closed 2026-07-30.
 - **Scouts, which prompted the question, already cost nothing.** `scout` is not in
   `EMITTED_CLASSIFICATIONS`, so a scout is never ticked; nor are the MPR
   reformats, vNav setters, ADC/FA/TENSOR maps, PhysioLogs or PhoenixZIPReport,
   which all classify `derived`/`physio`. On the ABCD session above that is 39 of
   53 series already free.
 
-So build it, after `#19.8`, and motivate it by the anat-only curation
-rather than by junk removal. Notes for whoever does:
+So build it, and motivate it by the anat-only curation rather than by junk
+removal — which is now the *only* thing motivating it, the first pass having
+gone to zero. Notes for whoever does:
 
 - **Key it on *description*,** the same key `[task_mapping]` and `[series_types]`
   use, in its own section rather than as a `[series_types]` value — a datatype is
@@ -408,11 +409,21 @@ after a change with every difference triaged rather than counted — independent
 a tree someone else is editing. `#19.7` carries the numbers and the re-measure
 protocol.
 
-**`#19.8` is the next thing to build** — it is a live correctness bug on a beta
-tester's data, it is the whole remainder of `#13.1`'s ticked-row measurement, and
-as of 2026-07-30 its fix shape is measured on both fixtures rather than proposed.
-`#19.9` closed the same day; the sweep harness it used is the one to reuse, and
-`#19.2` is unblocked by it.
+**`#19.8` and `#19.9` both closed 2026-07-30**, and what they leave behind is an
+instrument: a before/after sweep that classifies every session in *both* trees
+and diffs each dimension a change could move — classification, planned files,
+plan warnings, fieldmap groups, `nd_twin_bases`, ticked rows, drop notices.
+Assume it for anything in this section. It is what caught the pMAP101 third
+anatomical the unit tests could not, and it is what let both of those changes
+prove the corpus untouched rather than assert it. `#19.2` is unblocked by
+`#19.9`.
+
+**The beta tester's tree at `/projects/hulacon/shared/mmmsourcedata` is a live
+fixture for two items here that had none.** It carries `cmrr_diff_3shell` in
+**four** phase-encoding directions — `ap`, `pa`, `rl`, `lr` — so `#19.2` (LR/RL)
+finally has real data, and `#19.1` (DWI) has a multi-shell fixture with an SBRef
+per direction. Read-only; symlink at the `dicom` level rather than pointing
+`sourcedata_dir` at it.
 
 The rest, in the order the corpus argues for:
 
@@ -554,90 +565,9 @@ default (`corrected`) will disagree on every twinned session — **46 of the 166
 re-counted 2026-07-30 with `nd_twin_bases`, one twin base each — and that would be
 a *default* to reconsider, not a bug to fix. (This line said 47; the ledger's
 "52 corpus sessions" is a different quantity — sessions that gained a drop
-*notice*, which is not only the twinned ones.)
-
-### `#19.8` — ND twin detection never fires on a scanner that omits the tag
-
-🔴 **Found 2026-07-28 on a beta tester's data**, `/projects/hulacon/shared/mmmsourcedata`
-(read-only; 5 subjects, 95 sessions, ABCD-style protocol). Her sessions save both
-reconstructions — `ABCD_T1w_MPR_vNav` beside `ABCD_T1w_MPR_vNav_ND`, same for
-`T2_coronal_1.8` and `ABCD_T2w_SPC_vNav` — and duckbrain converts **both**,
-writing `T1w run-1..run-4` where two of the four are the same acquisition
-reconstructed twice. `nd_twin_bases` returns `[]`, so the page never even offers
-the reconstruction choice.
-
-**Re-measured 2026-07-30 while answering a question about `#13.1`:** on
-`sub-03/ses-01` this accounts for **8 of the 12 junk rows** that arrive ticked
-for conversion (`#19.9` accounted for the other 4; since it closed on 2026-07-30
-the session ticks 10, of which these 8 are junk and 2 are wanted — so this item
-is now the entire remainder). So this is not only a wrong anatomical count —
-it is most of the per-session clicking a user of this protocol does, 95 sessions
-over. Fixing it makes `[conversion] nd_duplicates`, which already has a
-save-as-project-default button, handle the whole class.
-
-The cause is the one-sided guard in `_nd_twin_groups`: it skips any ND-*named*
-series whose header carries an `image_type` that does not contain `ND`. On this
-scanner every series reads `('ORIGINAL','PRIMARY','M','NONE')` — the token is
-absent from **both** copies, so the guard reads "the name says ND, the header
-disagrees, therefore `ND` means something else at this site" and bails. That
-inference is right for a site that genuinely reuses the token and wrong for a
-site that simply doesn't write it, and nothing in the header distinguishes the
-two.
-
-**Do not just delete the guard** — it exists so a sequence with `ND` in its name
-for unrelated reasons isn't demoted, and that is a real failure mode. The
-promising shape is to require the header to *contradict* rather than merely fail
-to confirm: only skip when the image type is present **and** carries a
-distortion-correction token of its own (`DIS2D`/`DIS3D`), which is what a site
-reusing the name for something else would look like. An `image_type` that names
-no reconstruction at all says nothing either way, and should fall through to the
-name.
-
-**Measured 2026-07-30 on both fixtures in full, and the proposed shape survives —
-build it.** Whole LCNI corpus (166/166 sessions, all 2139 series directories) and
-all 97 `mmmsourcedata` sessions:
-
-| | ND-*named* series | their `image_type` | corrected twin's `image_type` |
-|---|---|---|---|
-| LCNI corpus | 53 (49 readable, 4 no header) | `DERIVED/SECONDARY/M/`**`ND`**`/NORM` | `DERIVED/SECONDARY/M/NORM/`**`DIS3D/DIS2D`** |
-| `mmmsourcedata` | 26 | `ORIGINAL/PRIMARY/M/NONE` | `ORIGINAL/PRIMARY/M/NONE` |
-
-So `DIS2D`/`DIS3D` is exactly the **complement** of `ND` — the token the
-*corrected* copy carries, which is what the Siemens semantics imply (`ND` = no
-distortion correction) and what makes "named ND, header says corrected" a genuine
-contradiction rather than a guess. Corpus-wide the tokens are ordinary and
-plentiful: `DIS2D` 278×, `DIS3D` 86×. On `mmmsourcedata` **neither ever appears**
-(0 occurrences anywhere in the tree), which is the same scanner silence that
-causes the bug. Both halves of the new rule therefore check out: LCNI ND-named
-series carry `ND` and no `DIS*`, so they keep passing exactly as today; her
-ND-named series carry neither, so the guard stops firing and the twins become
-visible.
-
-**One claim this item used to make is wrong, and it is the one that would have
-shaped the validation plan.** It said the corpus "is the only place the guard's
-original case exists". It is not: the guard **never fires on the corpus at all** —
-0 of 53 ND-named series are skipped, because every readable one carries `ND`. It
-fires on 26 of 26 in `mmmsourcedata`, all of them wrongly. So the case the guard
-was written to defend against has **no measured instance in either fixture**, and
-the corpus's role here is a regression fixture (any change must leave all 53
-alone), not a validation of the guard's discriminating purpose. Nothing available
-can validate that half; the argument for keeping a narrowed guard is the Siemens
-semantics above, not evidence.
-
-Reuse `#19.9`'s harness rather than writing a new one: classify every session in
-both trees before and after, diff the per-series `(classification, suffix_hint)`
-and the fieldmap groups, and require the corpus diff to be **empty**. That is what
-caught the pMAP101 third-anatomical case the unit tests could not (see the
-2026-07-24 ledger row), and it is what makes "no regression" a measurement.
-
-Until it is fixed the `convert` control is the workaround, and it is per-session:
-5 subjects × 95 sessions × 3 twins is not a workaround anybody will keep up with,
-which is the argument for the project-level skip in `#13.1`.
-
-**Her tree is also a live fixture for two things that had none.** It carries
-`cmrr_diff_3shell` in **four** phase-encoding directions — `ap`, `pa`, `rl`, `lr`
-— so `#19.2` (LR/RL) finally has real data, and `#19.1` (DWI) has a multi-shell
-fixture with an SBRef per direction.
+*notice*, which is not only the twinned ones.) Re-confirmed unchanged the same
+day by the twin-guard sweep, which is what makes 46 a measurement rather than a
+carried-forward number: narrowing the guard moved nothing on the corpus.
 
 ---
 
@@ -1315,7 +1245,8 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
-| 2026-07-30 | `#19.9` | **A diffusion SBRef converted as a pepolar fieldmap half, and functional runs bound to it** — silently wrong preprocessing, not clutter, since fMRIPrep would have estimated the field from two diffusion references and applied it to a BOLD run with nothing complaining. The header tier was not being sloppy and is unchanged: diffusion *is* spin-echo EPI, so a diffusion reference genuinely satisfies `2D and is_epi and is_spin_echo`, and against the real `se_epi_ap_encoding` beside it `is_epi`, `is_spin_echo`, `mr_acquisition_type` and the volume count are identical. `ImageType[2]` is not the discriminator either — `M` on the reference, but 48 of 60 sampled corpus pepolar fieldmaps also read `M`. The fix is the sibling: `_recover_dwi_sbref_from_sibling` strips `_SBRef`, and a base sibling carrying `DIFFUSION` makes this a diffusion reference (`dwi`/`sbref`, `classified_by = "sibling"`). **It is the one place a sibling's header overrules a series' own**, which `_recover_func_from_sbref` refuses to do — the asymmetry is the evidence, not the direction: `DIFFUSION` is a positive statement and what it overturns is a fall-through, so the rule is now stated at both ends. A project declaration still wins over both. Measured before and after across 263 sessions: on the LCNI corpus (166) **nothing changed at all**, as predicted — it holds zero diffusion SBRefs across all 2139 series directories, which is why the tests are synthesised from the real `mmmsourcedata` headers rather than from a corpus run. On `mmmsourcedata` exactly 28 series moved, one transition only (`fmap/epi` → `dwi/sbref`), the spurious `cmrr_diff_3shell_sbref` group was the only group removed and none was added, and 12 direction warnings went to 0. All 10 bindings the item named are corrected: `sub-06`/`sub-07` `ses-01` now bind the resting run and its reference to the real `encoding` pair, `sub-03`/`04`/`05` to nothing, which is right because those sessions contain no fieldmap. Two neighbours moved with it — `#19.2` is unblocked (the `rl`/`lr` references escaped pairing only through going unrecognised, so widening `dir-` first would have built a second spurious pair), and `#13.1`'s ABCD session drops from 14 ticked rows to 10, leaving `#19.8` as the whole remainder of that measurement |
+| 2026-07-30 | `#19.8` | **A scanner that writes no `ND` token hid every duplicate reconstruction it had** — `_nd_twin_groups`' guard skipped any ND-*named* series whose `image_type` was readable and lacked `ND`, reading that silence as "the token means something else at this site". On a beta tester's ABCD tree, where every series reads `('ORIGINAL','PRIMARY','M','NONE')`, it fired on **26 of 26**: both copies of every anatomical converted — `T1w run-1..run-4` where two of the four are one acquisition reconstructed twice — and since `nd_twin_bases` returned `[]`, the Conversion page never offered the reconstruction radio it gates on that call. **Deleting the guard was refused** (a sequence carrying `ND` in its name for unrelated reasons is a real failure mode); it now needs a *contradiction* rather than a failure to confirm. `ND` is Siemens for No Distortion correction, so its complement is what the corrected copy carries, and only `DIS2D`/`DIS3D` overrules an `_ND` name. Only the ND-named side is tested — the corrected twin carries `DIS*` by definition, so checking it would delete the pair on exactly the scanners this fixes. **One of the item's own claims was wrong, and it was the one that would have shaped the validation.** It said the corpus is the only fixture for the guard's original case; it is not — the guard never fires there at all (all 53 LCNI ND-named series carry `ND`, 4 more have no header), so that case has **no measured instance on this filesystem** and what keeps the narrowed guard is the Siemens semantics, not evidence. The code says so rather than implying otherwise. Swept before and after across 263 sessions on all eight dimensions the change could move — classification, planned files, plan warnings, fieldmap groups, fieldmap warnings, `nd_twin_bases`, ticked rows, drop notices. **LCNI corpus (166/166): zero on every one**, 1192 planned files unchanged, and `#19.7`'s 46-of-166 twinned sessions re-confirmed as the harness's own self-test before any diff was read. On `mmmsourcedata` (97) exactly 26 series moved in 11 sessions, two transitions only — `anat/` → `derived/` ×21 and `anat/T2w` → `derived/T2w` ×5, which is the default `corrected` policy finally getting to act — 26 planned anat files gone, 26 drop notices arrived, none of them the empty-twin fallback, and no fieldmap moved. It **corrects** `#13.1`'s ticked-row measurement rather than finishing it: that session goes 10 → **6**, not to 2, because four of the eight rows `#13.1` counted as junk are the genuine anatomicals — `ABCD_T1w_MPR_vNav` really was acquired twice. Zero junk rows remain there, so `#13.1` now rests entirely on its anat-only-curation pass. Tests are synthesised from the real headers of *both* scanners, neither fixture being able to pin the other's shape |
+| 2026-07-30 | `#19.9` | **A diffusion SBRef converted as a pepolar fieldmap half, and functional runs bound to it** — silently wrong preprocessing, not clutter, since fMRIPrep would have estimated the field from two diffusion references and applied it to a BOLD run with nothing complaining. The header tier was not being sloppy and is unchanged: diffusion *is* spin-echo EPI, so a diffusion reference genuinely satisfies `2D and is_epi and is_spin_echo`, and against the real `se_epi_ap_encoding` beside it `is_epi`, `is_spin_echo`, `mr_acquisition_type` and the volume count are identical. `ImageType[2]` is not the discriminator either — `M` on the reference, but 48 of 60 sampled corpus pepolar fieldmaps also read `M`. The fix is the sibling: `_recover_dwi_sbref_from_sibling` strips `_SBRef`, and a base sibling carrying `DIFFUSION` makes this a diffusion reference (`dwi`/`sbref`, `classified_by = "sibling"`). **It is the one place a sibling's header overrules a series' own**, which `_recover_func_from_sbref` refuses to do — the asymmetry is the evidence, not the direction: `DIFFUSION` is a positive statement and what it overturns is a fall-through, so the rule is now stated at both ends. A project declaration still wins over both. Measured before and after across 263 sessions: on the LCNI corpus (166) **nothing changed at all**, as predicted — it holds zero diffusion SBRefs across all 2139 series directories, which is why the tests are synthesised from the real `mmmsourcedata` headers rather than from a corpus run. On `mmmsourcedata` exactly 28 series moved, one transition only (`fmap/epi` → `dwi/sbref`), the spurious `cmrr_diff_3shell_sbref` group was the only group removed and none was added, and 12 direction warnings went to 0. All 10 bindings the item named are corrected: `sub-06`/`sub-07` `ses-01` now bind the resting run and its reference to the real `encoding` pair, `sub-03`/`04`/`05` to nothing, which is right because those sessions contain no fieldmap. Two neighbours moved with it — `#19.2` is unblocked (the `rl`/`lr` references escaped pairing only through going unrecognised, so widening `dir-` first would have built a second spurious pair), and `#13.1`'s ABCD session drops from 14 ticked rows to 10, leaving `#19.8` — closed the same day, and it found that measurement overcounted — as the remainder |
 | 2026-07-30 | `#13.1` | **The `Type` column is editable, and a correction generalizes to the study** — a `SelectboxColumn` plus a new `[series_types]` project section read by `classify_series` as a tier above header and name (`core/series_types.py`, `save_project_series_types`). The item's own warning about the write-back was right and its fix was not: the edit is read **above** `classify_series`, so `detect_fieldmaps`, the task/run seeding, the fieldmap bindings and `generate_config`'s dispatch all see one datatype instead of the column and the emission following different ones — there is no second copy to keep in sync. `generate_session_config` takes `type_rules` for the same reason it takes `fmap_rules`, or bulk convert would write a different datatype than the one reviewed. Three refusals carry the honesty. **An anat declaration names its suffix** (`anat/T1w`): `_anat_description` reads the suffix off the *name* vocabulary and returns `None` when nothing fires, so a bare `anat` on a study-specific label writes nothing and says nothing — and the declaration outranks that vocabulary, where `suffix_hint` deliberately cannot, or a misread `t1w_mprage` would be uncorrectable. **`fmap` and `dwi` are not declarable**, since a label alone can't make either emit (pairing reads the direction from the description; `#19.1`). **A non-declarable pick is refused by name** rather than accepted and ignored — the dropdown must still *offer* the inferred classifications because a select cell cannot render a value outside its options. The `convert` checkbox stayed the way to drop a series. One neighbouring silence closed on the way: the one-shot JSON import now reports a datatype it will not carry over, which it had always dropped under a banner saying the JSON had loaded |
 | 2026-07-30 | `#26` | **The coverage gate could not see a single Streamlit page, and the item's own diagnosis of why was wrong.** `source = ["duckbrain"]` is a package *name*, and coverage resolves those by **module name**: streamlit execs a page as a module called `5_QC_Overview`, which is not a `duckbrain` submodule and is not a legal Python identifier, so it could never match — `COVERAGE_DEBUG=trace` says exactly that. Not AppTest, not a process boundary, not the `magic` AST rewrite; a path source traces the pages fine. Same tests, same 6466 statements, **73% → 87%**, floor 70 → 85. The load-bearing part is what the false explanation cost: the item claimed the ratchet "exerts no pressure at all on the code where this bug class lives" and that was never true — `3_BIDS_Conversion.py` was **80% covered** by tests already passing, and the report was throwing it away. Also required, not cosmetic: CI's `--cov=duckbrain` *overrides* the config source, so fixing `pyproject.toml` alone would have left CI measuring the old way. The floor was measured after the fact rather than reused from the exploration, since two pages had changed since. One real gap fell out and is open as `#27` (`4_Preprocessing.py`, 0%). Two notes cleared with it: `#26.1`, a comment asserting `series_list` is cached across reruns — it is not (no `lru_cache`, no `st.cache_data`, no fragment; `list_series` runs at page top every rerun), so the `elif` it guarded was dead and is gone. `#26.2`, the `st.stop()` at the config call: **reachable, but not by the binding its comment named** — the two repair passes above it rewrite every unsatisfiable rule to `none`, so what still lands there is `generate_config`'s *other* raise, two fieldmap groups colliding on one B0 identifier (`2.5mm`/`25mm`). No table cell repairs that and the call already raised, so there is no config to render from: it stays a stop where its neighbours warn, now with a test that says so. **The refactor is deferred, not refused** — extracting `(seed, edits, imported, override) -> effective plan` into `core/` is still the right shape, but its cheapest justification was the coverage gap and that is now free, one of the four inputs already got one home in `c0f4650`, and the diagnostics are interleaved with the derivation so ~18 of the 36 render-coupled tests would be rewritten for a presentation-token round trip |
 | 2026-07-29 | `#25` | **All three tags published as GitHub Releases, and `v0.3.0` cut to make that worth doing.** A pushed tag notifies nobody and is invisible to the API, so `docs/releasing.md` step 7's announcement channel did not exist and `core/updates.py` — shipped the day before — queried `releases/latest` and got a 404, meaning the GUI's "newer version" line was dark for every user from the moment it landed. Backfilling 0.1/0.2 alone would have turned the channel on and had nothing worth announcing: the **fieldmap-intent inversion fix sat in `[Unreleased]` for eight days**, so users on `main` had it and anyone pinned to a tag did not. Hence `v0.3.0` — 50 commits, +27.8k/−1.7k. **Minor, not patch, deliberately**: `_release_line()` reduces to `major.minor` and `check_duckbrain_drift()` therefore flags every derivative built under the 0.2 line, which is *correct* here rather than collateral, because this release changes recipes duckbrain authors (which series convert, their datatype, the `B0Field*` intent in every sidecar, which reconstruction ships, which pair corrects which run) and not merely the flags passed to a container. The changelog's thirteen repeated Added/Changed/Fixed headers — one set per work session — were merged into one of each, since that section becomes the published notes; every bullet moved verbatim and the 688 content lines were diffed before and after rather than eyeballed. Two environment limits worth knowing if this is ever automated: the agent sandbox refuses tag refs (`HTTP 403`) while accepting branch refs, and the GitHub MCP server exposes releases read-only — so tag and publish stayed manual |
