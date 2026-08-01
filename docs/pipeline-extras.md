@@ -18,21 +18,204 @@ Ordered roughly producer → orthogonal → consumer, not by priority.
 
 ---
 
-## 1. DTI/DWI preprocessing
+## 1. DTI/DWI preprocessing — QSIPrep
+
+**Scoped 2026-08-01** at Ben's request ("how heavy a lift?"), in §9's voice: what
+it costs, what it breaks, and what isn't ours to settle. Nothing is built. The
+facts below were read from `PennLINC/qsiprep@master` rather than the published
+docs, **which are stale on two points that matter** — both flagged inline.
+
 - **What:** A diffusion-MRI preprocessing branch (denoise, Gibbs, eddy/topup
   distortion + motion correction, tensor/other model fitting).
 - **Role / placement:** **Orthogonal** — a whole separate modality, parallel to
-  the BOLD pipeline. Shares only BIDS + the anatomical.
-- **fMRIPrep interaction:** none directly. Natural analog is **QSIPrep** (nipreps'
-  diffusion BIDS-App) — same ecosystem, same reports/derivatives conventions, and
-  it can reuse sMRIPrep/anatomical derivatives. Alternatively FSL `eddy`/`topup` +
-  MRtrix3 by hand.
+  the BOLD pipeline. Shares only BIDS.
+- **fMRIPrep interaction:** none. Same ecosystem, same reports/derivatives
+  conventions. Alternatively FSL `eddy`/`topup` + MRtrix3 by hand.
 - **Note:** ties back to the denoising discussion — MP-PCA/`dwidenoise` and NORDIC
   both originated in dMRI, so DWI denoising is where dwidenoise is actually the
   standard (unlike fMRI). If we add DWI, denoising placement is well-trodden there.
-- **Open questions:** adopt QSIPrep wholesale (mirrors the fMRIPrep integration
-  duckbrain already does) vs. a lighter custom branch? Shared anat derivatives
-  between fMRIPrep and QSIPrep? Scope: this is a large, multi-stage addition.
+
+### Ground truth (verified against source, 2026-08-01)
+
+- **Latest release is `26.0.0`** (2026-04-20). QSIPrep moved to CalVer with
+  "Adopt NiPreps-style packaging" (PR #1028), so `1.1.1` → `26.0.0`; a version
+  that looks like a year is not a typo. Container: `pennlinc/qsiprep`.
+- **`--output-resolution` is `required=True`, `type=float`, no default**
+  (`qsiprep/cli/parser.py`) — the isotropic mm everything is resampled to.
+- **Reconstruction is gone.** Recon split into a separate app, **QSIRecon**, at
+  1.0; there is no `--recon-spec` in the parser. Tractography/model fitting is a
+  second tool and a second decision, not part of this one.
+- 🔴 **Output lands directly in `output_dir`, not `<output_dir>/qsiprep/`**
+  (`qsiprep/interfaces/bids.py`, `DerivativesDataSink.out_path_base = ''`). The
+  `<out>/qsiprep/…` shown in `docs/preprocessing.rst` is **stale**. duckbrain's
+  convention — one derivative dir per stage, named for the stage — still works,
+  because we pass `<derivatives>/qsiprep` as `output_dir` itself. Worth knowing
+  before someone "fixes" a path that is already right.
+- **`--session-id` is native** (nargs='+', strips `ses-`), so a session-scoped
+  run needs **no BIDS filter file**. `core/fmriprep.py:write_session_filter`
+  exists only because fMRIPrep must leave anat *unfiltered*; QSIPrep handles the
+  same concern with `--subject-anatomical-reference`. Don't port the filter.
+- 🔴 **There is no `--derivatives`, no `--anat-derivatives`, no
+  `--fs-subjects-dir` — no precomputed-anat flag of any kind.** This corrects
+  what this section previously claimed ("it can reuse sMRIPrep/anatomical
+  derivatives"), which was wrong.
+- Uses TemplateFlow, and needs the FreeSurfer license for SynthStrip/SynthSeg.
+- Key outputs: `<ss>/dwi/*_space-ACPC_desc-preproc_dwi.{nii.gz,bval,bvec,b}`,
+  `*_desc-confounds_timeseries.tsv`, `*_desc-image_qc.tsv`, `*_desc-slice_qc.tsv`,
+  CNR maps, and `<ss>/anat/*_space-ACPC_desc-preproc_T1w.nii.gz`.
+
+### 🔴 Trap 1: merging breaks the surveyor's grader
+
+**QSIPrep concatenates DWI scans that share a warped space before head-motion
+correction**, dropping the entity that distinguished them: three inputs
+`…acq-multishell_run-{1,2,3}` become **one** `…acq-multishell_desc-preproc_dwi.nii.gz`.
+
+`surveyor._grade` is superset semantics — `expected <= found` — and that is
+correct for every stage duckbrain has today because all of them are
+one-output-per-input. Against a merged output it is **false forever**: a
+completely successful run grades PARTIAL, which `stage_runnable` then reads as
+"not done", and the cockpit invites a re-run that will produce exactly the same
+result. This is the one piece of genuinely new logic the feature needs — a
+`_covers`/`_grade_merged` sibling that treats a found key as satisfying an
+expected one when its entities are *coarser but never contradictory*
+(`core/qc.py:parse_entities` is already public and does the parsing).
+
+**The honest cost of that fix, which must be written down wherever it lands:**
+coarsening means **a genuinely dropped run inside a merged group cannot be
+detected from filenames**. There is no per-input artifact to fall back on —
+`desc-confounds_timeseries.tsv` and `desc-image_qc.tsv` are per-*output* and
+merge too. This is a real limit on what the board can claim, not a bug to paper
+over, and it is the kind of thing `[expected]` exists for.
+
+**Rejected fix, recorded so it isn't re-proposed:** forcing `--separate-all-dwis`
+to restore 1:1 tracking. That trades preprocessing quality — less data for
+head-motion correction — for the convenience of duckbrain's status column. The
+tail wagging the dog, and a silent science change at that.
+
+### 🔴 Trap 2: per-session jobs clobber each other's anat
+
+duckbrain's unit is `(subject, session)`. With the default
+`--subject-anatomical-reference first-lex`, **each session's job builds its own
+ACPC anatomical reference from that session alone and writes it to the *subject*
+level** — `sub-XX/anat/` and `sub-XX.html`. Launch two sessions and the second
+silently overwrites the first; last writer wins, nothing says so.
+
+`--subject-anatomical-reference sessionwise` puts anat and the report under
+`sub-XX/ses-YY/` and matches duckbrain's per-unit model exactly. So: make it a
+config key defaulting to `sessionwise`, and **raise from the builder** if a
+multi-session project sets it to anything else, rather than letting the run
+proceed and clobber. Sessionless projects are unaffected. Note the knock-on for
+whoever writes the tracker: the report path is then *conditional*
+(`<out>/sub-XX.html` vs `<out>/sub-XX/ses-YY/sub-XX_ses-YY.html`), and so is the
+figures directory — see Slice B.
+
+### 🔴 Trap 3: `--output-resolution` has no defensible default
+
+It sets the isotropic voxel size everything is resampled to, in a single
+interpolation, and a wrong value produces data that looks entirely usable and is
+wrongly sampled. It is a **study-level scientific choice**, not a tuning knob.
+
+Ship `[qsiprep] output_resolution` **commented out** — the `[expected]` precedent
+— and raise when it is unset, naming the choice rather than guessing at it. A
+`2.0` default would be a guess dressed as a setting. This is the clearest
+application in the whole feature of `CLAUDE.md`'s rule that a silently-degrading
+option is worse than one that fails.
+
+### What it would cost inside duckbrain
+
+Two independently shippable slices. **Slice A is a real stopping point** — it
+delivers a launchable, tracked stage with no QC work at all.
+
+**Slice A — launchable + tracked stage (~2–3 focused days).**
+New `core/qsiprep.py` (model: `core/mriqc.py`, the thinnest tool module) and
+`templates/sbatch/qsiprep.sbatch.j2` — modelled on `fmriprep.sbatch.j2`, **not**
+`mriqc.sbatch.j2`, because QSIPrep needs both the FreeSurfer-license bind and the
+per-job TemplateFlow home that exists to avoid the `#21` race. Then the checklist,
+which is short because the stage model is well factored: `STAGES` +
+`_qsiprep_status` + `_TRACKERS` + a `run_progress` arm (`surveyor.py`);
+`_build_qsiprep` + a `STAGE_SPECS` row + `_STAGE_TOOL` + `resolve_container` + the
+`input_variant="raw"` branch (`pipeline.py`); `build_context`'s hardcoded sub-dict
+list (`slurm/templates.py`); a `[containers]` pin, a `[qsiprep]` section and
+`[slurm.overrides.qsiprep]` with `long = true` (`config/base.toml`); one row in
+`consistency.py`'s drift tuple.
+
+**The cockpit board needs nothing** — it iterates `STAGES`/`SLURM_STAGES`, so the
+column, rollup, bulk popover, job popover, log tail and cancel/re-run all arrive
+free. What the GUI *does* need, and §9's "the GUI needs nothing" undersold: one
+`_stage_params` arm (`0_Project_Status.py`), a fourth tab in
+`4_Preprocessing.py`, and all **five** coordinated edits in `1_Project_Setup.py`
+— a version widget without its `_USER_OWNED` entry raises on save, by design.
+
+One more tracker requirement, easy to miss: **`Status.NA` when a unit has no
+DWI**, and it is not the same shape as NORDIC's. NORDIC's NA is a project-level
+config question (`use_nordic`); QSIPrep's is **per-unit data** — one session can
+have DWI and the next not. Without it the rollup, the bulk "run all", and the
+all-complete message are all poisoned (the `#17.4` lesson).
+
+**Slice B — QC dashboard (~2.5–3 days).**
+Use the **per-figure SVG evidence path**, not `embed_tool_report`. That is the
+architecture `#24` deliberately moved *to* (~1.1 MB for the figure a reviewer
+wants vs ~80 MB for a whole subject report), the argument transfers to QSIPrep
+unchanged because its reports are the same nireports shape and size class, and
+`embed_tool_report` currently has **no production call site** and sits on `#23`'s
+deprecation — reviving it would give it one and make `#23` harder to close. Keep
+a *link* to the report for the sampling-scheme animation and boilerplate.
+
+The structural edits, in rough order of size: replace `evidence_for`'s hardcoded
+`if modality == "bold"` (`qc_domains.py`) with a per-figure `modalities` field,
+or QSIPrep's run figures are simply unreachable; generalize `qc_evidence`'s
+`fmriprep_dir` parameter to a tool-neutral root; teach `figures_dir` that
+QSIPrep's figures can be **session-level** (`sub-X[/ses-Y]/figures`), which its
+docstring currently denies in as many words; and drop the `task`-entity
+requirement in `runs_with_figures`, since DWI runs have no task. The figure
+inventory itself is transcribable straight from QSIPrep's `reports-spec.yml`,
+which ships captions.
+
+### One pre-existing inaccuracy this surfaced
+
+Worth fixing whether or not QSIPrep is ever built. `gui/qc_panels.py`'s
+`MODALITIES` omits `dwi` while `core/qc_domains.py`'s includes it, and `iqm_cols`
+falls back to `ANAT_IQMS` for any non-BOLD modality. Meanwhile six measures
+already declare `dwi` in `qc_guidance.py` — `fd_mean`, `fd_num`, `fd_perc`,
+`gsr_x`, `gsr_y`, `snr` — but MRIQC's diffusion IQMs are `snr_cc`, `ndc`,
+`fa_nans`, `fa_degenerate`, `spikes_ppm` and the per-shell
+`fber_shell01`/`efc_shell01` family. **Only the three `fd_*` are real**; `gsr_x`,
+`gsr_y` and `snr` are aspirational for DWI and would render wrong or empty.
+Turning `dwi` on in the dashboard without settling that makes the dashboard lie
+about what it measured — so it is Slice B's first task, not a footnote.
+
+### The real costs, and what isn't ours to settle
+
+- 🔴 **Hard prerequisite: `#19.1`.** DWI classifies but has **no emission path** —
+  no bval/bvec handling, no `dwi/` description in `generate_config`, excluded
+  from `EMITTED_CLASSIFICATIONS`. QSIPrep has nothing to read until that lands,
+  and no amount of stage plumbing changes that. Note `#19.1`'s own caveat, which
+  lands squarely on validation here: the LCNI curator dropped the diffusion
+  series too, so **there is no canonical BIDS output to diff against**. Validation
+  will be internal consistency plus "QSIPrep accepts it" — not the curator
+  comparison every other conversion capability was checked against.
+- **A container must be built or pulled** for `pennlinc/qsiprep` — one more
+  instance of `#2`. Confirm one exists on Talapas before committing to a date.
+- **eddy is hours per subject.** This is a scheduling change, not just a stage.
+- **Fixture:** `/projects/hulacon/shared/mmmsourcedata` is the DWI-bearing tree —
+  diffusion SBRefs and LR/RL phase encoding, neither of which the LCNI corpus has
+  at all. Read-only; symlink at the `dicom` level into scratch, as `fmap_eyeball`
+  does. The two facts this section asserts *from source rather than observation*
+  — the merge behaviour and the figures-directory level — are the two the first
+  real run should confirm, and they belong in `memory/` when it does.
+
+### The good news, stated plainly
+
+**QSIPrep is not a forcing function for the parked `#5b` Case 3 DAG** — unlike
+§9's external-FreeSurfer item, which is. Two independent reasons, and the second
+is the stronger: QSIPrep has no anat-reuse flag at all, *and* its anatomical is
+LPS+ and AC-PC realigned where fMRIPrep's is RAS+ in original orientation
+(`docs/preprocessing.rst` calls this out as the one major difference). Sharing
+anat derivatives between them is not merely unsupported, it is **wrong**. So
+`depends_on` is the plain string `"converted"`, `effective_depends_on` needs no
+new arm, and the dependency graph stays as simple as it is today. Say this in
+the builder's docstring when it is written: "why doesn't qsiprep reuse the anat
+like fMRIPrep does" is the first question a reader will have.
 
 ## 2. De-identification for data sharing (DECIDED 2026-07-15: this is the goal)
 Ben's intent (2026-07-15): **anonymize so data can be shared without

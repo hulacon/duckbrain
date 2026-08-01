@@ -437,6 +437,12 @@ them too, so there is **no canonical output to check against** — that is the r
 cost of this one, and why it wants its own validation plan rather than a quick
 patch.
 
+**This is the prerequisite for `#7` item 2 (QSIPrep).** That stage has nothing to
+read until DWI converts, and the missing canonical output above is inherited
+whole: QSIPrep validation would be internal consistency plus "the tool accepts
+it", not the curator comparison every other conversion capability got. Scoped in
+`docs/pipeline-extras.md` §1.
+
 ### `#19.2` — Phase-encoding directions other than AP/PA
 
 `dir-` is AP/PA only, hardcoded in three places (`dicom_inspect._DIRECTION_TOKEN`,
@@ -1084,7 +1090,8 @@ Deferred until actually needed. Case 1 (the `use_nordic` toggle) is validated li
 Each is its own focused effort. Full annotated backlog — candidate tools, ties to
 existing duckbrain/mmmdata work, open questions per item — in
 **`docs/pipeline-extras.md`**. Items 4 and 6 are **partly built** and say so
-below; the other six are unstarted.
+below, item 2 is **scoped but unstarted** (`docs/pipeline-extras.md` §1); the
+other five are unstarted.
 
 1. **De-identification for sharing — highest value.** Defacing **+** metadata/header
    PII scrubbing (DICOM headers *and* BIDS sidecars), "derive-then-torch" policy
@@ -1101,7 +1108,24 @@ below; the other six are unstarted.
    mechanism before the policy, and it breaks the report-never-repair rule.
    Read-only *detection* (`cubids print-metadata-fields`) is `#16.3`'s, not this
    item's. Same reasoning that defers the identity check's mechanism to here.
-2. **DTI/DWI preprocessing** — orthogonal modality branch (candidate: QSIPrep).
+2. **DTI/DWI preprocessing** — orthogonal modality branch, **QSIPrep**.
+   **Scoped 2026-08-01, not started; the full write-up is `docs/pipeline-extras.md`
+   §1** — read it before starting, it is where the traps are. Headline: two
+   independently shippable slices, **A** a launchable + tracked stage (~2–3 days)
+   and **B** QC-dashboard ingestion (~2.5–3 days), and A is a real stopping point.
+   The stage plumbing itself is a short checklist and the cockpit board needs
+   nothing, so the cost is not where you'd expect it. It is in three places:
+   QSIPrep **merges** DWI runs that share a warped space, which makes
+   `surveyor._grade`'s superset rule false forever and needs a new
+   coarser-key grader; per-session jobs **silently clobber each other's anat**
+   unless `--subject-anatomical-reference sessionwise` is forced; and
+   `--output-resolution` is required with no defensible default, so it must raise
+   rather than guess. **Prerequisite: `#19.1`** — DWI does not convert, so there
+   is nothing to preprocess until it does. Two smaller findings worth having
+   either way: QSIPrep is **not** a forcing function for `#5b` Case 3 (it has no
+   anat-reuse flag, and its ACPC/LPS+ anat is not fMRIPrep's anyway), and the QC
+   layer already claims `dwi` for three measures MRIQC does not emit for it — see
+   §1's "pre-existing inaccuracy".
 3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
    bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
 4. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC; layer norms
