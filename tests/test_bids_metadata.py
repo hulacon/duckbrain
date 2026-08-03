@@ -216,6 +216,23 @@ def test_an_empty_name_does_not_blank_an_existing_one(tmp_path):
     assert _json(write_dataset_description(bids, name=""))["Name"] == "Hand written"
 
 
+def test_no_generated_by_does_not_blank_an_existing_one(tmp_path):
+    """The sibling of the `Name` rule above, and the one branch coverage caught.
+
+    `converter_generated_by` is best-effort and degrades to duckbrain's entry
+    alone; a caller that cannot build one at all passes nothing, and that must
+    leave the recorded converter intact rather than dropping it. Statement
+    coverage reported this line as covered because it always *ran* — every test
+    happened to pass `generated_by`, so the false branch never executed.
+    """
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    existing = [{"Name": "dcm2bids", "Version": "3.2.0"}]
+    (bids / "dataset_description.json").write_text(json.dumps({"GeneratedBy": existing}))
+
+    assert _json(write_dataset_description(bids, name="study"))["GeneratedBy"] == existing
+
+
 def test_authors_absent_from_config_never_blanks_an_existing_list(tmp_path):
     """`dataset_extra_fields` omits the key rather than passing [], so clearing
     the Setup field cannot destroy a hand-written Authors list."""
