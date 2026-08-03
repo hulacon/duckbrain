@@ -332,6 +332,7 @@ def _flag_lines_outside_a_command(script):
         # Both toggles that gate a comment-adjacent branch, in both positions.
         ("dcm2bids", dict(force=True)),
         ("dcm2bids", dict(force=False)),
+        ("dcm2bids", dict(force=True, bids_validate=False)),
         ("fmriprep", dict(derivatives="/projects/study/derivatives/fmriprep")),
         ("fmriprep", dict(derivatives="/projects/study/derivatives/anat", anat_only=True)),
         ("fmriprep", dict(derivatives="", extra_flags="--use-syn-sdc")),

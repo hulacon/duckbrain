@@ -177,6 +177,35 @@ mean reshaping the registry; the missing piece is a cached, fingerprinted result
 which is Slice C and gets its own decision because it would be duckbrain's first
 state store. `test_no_expensive_check_is_registered_yet` pins that.
 
+### The BIDS validator is not one of them, and the reason is not cost
+
+The obvious candidate for the first `EXPENSIVE` entry is the BIDS validator, and
+it was deliberately given its own module (`core/validation.py`) and its own
+cockpit panel instead. Cost is the least of it — with `--ignoreSymlinks` a full
+run is under four seconds even on a project with 147 GB of derivatives. Three
+reasons, and the first is decisive:
+
+1. **`run_checks` returns `[]` when a project declares no `[expected]`.** That
+   gate is right for this registry — every check in it judges against a
+   declaration, and a project that declares nothing is not thereby wrong.
+   Registering the validator here would make BIDS validation silently conditional
+   on an opt-in that has nothing to do with it. The BIDS spec is not a project's
+   statement of intent; it is everyone's.
+2. **`ConsistencyIssue` carries no file list**, and it is frozen and shared with
+   `consistency.py`. A validator finding is *about* files — flattening forty
+   paths into a message string destroys what makes it actionable, and widening a
+   dataclass two other modules depend on to serve a third is the wrong direction.
+3. **It is user-triggered and speaks a third-party vocabulary** (`code`,
+   `helpUrl`, its own severity scale). The "one panel, a reader shouldn't have to
+   know which module noticed" principle applies to two modules asking the *same*
+   question. This asks a different one, in someone else's words, and only when
+   asked.
+
+What holds the two together is the caveat at the top of this document, which the
+panel repeats in its own caption: a clean validator run is a floor, not an
+all-clear. Whoever reads a green result is exactly the person who needs to know
+that the fieldmap-intent bug passed it.
+
 ## What is deliberately still open
 
 - **Slice B — the request record.** `submissions.tsv` carries tool identity only:

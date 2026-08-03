@@ -12,6 +12,44 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **BIDS validation actually validates.** It has been on by default since
+  2026-07-21 and had never been usable: on every project the validator followed
+  the `sourcedata/sub-XX/dicom` symlink that ingestion creates and reported every
+  DICOM behind it as `NOT_INCLUDED`. On `divatten_beta` — the project the docs
+  call known-clean — it indexed **24 647 files / 37 GB** and `NOT_INCLUDED` was
+  the *only* error it reported, so any real finding was buried under thousands of
+  lines.
+
+  The cause is in the validator, not the dataset. bids-validator 1.14.6 recurses
+  into a symlinked directory using the **target** path against an unchanged
+  dataset root, so each file's reported path escapes the dataset
+  (`./../../gpfs/projects/…/*.dcm`) — and the ignore test runs against *that*,
+  which is why the validator's own default ignore list, which already contains
+  `/sourcedata`, never fires. **No `.bidsignore` entry could have fixed it**: the
+  default is already stronger than anything we could add. The only remedy is the
+  `--ignoreSymlinks` flag, and dcm2bids gives no way to pass it, so duckbrain now
+  invokes `bids-validator` itself after each conversion. Measured on
+  `dwi_eyeball`: 2605 files and 2540 `NOT_INCLUDED` errors before, **66 files and
+  zero after, in 0.98 s**; 3.5 s on a project with 147 GB of derivatives.
+
+  Validation still **reports and never blocks** — the validator's exit code does
+  not become the job's, which is also what `--bids_validate` did in practice,
+  since dcm2bids ran it under a wrapper that never inspected the return code.
+
+- **A "Validate BIDS" panel on Project Status**, so validation is something you
+  can re-run rather than only a side effect of converting. It runs nothing until
+  you press the button — the cockpit re-renders every 30 s and a subprocess over
+  the whole tree cannot live on that path — and reports when it *could not* run
+  rather than showing an empty result that reads as clean.
+
+- **duckbrain writes the root files BIDS asks for.** `dataset_description.json`
+  is compulsory and was reachable only from a button on the Ingestion page, so a
+  project nobody clicked through converted fine and then failed a compulsory-file
+  check; a root `README` was never written at all. Both are now ensured at the
+  conversion choke point, and both decline an existing file rather than
+  overwriting it. New `[project] authors` (a Setup-page field, one name per line)
+  fills in BIDS `Authors`, which the validator warns about when absent.
+
 - **Diffusion is converted.** `dwi` was a datatype duckbrain recognised and then
   dropped, with the plan explaining why. It now writes
   `dwi/sub-X[_ses-Y][_acq-Z][_dir-D][_run-N]_dwi.nii.gz`, and a diffusion
@@ -81,6 +119,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   untouched reads exactly as before. Reconvert to clear it.
 
 ### Fixed
+
+- **`dataset_description.json` was rewritten wholesale** every time the Ingestion
+  page's "Generate" button was pressed, destroying any hand-added `License`,
+  `Funding`, `EthicsApprovals`, `DatasetDOI` or `Authors`. It now merges,
+  preserving every field duckbrain does not own. This is a behaviour change, and
+  strictly the safer one — it also had to be true before `Authors` could become a
+  field a user types into Setup, since the button would otherwise blank it.
 
 - **Both reconstructions of an anatomical were converted, on scanners that don't
   write the `ND` tag.** Siemens saves some series twice — `ABCD_T1w_MPR_vNav`

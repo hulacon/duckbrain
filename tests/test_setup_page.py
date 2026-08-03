@@ -340,3 +340,66 @@ def test_use_nordic_toggle_puts_nordic_back_on_the_board(project):
     assert not at.exception
 
     assert _nordic_cells() and "n/a" not in _nordic_cells()
+
+
+def _text_area(at, label):
+    for ta in at.text_area:
+        if ta.label == label:
+            return ta
+    raise AssertionError(f"no text_area labelled {label!r}")
+
+
+def test_authors_saves_as_a_list_and_reaches_dataset_description(project):
+    """BIDS `Authors` is an array, so the split happens once at the widget rather
+    than in every reader — and the validator warns NO_AUTHORS without it."""
+    import json
+
+    from duckbrain.core.bids_metadata import dataset_extra_fields, write_dataset_description
+
+    at = _open(project)
+    _text_area(at, "Authors").set_value("Jane Doe\n\n  John Roe  \nJane Doe\n")
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    cfg = load_config(project_dir=str(project))
+    # A list, stripped, blanks dropped, duplicates collapsed, order preserved.
+    assert cfg["project"]["authors"] == ["Jane Doe", "John Roe"]
+
+    desc_path = write_dataset_description(project, extra_fields=dataset_extra_fields(cfg))
+    assert json.loads(desc_path.read_text())["Authors"] == ["Jane Doe", "John Roe"]
+
+
+def test_clearing_authors_removes_the_key_rather_than_writing_an_empty_list(project):
+    """`_clean_dict` drops on `v != ""`, so an empty *list* would survive it and be
+    written as `authors = []` — which reads as "this study declares no authors"
+    and would blank an existing Authors list in dataset_description.json."""
+    from duckbrain.config import save_project_config
+
+    save_project_config(
+        str(project),
+        {"project": {"authors": ["Jane Doe"]}},
+        owned={"project": ("authors",)},
+    )
+    assert load_config(project_dir=str(project))["project"]["authors"] == ["Jane Doe"]
+
+    at = _open(project)
+    _text_area(at, "Authors").set_value("")
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    assert "authors" not in load_config(project_dir=str(project)).get("project", {})
+
+
+def test_a_hand_written_authors_list_seeds_the_widget_readably(project):
+    """`_get` stringifies, so seeding through it would show the literal
+    ``['Jane Doe']`` in the box and save that string back."""
+    from duckbrain.config import save_project_config
+
+    save_project_config(
+        str(project),
+        {"project": {"authors": ["Jane Doe", "John Roe"]}},
+        owned={"project": ("authors",)},
+    )
+
+    at = _open(project)
+    assert _text_area(at, "Authors").value == "Jane Doe\nJohn Roe"

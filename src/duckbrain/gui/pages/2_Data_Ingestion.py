@@ -307,16 +307,21 @@ with col2:
         else:
             from duckbrain.core.bids_metadata import (
                 converter_generated_by,
+                dataset_extra_fields,
                 write_dataset_description,
             )
 
             project_name = config.get("project", {}).get("name", "")
             try:
                 # Record the converter too, not just duckbrain — dcm2bids' version
-                # is what determines the BIDS this root contains.
+                # is what determines the BIDS this root contains. This button
+                # *refreshes* on demand (after a rename, or new Authors); the
+                # conversion choke point only *ensures presence*. Safe to press
+                # repeatedly: the write preserves fields duckbrain doesn't own.
                 desc_path = write_dataset_description(
                     bids_dir,
                     name=project_name,
+                    extra_fields=dataset_extra_fields(config),
                     generated_by=converter_generated_by(config),
                 )
                 st.success(f"Written: `{desc_path}`")

@@ -1,5 +1,7 @@
 """Tests for duckbrain config loader."""
 
+import json
+
 import pytest
 from pathlib import Path
 
@@ -350,6 +352,92 @@ def test_a_conversion_tops_up_bidsignore_for_a_project_scaffolded_earlier(tmp_pa
     assert "*_sbref.bval" in (tmp_path / ".bidsignore").read_text().split()
     write_bidsignore(tmp_path)  # still idempotent afterwards
     assert (tmp_path / ".bidsignore").read_text().count("*_sbref.bval") == 1
+
+
+def _convert_once(project_dir, config):
+    """Drive `_build_dcm2bids` far enough for its top-up block to run."""
+    from duckbrain.core.pipeline import _build_dcm2bids
+
+    session = project_dir / "sourcedata" / "sub-01" / "dicom"
+    session.mkdir(parents=True, exist_ok=True)
+    (project_dir / "sourcedata" / "sub-01" / "dcm2bids_config.json").write_text(
+        '{"descriptions": []}'
+    )
+    try:
+        _build_dcm2bids(config, "01", "", str(project_dir / "code" / "logs"), {})
+    except Exception:
+        # Container resolution may fail in a bare tmp project; the top-up runs first.
+        pass
+
+
+def test_a_conversion_writes_the_two_root_files_the_validator_requires(tmp_path):
+    """`dataset_description.json` is compulsory and `README` is required, and both
+    were reachable only from a button nobody had to press — so a project could
+    convert cleanly and then fail validation for something duckbrain owed it."""
+    from duckbrain.config import load_config, scaffold_project
+
+    scaffold_project(tmp_path)
+    config = load_config(project_dir=str(tmp_path))
+    config.setdefault("project", {})["name"] = "My Study"
+
+    _convert_once(tmp_path, config)
+
+    desc = json.loads((tmp_path / "dataset_description.json").read_text())
+    assert desc["Name"] == "My Study"
+    assert desc["BIDSVersion"] == "1.9.0"
+    assert "My Study" in (tmp_path / "README").read_text()
+
+
+def test_a_conversion_does_not_overwrite_a_hand_edited_dataset_description(tmp_path):
+    """It runs at every submission, so it must decline an existing file."""
+    from duckbrain.config import load_config, scaffold_project
+
+    scaffold_project(tmp_path)
+    mine = {"Name": "Mine", "BIDSVersion": "1.8.0", "Authors": ["Jane Doe"]}
+    (tmp_path / "dataset_description.json").write_text(json.dumps(mine))
+    (tmp_path / "README").write_text("my own README")
+    config = load_config(project_dir=str(tmp_path))
+    config.setdefault("project", {})["name"] = "Something Else"
+
+    _convert_once(tmp_path, config)
+
+    assert json.loads((tmp_path / "dataset_description.json").read_text()) == mine
+    assert (tmp_path / "README").read_text() == "my own README"
+
+
+def test_project_authors_round_trip_and_partial_write_guard(tmp_path):
+    """Authors is a list, and the section it lives in is only partly owned."""
+    from duckbrain.config import load_config, project_config_path, save_project_config
+
+    path = project_config_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('[project]\nname = "study"\nuse_sessions = "auto"\nhand_written = "keep me"\n')
+
+    owned = {"project": ("name", "use_sessions", "authors")}
+    save_project_config(
+        tmp_path,
+        {"project": {"name": "study", "use_sessions": "auto", "authors": ["Jane Doe", "John Roe"]}},
+        owned=owned,
+    )
+
+    cfg = load_config(project_dir=str(tmp_path))
+    assert cfg["project"]["authors"] == ["Jane Doe", "John Roe"]
+    assert cfg["project"]["hand_written"] == "keep me"
+
+    # Omitting it removes the key rather than leaving a stale list behind.
+    save_project_config(
+        tmp_path, {"project": {"name": "study", "use_sessions": "auto"}}, owned=owned
+    )
+    assert "authors" not in load_config(project_dir=str(tmp_path))["project"]
+
+    # And writing it against an ownership list that does not declare it raises,
+    # rather than saving once and vanishing on the next save.
+    with pytest.raises(ValueError):
+        save_project_config(
+            tmp_path,
+            {"project": {"authors": ["Jane Doe"]}},
+            owned={"project": ("name", "use_sessions")},
+        )
 
 
 # ---- TODO #17.1 / #17.2: saving must not destroy, settings must take effect ---

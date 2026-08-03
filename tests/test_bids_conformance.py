@@ -113,43 +113,113 @@ def test_diffusion_carries_the_same_label_and_gets_the_same_check(tmp_path):
     assert [i.message.split("`")[1] for i in issues] == ["sub-001_dir-LR_dwi.json"]
 
 
-# ---- dcm2bids runs the validator itself ----
+# ---- duckbrain runs the validator itself ----
+
+
+def _render_dcm2bids(cfg, bids_dir="/b"):
+    from duckbrain.slurm.templates import build_context, render_sbatch
+
+    cfg["paths"]["bids_dir"] = bids_dir
+    ctx = build_context(
+        cfg,
+        "dcm2bids",
+        subject="001",
+        session="01",
+        dicom_dir="/d",
+        config_json="/c.json",
+        config_json_dir="/",
+        container_path="/x.sif",
+        force=False,
+    )
+    return render_sbatch("dcm2bids", ctx)
 
 
 def test_dcm2bids_template_requests_validation_by_default(tmp_path):
-    """The validator ships inside the dcm2bids container, so this is free."""
+    """duckbrain calls bids-validator itself, and it must pass --ignoreSymlinks.
+
+    Not dcm2bids' `--bids_validate`: that runs the validator with no flags, and
+    without --ignoreSymlinks it follows the `sourcedata/sub-XX/dicom` symlink
+    ingestion creates and reports every DICOM behind it as NOT_INCLUDED — 2540 of
+    them on `dwi_eyeball`, drowning every real finding. No `.bidsignore` entry can
+    fix that; see core/validation.py for why.
+    """
     from duckbrain.config import load_config, scaffold_project
-    from duckbrain.slurm.templates import build_context, render_sbatch
 
     proj = tmp_path / "p"
     scaffold_project(str(proj))
     cfg = load_config(project_dir=str(proj))
 
-    def render(cfg):
-        ctx = build_context(
-            cfg,
-            "dcm2bids",
-            subject="001",
-            session="01",
-            dicom_dir="/d",
-            config_json="/c.json",
-            config_json_dir="/",
-            container_path="/x.sif",
-            force=False,
-        )
-        return render_sbatch("dcm2bids", ctx)
-
-    assert "--bids_validate" in render(cfg)
+    script = _render_dcm2bids(cfg)
+    assert "bids-validator" in script
+    assert "--ignoreSymlinks" in script
+    # dcm2bids' own flag must be gone, or the flood comes back alongside the fix.
+    assert "--bids_validate" not in script
 
     cfg["conversion"] = {"bids_validate": False}
-    assert "--bids_validate" not in render(cfg)
+    off = _render_dcm2bids(cfg)
+    assert "bids-validator" not in off
+    assert "--ignoreSymlinks" not in off
+
+
+def test_the_sbatch_validator_call_is_the_one_core_validation_builds(tmp_path):
+    """The template and core/validation must render the *same* argv.
+
+    Two places construct a validator invocation — this template, for the job log,
+    and `core.validation` for the cockpit panel. If they drift, the log and the
+    panel validate the dataset differently and neither says so.
+    """
+    import shlex
+
+    from duckbrain.config import load_config, scaffold_project
+    from duckbrain.core.validation import validator_command
+
+    proj = tmp_path / "p"
+    scaffold_project(str(proj))
+    cfg = load_config(project_dir=str(proj))
+
+    script = _render_dcm2bids(cfg, bids_dir="/projects/study")
+    tokens = shlex.split(script.replace("\\\n", " "), comments=True)
+    want = validator_command("/x.sif", "/projects/study")
+
+    assert any(tokens[i : i + len(want)] == want for i in range(len(tokens))), (
+        f"{want} is not a contiguous run of tokens in the rendered script"
+    )
+
+
+def test_validation_never_changes_the_jobs_exit_code(tmp_path):
+    """dcm2bids' status stays the job's status; the validator only reports.
+
+    bids-validator exits 1 whenever it finds an error, so letting it reach
+    `exit` would fail conversions that succeeded. It also matches what
+    `--bids_validate` already did: dcm2bids ran the validator under a Popen
+    wrapper that never inspected the return code.
+    """
+    from duckbrain.config import load_config, scaffold_project
+
+    proj = tmp_path / "p"
+    scaffold_project(str(proj))
+    cfg = load_config(project_dir=str(proj))
+
+    lines = [ln.strip() for ln in _render_dcm2bids(cfg).replace("\\\n", " ").splitlines()]
+    lines = [ln for ln in lines if ln]
+
+    capture = lines.index("EXIT_CODE=$?")
+    validate = next(i for i, ln in enumerate(lines) if "bids-validator" in ln)
+    final = lines.index("exit $EXIT_CODE")
+
+    # Nothing between the dcm2bids command and the capture could clobber `$?`,
+    # and the validator runs strictly after it.
+    assert lines[capture - 1].startswith("singularity run")
+    assert capture < validate < final
 
 
 def test_build_dcm2bids_command_force_includes_clobber():
     """The subprocess path needs the same two flags as the sbatch template.
 
     Two call sites build the dcm2bids invocation and they must agree, or `force`
-    means one thing from the cockpit and another from a direct call.
+    means one thing from the cockpit and another from a direct call. (Validation
+    is deliberately not one of them — see the note at the end of
+    `build_dcm2bids_command`.)
     """
     from duckbrain.core.conversion import build_dcm2bids_command
 

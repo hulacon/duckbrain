@@ -15,8 +15,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 
 **Open items, in priority order:**
 [`#16`](#16) **next** — sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
-[`#13`](#13) conversion legibility (`#13.1` only, and it waits on `#16`) ·
-[`#15`](#15) BIDS validation ·
+[`#13`](#13) conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (rest of it) ·
 [`#22`](#22) wire up the dcm2niix probe ·
@@ -40,6 +39,16 @@ stages · [`#8`](#8) branding + dark theme ·
 cheap checks that read it (see the ledger). **Full design, prior-art verdicts and
 the decisions that are settled: `docs/sanity-checks.md`.** Do not re-open the
 boundary question or the Nipoppy/CuBIDS/mrQA verdicts without reading it.
+
+🔴 **The caveat this item exists for, inherited from `#15` when that closed
+2026-08-03.** Run against `mmm_fmap_check` while its sidecars still carried the
+inverted `B0FieldIdentifier`/`B0FieldSource`, the BIDS validator reported **zero
+fieldmap issues** — the keys were valid strings in valid places. Validation is
+now genuinely usable (`#15` fixed the symlink flood that made it unreadable) and
+that changes nothing here: it checks structure and naming, not semantic intent.
+**Validation raises the floor; it does not catch the class of bug that has
+actually bitten us.** The cockpit's validation panel says so in its own caption,
+because whoever reads a clean result is exactly who needs to know.
 
 What remains, in the order it should be built. Each is a slice because each has
 its own commitment to weigh.
@@ -312,50 +321,23 @@ may not be a config toggle at all but a *statement of intent*, which is what
 spelling question above answers itself and the separate section never gets built.
 Decide that before writing either one.
 
----
+### `#13.2` — Check a planned filename against the schema, before submitting
 
-<a id="15"></a>
-## #15 — Validate output against the BIDS standard, as a habit not a one-off
+Inherited from `#15` when that closed 2026-08-03. `bidsschematools` (pip)
+validates a *filename* against the BIDS schema with no dataset present, which
+would let every row of the Conversion Plan be checked before a job is submitted
+rather than after one has run. It can say whether
+`sub-001_task-x_run-1_bold.nii.gz` is legal BIDS; it cannot say that
+`div_perFace_r1` means task `divPerFace` run 1 — that inference is study-specific
+and is what duckbrain's heuristics are *for*. Complementary to the dataset
+validator, not an alternative to it.
 
-**Validation is on by default since 2026-07-21** (see the ledger). What's left is
-the residue of the first run against `mmm_fmap_check`, plus one design option.
-
-- 🔴 **The caveat that matters most: the validator did NOT catch `#14`.** Run
-  against `mmm_fmap_check` while its sidecars still had the inverted
-  identifier/source, it reported zero fieldmap issues. It checks structure and
-  naming, not semantic intent. **Validation raises the floor; it does not catch
-  the class of bug that has actually bitten us.** That caveat is the seed of
-  `#16`; don't try to solve it inside this item.
-- 🔴 **`sourcedata/` DICOM symlinks get followed** and every `.dcm` reported as
-  `NOT_INCLUDED`, with paths escaping the dataset root. May be a legacy-validator
-  quirk (`sourcedata/` should be skipped); check against the v2 validator before
-  adding a `.bidsignore` entry.
-
-  **Re-measured 2026-07-30 and promoted, because it is worse than "residue": it
-  makes the validator useless rather than noisy.** On `divatten_beta` — the
-  project `CLAUDE.md` calls known-clean — the validator indexes **24 647 files /
-  37 GB**, essentially all of it DICOMs reached through
-  `sourcedata/sub-XX/dicom`, and `NOT_INCLUDED` is the *only* error it reports.
-  Symlink ingestion is duckbrain's normal path, so this is every project, not one.
-  Any real finding is buried under thousands of lines, which is the same
-  can't-see-the-signal failure `#16` exists for. Confirmed independently on
-  `dwi_eyeball` (1583 of 1583 `NOT_INCLUDED` paths were symlinked DICOMs) while
-  closing `#19.1`.
-- **No `README`** — scaffolding doesn't write one, and BIDS recommends it.
-- **No `Authors`** in `dataset_description.json`.
-- **`events.tsv` missing** for task scans. Not duckbrain's to invent, but the
-  scanning-notes item (`#7.3`) is where it would come from.
-- **If plan-time validation is wanted later**, `bidsschematools` (pip) validates a
-  *filename* against the schema without a dataset, which would let the Conversion
-  Plan table be checked before a job is submitted. It can say whether
-  `sub-001_task-x_run-1_bold.nii.gz` is legal BIDS; it cannot say that
-  `div_perFace_r1` means task `divPerFace` run 1 — that inference is
-  study-specific and is what duckbrain's heuristics are *for*. Complementary, not
-  alternatives. `core/consistency.py` is where a wrapper fits.
-- **Entity ordering may already be redundant.** dcm2bids reorders
-  `custom_entities` per the spec unless `--do_not_reorder_entities` is passed, so
-  `_fmap_description`'s manual acq/dir/run ordering might be doing work dcm2bids
-  would do anyway. Harmless, but worth checking before adding more of it.
+It lives here rather than under `#15` because it is plan-time, and **`#15`'s own
+advice about where it fits — "`core/consistency.py` is where a wrapper fits" — is
+stale.** The plan-time check surface that actually exists is `plan_warnings` (via
+`conversion_plan.py`, expanded in `docs/conversion-legibility.md`), which is this
+item's subject, and a finding belongs in the plan table beside the row it is
+about, not in a panel two pages away.
 
 ---
 
@@ -591,6 +573,16 @@ extra entity. duckbrain's `_sanitize_label` already strips these on ingestion, s
 this is not a duckbrain bug; it is a note that the *canonical* trees in that
 repository are not all valid, so "matches the curator" is not by itself a
 correctness argument.
+
+### `#19.11` — Is `_fmap_description`'s manual entity ordering already redundant?
+
+Inherited from `#15` when that closed 2026-08-03, and it is a check-then-probably-
+delete, not a feature. dcm2bids reorders `custom_entities` per the spec unless
+`--do_not_reorder_entities` is passed, which duckbrain does not pass — so
+`_fmap_description`'s hand-written acq/dir/run ordering may be doing work dcm2bids
+would do anyway. Harmless either way; worth resolving *before* anyone adds more of
+it. Confirm against the pinned container's source, then either delete the ordering
+or leave a comment saying why it stays.
 
 ### `#19.7` — Re-measure agreement once LCNI re-converts the anatomicals
 
@@ -1185,6 +1177,11 @@ other five are unstarted.
    §1's "pre-existing inaccuracy".
 3. **Scanning-notes integration** — input-shaping producer (exclude bad runs via
    bids-filter/`scans.tsv`); reuse mmmdata `build_manifest`/`sessions.tsv`.
+   **This is also where `events.tsv` would come from** (inherited from `#15`,
+   closed 2026-08-03). The BIDS validator warns `EVENTS_TSV_MISSING` on every
+   task scan and always will: onsets are not in the DICOMs, so duckbrain has
+   nothing to derive them *from* and must not invent them. It is a real gap and
+   it is this item's, not validation's.
 4. **QC norms & best-practice dashboard** — consumer of fMRIPrep+MRIQC; layer norms
    on the existing surveyor/QC pages. **Largely built: all three slices landed
    2026-07-24 (ledger), and `#24` regrouped the result by the question being
@@ -1326,6 +1323,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-03 | `#15` | **BIDS validation actually validates, and the item's own open question is answered NO.** Validation had been on by default since 2026-07-21 and had never been usable: on `divatten_beta` — the project `CLAUDE.md` calls known-clean — it indexed **24 647 files / 37 GB** and `NOT_INCLUDED` was the *only* error, so any real finding was buried under thousands of lines. **The cause is in the validator, read off the bundled bids-validator 1.14.6 inside `dcm2bids-3.2.0.sif`** (`dist/commonjs/index.js`, `getFilesFromFs`): it recurses into a symlinked directory using the *target* path against an unchanged `rootPath`, so every file's `relativePath` escapes the dataset (`./../../gpfs/projects/…/*.dcm`) — and the ignore test runs against **that**, which is why the validator's own `defaultIgnore()`, which already contains `/sourcedata`, `/derivatives` and `/code`, never fires. So the item's standing question — *check the v2 validator before adding a `.bidsignore` entry* — resolves to **no entry could ever have worked**: the default is already strictly stronger than anything duckbrain could write, and it still does not match. `_BIDSIGNORE_ENTRIES` deliberately gained no `sourcedata/` line, because a dead entry invites the next reader to believe it works. The only knob is `--ignoreSymlinks`, and **dcm2bids cannot pass it** — `dcm2bids_gen.py:133-145` calls `run_shell_command(['bids-validator', bids_dir])` over a `Popen` wrapper (`utils/utils.py:143-155`) that returns stdout and never inspects the return code, so the flag could not have failed a job even had it produced a usable answer. duckbrain therefore invokes the validator itself, in `new core/validation.py`, whose argv the sbatch template renders verbatim — pinned as a *contiguous-sublist* assertion rather than a flag-presence one, because the duplication here is exact. `exec`, never `run`: the sif's runscript **is** dcm2bids, so `run <sif> bids-validator …` would feed those tokens to dcm2bids as arguments. The call sits **after** `EXIT_CODE=$?` and on one unbroken line — after, so dcm2bids' status stays the job's (validation reports, never blocks, which is also what `--bids_validate` did in practice); unbroken, because a line with no continuation is structurally immune to the hazard `test_no_comment_breaks_a_line_continuation` exists for. **Measured, not asserted:** `dwi_eyeball` 2605 files / 2540 `NOT_INCLUDED` → **66 files / zero, in 0.98 s**; `divatten_beta_v2` (147 GB of derivatives) 293 files in 3.5 s, which is what makes an on-demand GUI panel affordable at all. **What a clean run then exposed was that three of the four surviving findings were duckbrain's own doing.** `dataset_description.json` is *compulsory* and was reachable only from a button on the Ingestion page, so a project nobody clicked through converted fine and then failed a compulsory-file check — the single error on `dwi_eyeball`. A root `README` was never written at all, and `Authors` never at all (`NO_AUTHORS`, code 113). All three are now ensured at the `_build_dcm2bids` choke point, mirroring the `.bidsignore` top-up exactly and for the same reason; both `ensure_` verbs **decline an existing file**, which is what makes them safe on a path that runs at every submission. Deliberately *not* in `scaffold_project`, unlike `.bidsignore`: that file's content is config-free and these are not, so at scaffold time the description would land thin and then be declined forever. **Underneath them was a data-loss bug worth more than the warnings it blocked**: `write_dataset_description` was a whole-file `json.dump`, so every press of "Generate" destroyed any hand-added `License`/`Funding`/`EthicsApprovals`/`DatasetDOI`. It now merges over the keys duckbrain owns — the `_save_sections` `owned=` contract one layer down — and that had to be true *before* `Authors` could become a Setup field, or the button would blank what the user typed. `[project] authors` is a TOML **list** (BIDS `Authors` is an array; a delimited string pushes the split into every reader), entered one per line because comma-splitting guesses wrong on `Doe, Jane`, and saved as `_authors or ""` because `_clean_dict` drops on `v != ""` and an empty *list* would otherwise survive to be written as `authors = []` — a declaration, not an absence. The **cockpit panel is not a `core/checks.py` REGISTRY entry** and the reason is not cost: `run_checks` returns `[]` when a project declares no `[expected]`, so registering there would make BIDS validation silently conditional on an opt-in that has nothing to do with it — the spec is not a project's statement of intent. (Also `ConsistencyIssue` carries no file list, and a validator finding is *about* files.) It runs **nothing** until the button is pressed, because the board is a 30 s fragment; `test_the_validation_panel_runs_nothing_until_the_button_is_pressed` is the guard, and a run that could not happen reports *why* rather than an empty result that reads as clean. Not memoised, deliberately: `fsaverage` caches against an immutable image, a BIDS tree changes underneath you, and a stale "clean" is the exact failure this item removed. **One new invariant the fix creates**: `--ignoreSymlinks` means nothing duckbrain writes into a validated tree may be a symlinked directory, or it silently drops out of validation — NORDIC already hardlinks or copies, and `test_staged_bids_input_files_are_never_symlinks` keeps it that way. **Proved end to end on real data**, a fresh conversion of `mmmsourcedata/sub-06/ses-01` into `/projects/hulacon/bhutch/validate_eyeball`: job COMPLETED exit 0, both root files and the configured `Authors` written at submission and untouched by dcm2bids, the validation block **20 lines with zero errors**, and `bids-validator exit: 0` printed separately from `Exit code: 0`. The old invocation on that same tree indexes 998 files and reports two errors. Four residuals were **re-homed rather than closed with the row**: the validator-didn't-catch-`#14` caveat → `#16` (its own text said so), `events.tsv` → `#7` item 3, `bidsschematools` plan-time filename checking → new `#13.2` (correcting this item's stale "`core/consistency.py` is where a wrapper fits" — the plan-time surface is `plan_warnings`), entity-ordering → `#19.11`. |
 | 2026-07-30 | `#19.1` | **Diffusion is converted, and the cost the item named was a misdiagnosis** — "no `bval`/`bvec` handling" implied duckbrain had to move those files. It does not: dcm2bids 3.2.0's `Dcm2BidsGen.move` globs `<srcRoot>.*` and whitelists `.nii`/`.gz`/`.json`/`.bval`/`.bvec`, so claiming the series is the whole of the work and the item collapsed from a subsystem to an emitter. Read off the pinned container's source, then **proved by converting real multi-shell data** — reading it was not evidence. `_dwi_description` writes `dwi/…_dwi` and, for a `_SBRef` whose sibling is diffusion, `dwi/…_sbref`; it **returns a description unconditionally** where `_anat_description` returns `dict | None`, because an anat's suffix comes from a name vocabulary that can fail to fire and diffusion's cannot — `dir-` is decoration, not a precondition, and a `return None` would drop the commonest single-direction acquisition there is. Three things it deliberately does not do, now `#19.10`: **no `B0FieldSource`** (the decisive reason is reviewability, not "diffusion has no task" — `resolve_fmap_assignments` filters `role != "bold"`, which is what the GUI's fieldmap column renders from, so a binding chosen in the emitter would be applied silently and could not be overridden), no `[expected]` coverage, no NORDIC staging. **The `_SBRef` runs are inherited, never computed independently**: numbering each suffix on its own is right only when repeats are *balanced*, and with references 1/2/3 and volumes 1/3 surviving an aborted middle run, independent numbering makes `dir-AP_run-2_sbref` claim to be the reference for the *third* acquisition — wrong pairing, no warning. `_disambiguate_dwi` numbers the volume series and hands each reference its own sibling's run; the leftover keeps unnumbered entities so `orphan-sbref` names it. The test is written as the *unbalanced* case, because the balanced one proves nothing. **One new failure mode the change created and closed**: `detect_fieldmaps`' name fallback was classification-blind, harmless only while `dwi` emitted nothing — a series named `dwi_topup_ap` (DIFFUSION token classifies it `dwi`, the name matches `topup`) would have been written *twice*, into `dwi/` and `fmap/`, where the collision check cannot see it because the paths differ. The fallback now skips anything already in `EMITTED_CLASSIFICATIONS`, which moved to `dicom_inspect` since `dcm2bids_config` imports that module. Direction widened to `ap\|pa\|rl\|lr` for the emitter only — **fieldmap pairing is untouched**, gated on a named `_PAIRABLE_DIRECTIONS` that is now all `#19.2` has to delete — and the old single warning was split, because "cannot determine direction" became false the moment duckbrain could read `rl` and merely decline to pair it. `PE_FOR_DIR` gained `RL`→`i`, `LR`→`i-`, **measured at two sites rather than derived** (R→L is −x, which would imply `i-`); they are the table's weakest rows, so both the plan check and `consistency._check_pe_direction` — renamed and widened to `dwi/`, since the two must cover the same files — now verify them. `dwi` also became declarable; there is no `dwi/sbref` token and the reason is mechanical and tested: the sibling pass runs after the project tier and reads its bases from `classification == "dwi"`, declarations included, so declaring the volume series reclaims the reference in the same pass. Swept before and after across all 263 sessions on eight dimensions: **zero classification transitions, zero fieldmap-group / fieldmap-warning / `nd_twin_bases` changes, and zero planned files removed or changed** — 2903 → 2995 is +92 additions and nothing else, exactly the 36 (18 LCNI `Round_Robin` sessions) + 56 (8 `mmmsourcedata` sessions) predicted from the source directories, with 92 `dropped` warnings retired and no new warning of any kind. **Converted for real** into `/projects/hulacon/bhutch/dwi_eyeball` — two scanners, because one fixture lets a CMRR-specific assumption pass: `mmmsourcedata/sub-06/ses-01` (4 directions + 4 references, `.bval` 54 volumes across shells 1000/2000/3000) and LCNI `Round_Robin/G16_S01` (RL/LR, no reference, 65 volumes, single shell). `.bval`/`.bvec` landed beside every `_dwi` with no duckbrain code, `.bvec` is 3×N on all six, every derived map logged `No Pairing`, nothing diffusion reached `fmap/`, and **`PhaseEncodingDirection` matched the `dir-` label on all 12 files — `RL`→`i` and `LR`→`i-` independently on both scanners**, which is the confirmation those two `PE_FOR_DIR` rows rest on. A `--force` reconversion rewrote a deleted `.bval` rather than skipping it. **One thing only the conversion could find**: dcm2niix writes `.bval`/`.bvec` for a single-volume diffusion *reference* too, and dcm2bids' move step whitelists extensions without looking at the datatype — so a legal `dwi/…_sbref.nii.gz` drags two files BIDS does not define, and the validator reports NOT_INCLUDED on all 8. Ignored rather than deleted (the validator's own text names `.bidsignore` for this; the content is inert; a delete step would need to exist in both the sbatch template and `run_dcm2bids`), and `_build_dcm2bids` now tops `.bidsignore` up on **every** conversion, since an entry added today would otherwise never reach a project scaffolded yesterday. The validator's remaining complaint is `#15`'s symlinked-DICOM finding, which this re-measured and promoted |
 | 2026-07-30 | `#19.8` | **A scanner that writes no `ND` token hid every duplicate reconstruction it had** — `_nd_twin_groups`' guard skipped any ND-*named* series whose `image_type` was readable and lacked `ND`, reading that silence as "the token means something else at this site". On a beta tester's ABCD tree, where every series reads `('ORIGINAL','PRIMARY','M','NONE')`, it fired on **26 of 26**: both copies of every anatomical converted — `T1w run-1..run-4` where two of the four are one acquisition reconstructed twice — and since `nd_twin_bases` returned `[]`, the Conversion page never offered the reconstruction radio it gates on that call. **Deleting the guard was refused** (a sequence carrying `ND` in its name for unrelated reasons is a real failure mode); it now needs a *contradiction* rather than a failure to confirm. `ND` is Siemens for No Distortion correction, so its complement is what the corrected copy carries, and only `DIS2D`/`DIS3D` overrules an `_ND` name. Only the ND-named side is tested — the corrected twin carries `DIS*` by definition, so checking it would delete the pair on exactly the scanners this fixes. **One of the item's own claims was wrong, and it was the one that would have shaped the validation.** It said the corpus is the only fixture for the guard's original case; it is not — the guard never fires there at all (all 53 LCNI ND-named series carry `ND`, 4 more have no header), so that case has **no measured instance on this filesystem** and what keeps the narrowed guard is the Siemens semantics, not evidence. The code says so rather than implying otherwise. Swept before and after across 263 sessions on all eight dimensions the change could move — classification, planned files, plan warnings, fieldmap groups, fieldmap warnings, `nd_twin_bases`, ticked rows, drop notices. **LCNI corpus (166/166): zero on every one**, 1192 planned files unchanged, and `#19.7`'s 46-of-166 twinned sessions re-confirmed as the harness's own self-test before any diff was read. On `mmmsourcedata` (97) exactly 26 series moved in 11 sessions, two transitions only — `anat/` → `derived/` ×21 and `anat/T2w` → `derived/T2w` ×5, which is the default `corrected` policy finally getting to act — 26 planned anat files gone, 26 drop notices arrived, none of them the empty-twin fallback, and no fieldmap moved. It **corrects** `#13.1`'s ticked-row measurement rather than finishing it: that session goes 10 → **6**, not to 2, because four of the eight rows `#13.1` counted as junk are the genuine anatomicals — `ABCD_T1w_MPR_vNav` really was acquired twice. Zero junk rows remain there, so `#13.1` now rests entirely on its anat-only-curation pass. Tests are synthesised from the real headers of *both* scanners, neither fixture being able to pin the other's shape |
 | 2026-07-30 | `#19.9` | **A diffusion SBRef converted as a pepolar fieldmap half, and functional runs bound to it** — silently wrong preprocessing, not clutter, since fMRIPrep would have estimated the field from two diffusion references and applied it to a BOLD run with nothing complaining. The header tier was not being sloppy and is unchanged: diffusion *is* spin-echo EPI, so a diffusion reference genuinely satisfies `2D and is_epi and is_spin_echo`, and against the real `se_epi_ap_encoding` beside it `is_epi`, `is_spin_echo`, `mr_acquisition_type` and the volume count are identical. `ImageType[2]` is not the discriminator either — `M` on the reference, but 48 of 60 sampled corpus pepolar fieldmaps also read `M`. The fix is the sibling: `_recover_dwi_sbref_from_sibling` strips `_SBRef`, and a base sibling carrying `DIFFUSION` makes this a diffusion reference (`dwi`/`sbref`, `classified_by = "sibling"`). **It is the one place a sibling's header overrules a series' own**, which `_recover_func_from_sbref` refuses to do — the asymmetry is the evidence, not the direction: `DIFFUSION` is a positive statement and what it overturns is a fall-through, so the rule is now stated at both ends. A project declaration still wins over both. Measured before and after across 263 sessions: on the LCNI corpus (166) **nothing changed at all**, as predicted — it holds zero diffusion SBRefs across all 2139 series directories, which is why the tests are synthesised from the real `mmmsourcedata` headers rather than from a corpus run. On `mmmsourcedata` exactly 28 series moved, one transition only (`fmap/epi` → `dwi/sbref`), the spurious `cmrr_diff_3shell_sbref` group was the only group removed and none was added, and 12 direction warnings went to 0. All 10 bindings the item named are corrected: `sub-06`/`sub-07` `ses-01` now bind the resting run and its reference to the real `encoding` pair, `sub-03`/`04`/`05` to nothing, which is right because those sessions contain no fieldmap. Two neighbours moved with it — `#19.2` is unblocked (the `rl`/`lr` references escaped pairing only through going unrecognised, so widening `dir-` first would have built a second spurious pair), and `#13.1`'s ABCD session drops from 14 ticked rows to 10, leaving `#19.8` — closed the same day, and it found that measurement overcounted — as the remainder |

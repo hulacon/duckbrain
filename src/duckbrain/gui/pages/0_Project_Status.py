@@ -350,6 +350,91 @@ def _deep_links():
             pass  # standalone (non-multipage) render — links are best-effort
 
 
+#: Where the panel parks its last result. Not `st.cache_data`: a cache keyed on
+#: the dataset path would serve a stale "clean" after a bad conversion, which is
+#: the failure mode this whole item exists to remove.
+_VALIDATION_STATE = "bids_validation"
+
+
+def _bids_validation_section(config):
+    """Run the BIDS validator on demand and show what it found.
+
+    Its own panel rather than a `core/checks.py` REGISTRY entry, for three
+    reasons and the first is decisive. (1) `run_checks` returns nothing when a
+    project declares no `[expected]`, so registering here would make BIDS
+    validation silently conditional on an opt-in that has nothing to do with it —
+    the BIDS spec is not a project's declaration of intent. (2) `ConsistencyIssue`
+    has no file list, and a validator finding is *about* files; flattening forty
+    paths into a message destroys what makes it actionable. (3) It speaks a
+    third-party vocabulary (code, helpUrl) and only when asked.
+
+    **Nothing here may touch the render path.** The dashboard is a fragment that
+    re-runs every 30 s; the body below does a session-state lookup and a couple of
+    `Path.exists()` calls, and the subprocess runs only inside the button.
+    """
+    from duckbrain.core.pipeline import resolve_container
+    from duckbrain.core.validation import validate_bids, validator_unavailable_reason
+
+    bids_dir = (config.get("paths") or {}).get("bids_dir", "")
+    try:
+        container = resolve_container(config, "converted")
+    except Exception:
+        container = None
+    reason = validator_unavailable_reason(container, bids_dir)
+
+    result = st.session_state.get(_VALIDATION_STATE)
+    if result is not None and result.bids_dir != str(bids_dir):
+        result = None  # a different project's answer is not this project's
+    state = result.headline() if result is not None else "not run this session"
+
+    with st.expander(f"🧾 BIDS validation — {state}"):
+        st.caption(
+            "Checks that the dataset is well **formed** — structure, naming, required "
+            "files. It does not check that the data means what you intended: run "
+            "against a tree whose fieldmap intent was inverted, it reported zero "
+            "fieldmap issues while fMRIPrep silently skipped distortion correction. "
+            "A clean result here is a floor, not an all-clear."
+        )
+        if reason:
+            st.info(f"Can't run the validator: {reason}")
+        elif st.button("▶ Validate now", key="validate_bids_btn", width="stretch"):
+            with st.spinner("Running bids-validator…"):
+                st.session_state[_VALIDATION_STATE] = validate_bids(config)
+            st.rerun()
+
+        if result is None:
+            return
+        if not result.ran:
+            st.warning(f"The validator did not run: {result.unavailable_reason}")
+            return
+
+        for issue in (*result.errors, *result.warnings):
+            render = st.error if issue.severity == "error" else st.warning
+            render(f"**{issue.code}** — {issue.reason}")
+            if issue.files:
+                shown = "\n".join(f"- `{p}`" for p in issue.files)
+                extra = issue.n_files - len(issue.files)
+                if extra > 0:
+                    shown += f"\n- …and {extra} more"
+                st.caption(shown)
+            if issue.help_url:
+                st.caption(issue.help_url)
+
+        if not result.issues:
+            st.success("No errors or warnings.")
+
+        summary = result.summary or {}
+        bits = [f"{summary.get('totalFiles', 0)} files"]
+        for key, label in (("subjects", "subjects"), ("sessions", "sessions"), ("tasks", "tasks")):
+            n = len(summary.get(key) or [])
+            if n:
+                bits.append(f"{n} {label}")
+        st.caption(
+            f"{' · '.join(bits)} — measured {result.ran_at:%Y-%m-%d %H:%M:%S} "
+            f"in {result.duration_s:.1f}s"
+        )
+
+
 def _expectations_section(config, matrix):
     """Declare what a session of this study should contain — elicit, then freeze.
 
@@ -633,6 +718,11 @@ def dashboard():
                 st.error(text)
             else:
                 st.warning(text)
+
+    # Adjacent to the warnings panel, not inside it: the same dataset-level
+    # question, but the answer comes from a third-party tool, costs a subprocess,
+    # and only exists once someone asks for it.
+    _bids_validation_section(config)
 
     _expectations_section(config, matrix)
 

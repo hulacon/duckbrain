@@ -169,3 +169,101 @@ def test_root_description_records_the_converter(monkeypatch, tmp_path):
         )
     )
     assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "dcm2bids"]
+
+
+# ---- the root files BIDS requires, and not destroying what we didn't write ----
+
+
+def test_write_dataset_description_preserves_hand_added_fields(tmp_path):
+    """The raw root's description is shared with the user.
+
+    BIDS defines License, Funding, EthicsApprovals, DatasetDOI and more; duckbrain
+    elicits none of them, and the old whole-file dump destroyed every one each
+    time the Ingestion page's "Generate" button was pressed.
+    """
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    (bids / "dataset_description.json").write_text(
+        json.dumps(
+            {
+                "Name": "study",
+                "BIDSVersion": "1.8.0",
+                "License": "CC0",
+                "Funding": ["NSF 1234"],
+                "EthicsApprovals": ["IRB #7"],
+                "DatasetDOI": "doi:10.0/xyz",
+            }
+        )
+    )
+
+    desc = _json(write_dataset_description(bids, name="study", generated_by=[{"Name": "x"}]))
+
+    assert desc["License"] == "CC0"
+    assert desc["Funding"] == ["NSF 1234"]
+    assert desc["EthicsApprovals"] == ["IRB #7"]
+    assert desc["DatasetDOI"] == "doi:10.0/xyz"
+    # …while the keys duckbrain does own are refreshed.
+    assert desc["BIDSVersion"] == "1.9.0"
+    assert desc["GeneratedBy"] == [{"Name": "x"}]
+
+
+def test_an_empty_name_does_not_blank_an_existing_one(tmp_path):
+    """The project name is a config field a user may never have filled in."""
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    (bids / "dataset_description.json").write_text(json.dumps({"Name": "Hand written"}))
+
+    assert _json(write_dataset_description(bids, name=""))["Name"] == "Hand written"
+
+
+def test_authors_absent_from_config_never_blanks_an_existing_list(tmp_path):
+    """`dataset_extra_fields` omits the key rather than passing [], so clearing
+    the Setup field cannot destroy a hand-written Authors list."""
+    from duckbrain.core.bids_metadata import dataset_extra_fields
+
+    assert dataset_extra_fields({}) == {}
+    assert dataset_extra_fields({"project": {"authors": []}}) == {}
+    assert dataset_extra_fields({"project": {"authors": [" ", ""]}}) == {}
+    assert dataset_extra_fields({"project": {"authors": ["Jane Doe"]}}) == {"Authors": ["Jane Doe"]}
+
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    (bids / "dataset_description.json").write_text(json.dumps({"Authors": ["Jane Doe"]}))
+    desc = _json(write_dataset_description(bids, extra_fields=dataset_extra_fields({})))
+    assert desc["Authors"] == ["Jane Doe"]
+
+
+def test_ensure_dataset_description_writes_only_when_absent(tmp_path):
+    from duckbrain.core.bids_metadata import ensure_dataset_description
+
+    bids = tmp_path / "bids"
+    assert ensure_dataset_description(bids, name="study") is not None
+    before = (bids / "dataset_description.json").read_bytes()
+
+    # A second call declines rather than rewriting — which is what makes it safe
+    # on a path that runs at every conversion.
+    assert ensure_dataset_description(bids, name="renamed") is None
+    assert (bids / "dataset_description.json").read_bytes() == before
+
+
+def test_ensure_readme_writes_a_stub_only_when_none_exists(tmp_path):
+    from duckbrain.core.bids_metadata import ensure_readme
+
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    path = ensure_readme(bids, name="My Study")
+    assert path is not None
+    assert "My Study" in path.read_text()
+    assert ensure_readme(bids) is None
+
+
+def test_any_of_the_three_readme_spellings_counts(tmp_path):
+    """BIDS 1.9 accepts README, README.md and README.txt."""
+    from duckbrain.core.bids_metadata import ensure_readme
+
+    for name in ("README", "README.md", "README.txt"):
+        bids = tmp_path / name
+        bids.mkdir()
+        (bids / name).write_text("mine")
+        assert ensure_readme(bids) is None
+        assert (bids / name).read_text() == "mine"

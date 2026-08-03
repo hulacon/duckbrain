@@ -434,3 +434,24 @@ def test_bids_input_leaves_no_temp_files(tmp_path):
 
     tree = deriv / "nordic" / "bids_format"
     assert not [p for p in tree.rglob(".duckbrain-tmp-*")]
+
+
+def test_staged_bids_input_files_are_never_symlinks(tmp_path):
+    """duckbrain runs the BIDS validator with --ignoreSymlinks.
+
+    That flag stops it descending into a symlinked directory, which is what makes
+    the `sourcedata/` DICOM flood go away. The cost is a new invariant: nothing
+    duckbrain writes into a tree the validator reads may be a symlink, or it
+    silently drops out of validation. NORDIC stages with hardlinks or copies, and
+    this is what keeps it that way.
+    """
+    ss = "sub-04/ses-05"
+    deriv = _seed_raw_and_nordic(tmp_path, ss)
+
+    build_nordic_bids_input(tmp_path, "04", "05", deriv / "nordic")
+
+    tree = deriv / "nordic" / "bids_format"
+    staged = [p for p in tree.rglob("*") if not p.is_dir()]
+    assert staged, "nothing was staged, so this proves nothing"
+    assert [p for p in staged if p.is_symlink()] == []
+    assert [p for p in tree.rglob("*") if p.is_dir() and p.is_symlink()] == []

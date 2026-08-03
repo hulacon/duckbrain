@@ -112,7 +112,16 @@ def anat_dirs_for_subject(bids_dir: str | Path, subject: str) -> list[Path]:
 
 @dataclass(frozen=True)
 class _Item:
-    """One file the staged tree should hold, and how to make it."""
+    """One file the staged tree should hold, and how to make it.
+
+    ``link`` means a **hardlink**, never a symlink, and the distinction now has
+    teeth beyond disk usage: duckbrain runs the BIDS validator with
+    ``--ignoreSymlinks`` (see :mod:`duckbrain.core.validation`), which stops it
+    descending into a symlinked directory. A hardlink is indistinguishable from a
+    regular file to ``lstat``, so the staged tree stays visible to the validator;
+    a symlinked directory here would silently drop out of validation. Pinned by
+    ``test_staged_bids_input_files_are_never_symlinks``.
+    """
 
     dest: Path
     src: Path

@@ -95,6 +95,11 @@ def build_dcm2bids_command(
         # take on divatten_beta.
         cmd += ["--force_dcm2bids", "--clobber"]
 
+    # Deliberately no validation here, and no --bids_validate. This is a direct
+    # call / dry-run helper with no production caller; every real conversion goes
+    # through the sbatch template, which runs bids-validator itself (see
+    # core/validation.py). A fourth construction of that command is exactly what
+    # the argv-agreement test exists to prevent.
     return cmd
 
 

@@ -32,6 +32,16 @@ st.set_page_config(page_title="Project Setup — duckbrain", layout="wide")
 st.title("Project Setup")
 
 
+def _split_authors(text: str) -> list[str]:
+    """One author per line, blanks dropped, order and duplicates-once preserved."""
+    seen: list[str] = []
+    for line in (text or "").splitlines():
+        name = line.strip()
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+
 def _clean_dict(d: dict) -> dict:
     """Drop empty strings and empty sub-dicts so saved TOML stays minimal."""
     out = {}
@@ -56,7 +66,7 @@ def _clean_dict(d: dict) -> dict:
 # "fix" such an error by widening the list without checking the widget writes
 # what you think it writes.
 _PROJECT_OWNED = {
-    "project": ("name", "use_sessions"),
+    "project": ("name", "use_sessions", "authors"),
     "dcm_source": ("dir",),
     # One key of [nordic] only. The rest (magnitude_only, matlab_module,
     # excluded_nodes) is shared machine config a project may override by hand.
@@ -142,6 +152,16 @@ def _get_bool(section: str, key: str) -> bool:
     return bool(config.get(section, {}).get(key, False))
 
 
+def _get_list(section: str, key: str) -> list[str]:
+    """A list-valued setting. Not ``_get``: that stringifies, so a stored
+    ``["Jane Doe"]`` would seed a widget as the literal ``['Jane Doe']``.
+    Tolerates a hand-written scalar by treating it as a one-element list."""
+    value = config.get(section, {}).get(key, [])
+    if isinstance(value, str):
+        value = [value]
+    return [str(v).strip() for v in value if str(v).strip()]
+
+
 # The "Shared resources" section below saves to the USER config, so it must be
 # seeded from the user config too. Seeding it from the merged config showed the
 # *project's* override under a heading that says "all your projects", and saving
@@ -199,6 +219,18 @@ if (
         "value duckbrain recognizes, so **auto** is being used. Save below to "
         "replace it."
     )
+
+# One author per line, not comma-separated: comma-splitting guesses wrong on
+# "Doe, Jane", and a list is the shape BIDS `Authors` wants anyway, so the split
+# happens once here rather than in every reader.
+authors_text = st.text_area(
+    "Authors",
+    value="\n".join(_get_list("project", "authors")),
+    help=(
+        "One per line. Written to `dataset_description.json` as BIDS `Authors`, "
+        "which the validator warns about when absent."
+    ),
+)
 
 st.subheader("LCNI DICOM source")
 # Legacy configs used base_dir/group/project; if one is present, seed from it.
@@ -278,8 +310,19 @@ if _known:
         )
 
 if st.button("Save project settings"):
+    _authors = _split_authors(authors_text)
     project_cfg = {
-        "project": {"name": project_name, "use_sessions": use_sessions},
+        "project": {
+            "name": project_name,
+            "use_sessions": use_sessions,
+            # `or ""` is load-bearing: _clean_dict drops on `v != ""`, so an empty
+            # *list* survives it and _save_sections would then write `authors = []`
+            # rather than removing the key — which reads as "declared none" and
+            # would blank an existing Authors list in dataset_description.json.
+            # Coercing empty to "" lets the existing drop-the-empties rule delete
+            # it, without touching _clean_dict, which four other sections share.
+            "authors": _authors or "",
+        },
         # An unchanged browse root is not a DICOM source — see _DCM_BROWSE_ROOT.
         "dcm_source": {"dir": "" if dcm_dir == _DCM_BROWSE_ROOT else dcm_dir},
         # Written even when false. It reads as noise next to _clean_dict's

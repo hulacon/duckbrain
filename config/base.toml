@@ -1,5 +1,15 @@
 [project]
 name = ""  # User fills in during setup
+# authors — who to credit, written to dataset_description.json as BIDS `Authors`
+# (the validator warns NO_AUTHORS when it is absent). Set it per project from the
+# Setup page, which stores a TOML list:
+#
+#   authors = ["Jane Doe", "John Roe"]
+#
+# Shipped commented out rather than as `authors = []`, because an empty list here
+# would deep-merge into every project and read as a declaration that a study has
+# no authors. Absent means "not stated", which is the truth. Same reason
+# [expected] ships commented out.
 # Whether to include the BIDS session entity (ses-XX) in paths/filenames:
 #   "auto" -> include only when some subject has >1 session; single-session
 #             studies omit ses- entirely (matches BIDS convention)
@@ -22,11 +32,22 @@ group = ""                 # e.g., "hulacon"
 project = ""               # e.g., "mmmdata"
 
 [conversion]
-# Run the BIDS validator on the output once dcm2bids finishes (its own
-# --bids_validate flag). The validator ships *inside* the dcm2bids container, so
-# this costs nothing to enable and needs no extra install. Findings land in the
-# SLURM log the cockpit already shows. Structural/naming problems only — it does
-# not check semantic intent, so a clean run is not an all-clear (see TODO #15).
+# Run the BIDS validator on the output once dcm2bids finishes. The validator
+# ships *inside* the dcm2bids container, so this costs nothing to enable and
+# needs no extra install. Findings land in the SLURM log the cockpit already
+# shows, and the Project Status page can re-run it on demand.
+#
+# duckbrain calls `bids-validator --ignoreSymlinks` itself rather than using
+# dcm2bids' `--bids_validate`, and the flag is the whole reason: ingestion
+# symlinks each session's DICOMs in at sourcedata/sub-XX/dicom, and without it
+# the validator follows that symlink and reports every DICOM behind it as
+# NOT_INCLUDED — thousands of lines that bury every real finding. No .bidsignore
+# entry can suppress them and dcm2bids cannot pass the flag; core/validation.py
+# has the full account.
+#
+# Reports, never blocks: the validator's exit code does not become the job's.
+# Structural and naming problems only — it does not check semantic intent, so a
+# clean run is not an all-clear (see TODO #16).
 bids_validate = true
 
 # Which reconstruction to convert where Siemens saved a series twice — once

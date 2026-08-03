@@ -69,6 +69,12 @@ def _resolve_log_dir(config: dict) -> str:
 
 def _build_dcm2bids(config, subject, session, log_dir, params):
     from ..config import write_bidsignore
+    from .bids_metadata import (
+        converter_generated_by,
+        dataset_extra_fields,
+        ensure_dataset_description,
+        ensure_readme,
+    )
     from .conversion import (
         generate_session_config,
         get_container_path,
@@ -78,13 +84,33 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
     from .ingestion import sub_ses_relpath
 
     sourcedata_dir = config["paths"]["sourcedata_dir"]
+    bids_dir = config["paths"]["bids_dir"]
     # Top up `.bidsignore` on every conversion, not only at scaffold time. It is
     # idempotent and appends only what is missing, and this is the one choke point
     # every dcm2bids submission passes through — so a project scaffolded before an
     # entry existed still gets it. Without this, the `*_sbref.bval` entry `#19.1`
     # added would only ever reach projects created afterwards, and an existing one
     # that acquired diffusion would fail validation with nothing to explain why.
-    write_bidsignore(config["paths"]["bids_dir"])
+    write_bidsignore(bids_dir)
+    # The two root files BIDS asks for, for the same reason and at the same point:
+    # both were reachable only from buttons on the Ingestion page (the README from
+    # nowhere at all), so a project nobody clicked through converted fine and then
+    # failed validation for something duckbrain owed it. Both `ensure_` verbs
+    # decline an existing file, so this can run at every submission without ever
+    # overwriting a hand-edited description.
+    #
+    # Not in `scaffold_project`, unlike `.bidsignore`: that file's content is
+    # config-free and these are not. At scaffold time there is no project name, no
+    # authors and no converter to record, so the file would land thin and then be
+    # declined here forever.
+    project_name = (config.get("project") or {}).get("name", "")
+    ensure_dataset_description(
+        bids_dir,
+        name=project_name,
+        extra_fields=dataset_extra_fields(config),
+        generated_by=converter_generated_by(config),
+    )
+    ensure_readme(bids_dir, name=project_name)
     force = bool(params.get("force", False))
     container_path = get_container_path(config)
     dicom_dir = resolve_dicom_dir(sourcedata_dir, subject, session)

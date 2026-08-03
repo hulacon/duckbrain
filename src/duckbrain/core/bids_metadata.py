@@ -193,19 +193,40 @@ def write_dataset_description(
     extra_fields: dict | None = None,
     generated_by: list[dict] | None = None,
 ) -> Path:
-    """Write dataset_description.json to the BIDS root.
+    """Write dataset_description.json to the BIDS root, preserving what it didn't write.
+
+    **Read-modify-write over the keys duckbrain owns**, not a whole-file dump. The
+    raw root's description is shared with the user: BIDS defines ``License``,
+    ``Funding``, ``EthicsApprovals``, ``ReferencesAndLinks`` and ``DatasetDOI``,
+    duckbrain elicits none of them, and a whole-file dump destroyed every one on
+    each press of the Ingestion page's "Generate" button. Same contract as
+    :func:`~duckbrain.config._save_sections`' ``owned=``, one layer down and for
+    the same reason. :func:`write_derivative_description` stays a full overwrite,
+    correctly — a derivative's description is duckbrain's output end to end.
+
+    Two rules that look like edge cases and are not:
+
+    - *name* sets ``Name`` only when it is non-empty. The project name is a
+      config field a user may never have filled in, and an unset one must not
+      blank a hand-written dataset name.
+    - *extra_fields* is applied on top, so a caller passes a key **only when it
+      has a value**. :func:`dataset_extra_fields` omits ``Authors`` rather than
+      passing ``[]``, so clearing the Setup field cannot blank an existing list.
+      Same rule the Setup page's ``_clean_dict`` enforces one layer up.
 
     Parameters
     ----------
     bids_dir : path
         Root BIDS directory.
     name : str
-        Dataset name. Defaults to the directory name.
+        Dataset name. Only written when non-empty; falls back to the directory
+        name when the file is being created from scratch.
     extra_fields : dict, optional
-        Additional fields to include (e.g., License, Authors, Funding).
+        Additional fields to set (e.g. License, Authors, Funding).
     generated_by : list[dict], optional
-        ``GeneratedBy`` entries. Defaults to duckbrain's own entry (versioned
-        from the package). Pass e.g. a dcm2bids entry to record the converter.
+        ``GeneratedBy`` entries. Only written when given; defaults to
+        duckbrain's own entry when the file is being created from scratch. Pass
+        e.g. a dcm2bids entry to record the converter.
 
     Returns
     -------
@@ -216,11 +237,13 @@ def write_dataset_description(
     bids_dir.mkdir(parents=True, exist_ok=True)
     desc_path = bids_dir / "dataset_description.json"
 
-    description = {
-        "Name": name or bids_dir.name,
-        "BIDSVersion": "1.9.0",
-        "GeneratedBy": generated_by or [_duckbrain_generated_by()],
-    }
+    description = _read_json(desc_path)
+
+    description["BIDSVersion"] = "1.9.0"
+    if name or "Name" not in description:
+        description["Name"] = name or bids_dir.name
+    if generated_by or "GeneratedBy" not in description:
+        description["GeneratedBy"] = generated_by or [_duckbrain_generated_by()]
 
     if extra_fields:
         description.update(extra_fields)
@@ -229,6 +252,91 @@ def write_dataset_description(
         json.dump(description, f, indent=2)
 
     return desc_path
+
+
+def _read_json(path: Path) -> dict:
+    """An existing JSON object, or ``{}`` if it is absent, unreadable or not a dict.
+
+    Degrading to ``{}`` means a corrupt file is *replaced* rather than making the
+    write fail. That is the right trade here only because every caller is about to
+    write a complete, valid description over it.
+    """
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def dataset_extra_fields(config: dict) -> dict:
+    """The ``dataset_description.json`` fields duckbrain elicits from project config.
+
+    One helper rather than two call sites assembling it, because the Ingestion
+    button and the conversion choke point must not disagree about what the
+    description says. Omits ``Authors`` entirely when none are configured — see
+    :func:`write_dataset_description` for why an empty list must not be written.
+    """
+    authors = [a for a in (config.get("project") or {}).get("authors", []) if str(a).strip()]
+    return {"Authors": authors} if authors else {}
+
+
+def ensure_dataset_description(
+    bids_dir: str | Path,
+    *,
+    name: str = "",
+    extra_fields: dict | None = None,
+    generated_by: list[dict] | None = None,
+) -> Path | None:
+    """Write ``dataset_description.json`` only if the BIDS root has none.
+
+    BIDS makes it compulsory and the validator reports its absence as an error,
+    but duckbrain only ever wrote it from a button on the Ingestion page — so a
+    project where nobody pressed it converted fine and then failed validation for
+    a reason that was duckbrain's doing. Found on ``dwi_eyeball``, where it was
+    the only error a clean validator run reported.
+
+    Returns the path when it wrote, ``None`` when it left an existing file alone.
+    Non-destructive by construction, which is what makes it safe to call on a path
+    that runs at every conversion.
+    """
+    bids_dir = Path(bids_dir)
+    if _read_json(bids_dir / "dataset_description.json"):
+        return None
+    return write_dataset_description(
+        bids_dir, name=name, extra_fields=extra_fields, generated_by=generated_by
+    )
+
+
+#: BIDS 1.9 accepts any of these; finding one means the dataset has its README.
+_README_NAMES = ("README", "README.md", "README.txt")
+
+
+def ensure_readme(bids_dir: str | Path, *, name: str = "") -> Path | None:
+    """Write a ``README`` stub only if the BIDS root has none.
+
+    BIDS requires a root README and nothing in duckbrain ever wrote one, so every
+    project duckbrain built warned. The stub deliberately **invents no study
+    facts** — it names the dataset and says what to replace it with. A stub that
+    fabricated a study description would be worse than the warning it silences.
+
+    Returns the path when it wrote, ``None`` when any of :data:`_README_NAMES`
+    already exists.
+    """
+    bids_dir = Path(bids_dir)
+    if any((bids_dir / n).exists() for n in _README_NAMES):
+        return None
+    bids_dir.mkdir(parents=True, exist_ok=True)
+    path = bids_dir / "README"
+    title = name or bids_dir.name
+    path.write_text(
+        f"# {title}\n"
+        "\n"
+        "Placeholder written by duckbrain so this dataset has the README BIDS\n"
+        "requires. Replace it with a description of the study: what was acquired\n"
+        "and why, what each task is, anything a reader needs to interpret the\n"
+        "data, and references to any publication or preregistration.\n"
+    )
+    return path
 
 
 def _runtime_generated_by(runtime: str) -> dict:
