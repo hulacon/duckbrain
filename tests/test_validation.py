@@ -63,17 +63,30 @@ def test_json_is_asked_for_only_by_the_gui():
 # ---- the can't-run contract ----
 
 
-def test_unavailable_reason_names_what_is_missing(tmp_path):
+def test_unavailable_reason_names_what_is_missing(tmp_path, monkeypatch):
+    """Every arm is pinned, including whether singularity is on PATH.
+
+    That last one has to be monkeypatched rather than inherited: a developer
+    machine has singularity and CI does not, so an unpatched
+    ``== ""`` passes locally and fails on both CI Pythons. It did — this test
+    broke the build for four commits while every local run stayed green.
+    """
     bids = tmp_path / "b"
     bids.mkdir()
     sif = tmp_path / "x.sif"
     sif.write_text("")
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/singularity")
 
     assert "BIDS directory" in validator_unavailable_reason(sif, "")
     assert "not found" in validator_unavailable_reason(sif, tmp_path / "nope")
     assert "container" in validator_unavailable_reason(None, bids)
     assert "not found" in validator_unavailable_reason(tmp_path / "missing.sif", bids)
     assert validator_unavailable_reason(sif, bids) == ""
+
+    # And the arm that only a machine without a container runtime would reach —
+    # which is exactly the machine this used to fail on.
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    assert "PATH" in validator_unavailable_reason(sif, bids)
 
 
 def test_a_run_that_could_not_happen_says_so_rather_than_reading_clean(tmp_path):
