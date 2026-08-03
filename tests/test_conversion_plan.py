@@ -764,3 +764,64 @@ def test_a_bold_kept_with_its_sbref_is_not_reported_as_an_orphan():
     plan, fieldmaps, _config = _plan_with_skip(series, skip=set())
 
     assert not [w for w in plan_warnings(plan, fieldmaps) if w.kind == "orphan-sbref"]
+
+
+# ---- diffusion (TODO #19.1) ----
+
+
+def _dwi_series(num, desc, reference=False):
+    s = _series(num, desc, "dwi", n=1 if reference else 104)
+    if reference:
+        s.suffix_hint = "sbref"
+    return s
+
+
+def test_the_dir_label_on_a_diffusion_file_is_checked_against_the_probe():
+    """Diffusion's `dir-` comes from the same name token a fieldmap's does, and
+    RL/LR are the least certain rows of `PE_FOR_DIR` — measured at two sites
+    rather than derived — so this is where they get verified."""
+    from duckbrain.core.dcm2niix_probe import SeriesProbe
+
+    series = [_dwi_series(41, "cmrr_diff_3shell_rl"), _dwi_series(50, "cmrr_diff_3shell_lr")]
+    detection = detect_fieldmaps(series)
+    config = generate_config(series, detection, subject="X", session="01")
+    plan = plan_conversion(config, series, subject="X", session="01")
+
+    probes = {
+        41: SeriesProbe(series_number=41, phase_encoding_direction="i"),  # matches dir-RL
+        50: SeriesProbe(series_number=50, phase_encoding_direction="i"),  # dir-LR implies i-
+    }
+    flagged = [w for w in plan_warnings(plan, detection, probes) if w.kind == "pe-direction"]
+
+    assert [w.series for w in flagged] == [[50]]
+    # The consequence clause is diffusion's, not the fieldmap one — nothing
+    # corrects from a dwi's `dir-` label.
+    assert "tells this session's diffusion acquisitions apart" in flagged[0].message
+    assert "distortion correction backwards" not in flagged[0].message
+
+
+def test_a_diffusion_config_round_trips_through_the_table():
+    """`read_config_into_table` has to represent every description it is given, or
+    the page silently drops one on a save."""
+    series = [
+        _dwi_series(22, "cmrr_diff_ap_SBRef", reference=True),
+        _dwi_series(23, "cmrr_diff_ap"),
+    ]
+    config = generate_config(series, detect_fieldmaps(series), subject="X", session="01")
+
+    imported = read_config_into_table(config, series)
+
+    assert imported.unrepresentable == []
+    assert imported.skipped_series == set()
+
+
+def test_an_unclaimed_diffusion_series_reads_back_as_skipped():
+    """`dwi` joined EMITTED_CLASSIFICATIONS, so its `convert` checkbox is live and
+    a skip has to survive the save/reload round trip like any other."""
+    series = [
+        _dwi_series(22, "cmrr_diff_ap_SBRef", reference=True),
+        _dwi_series(23, "cmrr_diff_ap"),
+    ]
+    config = generate_config(series, detect_fieldmaps(series), subject="X", session="01", skip=[23])
+
+    assert read_config_into_table(config, series).skipped_series == {23}

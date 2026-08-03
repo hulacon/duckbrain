@@ -31,9 +31,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .dcm2bids_config import EMITTED_CLASSIFICATIONS
 from .dcm2niix_probe import PE_FOR_DIR, SeriesProbe
-from .dicom_inspect import FieldmapDetection, SeriesInfo, is_complete_group
+from .dicom_inspect import (
+    EMITTED_CLASSIFICATIONS,
+    FieldmapDetection,
+    SeriesInfo,
+    is_complete_group,
+)
 
 # Classifications dcm2bids is *supposed* to leave behind. Everything else that
 # goes unclaimed is worth surfacing: an anat whose suffix vocabulary didn't match
@@ -57,10 +61,13 @@ _UNSUPPORTED_HINT = {
         " half on its own cannot estimate a field, so the scans it would have"
         " corrected will be preprocessed without distortion correction."
     ),
-    "dwi": " duckbrain does not convert diffusion series (no bval/bvec handling).",
 }
 
 # dcm2bids writes a sidecar beside each of these; the image is the representative.
+# For diffusion it also writes the `.bval` and `.bvec` dcm2niix produced, by the
+# same convention — its `move` step globs every companion of the source basename.
+# So one planned image still stands for the whole set, and `PlannedFile` needs no
+# extra field to say so.
 _IMAGE_EXT = ".nii.gz"
 
 
@@ -459,16 +466,34 @@ def plan_warnings(
     # operator's series name: the raw tag ``InPlanePhaseEncodingDirection`` gives
     # ROW/COL with no polarity, and on XA30 it is absent altogether. dcm2niix
     # resolves the sign, so this is the first point where the guess can be
-    # checked. `consistency._check_fmap_pe_direction` asks the same question of
+    # checked. `consistency._check_pe_direction` asks the same question of
     # the emitted sidecars; asking it here is what makes the answer actionable,
     # since after conversion the mislabelled pair has already been written.
     #
     # A mismatch is reported, never repaired — forcing the sidecar to match the
     # name is what duckbrain used to do, and it can only lose information.
+    #
+    # Diffusion is checked on the same footing: its `dir-` label comes from the
+    # same name token and is the only thing telling four acquisitions of one
+    # sequence apart. What a wrong one costs differs, though, so the consequence
+    # clause below is per-datatype rather than one sentence that is false half the
+    # time — nothing corrects from a dwi's `dir-` label.
+    _PE_CONSEQUENCE = {
+        "fmap": (
+            "Check before converting: a mis-signed direction applies distortion "
+            "correction backwards rather than skipping it."
+        ),
+        "dwi": (
+            "Check before converting: `dir-` is the only thing that tells this "
+            "session's diffusion acquisitions apart, so a wrong one mislabels the "
+            "file — and misleads anything that later pairs them for distortion "
+            "correction."
+        ),
+    }
     for f in sorted(plan.files, key=lambda f: f.series_number):
         probe = (probes or {}).get(f.series_number)
         match = _DIR_ENTITY_RE.search(f.entities)
-        if probe is None or f.datatype != "fmap" or not match:
+        if probe is None or f.datatype not in _PE_CONSEQUENCE or not match:
             continue
         expected = PE_FOR_DIR.get(match.group(1).upper())
         actual = probe.phase_encoding_direction
@@ -484,8 +509,7 @@ def plan_warnings(
                     f"`{actual}` where `dir-{match.group(1)}` implies `{expected}`. "
                     "Either the series is named for the wrong direction, or it "
                     "isn't an axial acquisition — the label convention assumes "
-                    "one. Check before converting: a mis-signed direction applies "
-                    "distortion correction backwards rather than skipping it."
+                    f"one. {_PE_CONSEQUENCE[f.datatype]}"
                 ),
                 series=[f.series_number],
             )
@@ -499,28 +523,34 @@ def plan_warnings(
     # tidying up, which would be duckbrain deciding what the user meant.
     # Matched on the entity string, which is what makes a BOLD and its SBRef one
     # run: generate_config composes both from the same (task, acq, run), so they
-    # agree exactly or they are not a pair.
-    _bold_entities = {f.entities for f in plan.files if f.is_bold}
-    orphans = [
-        f
-        for f in sorted(plan.files, key=lambda f: f.series_number)
-        if f.datatype == "func" and f.suffix == "sbref" and f.entities not in _bold_entities
-    ]
-    for f in orphans:
-        out.append(
-            PlanWarning(
-                kind="orphan-sbref",
-                severity="warning",
-                message=(
-                    f"Series {f.series_number} `{f.description}` will be written as "
-                    f"`{f.filename}`, but no BOLD run is being written for "
-                    f"`{f.entities}`. An SBRef is the reference volume *for* a run — "
-                    "on its own it corrects and references nothing. Untick `convert` "
-                    "for it too, unless you meant to keep it."
-                ),
-                series=[f.series_number],
+    # agree exactly or they are not a pair. Diffusion is the same shape one datatype
+    # over — `_disambiguate_dwi` hands a reference its volume series' `run-`
+    # precisely so this comparison stays exact — so the check is keyed on each
+    # datatype's main suffix rather than hardcoding `func`/`bold`.
+    for datatype, main in (("func", "bold"), ("dwi", "dwi")):
+        main_entities = {
+            f.entities for f in plan.files if f.datatype == datatype and f.suffix == main
+        }
+        orphans = [
+            f
+            for f in sorted(plan.files, key=lambda f: f.series_number)
+            if f.datatype == datatype and f.suffix == "sbref" and f.entities not in main_entities
+        ]
+        for f in orphans:
+            out.append(
+                PlanWarning(
+                    kind="orphan-sbref",
+                    severity="warning",
+                    message=(
+                        f"Series {f.series_number} `{f.description}` will be written as "
+                        f"`{f.filename}`, but no {main.upper()} run is being written for "
+                        f"`{f.entities}`. An SBRef is the reference volume *for* a run — "
+                        "on its own it corrects and references nothing. Untick `convert` "
+                        "for it too, unless you meant to keep it."
+                    ),
+                    series=[f.series_number],
+                )
             )
-        )
 
     # --- Series nothing claims. Unexpected ones first: an anat whose suffix
     # vocabulary didn't match is a real bug and looks exactly like a scout here.

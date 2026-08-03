@@ -952,10 +952,12 @@ def test_type_is_editable_and_offers_only_what_can_be_written(project):
 
     options = columns["Type"]["type_config"]["options"]
     assert "anat/T1w" in options and "func" in options and "sbref" in options
+    # `dwi` joined them with `#19.1`, which gave diffusion an emission path — a
+    # declaration is offered exactly when duckbrain can honour it.
+    assert "dwi" in options
     # `fmap` and `scout` appear only because this session holds rows classified
     # that way and a Selectbox cell cannot render a value outside its options —
     # picking either is refused, by the test below.
-    assert "dwi" not in options
     assert "anat" not in options
 
 

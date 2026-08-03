@@ -778,8 +778,8 @@ def _check_presence(config: dict) -> list[ConsistencyIssue]:
 _DIR_ENTITY_RE = re.compile(r"_dir-([A-Za-z0-9]+)")
 
 
-def _check_fmap_pe_direction(config: dict) -> list[ConsistencyIssue]:
-    """Flag fieldmaps whose header PE direction disagrees with their ``dir-`` label.
+def _check_pe_direction(config: dict) -> list[ConsistencyIssue]:
+    """Flag files whose header PE direction disagrees with their ``dir-`` label.
 
     duckbrain used to *force* ``PhaseEncodingDirection`` to match the ``_ap``/
     ``_pa`` token in the series name, overwriting the value dcm2niix derives from
@@ -792,13 +792,29 @@ def _check_fmap_pe_direction(config: dict) -> list[ConsistencyIssue]:
     wrong (every downstream assumption about that study inherits it) or the
     series was re-used from another protocol. Both are worth a human look, and
     neither is something to silently paper over.
+
+    **Diffusion carries the same label and is checked the same way.** It is read
+    from the same name token, and the RL/LR rows of
+    :data:`~duckbrain.core.dcm2niix_probe.PE_FOR_DIR` — which diffusion is the
+    only thing that exercises — rest on two agreeing studies rather than on a
+    convention, so real converted data is exactly where they want verifying. The
+    plan's ``pe-direction`` warning asks this before converting; this asks it of
+    what was actually written, and the two must cover the same files or a
+    conversion passes one and is never seen by the other.
     """
     issues: list[ConsistencyIssue] = []
     bids_dir = (config.get("paths") or {}).get("bids_dir") or ""
     if not bids_dir or not Path(bids_dir).is_dir():
         return issues
 
-    for sidecar in sorted(Path(bids_dir).glob("sub-*/**/fmap/*_epi.json")):
+    sidecars = sorted(
+        {
+            p
+            for pattern in ("sub-*/**/fmap/*_epi.json", "sub-*/**/dwi/*.json")
+            for p in Path(bids_dir).glob(pattern)
+        }
+    )
+    for sidecar in sidecars:
         match = _DIR_ENTITY_RE.search(sidecar.name)
         if not match:
             continue
@@ -814,7 +830,7 @@ def _check_fmap_pe_direction(config: dict) -> list[ConsistencyIssue]:
         )
         issues.append(
             ConsistencyIssue(
-                check="fmap-pe-direction",
+                check="pe-direction",
                 subject=subject,
                 stage="converted",
                 message=(
@@ -1018,7 +1034,7 @@ def check_consistency(config: dict) -> list[ConsistencyIssue]:
         _check_mixed_provenance,
         _check_staleness,
         _check_presence,
-        _check_fmap_pe_direction,
+        _check_pe_direction,
         _check_fmap_intent,
     ):
         try:

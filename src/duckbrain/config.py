@@ -504,7 +504,23 @@ def save_project_fmap_map(project_dir: str | Path, rules: list) -> Path:
 # SESSION_LABEL_..., NO_VALID_DATA_FOUND_FOR_SUBJECT — three of four errors on a
 # real dataset). It was missing here while ``work/`` — which dcm2bids never
 # writes to — was listed.
-_BIDSIGNORE_ENTRIES = ("work/", "tmp_dcm2bids/")
+#
+# ``*_sbref.bval``/``*_sbref.bvec`` are files duckbrain does not ask for and
+# cannot decline. BIDS defines ``.bval``/``.bvec`` for the ``_dwi`` suffix only,
+# but dcm2niix writes them for a single-volume diffusion *reference* too, and
+# dcm2bids' move step whitelists extensions without looking at the datatype — so
+# emitting a legal ``dwi/…_sbref.nii.gz`` drags two illegal companions with it and
+# the validator reports NOT_INCLUDED. Found by converting real multi-shell data
+# (`#19.1`); the plan-time preview cannot see it, because it is dcm2bids' choice.
+#
+# Ignored rather than deleted, which was the alternative considered. The
+# validator's own error text names ``.bidsignore`` as the remedy for files the
+# spec does not cover; the content is inert (``0`` and ``0 0 0``, one b0 volume);
+# and a delete step would have to exist in both the sbatch template and
+# ``run_dcm2bids``, two copies to keep in step. The cost is that a tool globbing
+# ``dwi/*.bval`` rather than ``dwi/*_dwi.bval`` would see them — nothing duckbrain
+# runs does, and this comment is here for whoever finds one that does.
+_BIDSIGNORE_ENTRIES = ("work/", "tmp_dcm2bids/", "*_sbref.bval", "*_sbref.bvec")
 
 
 def write_bidsignore(project_dir: str | Path) -> Path:

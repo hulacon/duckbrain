@@ -64,6 +64,7 @@ from .dicom_inspect import (
     SeriesInfo,
     extract_task_label,
     parse_task_run,
+    phase_encoding_direction_token,
     reproin_entities,
     is_complete_group,
     sanitize_task_label,
@@ -434,14 +435,6 @@ def _lookup_fmap_rule(
     return rules.get((key, None))
 
 
-# The classifications :func:`generate_config` has an emission path for, and so
-# the only ones a `convert` toggle can mean anything for. Deliberately not
-# "everything that isn't an expected drop": `dwi` classifies cleanly and still
-# converts to nothing (`TODO` `#19.1`), so reading the set off the drop list
-# would offer a control over a series duckbrain cannot write either way.
-EMITTED_CLASSIFICATIONS = frozenset({"anat", "func", "sbref", "fmap"})
-
-
 def _without_skipped_groups(
     fieldmaps: FieldmapDetection, skip: Collection[int]
 ) -> FieldmapDetection:
@@ -640,6 +633,15 @@ def generate_config(
 
         descriptions.append(desc)
 
+    # --- Diffusion ---
+    # After the SBRef pass so the two diffusion suffixes are adjacent in the
+    # output, and before fieldmaps because nothing here reads a fieldmap group:
+    # see _dwi_description for why a diffusion series gets no B0FieldSource.
+    for s in series_list:
+        if s.classification != "dwi" or s.series_number in skipped:
+            continue
+        descriptions.append(_dwi_description(s))
+
     # --- Fieldmaps ---
     # Stripping illegal characters can map two group names onto one identifier
     # ("2.5mm" and "25mm"), which would hand fMRIPrep two pairs as a single
@@ -684,7 +686,8 @@ def generate_config(
                 )
             )
 
-    _disambiguate_anat(descriptions)
+    _disambiguate(descriptions, "anat")
+    _disambiguate_dwi(descriptions, series_list)
 
     return {"descriptions": descriptions}
 
@@ -841,19 +844,79 @@ def _anat_entry(series: SeriesInfo, suffix: str) -> dict:
     return entry
 
 
+def _dwi_description(series: SeriesInfo) -> dict:
+    """One diffusion description — the volume series, or its reference.
+
+    **Returns a description unconditionally**, where :func:`_anat_description`
+    returns ``dict | None``. That is not an oversight to tidy up later: an anat's
+    suffix comes from a name vocabulary that can fail to fire, so there is a real
+    "nothing to write" case. Diffusion has no such ladder — the suffix is ``dwi``
+    or ``sbref`` and both are always known — and ``dir-`` is *decoration*, not a
+    precondition. A diffusion series whose name carries no direction token still
+    writes ``sub-X_dwi.nii.gz``; adding a ``return None`` for that case would drop
+    the commonest single-direction acquisition there is.
+
+    ``.bval``/``.bvec`` need no handling here. dcm2bids moves every companion
+    dcm2niix produced — its ``Dcm2BidsGen.move`` globs ``<srcRoot>.*`` and
+    whitelists ``.nii``/``.gz``/``.json``/``.bval``/``.bvec`` — so claiming the
+    series is the whole of what duckbrain has to do. Verified end to end on
+    `mmmsourcedata` and on the LCNI `Round_Robin` sessions.
+
+    **No ``B0FieldSource``**, deliberately. duckbrain runs no diffusion
+    preprocessing, so nothing would consume it; :func:`_assign_fmap_group` is
+    keyed on ``(task, run)`` and diffusion has no task; and the nearest-in-time
+    binding it implements is validated for BOLD only. The decisive reason is
+    reviewability, though: :func:`resolve_fmap_assignments` filters
+    ``role != "bold"``, and that is what the Conversion page's `fieldmap` column
+    renders from — so a binding chosen here would be applied silently and could
+    not be overridden, which is the shape ``CLAUDE.md`` forbids. Revisit when
+    there is a diffusion stage to consume it, not before.
+    """
+    suffix = "sbref" if series.suffix_hint == "sbref" else "dwi"
+    return _dwi_entry(series, suffix, phase_encoding_direction_token(series.description))
+
+
+def _dwi_entry(series: SeriesInfo, suffix: str, direction: str) -> dict:
+    """One dwi description, with its entities in BIDS order.
+
+    ``acq-`` before ``dir-``, matching :func:`_fmap_description`; ``run-`` is
+    appended afterwards by :func:`_disambiguate` when a direction repeats. The
+    ``acq-`` label comes from the ND policy exactly as an anat's does — the twin
+    machinery is classification-agnostic, so a diffusion series reconstructed
+    twice really does arrive here with one.
+    """
+    parts = []
+    if series.acq_label:
+        parts.append(f"acq-{series.acq_label}")
+    if direction:
+        parts.append(f"dir-{direction.upper()}")
+    custom_entities = "_".join(parts)
+
+    entry = {
+        "id": "-".join(p for p in ("dwi", suffix, series.acq_label, direction.lower()) if p),
+        "datatype": "dwi",
+        "suffix": suffix,
+        "criteria": {"SeriesNumber": series.series_number},
+    }
+    if custom_entities:
+        entry["custom_entities"] = custom_entities
+    return entry
+
+
 _ANAT_T1 = re.compile(r"(?<![a-z0-9])t1(?:w|[_-])")
 _ANAT_T2 = re.compile(r"(?<![a-z0-9])t2(?:w|[_-])")
 
 
-def _disambiguate_anat(descriptions: list[dict]) -> None:
-    """Give repeated anatomicals a ``run-`` entity so they stop colliding.
+def _disambiguate(descriptions: list[dict], datatype: str, suffix: str = "") -> dict[int, int]:
+    """Give repeated series of one datatype a ``run-`` entity so they stop colliding.
 
     An anat description carried no entities at all, so every T1w in a session
     resolved to the same ``id`` *and* the same output filename. A protocol that
     reshoots a moved MPRAGE, or acquires a fast localiser-quality T1 alongside
     the full one, therefore wrote two or three images to one path and kept
     whichever dcm2bids happened to write last — with the plan's collision check
-    the only signal, and only on the interactive page.
+    the only signal, and only on the interactive page. Diffusion repeats the same
+    way when a session shoots one direction twice.
 
     ``run-`` is added only when a suffix actually repeats, so the common
     single-anatomical session keeps its plain ``sub-X_T1w`` name. Numbering is by
@@ -864,21 +927,83 @@ def _disambiguate_anat(descriptions: list[dict]) -> None:
     treated as repeats. They are already distinct filenames, and ``run-`` would
     be a false claim about them: it means the scan was *acquired* more than once.
     Two genuine repeats within one ``acq-`` still number normally.
+
+    ``suffix`` narrows the pass to one suffix within the datatype; diffusion uses
+    it to number the volume series alone and then hand those numbers to the
+    references, rather than numbering each suffix independently. Returns
+    ``{series_number: run}`` so the caller can do that.
     """
     by_suffix: dict[tuple[str, str], list[dict]] = {}
     for d in descriptions:
-        if d.get("datatype") == "anat":
-            key = (d["suffix"], d.get("custom_entities", ""))
-            by_suffix.setdefault(key, []).append(d)
+        if d.get("datatype") != datatype:
+            continue
+        if suffix and d.get("suffix") != suffix:
+            continue
+        key = (d["suffix"], d.get("custom_entities", ""))
+        by_suffix.setdefault(key, []).append(d)
 
+    runs: dict[int, int] = {}
     for group in by_suffix.values():
         if len(group) < 2:
             continue
         group.sort(key=lambda d: d["criteria"]["SeriesNumber"])
         for index, d in enumerate(group, start=1):
-            existing = d.get("custom_entities", "")
-            d["custom_entities"] = f"{existing}_run-{index}" if existing else f"run-{index}"
-            d["id"] = f"{d['id']}-run{index}"
+            _add_run_entity(d, index)
+            runs[d["criteria"]["SeriesNumber"]] = index
+    return runs
+
+
+def _add_run_entity(description: dict, run: int) -> None:
+    """Append ``run-N`` to a description's entities and id, in BIDS order."""
+    existing = description.get("custom_entities", "")
+    description["custom_entities"] = f"{existing}_run-{run}" if existing else f"run-{run}"
+    description["id"] = f"{description['id']}-run{run}"
+
+
+def _disambiguate_dwi(descriptions: list[dict], series_list: list[SeriesInfo]) -> None:
+    """Number repeated diffusion runs, and give each reference its sibling's number.
+
+    **The two suffixes must not be numbered independently.** Doing so is correct
+    only when the repeats are balanced, and a session where one volume series was
+    aborted is exactly when they are not: with references 1/2/3 and volumes 1/3
+    surviving, independent numbering makes ``dir-AP_run-2_sbref`` claim to be the
+    reference for ``dir-AP_run-2_dwi``, which is the *third* acquisition. Wrong
+    pairing, no warning. The functional path never has this problem because a
+    BOLD and its SBRef read one shared ``(task, run)`` mapping keyed on series
+    number; this is the diffusion equivalent of that mapping.
+
+    So: number the volume series, then hand each reference the run of the volume
+    it belongs to — matched on the ``_SBRef``-stripped description, which is the
+    same relation :func:`~duckbrain.core.dicom_inspect._recover_dwi_sbref_from_sibling`
+    used to call it diffusion in the first place, and nearest-in-series-number
+    one-to-one where a description repeats. A reference left over keeps its
+    unnumbered entities, so it matches no volume and the plan's ``orphan-sbref``
+    check names it — which is the honest outcome for a reference whose volume
+    series is not being written.
+    """
+    runs = _disambiguate(descriptions, "dwi", suffix="dwi")
+    if not runs:
+        return
+
+    desc_by_series = {s.series_number: s.description for s in series_list}
+    refs = [d for d in descriptions if d.get("datatype") == "dwi" and d.get("suffix") == "sbref"]
+    unclaimed = {
+        d["criteria"]["SeriesNumber"]: d
+        for d in refs
+        if d["criteria"]["SeriesNumber"] in desc_by_series
+    }
+
+    for volume_series in sorted(runs):
+        base = desc_by_series.get(volume_series, "").strip().lower()
+        candidates = [
+            n
+            for n, d in unclaimed.items()
+            if _SBREF_SUFFIX.sub("", desc_by_series[n]).strip().lower() == base
+        ]
+        if not candidates:
+            continue
+        nearest = min(candidates, key=lambda n: (abs(n - volume_series), n))
+        _add_run_entity(unclaimed.pop(nearest), runs[volume_series])
 
 
 _B0_ILLEGAL = re.compile(r"[^A-Za-z0-9_-]+")
@@ -1003,7 +1128,7 @@ def _fmap_description(
         # Trusting a filename over the data is the same species of error as the
         # inverted B0 fields (see this module's header). The header wins; a
         # disagreement between it and the name is *reported* instead, by
-        # ``consistency._check_fmap_pe_direction`` — a name/header mismatch is a
+        # ``consistency._check_pe_direction`` — a name/header mismatch is a
         # real signal about the acquisition, worth surfacing rather than silently
         # overwriting.
         "sidecar_changes": {

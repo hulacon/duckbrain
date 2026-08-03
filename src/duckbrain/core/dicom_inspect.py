@@ -199,6 +199,19 @@ _CLASSIFICATION_PATTERNS = [
 ]
 
 
+# The classifications :func:`~duckbrain.core.dcm2bids_config.generate_config` has
+# an emission path for, and so the only ones a `convert` toggle can mean anything
+# for. Deliberately not "everything that isn't an expected drop": a
+# non-converting classification (`scout`, `physio`, `derived`) would then get a
+# control over a series duckbrain cannot write either way.
+#
+# It lives here rather than beside the emitter because :func:`detect_fieldmaps`
+# needs it too — a series that already has an emission path is not a *missed*
+# fieldmap — and `dcm2bids_config` imports this module, so the other direction
+# would be a cycle. Pinned by `test_a_diffusion_series_named_like_a_fieldmap_is_not_paired`.
+EMITTED_CLASSIFICATIONS = frozenset({"anat", "func", "sbref", "fmap", "dwi"})
+
+
 def list_series(dicom_session_dir: str | Path, read_headers: bool = True) -> list[SeriesInfo]:
     """Enumerate all Series_NN_description/ dirs in a DICOM session.
 
@@ -538,8 +551,8 @@ def _recover_dwi_sbref_from_sibling(series_list: list[SeriesInfo]) -> None:
     What does separate them is the sibling: strip ``_SBRef`` and
     ``cmrr_diff_3shell_ap`` is in the session, classified ``dwi`` on its own
     header's ``DIFFUSION`` token. So this reference belongs to a diffusion
-    acquisition, and duckbrain reports it as diffusion it cannot yet convert
-    rather than converting it as something it is not.
+    acquisition, and duckbrain writes it as one rather than converting it as
+    something it is not.
 
     **This is the one place a sibling's header overrules a series' own**, which
     :func:`_recover_func_from_sbref` deliberately refuses to do. The asymmetry is
@@ -568,8 +581,9 @@ def _recover_dwi_sbref_from_sibling(series_list: list[SeriesInfo]) -> None:
         if _SBREF_SUFFIX.sub("", s.description).strip().lower() not in dwi_bases:
             continue
         s.classification = "dwi"
-        # Not emitted today, but it is what the series *is*: BIDS spells a
-        # diffusion reference `dwi/..._sbref`. Also keeps an ND twin match from
+        # What the series *is*, and what it is written as: BIDS spells a diffusion
+        # reference `dwi/..._sbref`, and `_dwi_description` reads this field to
+        # choose between the two suffixes. Also keeps an ND twin match from
         # pairing a reference with the volume series it references, since
         # _nd_twin_groups buckets on (classification, suffix_hint).
         s.suffix_hint = "sbref"
@@ -721,8 +735,17 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
     FieldmapDetection
         Detected fieldmap strategy, groups, and any warnings.
     """
+    # The name fallback rescues a fieldmap the classifier missed — but only from a
+    # classification that writes nothing. A series duckbrain already emits is not
+    # a missed fieldmap, and claiming it here would write it *twice*: a diffusion
+    # run named `dwi_topup_ap` (the DIFFUSION token classifies it `dwi`, the name
+    # matches `topup`) would land in both `dwi/` and `fmap/`, and the collision
+    # check cannot see it because the two paths differ.
     fmap_series = [
-        s for s in series_list if s.classification == "fmap" or _is_fieldmap(s.description)
+        s
+        for s in series_list
+        if s.classification == "fmap"
+        or (_is_fieldmap(s.description) and s.classification not in EMITTED_CLASSIFICATIONS)
     ]
 
     if not fmap_series:
@@ -754,31 +777,33 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
         desc_lower = s.description.lower()
         reproin = reproin_entities(s.description)
 
-        # Extract direction (AP/PA). ReproIn states it as a ``dir-`` entity;
-        # otherwise fall back to the bare suffix conventions.
-        # The token match is deliberate: a plain ``"_ap" in desc`` test read
-        # 'se_epi_pa_apex' as AP, because '_ap' occurs inside '_apex' and the AP
-        # branch is tested first. Prefer the *last* direction token, so a name
-        # that leads with the direction and repeats it at the end
-        # ('AP_fieldmap_se_epi_2mm_ap') still resolves, and a group label that
-        # merely contains the letters does not.
-        direction = None
-        if reproin.get("dir"):
-            direction = reproin["dir"].lower()
-        else:
-            hits = _DIRECTION_TOKEN.findall(desc_lower)
-            if hits and len({h for h in hits}) == 1:
-                direction = hits[-1]
-            elif hits:
+        # Extract the direction the name states. See
+        # :func:`phase_encoding_direction_token` for why it is the name and not a
+        # tag, and why the *last* token wins.
+        direction = phase_encoding_direction_token(s.description)
+        if not direction:
+            hits = {h.lower() for h in _DIRECTION_TOKEN.findall(s.description)}
+            if len(hits) > 1:
                 warnings.append(
                     f"Ambiguous phase-encoding direction "
-                    f"({'/'.join(sorted(set(hits)))}) in "
+                    f"({'/'.join(sorted(hits))}) in "
                     f"Series_{s.series_number}_{s.description}"
                 )
-
-        if direction not in ("ap", "pa"):
             warnings.append(
                 f"Cannot determine direction for Series_{s.series_number}_{s.description}"
+            )
+            continue
+
+        # Recognised, but not one this pairs. Stated separately from "cannot
+        # determine" because it is a different fact and the two would otherwise
+        # be one message that is false half the time: duckbrain *did* read the
+        # direction off `se_epi_rl`, and then declined to use it. See
+        # `_PAIRABLE_DIRECTIONS` for why, and `TODO` `#19.2` for the widening.
+        if direction not in _PAIRABLE_DIRECTIONS:
+            warnings.append(
+                f"Series_{s.series_number}_{s.description} encodes "
+                f"{direction.upper()}, and duckbrain pairs only AP/PA fieldmaps — "
+                "left unpaired rather than guessed at"
             )
             continue
 
@@ -946,7 +971,43 @@ def _pair_by_acquisition(directed: list[tuple[int, str]]) -> list[dict[str, int]
 
 # A phase-encoding direction standing as its own token, so 'apex'/'paradigm'
 # don't read as directions.
-_DIRECTION_TOKEN = re.compile(r"(?<![a-z0-9])(ap|pa)(?![a-z0-9])", re.IGNORECASE)
+_DIRECTION_TOKEN = re.compile(r"(?<![a-z0-9])(ap|pa|rl|lr)(?![a-z0-9])", re.IGNORECASE)
+
+# The subset :func:`detect_fieldmaps` will actually pair. The vocabulary above is
+# wider than this on purpose: diffusion is routinely acquired LR/RL and
+# ``_dwi_description`` labels it from the same token, so recognising a direction
+# and pairing a fieldmap from it are now two different questions. Pairing stays
+# AP/PA because nothing on this filesystem holds an LR/RL *fieldmap* to validate
+# an emission against, and because ``_extract_fmap_group`` strips only AP/PA from
+# a group name — widening one without the other would split one pair into two
+# groups. `TODO` `#19.2` is that work, and this constant is what it deletes.
+_PAIRABLE_DIRECTIONS = frozenset({"ap", "pa"})
+
+
+def phase_encoding_direction_token(description: str) -> str:
+    """The phase-encoding direction a series *name* states, lowercased, or ``""``.
+
+    The name is all there is: ``InPlanePhaseEncodingDirection`` gives ROW/COL with
+    no polarity and is absent on XA30 entirely. dcm2niix resolves the sign, but
+    only after conversion — see :data:`~duckbrain.core.dcm2niix_probe.PE_FOR_DIR`
+    and the plan's ``pe-direction`` check, which exist to compare this guess
+    against what the scanner actually did.
+
+    ReproIn states it outright as a ``dir-`` entity. Otherwise prefer the *last*
+    bare token, so a name that leads with the direction and repeats it at the end
+    ('AP_fieldmap_se_epi_2mm_ap', 'RL_diff_m2p2_64_2mm_rl') still resolves while a
+    group label that merely contains the letters does not. Disagreeing tokens
+    return ``""`` rather than a guess: the caller reports the ambiguity, since
+    picking one would be inventing a direction the name does not state.
+
+    Shared by :func:`detect_fieldmaps` and the diffusion emitter so the two can
+    never read one name differently.
+    """
+    reproin = reproin_entities(description)
+    if reproin.get("dir"):
+        return reproin["dir"].lower()
+    hits = [h.lower() for h in _DIRECTION_TOKEN.findall(description)]
+    return hits[-1] if len(set(hits)) == 1 else ""
 
 
 def _is_fieldmap(description: str) -> bool:

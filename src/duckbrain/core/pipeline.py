@@ -68,6 +68,7 @@ def _resolve_log_dir(config: dict) -> str:
 
 
 def _build_dcm2bids(config, subject, session, log_dir, params):
+    from ..config import write_bidsignore
     from .conversion import (
         generate_session_config,
         get_container_path,
@@ -77,6 +78,13 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
     from .ingestion import sub_ses_relpath
 
     sourcedata_dir = config["paths"]["sourcedata_dir"]
+    # Top up `.bidsignore` on every conversion, not only at scaffold time. It is
+    # idempotent and appends only what is missing, and this is the one choke point
+    # every dcm2bids submission passes through — so a project scaffolded before an
+    # entry existed still gets it. Without this, the `*_sbref.bval` entry `#19.1`
+    # added would only ever reach projects created afterwards, and an existing one
+    # that acquired diffusion would fail validation with nothing to explain why.
+    write_bidsignore(config["paths"]["bids_dir"])
     force = bool(params.get("force", False))
     container_path = get_container_path(config)
     dicom_dir = resolve_dicom_dir(sourcedata_dir, subject, session)

@@ -170,6 +170,15 @@ def test_the_plan_and_post_conversion_checks_share_one_convention():
     assert _PE_FOR_DIR is PE_FOR_DIR
 
 
+def test_the_table_covers_the_four_directions_duckbrain_labels():
+    """The RL/LR rows are *measured*, not derived — R→L phase encoding is −x,
+    which would imply `i-`, yet both /projects/hulacon/shared/mmmsourcedata and
+    the LCNI corpus's `Round_Robin` diffusion read `rl`→`i`. Two agreeing sites is
+    the whole basis for these two values, so they are worth spelling out where a
+    future edit will see the claim."""
+    assert PE_FOR_DIR == {"AP": "j-", "PA": "j", "RL": "i", "LR": "i-"}
+
+
 # ---- against the real binary, when there is one ----
 
 

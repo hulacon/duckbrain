@@ -326,10 +326,21 @@ the residue of the first run against `mmm_fmap_check`, plus one design option.
   naming, not semantic intent. **Validation raises the floor; it does not catch
   the class of bug that has actually bitten us.** That caveat is the seed of
   `#16`; don't try to solve it inside this item.
-- **`sourcedata/` DICOM symlinks get followed** and every `.dcm` reported as
+- 🔴 **`sourcedata/` DICOM symlinks get followed** and every `.dcm` reported as
   `NOT_INCLUDED`, with paths escaping the dataset root. May be a legacy-validator
   quirk (`sourcedata/` should be skipped); check against the v2 validator before
   adding a `.bidsignore` entry.
+
+  **Re-measured 2026-07-30 and promoted, because it is worse than "residue": it
+  makes the validator useless rather than noisy.** On `divatten_beta` — the
+  project `CLAUDE.md` calls known-clean — the validator indexes **24 647 files /
+  37 GB**, essentially all of it DICOMs reached through
+  `sourcedata/sub-XX/dicom`, and `NOT_INCLUDED` is the *only* error it reports.
+  Symlink ingestion is duckbrain's normal path, so this is every project, not one.
+  Any real finding is buried under thousands of lines, which is the same
+  can't-see-the-signal failure `#16` exists for. Confirmed independently on
+  `dwi_eyeball` (1583 of 1583 `NOT_INCLUDED` paths were symlinked DICOMs) while
+  closing `#19.1`.
 - **No `README`** — scaffolding doesn't write one, and BIDS recommends it.
 - **No `Authors`** in `dataset_description.json`.
 - **`events.tsv` missing** for task scans. Not duckbrain's to invent, but the
@@ -409,33 +420,52 @@ after a change with every difference triaged rather than counted — independent
 a tree someone else is editing. `#19.7` carries the numbers and the re-measure
 protocol.
 
-**`#19.8` and `#19.9` both closed 2026-07-30**, and what they leave behind is an
-instrument: a before/after sweep that classifies every session in *both* trees
-and diffs each dimension a change could move — classification, planned files,
-plan warnings, fieldmap groups, `nd_twin_bases`, ticked rows, drop notices.
-Assume it for anything in this section. It is what caught the pMAP101 third
-anatomical the unit tests could not, and it is what let both of those changes
-prove the corpus untouched rather than assert it. `#19.2` is unblocked by
-`#19.9`.
+**`#19.8`, `#19.9` and `#19.1` all closed 2026-07-30**, and what they leave behind
+is an instrument: a before/after sweep that classifies every session in *both*
+trees and diffs each dimension a change could move — classification, planned
+files, plan warnings, fieldmap groups, fieldmap warnings, `nd_twin_bases`, drop
+notices. Assume it for anything in this section. It is what caught the pMAP101
+third anatomical the unit tests could not, and it is what let all three changes
+prove the corpus untouched rather than assert it. It is **not** in the repo and
+has been rebuilt from scratch three times; if a fourth item in this section needs
+it, that is the point to stop rebuilding and commit it.
 
-**The beta tester's tree at `/projects/hulacon/shared/mmmsourcedata` is a live
-fixture for two items here that had none.** It carries `cmrr_diff_3shell` in
-**four** phase-encoding directions — `ap`, `pa`, `rl`, `lr` — so `#19.2` (LR/RL)
-finally has real data, and `#19.1` (DWI) has a multi-shell fixture with an SBRef
-per direction. Read-only; symlink at the `dicom` level rather than pointing
-`sourcedata_dir` at it.
+**The beta tester's tree at `/projects/hulacon/shared/mmmsourcedata` is the live
+fixture two items here had none of.** It carries `cmrr_diff_3shell` in **four**
+phase-encoding directions — `ap`, `pa`, `rl`, `lr` — which is what let `#19.1`
+convert diffusion against real multi-shell data with an SBRef per direction, and
+what supplied `#19.2` its two measured `PE_FOR_DIR` rows. Read-only; symlink at
+the `dicom` level rather than pointing `sourcedata_dir` at it. `#19.1` staged it
+alongside an LCNI `Round_Robin` session at
+`/projects/hulacon/bhutch/dwi_eyeball` — two scanners and two naming
+conventions, because one fixture lets a CMRR-specific assumption pass.
 
 The rest, in the order the corpus argues for:
 
-### `#19.1` — DWI is recognised and still not convertible
+### `#19.10` — What diffusion still doesn't take part in
 
-`dwi` is a classification with no emission path: no `bval`/`bvec` handling, no
-`dwi/` description in `generate_config`. `plan_warnings` says so out loud now,
-which is honest, not fixed. The corpus has `RL_diff_m2p2_64_2mm_rl` /
-`LR_diff_m2p2_64_2mm_lr` (Round_Robin) as a live fixture, and the curator dropped
-them too, so there is **no canonical output to check against** — that is the real
-cost of this one, and why it wants its own validation plan rather than a quick
-patch.
+`#19.1` gave `dwi` an emission path (ledger). Three things it deliberately left,
+each because doing it now would have been a guess:
+
+- **No `B0FieldSource` on a diffusion series.** duckbrain runs no diffusion
+  preprocessing, so nothing consumes it; `_assign_fmap_group` is keyed on
+  `(task, run)` and diffusion has no task; and the nearest-in-time binding is
+  validated for BOLD only. The decisive reason is reviewability, though:
+  `resolve_fmap_assignments` filters `role != "bold"`, and that is what the
+  Conversion page's `fieldmap` column renders from — so a binding chosen in the
+  emitter would be applied silently and could not be overridden. **Trigger: the
+  day a diffusion preprocessing stage lands** (`docs/pipeline-extras.md` scopes
+  QSIPrep). Doing it before that is writing metadata nothing reads, in a column
+  nothing shows.
+- **`[expected]` cannot say how much diffusion a session should hold.**
+  `expectations.py` counts anat suffixes, fieldmap pairs and task runs; a `dwi/`
+  tree is invisible to it, and `checks.py`'s shortfall arithmetic is anat/func
+  only. That is `#16`'s layer and belongs with whoever next opens it — note
+  `[expected]` is opt-out by default, so nothing regresses meanwhile. The
+  *surveyor* needs nothing: `_converted_status` counts per datatype directory
+  against the saved config's description counts, so it picked `dwi/` up for free.
+- **NORDIC does not stage `dwi/`.** NORDIC is a BOLD denoiser; this is a note that
+  the omission is deliberate, not an oversight to find later.
 
 **This is the prerequisite for `#7` item 2 (QSIPrep).** That stage has nothing to
 read until DWI converts, and the missing canonical output above is inherited
@@ -445,34 +475,48 @@ it", not the curator comparison every other conversion capability got. Scoped in
 
 ### `#19.2` — Phase-encoding directions other than AP/PA
 
-`dir-` is AP/PA only, hardcoded in three places (`dicom_inspect._DIRECTION_TOKEN`,
-the `_fmap_description` call sites, and `dcm2niix_probe.PE_FOR_DIR`, whose `j-`/`j`
-table also assumes an axial acquisition). LR/RL is ordinary at non-Siemens sites.
-**Deliberately not done speculatively**: this corpus has no LR/RL *fieldmap*, so
-there is nothing to validate the emission against, and `PE_FOR_DIR` would need the
-acquisition plane to stay correct rather than just wider.
+**Narrowed by `#19.1` (2026-07-30), which had to widen the vocabulary to emit
+diffusion.** Two of the three hardcodings are gone: `_DIRECTION_TOKEN` now reads
+`ap|pa|rl|lr`, and `PE_FOR_DIR` carries all four. What is left is **fieldmap
+*pairing***, and it is one named constant plus one function:
+
+- `dicom_inspect._PAIRABLE_DIRECTIONS` — `detect_fieldmaps` recognises an LR/RL
+  direction and then declines to pair it, saying so in its own warning rather
+  than the old "cannot determine". Deleting that constant is the change.
+- `_extract_fmap_group` still strips only `ap|pa` from a group name, so widening
+  the gate without widening it too would split one pair across two groups.
+
+**Still deliberately not done speculatively**: neither fixture holds an LR/RL
+*fieldmap*, so there is nothing to validate the emission against. What `#19.1`
+did give this item is the two `PE_FOR_DIR` rows — `RL`→`i`, `LR`→`i-` — measured
+on diffusion at two independent sites, which is the part that used to be
+unguessable. They are the table's weakest rows and are checked both at plan time
+and after conversion, so a site where they invert says so.
 
 **What changed 2026-07-24 (`#22`): the direction is no longer a guess we can't
 check.** dcm2niix reports a *signed* `PhaseEncodingDirection`; the raw tag
 `InPlanePhaseEncodingDirection` gives `ROW`/`COL` with no polarity and is absent
 on XA30 entirely, so the `_ap`/`_pa` name token was genuinely all duckbrain had.
 It is right for all 32 name-tokened fieldmaps in the corpus — but that is now
-*measured* rather than assumed, and `plan_warnings` says so per session. Two
-consequences for this item: LR/RL does exist in the corpus after all
-(`RL_diff…_rl` reads `i`, `LR_diff…_lr` reads `i-`), as diffusion, so it is
-entangled with `#19.1` rather than absent; and when this is built, the general
-case should read the probe's direction instead of widening `PE_FOR_DIR` — the
-table can then be deleted rather than taught about oblique acquisitions.
+*measured* rather than assumed.
 
-**Unblocked 2026-07-30 by `#19.9`, which this used to have to follow.** On
-`mmmsourcedata` the `rl`/`lr` diffusion SBRefs were classified `fmap` and escaped
-pairing *only* because those directions went unrecognised, so widening `dir-`
-first would have built a second spurious fieldmap pair out of them. They now
-classify `dwi` on their sibling's authority and never reach `detect_fieldmaps`,
-so the order no longer constrains this. Keep the tree as the fixture — it is the
-only LR/RL data on the filesystem — but note the caveat that has not changed:
-what it holds is LR/RL *diffusion*, not an LR/RL fieldmap, so the emission still
-has nothing to validate against and `#19.1` is the item that would give it one.
+**Correction, 2026-07-30 — "read the probe instead of widening `PE_FOR_DIR`, then
+delete the table" was wrong, and `#19.1` did the opposite.** That sentence
+confused emission with checking. No emitter reads `PE_FOR_DIR`; its only two
+consumers (`plan_warnings`' `pe-direction` and `consistency._check_pe_direction`)
+exist *to compare a name-derived label against the probe*. You cannot replace
+"compare the name to the probe" with "read the probe" — that deletes the check,
+not the table. The table is a statement of the **naming convention**, and it
+survives this item.
+
+**The two fixtures, and the gap that has not closed.** `mmmsourcedata` and the
+corpus's `Round_Robin` between them hold LR/RL *diffusion*, which is what made
+the `RL`→`i` / `LR`→`i-` rows measurable. Neither holds an LR/RL *fieldmap*, so
+the pairing this item is about still has nothing to validate against. `#19.9`
+removed the ordering constraint (the `rl`/`lr` diffusion references escaped
+pairing only through going unrecognised; they now classify `dwi` on their
+sibling's authority and never reach `detect_fieldmaps`), so this is unblocked —
+it is waiting on data, not on other work.
 
 ### `#19.3` — Which fieldmap pair, when a session has more than one
 
@@ -585,6 +629,14 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 open is the last mile: **nothing calls it yet**, so the checks are dead code in
 practice. Read the module docstring first — it carries the measurements, and they
 are the reason the shape is what it is.
+
+**This got more valuable on 2026-07-30, not less.** `#19.1` extended the
+`pe-direction` check to diffusion, and diffusion is the *only* thing that
+exercises `PE_FOR_DIR`'s `RL`/`LR` rows — the two that rest on measurement at two
+sites rather than on a convention. So the check that would verify duckbrain's
+least-certain table is among the ones nothing calls. (The post-conversion twin,
+`consistency._check_pe_direction`, does run, so this is a question of catching it
+*before* the conversion rather than after.)
 
 **The one-line case for it.** `dicom_header` normalises the two Siemens dialects
 by hand, and the two fields the conversion plan most wants are ones it cannot
@@ -1269,6 +1321,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-07-30 | `#19.1` | **Diffusion is converted, and the cost the item named was a misdiagnosis** — "no `bval`/`bvec` handling" implied duckbrain had to move those files. It does not: dcm2bids 3.2.0's `Dcm2BidsGen.move` globs `<srcRoot>.*` and whitelists `.nii`/`.gz`/`.json`/`.bval`/`.bvec`, so claiming the series is the whole of the work and the item collapsed from a subsystem to an emitter. Read off the pinned container's source, then **proved by converting real multi-shell data** — reading it was not evidence. `_dwi_description` writes `dwi/…_dwi` and, for a `_SBRef` whose sibling is diffusion, `dwi/…_sbref`; it **returns a description unconditionally** where `_anat_description` returns `dict | None`, because an anat's suffix comes from a name vocabulary that can fail to fire and diffusion's cannot — `dir-` is decoration, not a precondition, and a `return None` would drop the commonest single-direction acquisition there is. Three things it deliberately does not do, now `#19.10`: **no `B0FieldSource`** (the decisive reason is reviewability, not "diffusion has no task" — `resolve_fmap_assignments` filters `role != "bold"`, which is what the GUI's fieldmap column renders from, so a binding chosen in the emitter would be applied silently and could not be overridden), no `[expected]` coverage, no NORDIC staging. **The `_SBRef` runs are inherited, never computed independently**: numbering each suffix on its own is right only when repeats are *balanced*, and with references 1/2/3 and volumes 1/3 surviving an aborted middle run, independent numbering makes `dir-AP_run-2_sbref` claim to be the reference for the *third* acquisition — wrong pairing, no warning. `_disambiguate_dwi` numbers the volume series and hands each reference its own sibling's run; the leftover keeps unnumbered entities so `orphan-sbref` names it. The test is written as the *unbalanced* case, because the balanced one proves nothing. **One new failure mode the change created and closed**: `detect_fieldmaps`' name fallback was classification-blind, harmless only while `dwi` emitted nothing — a series named `dwi_topup_ap` (DIFFUSION token classifies it `dwi`, the name matches `topup`) would have been written *twice*, into `dwi/` and `fmap/`, where the collision check cannot see it because the paths differ. The fallback now skips anything already in `EMITTED_CLASSIFICATIONS`, which moved to `dicom_inspect` since `dcm2bids_config` imports that module. Direction widened to `ap\|pa\|rl\|lr` for the emitter only — **fieldmap pairing is untouched**, gated on a named `_PAIRABLE_DIRECTIONS` that is now all `#19.2` has to delete — and the old single warning was split, because "cannot determine direction" became false the moment duckbrain could read `rl` and merely decline to pair it. `PE_FOR_DIR` gained `RL`→`i`, `LR`→`i-`, **measured at two sites rather than derived** (R→L is −x, which would imply `i-`); they are the table's weakest rows, so both the plan check and `consistency._check_pe_direction` — renamed and widened to `dwi/`, since the two must cover the same files — now verify them. `dwi` also became declarable; there is no `dwi/sbref` token and the reason is mechanical and tested: the sibling pass runs after the project tier and reads its bases from `classification == "dwi"`, declarations included, so declaring the volume series reclaims the reference in the same pass. Swept before and after across all 263 sessions on eight dimensions: **zero classification transitions, zero fieldmap-group / fieldmap-warning / `nd_twin_bases` changes, and zero planned files removed or changed** — 2903 → 2995 is +92 additions and nothing else, exactly the 36 (18 LCNI `Round_Robin` sessions) + 56 (8 `mmmsourcedata` sessions) predicted from the source directories, with 92 `dropped` warnings retired and no new warning of any kind. **Converted for real** into `/projects/hulacon/bhutch/dwi_eyeball` — two scanners, because one fixture lets a CMRR-specific assumption pass: `mmmsourcedata/sub-06/ses-01` (4 directions + 4 references, `.bval` 54 volumes across shells 1000/2000/3000) and LCNI `Round_Robin/G16_S01` (RL/LR, no reference, 65 volumes, single shell). `.bval`/`.bvec` landed beside every `_dwi` with no duckbrain code, `.bvec` is 3×N on all six, every derived map logged `No Pairing`, nothing diffusion reached `fmap/`, and **`PhaseEncodingDirection` matched the `dir-` label on all 12 files — `RL`→`i` and `LR`→`i-` independently on both scanners**, which is the confirmation those two `PE_FOR_DIR` rows rest on. A `--force` reconversion rewrote a deleted `.bval` rather than skipping it. **One thing only the conversion could find**: dcm2niix writes `.bval`/`.bvec` for a single-volume diffusion *reference* too, and dcm2bids' move step whitelists extensions without looking at the datatype — so a legal `dwi/…_sbref.nii.gz` drags two files BIDS does not define, and the validator reports NOT_INCLUDED on all 8. Ignored rather than deleted (the validator's own text names `.bidsignore` for this; the content is inert; a delete step would need to exist in both the sbatch template and `run_dcm2bids`), and `_build_dcm2bids` now tops `.bidsignore` up on **every** conversion, since an entry added today would otherwise never reach a project scaffolded yesterday. The validator's remaining complaint is `#15`'s symlinked-DICOM finding, which this re-measured and promoted |
 | 2026-07-30 | `#19.8` | **A scanner that writes no `ND` token hid every duplicate reconstruction it had** — `_nd_twin_groups`' guard skipped any ND-*named* series whose `image_type` was readable and lacked `ND`, reading that silence as "the token means something else at this site". On a beta tester's ABCD tree, where every series reads `('ORIGINAL','PRIMARY','M','NONE')`, it fired on **26 of 26**: both copies of every anatomical converted — `T1w run-1..run-4` where two of the four are one acquisition reconstructed twice — and since `nd_twin_bases` returned `[]`, the Conversion page never offered the reconstruction radio it gates on that call. **Deleting the guard was refused** (a sequence carrying `ND` in its name for unrelated reasons is a real failure mode); it now needs a *contradiction* rather than a failure to confirm. `ND` is Siemens for No Distortion correction, so its complement is what the corrected copy carries, and only `DIS2D`/`DIS3D` overrules an `_ND` name. Only the ND-named side is tested — the corrected twin carries `DIS*` by definition, so checking it would delete the pair on exactly the scanners this fixes. **One of the item's own claims was wrong, and it was the one that would have shaped the validation.** It said the corpus is the only fixture for the guard's original case; it is not — the guard never fires there at all (all 53 LCNI ND-named series carry `ND`, 4 more have no header), so that case has **no measured instance on this filesystem** and what keeps the narrowed guard is the Siemens semantics, not evidence. The code says so rather than implying otherwise. Swept before and after across 263 sessions on all eight dimensions the change could move — classification, planned files, plan warnings, fieldmap groups, fieldmap warnings, `nd_twin_bases`, ticked rows, drop notices. **LCNI corpus (166/166): zero on every one**, 1192 planned files unchanged, and `#19.7`'s 46-of-166 twinned sessions re-confirmed as the harness's own self-test before any diff was read. On `mmmsourcedata` (97) exactly 26 series moved in 11 sessions, two transitions only — `anat/` → `derived/` ×21 and `anat/T2w` → `derived/T2w` ×5, which is the default `corrected` policy finally getting to act — 26 planned anat files gone, 26 drop notices arrived, none of them the empty-twin fallback, and no fieldmap moved. It **corrects** `#13.1`'s ticked-row measurement rather than finishing it: that session goes 10 → **6**, not to 2, because four of the eight rows `#13.1` counted as junk are the genuine anatomicals — `ABCD_T1w_MPR_vNav` really was acquired twice. Zero junk rows remain there, so `#13.1` now rests entirely on its anat-only-curation pass. Tests are synthesised from the real headers of *both* scanners, neither fixture being able to pin the other's shape |
 | 2026-07-30 | `#19.9` | **A diffusion SBRef converted as a pepolar fieldmap half, and functional runs bound to it** — silently wrong preprocessing, not clutter, since fMRIPrep would have estimated the field from two diffusion references and applied it to a BOLD run with nothing complaining. The header tier was not being sloppy and is unchanged: diffusion *is* spin-echo EPI, so a diffusion reference genuinely satisfies `2D and is_epi and is_spin_echo`, and against the real `se_epi_ap_encoding` beside it `is_epi`, `is_spin_echo`, `mr_acquisition_type` and the volume count are identical. `ImageType[2]` is not the discriminator either — `M` on the reference, but 48 of 60 sampled corpus pepolar fieldmaps also read `M`. The fix is the sibling: `_recover_dwi_sbref_from_sibling` strips `_SBRef`, and a base sibling carrying `DIFFUSION` makes this a diffusion reference (`dwi`/`sbref`, `classified_by = "sibling"`). **It is the one place a sibling's header overrules a series' own**, which `_recover_func_from_sbref` refuses to do — the asymmetry is the evidence, not the direction: `DIFFUSION` is a positive statement and what it overturns is a fall-through, so the rule is now stated at both ends. A project declaration still wins over both. Measured before and after across 263 sessions: on the LCNI corpus (166) **nothing changed at all**, as predicted — it holds zero diffusion SBRefs across all 2139 series directories, which is why the tests are synthesised from the real `mmmsourcedata` headers rather than from a corpus run. On `mmmsourcedata` exactly 28 series moved, one transition only (`fmap/epi` → `dwi/sbref`), the spurious `cmrr_diff_3shell_sbref` group was the only group removed and none was added, and 12 direction warnings went to 0. All 10 bindings the item named are corrected: `sub-06`/`sub-07` `ses-01` now bind the resting run and its reference to the real `encoding` pair, `sub-03`/`04`/`05` to nothing, which is right because those sessions contain no fieldmap. Two neighbours moved with it — `#19.2` is unblocked (the `rl`/`lr` references escaped pairing only through going unrecognised, so widening `dir-` first would have built a second spurious pair), and `#13.1`'s ABCD session drops from 14 ticked rows to 10, leaving `#19.8` — closed the same day, and it found that measurement overcounted — as the remainder |
 | 2026-07-30 | `#13.1` | **The `Type` column is editable, and a correction generalizes to the study** — a `SelectboxColumn` plus a new `[series_types]` project section read by `classify_series` as a tier above header and name (`core/series_types.py`, `save_project_series_types`). The item's own warning about the write-back was right and its fix was not: the edit is read **above** `classify_series`, so `detect_fieldmaps`, the task/run seeding, the fieldmap bindings and `generate_config`'s dispatch all see one datatype instead of the column and the emission following different ones — there is no second copy to keep in sync. `generate_session_config` takes `type_rules` for the same reason it takes `fmap_rules`, or bulk convert would write a different datatype than the one reviewed. Three refusals carry the honesty. **An anat declaration names its suffix** (`anat/T1w`): `_anat_description` reads the suffix off the *name* vocabulary and returns `None` when nothing fires, so a bare `anat` on a study-specific label writes nothing and says nothing — and the declaration outranks that vocabulary, where `suffix_hint` deliberately cannot, or a misread `t1w_mprage` would be uncorrectable. **`fmap` and `dwi` are not declarable**, since a label alone can't make either emit (pairing reads the direction from the description; `#19.1`). **A non-declarable pick is refused by name** rather than accepted and ignored — the dropdown must still *offer* the inferred classifications because a select cell cannot render a value outside its options. The `convert` checkbox stayed the way to drop a series. One neighbouring silence closed on the way: the one-shot JSON import now reports a datatype it will not carry over, which it had always dropped under a banner saying the JSON had loaded |

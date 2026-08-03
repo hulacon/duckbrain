@@ -312,6 +312,46 @@ def test_bidsignore_covers_dcm2bids_working_dir(tmp_path):
     assert "work/" in entries
 
 
+def test_bidsignore_covers_the_companions_a_diffusion_sbref_drags_along(tmp_path):
+    """BIDS defines `.bval`/`.bvec` for the `_dwi` suffix only, but dcm2niix writes
+    them for a single-volume diffusion reference too and dcm2bids' move step
+    whitelists extensions without looking at the datatype. duckbrain asks for a
+    legal `dwi/…_sbref.nii.gz` and gets two illegal companions it cannot decline.
+    Found by converting real multi-shell data for `#19.1`."""
+    from duckbrain.config import write_bidsignore
+
+    write_bidsignore(tmp_path)
+    entries = (tmp_path / ".bidsignore").read_text().split()
+    assert "*_sbref.bval" in entries
+    assert "*_sbref.bvec" in entries
+
+
+def test_a_conversion_tops_up_bidsignore_for_a_project_scaffolded_earlier(tmp_path):
+    """Entries added after a project was created still have to reach it, or a
+    tree that acquired diffusion fails validation with nothing to explain why."""
+    from duckbrain.config import load_config, scaffold_project, write_bidsignore
+    from duckbrain.core.pipeline import _build_dcm2bids
+
+    scaffold_project(tmp_path)
+    # A project from before the entry existed.
+    (tmp_path / ".bidsignore").write_text("work/\ntmp_dcm2bids/\n")
+    config = load_config(project_dir=str(tmp_path))
+
+    session = tmp_path / "sourcedata" / "sub-01" / "dicom"
+    session.mkdir(parents=True)
+    (session / "dcm2bids_config.json").write_text("{}")
+    (tmp_path / "sourcedata" / "sub-01" / "dcm2bids_config.json").write_text('{"descriptions": []}')
+    try:
+        _build_dcm2bids(config, "01", "", str(tmp_path / "code" / "logs"), {})
+    except Exception:
+        # Container resolution may fail in a bare tmp project; the top-up runs first.
+        pass
+
+    assert "*_sbref.bval" in (tmp_path / ".bidsignore").read_text().split()
+    write_bidsignore(tmp_path)  # still idempotent afterwards
+    assert (tmp_path / ".bidsignore").read_text().count("*_sbref.bval") == 1
+
+
 # ---- TODO #17.1 / #17.2: saving must not destroy, settings must take effect ---
 
 

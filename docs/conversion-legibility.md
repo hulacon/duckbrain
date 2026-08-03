@@ -205,11 +205,15 @@ version:
   `suffix_hint`, which is consulted last precisely so it can never relabel a
   series the name already named. Correcting a misread `t1w_mprage` is impossible
   otherwise.
-- **`fmap` and `dwi` are not declarable.** `_fmap_description` only writes for a
-  series `detect_fieldmaps` has already paired, and pairing reads the
-  phase-encoding direction out of the description; `dwi` has no emission path at
-  all (`#19.1`). A dropdown value that cannot produce a file is the
-  silently-degrading option `CLAUDE.md` forbids.
+- **`fmap` is not declarable.** `_fmap_description` only writes for a series
+  `detect_fieldmaps` has already paired, and pairing reads the phase-encoding
+  direction out of the description. A dropdown value that cannot produce a file is
+  the silently-degrading option `CLAUDE.md` forbids. `dwi` was refused for the
+  same reason until it gained an emission path; it is now declarable, with a fixed
+  suffix. There is still no `dwi/sbref` token, and the reason is mechanical:
+  `_recover_dwi_sbref_from_sibling` runs *after* the project tier and reads its
+  bases from `classification == "dwi"`, declarations included, so declaring the
+  volume series reclaims its `_SBRef` sibling in the same pass.
 - **Per-session was the wrong grain.** A scanner label duckbrain misreads is
   misread for every subject, so the rule is keyed on description and persisted to
   `[series_types]`, read by `classify_series` as a tier above header and name —

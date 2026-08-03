@@ -156,6 +156,7 @@ if not dicom_dir.exists():
         st.stop()
 
 from duckbrain.core.dicom_inspect import (
+    EMITTED_CLASSIFICATIONS,
     ND_POLICIES,
     list_series,
     classify_series,
@@ -382,7 +383,6 @@ if fieldmaps.warnings:
 # had to join series numbers, task labels and group names by eye. See TODO #13 /
 # docs/conversion-legibility.md.
 from duckbrain.core.dcm2bids_config import (
-    EMITTED_CLASSIFICATIONS,
     # The opt-out sentinel, taken from the module that acts on it rather than
     # respelled here: this page writes the value, generate_config reads it, and a
     # second copy of the literal is a place for them to disagree quietly.
@@ -1028,9 +1028,11 @@ st.data_editor(
             "verdict is a bug to report rather than something to paper over. "
             "An anatomical names its BIDS suffix, because `anat` alone doesn't "
             "say which file to write. Not a way to drop a series: untick "
-            "`convert` for that. Types duckbrain can't write from a label alone "
-            "(`fmap`, `dwi`) aren't offered — a fieldmap has to be *paired*, and "
-            "diffusion has no conversion path yet.",
+            "`convert` for that. `fmap` isn't offered, because a label alone "
+            "can't write one — a fieldmap has to be *paired*, so a missed one "
+            "needs a detection rule instead. Declaring a diffusion series `dwi` "
+            "also reclaims its `_SBRef` sibling, so there's no separate value "
+            "for that.",
             width="medium",
         ),
         "Type from": st.column_config.TextColumn(
@@ -1049,8 +1051,8 @@ st.data_editor(
             "then reads *not converted* and no file is written for it. Unticking "
             "one half of a fieldmap pair removes the whole pair, since a field is "
             "estimated from both halves or not at all. Rows duckbrain has no way "
-            "to convert (scouts, physio logs, diffusion) start unticked and "
-            "ticking them changes nothing.",
+            "to convert (scouts, physio logs, the scanner's derived maps) start "
+            "unticked and ticking them changes nothing.",
             width="small",
         ),
         "run": st.column_config.NumberColumn("run", min_value=1, step=1, format="%d"),

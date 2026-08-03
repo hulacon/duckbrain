@@ -10,7 +10,7 @@ something real about the acquisition.
 
 import json
 
-from duckbrain.core.consistency import _check_fmap_pe_direction
+from duckbrain.core.consistency import _check_pe_direction
 from duckbrain.core.dcm2bids_config import generate_config
 from duckbrain.core.dicom_inspect import FieldmapDetection, SeriesInfo
 
@@ -45,8 +45,8 @@ def test_fmap_descriptions_do_not_overwrite_phase_encoding_direction():
 # ---- and a name/header disagreement is reported instead ----
 
 
-def _fmap_sidecar(root, name, ped):
-    d = root / "sub-001" / "fmap"
+def _fmap_sidecar(root, name, ped, datatype="fmap"):
+    d = root / "sub-001" / datatype
     d.mkdir(parents=True, exist_ok=True)
     (d / name).write_text(json.dumps({"PhaseEncodingDirection": ped}))
 
@@ -58,16 +58,16 @@ def _config(root):
 def test_matching_direction_is_silent(tmp_path):
     _fmap_sidecar(tmp_path, "sub-001_dir-AP_epi.json", "j-")
     _fmap_sidecar(tmp_path, "sub-001_dir-PA_epi.json", "j")
-    assert _check_fmap_pe_direction(_config(tmp_path)) == []
+    assert _check_pe_direction(_config(tmp_path)) == []
 
 
 def test_mismatch_is_flagged_against_the_label_not_the_header(tmp_path):
     """A series named AP whose header says PA: the label is the suspect one."""
     _fmap_sidecar(tmp_path, "sub-001_dir-AP_epi.json", "j")
-    issues = _check_fmap_pe_direction(_config(tmp_path))
+    issues = _check_pe_direction(_config(tmp_path))
 
     assert len(issues) == 1
-    assert issues[0].check == "fmap-pe-direction"
+    assert issues[0].check == "pe-direction"
     assert issues[0].subject == "001"
     assert "header is authoritative" in issues[0].message
 
@@ -77,17 +77,40 @@ def test_a_sidecar_without_the_field_is_not_a_finding(tmp_path):
     d = tmp_path / "sub-001" / "fmap"
     d.mkdir(parents=True)
     (d / "sub-001_dir-AP_epi.json").write_text("{}")
-    assert _check_fmap_pe_direction(_config(tmp_path)) == []
+    assert _check_pe_direction(_config(tmp_path)) == []
 
 
 def test_missing_bids_dir_is_not_a_finding(tmp_path):
-    assert _check_fmap_pe_direction({"paths": {"bids_dir": str(tmp_path / "nope")}}) == []
+    assert _check_pe_direction({"paths": {"bids_dir": str(tmp_path / "nope")}}) == []
 
 
 def test_unknown_dir_entity_is_ignored(tmp_path):
-    """Only the directions duckbrain emits are checked; LR/RL aren't its business."""
+    """A direction with no entry in the table is skipped, not guessed at."""
+    _fmap_sidecar(tmp_path, "sub-001_dir-IS_epi.json", "k")
+    assert _check_pe_direction(_config(tmp_path)) == []
+
+
+def test_lr_is_checked_now_that_diffusion_is_labelled_with_it(tmp_path):
+    """``LR``/``RL`` entered the table with `#19.1`, so they stopped being ignored.
+
+    They are also the table's least certain rows — measured at two sites rather
+    than derived — which is the reason to check them against real headers rather
+    than to exempt them.
+    """
     _fmap_sidecar(tmp_path, "sub-001_dir-LR_epi.json", "i")
-    assert _check_fmap_pe_direction(_config(tmp_path)) == []
+    assert len(_check_pe_direction(_config(tmp_path))) == 1
+
+
+def test_diffusion_carries_the_same_label_and_gets_the_same_check(tmp_path):
+    """The plan-time check and this one must cover the same files, or a
+    mislabelled conversion passes one and is never seen by the other."""
+    _fmap_sidecar(tmp_path, "sub-001_dir-RL_dwi.json", "i", datatype="dwi")
+    _fmap_sidecar(tmp_path, "sub-001_dir-LR_dwi.json", "i", datatype="dwi")
+
+    issues = _check_pe_direction(_config(tmp_path))
+
+    # dir-RL reads `i` as expected; dir-LR should read `i-` and does not.
+    assert [i.message.split("`")[1] for i in issues] == ["sub-001_dir-LR_dwi.json"]
 
 
 # ---- dcm2bids runs the validator itself ----

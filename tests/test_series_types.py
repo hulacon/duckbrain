@@ -69,9 +69,9 @@ def test_an_anat_declaration_must_name_its_suffix():
         parse_type_token("anat/PROTON")
 
 
-@pytest.mark.parametrize("token", ["fmap", "fmap/epi", "dwi", "scout", "physio", "unknown", ""])
+@pytest.mark.parametrize("token", ["fmap", "fmap/epi", "scout", "physio", "unknown", ""])
 def test_a_type_a_label_alone_cannot_make_emit_is_refused(token):
-    """fmap needs a *pair*, dwi has no emission path, and the rest are not-converting.
+    """fmap needs a *pair*, and the rest are not-converting.
 
     Each is offered by the Conversion page's dropdown only because a Selectbox
     cell cannot render a value absent from its options — picking one is refused
@@ -79,6 +79,34 @@ def test_a_type_a_label_alone_cannot_make_emit_is_refused(token):
     """
     with pytest.raises(ValueError):
         parse_type_token(token)
+
+
+def test_diffusion_is_declarable_with_a_fixed_suffix():
+    """`#19.1` gave `dwi` an emission path, so the refusal it used to carry went."""
+    assert parse_type_token("dwi") == ("dwi", "dwi")
+    assert "dwi" in DECLARABLE_TYPES
+
+
+def test_declaring_a_diffusion_reference_is_refused_because_the_sibling_rule_does_it():
+    """There is no `dwi/sbref` token, and the reason is mechanical rather than taste.
+
+    `_recover_dwi_sbref_from_sibling` runs *after* the project tier and reads its
+    bases from `classification == "dwi"`, declarations included — so naming the
+    volume series is what recovers the reference, and a second token would have
+    nothing left to say.
+    """
+    with pytest.raises(ValueError, match="always written"):
+        parse_type_token("dwi/sbref")
+
+
+def test_declaring_the_volume_series_recovers_its_reference_sibling():
+    """The claim the refusal above rests on, checked rather than asserted."""
+    volume, reference = _series(1, "study_diffusion"), _series(2, "study_diffusion_SBRef")
+    classify_series([volume, reference], type_rules=[TypeRule("study_diffusion", "dwi", "dwi")])
+
+    assert (volume.classification, volume.classified_by) == ("dwi", "project")
+    assert (reference.classification, reference.suffix_hint) == ("dwi", "sbref")
+    assert reference.classified_by == "sibling"
 
 
 def test_declaring_a_func_series_as_an_sbref_file_is_refused():

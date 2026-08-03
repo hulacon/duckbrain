@@ -564,3 +564,173 @@ def test_resolve_reports_none_rather_than_omitting_the_task():
 def test_resolve_is_empty_for_an_unbound_session_without_fieldmaps():
     _, fmaps, mapping = _no_fmap_session()
     assert resolve_fmap_assignments(mapping, fmaps) == {}
+
+
+# ---- diffusion (TODO #19.1) ----
+
+
+def _dwi(num, desc, reference=False, acq=""):
+    s = _series(num, desc, "dwi", n=104 if not reference else 1)
+    if reference:
+        s.suffix_hint = "sbref"
+    s.acq_label = acq
+    return s
+
+
+def _dwi_plan(series):
+    """The `(path, id)` of every dwi description, in series order."""
+    cfg = generate_config(series, FieldmapDetection(strategy="none"), subject="X", session="01")
+    return [
+        (d["criteria"]["SeriesNumber"], d["suffix"], d.get("custom_entities", ""), d["id"])
+        for d in cfg["descriptions"]
+        if d["datatype"] == "dwi"
+    ]
+
+
+def test_a_diffusion_series_with_no_direction_token_still_emits():
+    """`_dwi_description` returns a description unconditionally, unlike the anat
+    emitter. `dir-` is decoration, not a precondition — a `return None` here would
+    drop the commonest single-direction acquisition there is."""
+    assert _dwi_plan([_dwi(4, "ep2d_diff_mddw")]) == [(4, "dwi", "", "dwi-dwi")]
+
+
+def test_four_directions_get_four_distinct_files_and_no_run_entity():
+    """The mmmsourcedata fixture's shape: one sequence, four phase encodings.
+    Nothing repeats, so nothing is numbered."""
+    series = [
+        _dwi(n, f"cmrr_diff_3shell_{d}")
+        for n, d in ((23, "ap"), (32, "pa"), (41, "rl"), (50, "lr"))
+    ]
+
+    assert _dwi_plan(series) == [
+        (23, "dwi", "dir-AP", "dwi-dwi-ap"),
+        (32, "dwi", "dir-PA", "dwi-dwi-pa"),
+        (41, "dwi", "dir-RL", "dwi-dwi-rl"),
+        (50, "dwi", "dir-LR", "dwi-dwi-lr"),
+    ]
+
+
+def test_a_diffusion_reference_is_written_as_an_sbref_beside_its_volume_series():
+    series = [
+        _dwi(22, "cmrr_diff_3shell_ap_SBRef", reference=True),
+        _dwi(23, "cmrr_diff_3shell_ap"),
+    ]
+
+    assert _dwi_plan(series) == [
+        (22, "sbref", "dir-AP", "dwi-sbref-ap"),
+        (23, "dwi", "dir-AP", "dwi-dwi-ap"),
+    ]
+
+
+def test_an_nd_twin_puts_acq_before_dir():
+    """BIDS fixes the order and dcm2bids writes `custom_entities` through verbatim.
+    The ND machinery is classification-agnostic, so diffusion really does arrive
+    here carrying an `acq_label` under `nd_duplicates = "both"`."""
+    series = [
+        _dwi(23, "cmrr_diff_3shell_ap", acq="dis"),
+        _dwi(24, "cmrr_diff_3shell_ap_ND", acq="nd"),
+    ]
+
+    assert [entities for _, _, entities, _ in _dwi_plan(series)] == [
+        "acq-dis_dir-AP",
+        "acq-nd_dir-AP",
+    ]
+
+
+def test_a_repeated_direction_is_numbered_and_its_references_follow_their_own_volume():
+    """**The unbalanced case, which is the only one that proves anything.**
+
+    Three references, but the middle volume series was aborted and is not in the
+    session. Numbering each suffix independently would give the references
+    run-1/2/3 and the volumes run-1/2, so `dir-AP_run-2_sbref` would claim to be
+    the reference for the *third* acquisition — wrong pairing, no warning. Each
+    reference must take the run of the volume series it actually belongs to.
+    """
+    series = [
+        _dwi(1, "cmrr_diff_ap_SBRef", reference=True),
+        _dwi(2, "cmrr_diff_ap"),
+        _dwi(3, "cmrr_diff_ap_SBRef", reference=True),  # its volume series aborted
+        _dwi(5, "cmrr_diff_ap_SBRef", reference=True),
+        _dwi(6, "cmrr_diff_ap"),
+    ]
+
+    assert _dwi_plan(series) == [
+        (1, "sbref", "dir-AP_run-1", "dwi-sbref-ap-run1"),
+        (2, "dwi", "dir-AP_run-1", "dwi-dwi-ap-run1"),
+        (3, "sbref", "dir-AP", "dwi-sbref-ap"),
+        (5, "sbref", "dir-AP_run-2", "dwi-sbref-ap-run2"),
+        (6, "dwi", "dir-AP_run-2", "dwi-dwi-ap-run2"),
+    ]
+
+
+def test_the_reference_left_over_is_reported_as_an_orphan_rather_than_renumbered():
+    """It keeps unnumbered entities, so it matches no volume series and the plan's
+    `orphan-sbref` check names it — the honest outcome for a reference whose
+    volume series is not being written."""
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+
+    series = [
+        _dwi(1, "cmrr_diff_ap_SBRef", reference=True),
+        _dwi(2, "cmrr_diff_ap"),
+        _dwi(3, "cmrr_diff_ap_SBRef", reference=True),
+        _dwi(5, "cmrr_diff_ap_SBRef", reference=True),
+        _dwi(6, "cmrr_diff_ap"),
+    ]
+    detection = FieldmapDetection(strategy="none")
+    cfg = generate_config(series, detection, subject="X", session="01")
+    plan = plan_conversion(cfg, series, subject="X", session="01")
+
+    orphans = [w for w in plan_warnings(plan, detection) if w.kind == "orphan-sbref"]
+    assert [w.series for w in orphans] == [[3]]
+    assert "no DWI run is being written" in orphans[0].message
+
+
+def test_skipping_a_volume_series_leaves_its_reference_an_orphan():
+    """The `convert` checkbox became live for diffusion the moment it could emit,
+    so unticking one row of a pair is reachable — and is what this reports."""
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+
+    series = [_dwi(22, "cmrr_diff_ap_SBRef", reference=True), _dwi(23, "cmrr_diff_ap")]
+    detection = FieldmapDetection(strategy="none")
+    cfg = generate_config(series, detection, subject="X", session="01", skip=[23])
+    plan = plan_conversion(cfg, series, subject="X", session="01")
+
+    assert [f.series_number for f in plan.files] == [22]
+    assert [w.kind for w in plan_warnings(plan, detection) if w.kind == "orphan-sbref"] == [
+        "orphan-sbref"
+    ]
+
+
+def test_diffusion_carries_no_b0_field_source():
+    """Deliberate: `resolve_fmap_assignments` renders the GUI's fieldmap column
+    from `role == "bold"` only, so a binding chosen here would be applied silently
+    and could not be overridden. See `_dwi_description`."""
+    series = [
+        _series(5, "se_epi_ap", "fmap", n=3),
+        _series(6, "se_epi_pa", "fmap", n=3),
+        _dwi(23, "cmrr_diff_3shell_ap"),
+    ]
+    fmaps = detect_fieldmaps(series)
+    cfg = generate_config(series, fmaps, subject="X", session="01")
+
+    (dwi,) = [d for d in cfg["descriptions"] if d["datatype"] == "dwi"]
+    assert "sidecar_changes" not in dwi
+    # The fieldmap pair itself is untouched by any of this.
+    assert fmaps.groups == {"": {"ap": 5, "pa": 6}}
+
+
+def test_anat_and_diffusion_disambiguate_independently():
+    """Two T1w repeats and two same-direction diffusion repeats in one session:
+    each datatype numbers within itself and neither leaks into the other."""
+    series = [
+        _series(1, "mprage", "anat"),
+        _series(2, "mprage", "anat"),
+        _dwi(3, "cmrr_diff_ap"),
+        _dwi(4, "cmrr_diff_ap"),
+    ]
+    cfg = generate_config(series, FieldmapDetection(strategy="none"), subject="X", session="01")
+    entities = {
+        d["criteria"]["SeriesNumber"]: d.get("custom_entities", "") for d in cfg["descriptions"]
+    }
+
+    assert entities == {1: "run-1", 2: "run-2", 3: "dir-AP_run-1", 4: "dir-AP_run-2"}

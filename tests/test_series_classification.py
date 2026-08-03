@@ -911,15 +911,18 @@ def test_distortion_named_pairs_are_detected_as_pepolar():
 @pytest.mark.parametrize(
     "description", ["RL_diff_m2p2_64_2mm_rl", "ep2d_diff_mddw", "DTI_64dir", "dwi_b1000"]
 )
-def test_diffusion_series_are_named_even_though_they_cannot_be_converted(description):
+def test_diffusion_series_are_named(description):
     assert dicom_inspect._classify_one(description) == "dwi"
 
 
-def test_the_plan_says_why_an_unconvertible_datatype_was_dropped():
+def test_the_plan_says_why_an_unpairable_fieldmap_was_dropped():
     """'classified unknown' reads as a naming problem the user could fix.
 
-    A gradient-echo fieldmap and a diffusion series are not that: duckbrain
-    recognises both and cannot express either, and the warning has to say so.
+    A gradient-echo half is not that: duckbrain recognises it and cannot express
+    it without its partner, and the warning has to say so.
+
+    Diffusion used to be the second example here and is now the counter-example —
+    `#19.1` gave it an emission path, so it is planned rather than explained away.
     """
     from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
 
@@ -929,7 +932,46 @@ def test_the_plan_says_why_an_unconvertible_datatype_was_dropped():
     plan = plan_conversion(config, series, subject="X", session="")
     messages = " ".join(w.message for w in plan_warnings(plan, detection))
     assert "gradient-echo" in messages
-    assert "bval/bvec" in messages
+
+    assert [f.path for f in plan.files if f.datatype == "dwi"] == ["sub-X/dwi/sub-X_dwi.nii.gz"]
+    assert 12 not in {d.series_number for d in plan.dropped}
+
+
+def test_a_diffusion_series_named_like_a_fieldmap_is_not_paired():
+    """One series, one file. The name fallback in `detect_fieldmaps` matches any
+    description holding `topup`, and it used to be classification-blind — harmless
+    only while `dwi` emitted nothing. With an emission path it would write the
+    series twice, into `dwi/` *and* `fmap/`, where the collision check cannot see
+    it because the two paths differ.
+    """
+    from duckbrain.core.conversion_plan import plan_conversion
+
+    # The header tier is what calls this `dwi`; the name alone would read `fmap`,
+    # since the fieldmap vocabulary is tested before the diffusion one.
+    series = _series((7, "dwi_topup_ap"), (8, "dwi_topup_pa"))
+    for s in series:
+        s.classification, s.classified_by = "dwi", "header"
+
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="X", session="")
+    plan = plan_conversion(config, series, subject="X", session="")
+
+    assert detection.groups == {}
+    assert sorted(f.path for f in plan.files) == [
+        "sub-X/dwi/sub-X_dir-AP_dwi.nii.gz",
+        "sub-X/dwi/sub-X_dir-PA_dwi.nii.gz",
+    ]
+
+
+def test_a_direction_that_is_recognised_but_unpairable_says_which_it_is():
+    """Widening the token vocabulary to LR/RL for `#19.1` made the old single
+    message false: duckbrain *does* read `rl` off the name and then declines to
+    pair it. Two facts, two messages."""
+    series = _series((5, "se_epi_rl"), (6, "se_epi_lr"))
+    warnings = " ".join(dicom_inspect.detect_fieldmaps(series).warnings)
+
+    assert "pairs only AP/PA" in warnings
+    assert "Cannot determine direction" not in warnings
 
 
 # --- gradient-echo fieldmaps -----------------------------------------------

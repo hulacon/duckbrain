@@ -19,19 +19,24 @@ an anatomical, without saying which one, would write no file and say nothing —
 the failure the control exists to prevent, reintroduced by the control. An anat
 declaration therefore names its suffix and the emitter takes it verbatim.
 
-**Two datatypes are deliberately not declarable**, because a label alone cannot
-make either of them emit — offering them would be the silently-degrading option
-``CLAUDE.md`` forbids:
+**``fmap`` is deliberately not declarable**, because a label alone cannot make it
+emit — offering it would be the silently-degrading option ``CLAUDE.md`` forbids.
+:func:`~duckbrain.core.dcm2bids_config._fmap_description` only writes for a series
+:func:`~duckbrain.core.dicom_inspect.detect_fieldmaps` has already paired, and
+pairing reads the phase-encoding direction out of the description. A series whose
+name carries no direction gets no pair and so no file however it is labelled; the
+fix for a missed fieldmap is a detection rule, not a declaration.
 
-``fmap``
-    :func:`~duckbrain.core.dcm2bids_config._fmap_description` only writes for a
-    series :func:`~duckbrain.core.dicom_inspect.detect_fieldmaps` has already
-    paired, and pairing reads the phase-encoding direction out of the
-    description. A series whose name carries no direction gets no pair and so no
-    file however it is labelled; the fix for a missed fieldmap is a detection
-    rule, not a declaration.
-``dwi``
-    duckbrain has no diffusion emission path at all (``TODO.md`` ``#19.1``).
+``dwi`` *is* declarable, and its suffix is fixed. What is **not** offered is a
+separate ``dwi/sbref`` token, and the reason is mechanical rather than a
+judgement call: :func:`~duckbrain.core.dicom_inspect._recover_dwi_sbref_from_sibling`
+runs after the project tier and reads its ``dwi`` bases from
+``classification == "dwi"``, which includes declared series. So declaring the
+*volume* series ``dwi`` recovers its ``_SBRef`` sibling in the same pass, with
+``suffix_hint`` already set to ``sbref``. A second token would have nothing left
+to say. The residue — a diffusion reference whose volume series is absent from
+the session — is undeclarable on purpose: it is an orphan, and the plan's
+``orphan-sbref`` check is what names it.
 
 The non-emitting classifications (``scout``, ``physio``, ``derived``,
 ``unknown``) are not declarable either, and that is a separate point: they are
@@ -64,7 +69,10 @@ BIDS_ANAT_SUFFIX_NAMES = (
 BIDS_ANAT_SUFFIXES = {s.lower(): s for s in BIDS_ANAT_SUFFIX_NAMES}
 
 # Datatypes whose output suffix is fixed, so a declaration needs no second half.
-FIXED_SUFFIXES = {"func": "bold", "sbref": "sbref"}
+# ``dwi`` belongs here rather than beside ``anat``: a diffusion series is written
+# ``dwi/..._dwi``, and the one other suffix that datatype has (``sbref``) is
+# reached by the sibling rule, never by declaration — see the module docstring.
+FIXED_SUFFIXES = {"func": "bold", "sbref": "sbref", "dwi": "dwi"}
 
 SEPARATOR = "/"
 

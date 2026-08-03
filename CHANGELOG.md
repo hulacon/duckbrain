@@ -12,6 +12,37 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **Diffusion is converted.** `dwi` was a datatype duckbrain recognised and then
+  dropped, with the plan explaining why. It now writes
+  `dwi/sub-X[_ses-Y][_acq-Z][_dir-D][_run-N]_dwi.nii.gz`, and a diffusion
+  reference (a `_SBRef` series whose volume sibling is diffusion) is written
+  beside it as `_sbref` rather than mistaken for half a fieldmap.
+
+  **The `.bval` and `.bvec` come with it, and needed no code.** The open item
+  described the cost as "no bval/bvec handling"; that was a misdiagnosis. dcm2bids
+  moves every companion dcm2niix produced — its `move` step globs the source
+  basename and whitelists `.nii`/`.gz`/`.json`/`.bval`/`.bvec` — so claiming the
+  series was the whole of the work. Verified by converting real multi-shell data
+  rather than by reading the source.
+
+  `dir-` now covers `LR`/`RL` as well as `AP`/`PA`, because diffusion is routinely
+  acquired in four directions. **Fieldmap *pairing* is unchanged** and still
+  AP/PA-only: no data on hand holds an LR/RL fieldmap to validate that against, so
+  `detect_fieldmaps` now recognises such a direction and says it will not pair it,
+  where before it said it could not read it.
+
+  `dwi` also became a value you can declare in the `Type` column. Declaring the
+  volume series reclaims its `_SBRef` sibling automatically, so there is no
+  separate value for the reference.
+
+  One consequence surfaced only by converting: BIDS defines `.bval`/`.bvec` for
+  the `_dwi` suffix, but dcm2niix writes them for a single-volume diffusion
+  *reference* as well and dcm2bids moves companions without looking at the
+  datatype — so a legal `dwi/…_sbref.nii.gz` arrives with two files the validator
+  rejects. `.bidsignore` now covers them, and **every conversion tops that file
+  up** rather than only newly created projects, so a project made before this
+  release gets the entry the first time it converts.
+
 - **The Conversion page's `Type` column is editable, and a correction can be
   saved for the whole study.** Until now the only way to fix a datatype duckbrain
   read wrong was to hand-edit the dcm2bids JSON. The column is now a dropdown,
@@ -25,10 +56,10 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   vocabulary, which for a study-specific label fires nothing and drops the series
   without a word — so declaring `food_r1` an anatomical would write no file, the
   exact failure the control exists to prevent. A declaration therefore outranks
-  the name, where the header's suffix hint deliberately does not. **`fmap` and
-  `dwi` are not offered**, because a label alone cannot make either emit: a
-  fieldmap has to be *paired* (the direction is read from the description) and
-  diffusion has no conversion path yet.
+  the name, where the header's suffix hint deliberately does not. **`fmap` is not
+  offered**, because a label alone cannot make it emit: a fieldmap has to be
+  *paired*, and the direction is read from the description, so a missed one needs
+  a detection rule rather than a declaration.
 
   The dropdown still lists the classifications duckbrain inferred for the session
   — a select cell cannot render a value outside its options — and picking one of
@@ -41,6 +72,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   import runs downstream of, so a config converting a series as something else
   lost that on regeneration — silently, under a banner saying the JSON had
   loaded.
+
+- **A session you regenerate a config for may grade `PARTIAL` where it graded
+  `COMPLETE`.** The Project Status board counts converted NIfTIs per datatype
+  against the saved config's descriptions, so a session that acquired diffusion
+  now *expects* a `dwi/` tree it does not yet have. Regenerating the config is
+  what moves it, not the upgrade itself — a session whose saved config is
+  untouched reads exactly as before. Reconvert to clear it.
 
 ### Fixed
 

@@ -59,7 +59,17 @@ _TIMEOUT_S = 120
 # consumers import it from here rather than keeping a copy: the plan-time check
 # and the post-conversion one have to agree, or a conversion passes one and
 # fails the other. See ``TODO`` ``#19.2`` for the general case.
-PE_FOR_DIR = {"AP": "j-", "PA": "j"}
+#
+# **RL/LR are measured, not derived, and that is a weaker footing than AP/PA.**
+# ``AP``→``j-`` is a naming convention that happens to agree with anatomy. R→L
+# phase encoding is −x, which would imply ``i-``; both the ABCD-protocol tree at
+# /projects/hulacon/shared/mmmsourcedata and the LCNI corpus's ``Round_Robin``
+# diffusion nonetheless read ``rl``→``i`` and ``lr``→``i-``, at two different
+# sites. Two agreeing studies is what these rows rest on, so they are the rows
+# most likely to invert somewhere else — which costs a false *warning* and never
+# deformed data, since the only consumers compare and report. The message already
+# offers "or it isn't an axial acquisition" as the alternative reading.
+PE_FOR_DIR = {"AP": "j-", "PA": "j", "RL": "i", "LR": "i-"}
 
 # dcm2niix appends these to the ``%b`` basename when one input yields more than
 # one output — a second echo, or the phase image of a gradient-echo pair. The
