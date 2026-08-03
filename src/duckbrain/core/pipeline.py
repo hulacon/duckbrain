@@ -134,6 +134,11 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
                 fmap_rules=fmap_rules,
                 nd_duplicates=nd_policy_from_config(config),
                 type_rules=type_rules_from_config(config),
+                # The same image this session will convert through, so the
+                # preflight's phase-encoding check reads the build that will do
+                # the work. Without it this path checks less than the reviewed
+                # one and submits what the Conversion page refuses.
+                container=container_path,
             ),
             cfg_path,
         )

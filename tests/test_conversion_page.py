@@ -158,6 +158,10 @@ def test_the_panel_says_when_the_phase_encoding_could_not_be_checked(project, mo
     captions = [c.value for c in at.caption]
     assert any("Phase encoding was not checked" in c for c in captions)
     assert any("not on PATH" in c for c in captions)
+    # And the bulk expander says it once up front, which is the honest moment to
+    # learn a check won't run for a batch of 95 sessions — after submitting is
+    # too late, and per-session is 95 identical notices.
+    assert any("will not run for these sessions" in c for c in captions)
 
 
 def test_a_contradicting_phase_encoding_is_reported_before_conversion(probed):

@@ -189,6 +189,7 @@ def generate_session_config(
     nd_duplicates: str = "corrected",
     skip: Collection[int] | None = None,
     type_rules: list | None = None,
+    container: str | Path | None = None,
 ) -> dict:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
@@ -227,6 +228,23 @@ def generate_session_config(
     convert: ``pipeline._build_converted`` reuses that file rather than calling
     this, and a skipped series is simply absent from it.
 
+    ``container`` is the dcm2bids image to probe with dcm2niix, and it is also
+    the switch: ``None`` means don't probe, so a caller with no config never pays
+    for a subprocess it didn't ask for. It reaches here for the same reason
+    ``rules``, ``fmap_rules``, ``nd_duplicates`` and ``type_rules`` do — a bulk
+    convert that checked less than the reviewed path would submit exactly what
+    the GUI refuses, which is the divergence that already shipped once with
+    collisions. The preference is ``probe_runtime``'s: the pinned image, else a
+    host ``dcm2niix``.
+
+    A probe that *cannot* run warns and converts anyway. Refusing would be wrong
+    here specifically because submission and conversion happen on different
+    machines: the login node or OOD app that runs this may have no container
+    runtime while the compute node that runs dcm2bids does, so a refusal would
+    block a study that converts perfectly well. Nothing on this path claims the
+    check ran — the claim lives in the Conversion page's panel, which says so
+    itself — so this is not the silently-degrading class ``CLAUDE.md`` forbids.
+
     Raises ``ValueError`` if two series would be written to the same BIDS file.
     The interactive page renders that as an error and lets a human resolve it,
     but nothing rendered warnings on this path, so a bulk or cockpit convert
@@ -234,9 +252,12 @@ def generate_session_config(
     silent partial conversion, which is the failure mode this project treats as
     worse than a refusal.
     """
+    import warnings
+
     from .dicom_inspect import list_series, classify_series, detect_fieldmaps
     from .dcm2bids_config import build_task_run_mapping, generate_config
     from .conversion_plan import plan_conversion, plan_warnings
+    from .dcm2niix_probe import by_series_number, probe_runtime, probe_session
 
     if series_list is None:
         series_list = list_series(dicom_dir)
@@ -255,8 +276,25 @@ def generate_session_config(
         skip=skip,
     )
 
+    probes: dict = {}
+    if container:
+        runtime = probe_runtime(container)
+        if runtime.available:
+            # 10 s, not the module's 120: this runs inline in a bulk loop over
+            # every unconverted session, and a cold probe is 0.7 s — anything
+            # slower is already pathological and should not stall the batch.
+            dirs = [s.path for s in series_list if s.path]
+            probes = by_series_number(probe_session(dirs, runtime.container, timeout_s=10))
+        else:
+            warnings.warn(
+                f"Phase-encoding checks skipped for sub-{subject}"
+                + (f"/ses-{session}" if session else "")
+                + f": {runtime.reason}",
+                stacklevel=2,
+            )
+
     plan = plan_conversion(config, series_list, subject=subject, session=session)
-    blocking = [w for w in plan_warnings(plan, fieldmaps) if w.severity == "error"]
+    blocking = [w for w in plan_warnings(plan, fieldmaps, probes=probes) if w.severity == "error"]
     if blocking:
         raise ValueError(
             f"Cannot convert sub-{subject}"

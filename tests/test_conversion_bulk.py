@@ -174,3 +174,126 @@ def test_the_bulk_path_honours_the_project_nd_choice(tmp_path):
 
     default = generate_session_config(dicom_dir, "01", "")
     assert [d["criteria"]["SeriesNumber"] for d in default["descriptions"]] == [1010]
+
+
+# ---- the plan-time phase-encoding check reaches this path too ----------------
+#
+# It skipped `plan_warnings` entirely once already and submitted the collisions
+# the Conversion page refused (2026-07-24). Same trap one layer down: a probe
+# wired only into the page would leave bulk checking less than the reviewed path.
+#
+# Every test here pins `shutil.which` and stubs `probe_session`. Left to the
+# machine they would shell out to whatever apptainer and dcm2niix are installed,
+# which is a property of the box and not a test — see
+# `memory/local-tests-are-not-ci-tests`.
+
+
+def _pepolar_session(root):
+    """An AP/PA pair and a bold, as real directories the probe could be handed."""
+    from duckbrain.core.dicom_inspect import SeriesInfo
+
+    out = []
+    for num, desc in ((5, "se_epi_fieldmap_ap"), (6, "se_epi_fieldmap_pa"), (9, "food_bold")):
+        d = root / f"Series_{num:02d}_{desc}"
+        d.mkdir(parents=True)
+        (d / "0001.dcm").touch()
+        out.append(SeriesInfo(series_number=num, description=desc, path=d, file_count=3))
+    return out
+
+
+def _pin_probe(monkeypatch, tmp_path, directions):
+    """A resolvable image, a container runtime on PATH, and a scripted dcm2niix."""
+    from duckbrain.core import dcm2niix_probe
+    from duckbrain.core.dcm2niix_probe import SeriesProbe
+
+    sif = tmp_path / "dcm2bids-3.2.0.sif"
+    sif.write_bytes(b"")
+    monkeypatch.setattr(
+        "shutil.which", lambda name: f"/usr/bin/{name}" if name == "apptainer" else None
+    )
+    monkeypatch.setattr(
+        dcm2niix_probe,
+        "probe_session",
+        lambda dirs, container=None, **kw: {
+            f"Series_{n}": SeriesProbe(series_number=n, phase_encoding_direction=d)
+            for n, d in directions.items()
+        },
+    )
+    return sif
+
+
+def test_the_bulk_path_refuses_a_pepolar_pair_that_cannot_estimate_a_field(tmp_path, monkeypatch):
+    """Both halves encoded the same way: fMRIPrep mis-corrects rather than skips.
+
+    The page renders this as a blocking error; before the probe reached here,
+    bulk submitted it.
+    """
+    import pytest
+
+    from duckbrain.core.conversion import generate_session_config
+
+    series = _pepolar_session(tmp_path / "dicom")
+    sif = _pin_probe(monkeypatch, tmp_path, {5: "j-", 6: "j-"})
+
+    with pytest.raises(ValueError, match="opposing"):
+        generate_session_config(tmp_path / "dicom", "01", "", series_list=series, container=sif)
+
+
+def test_a_gradient_echo_session_still_converts_when_probed(tmp_path, monkeypatch):
+    """The pe-collinear fix pinned where it would have hurt most.
+
+    A GRE magnitude and its phasediff share a direction by construction. Read as
+    a pepolar pair that estimates nothing, they raise here — refusing to convert
+    32 of the LCNI corpus's fieldmap sessions, with no UI to explain why.
+    """
+    from duckbrain.core.conversion import generate_session_config
+
+    from test_series_classification import _gre_session
+
+    series = _gre_session()
+    sif = _pin_probe(monkeypatch, tmp_path, {5: "i", 6: "i"})
+
+    config = generate_session_config(
+        tmp_path / "dicom", "CC052", "1", series_list=series, container=sif
+    )
+    assert config["descriptions"]
+
+
+def test_the_bulk_path_does_not_probe_when_no_container_is_named(tmp_path, monkeypatch):
+    """`container=None` means don't probe, not "probe with whatever is on PATH".
+
+    That contract is what keeps the rest of this suite — and the page's config
+    drift comparison, which compares configs and not warnings — off the
+    developer's dcm2niix.
+    """
+    from duckbrain.core import dcm2niix_probe
+    from duckbrain.core.conversion import generate_session_config
+
+    def _boom(*a, **kw):
+        raise AssertionError("probe_session must not be called without a container")
+
+    monkeypatch.setattr(dcm2niix_probe, "probe_session", _boom)
+    series = _pepolar_session(tmp_path / "dicom")
+
+    assert generate_session_config(tmp_path / "dicom", "01", "", series_list=series)
+
+
+def test_a_probe_that_cannot_run_warns_rather_than_refusing(tmp_path, monkeypatch):
+    """Submission and conversion happen on different machines.
+
+    The login node running this may have no container runtime while the compute
+    node running dcm2bids does, so refusing would block a study that converts
+    perfectly well. Nothing here claims the check ran.
+    """
+    import pytest
+
+    from duckbrain.core.conversion import generate_session_config
+
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    series = _pepolar_session(tmp_path / "dicom")
+
+    with pytest.warns(UserWarning, match="Phase-encoding checks skipped"):
+        config = generate_session_config(
+            tmp_path / "dicom", "01", "", series_list=series, container=tmp_path / "missing.sif"
+        )
+    assert config["descriptions"]

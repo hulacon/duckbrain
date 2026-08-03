@@ -47,7 +47,9 @@ bids_dir = paths.get("bids_dir", "")
 from duckbrain.core.conversion import (
     session_bids_exists,
     save_dcm2bids_config,
+    get_container_path,
 )
+from duckbrain.core.dcm2niix_probe import probe_runtime
 from duckbrain.core.ingestion import sub_ses_relpath
 
 # Compute conversion status once (rglob per session is not free on shared FS).
@@ -66,6 +68,18 @@ with st.expander(
         "`dcm2bids_config.json` reuses it (your review isn't overwritten). Good for "
         "dogfooding / large batches; for careful per-study work use the review flow below."
     )
+    # Said once, before submitting, rather than per session after the fact —
+    # this is a batch of up to 95 sessions and the honest moment to know a check
+    # won't run is while deciding to submit. Costs one `which` and one `exists`;
+    # no probing happens here.
+    _bulk_runtime = probe_runtime(
+        get_container_path(config) if paths.get("containers_dir") else None
+    )
+    if not _bulk_runtime.available:
+        st.caption(
+            f"⚠️ Phase-encoding checks will not run for these sessions: {_bulk_runtime.reason}. "
+            "Everything else in the preflight still applies."
+        )
     st.dataframe(
         pd.DataFrame(
             [
@@ -407,9 +421,7 @@ from duckbrain.core.conversion_plan import (
 from duckbrain.core.conversion import (
     compare_dcm2bids_configs,
     generate_session_config,
-    get_container_path,
 )
-from duckbrain.core.dcm2niix_probe import probe_runtime
 from duckbrain.gui.conversion_panels import probe_note, session_probes
 from duckbrain.core.dicom_inspect import sanitize_task_label
 

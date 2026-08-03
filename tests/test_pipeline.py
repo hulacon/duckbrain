@@ -117,6 +117,26 @@ def test_converted_submits_with_expected_job_name(monkeypatch, tmp_path):
     assert cap["scripts_dir"].endswith("/code/logs")
 
 
+def test_converted_generates_its_config_through_the_image_it_will_convert_with(
+    monkeypatch, tmp_path
+):
+    """Otherwise the preflight's phase-encoding check reads a different dcm2niix.
+
+    Cheap pin on the one line joining `resolve_container`'s answer to the probe;
+    without it this path checks less than the reviewed one and submits what the
+    Conversion page refuses.
+    """
+    import duckbrain.core.conversion as C
+
+    cap = {}
+    _patch_dcm2bids(monkeypatch, tmp_path, {})
+    monkeypatch.setattr(
+        C, "generate_session_config", lambda d, sub, ses, **kw: cap.update(kw) or {}
+    )
+    advance_one(_config(tmp_path), "converted", "008", "")
+    assert cap["container"] == "cont.simg"
+
+
 def test_converted_multisession_job_name(monkeypatch, tmp_path):
     cap = {}
     _patch_dcm2bids(monkeypatch, tmp_path, cap)
