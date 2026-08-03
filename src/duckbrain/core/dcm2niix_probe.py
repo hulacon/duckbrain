@@ -135,6 +135,52 @@ def probe_unavailable_reason(container: str | Path | None = None) -> str:
     return ""
 
 
+@dataclass(frozen=True)
+class ProbeRuntime:
+    """What the probe would run through, and what it cost to decide.
+
+    Three states, and a caller has to tell them apart to report honestly:
+
+    * ``reason`` empty and ``fallback`` empty — the pinned image will be used.
+    * ``reason`` empty, ``fallback`` set — the image was unusable and a host
+      ``dcm2niix`` is standing in. The probe works, but it may not be the build
+      that converts, which is a weaker claim than the pinned image supports.
+    * ``reason`` set — nothing can run, and the caller must say so rather than
+      render an unchecked panel as a clean one.
+    """
+
+    container: Path | None = None
+    reason: str = ""
+    fallback: str = ""
+
+    @property
+    def available(self) -> bool:
+        return not self.reason
+
+
+def probe_runtime(container: str | Path | None = None) -> ProbeRuntime:
+    """Resolve what to probe through, preferring *container* over a host dcm2niix.
+
+    :func:`probe_unavailable_reason` answers this for one candidate at a time and
+    cannot express the preference: given a container it never looks at the host,
+    and given none it never looks at the image. The preference is the point —
+    the pinned image holds the same dcm2niix build that will do the conversion,
+    so a preview taken through it cannot disagree with the result for a reason
+    duckbrain can't see (validated identical on REV055). A host binary is worth
+    falling back to and worth *saying* you fell back to.
+    """
+    container_reason = probe_unavailable_reason(container) if container else ""
+    if container and not container_reason:
+        return ProbeRuntime(container=Path(container))
+
+    host_reason = probe_unavailable_reason(None)
+    if not host_reason:
+        return ProbeRuntime(fallback=container_reason)
+    if container_reason:
+        return ProbeRuntime(reason=f"{container_reason}; {host_reason}")
+    return ProbeRuntime(reason=host_reason)
+
+
 def _first_file(series_dir: Path) -> Path | None:
     try:
         for name in sorted(os.listdir(series_dir)):

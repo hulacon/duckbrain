@@ -407,7 +407,10 @@ from duckbrain.core.conversion_plan import (
 from duckbrain.core.conversion import (
     compare_dcm2bids_configs,
     generate_session_config,
+    get_container_path,
 )
+from duckbrain.core.dcm2niix_probe import probe_runtime
+from duckbrain.gui.conversion_panels import probe_note, session_probes
 from duckbrain.core.dicom_inspect import sanitize_task_label
 
 
@@ -965,7 +968,21 @@ effective_df["becomes"] = [
 # ---- Preflight ----
 # Above the table on purpose: this is the part that helps a user who doesn't yet
 # know what to scan for, which is most of them.
-findings = plan_warnings(plan, fieldmaps)
+#
+# The probe runs here and not earlier: every `st.stop()` guarding this region is
+# above (no ingested sessions, no DICOM directory, an ungeneratable config), so a
+# session that renders no preflight never pays for a subprocess. 0.15 s warm,
+# 0.7 s cold, and cached per session by `session_probes`.
+#
+# `containers_dir` defaults to "" and `get_container_path` returns its default
+# pattern even when nothing exists, so an unconfigured project would otherwise be
+# told "container image not found: dcm2bids-3.2.0.sif" — a bare filename naming
+# nothing. Ask for a host dcm2niix instead by passing None.
+_probe_container = get_container_path(config) if paths.get("containers_dir") else None
+_runtime = probe_runtime(_probe_container)
+_probes = session_probes(series_list, _runtime)
+
+findings = plan_warnings(plan, fieldmaps, probes=_probes)
 _blocking = [w for w in findings if w.severity == "error"]
 _suspect = [w for w in findings if w.severity == "warning"]
 _notes = [w for w in findings if w.severity == "info"]
@@ -981,11 +998,34 @@ with st.container(border=True):
         st.error(w.message)
     for w in _suspect:
         st.warning(w.message)
-    if not _blocking and not _suspect and not _override_error:
+    # Green has to mean every check ran. The phase-encoding checks skip silently
+    # without a probe (`plan_warnings` takes `probes` as optional on purpose), so
+    # a success message gated on "no findings" alone would report a clean bill on
+    # checks that never happened — the specific way this feature ships broken.
+    # Hence a *replacement*, not a caveat appended underneath: an st.success with
+    # a warning under it still reads as a pass.
+    #
+    # The gate is `_probes`, not `_runtime.available`: `probe_session` also
+    # returns nothing on a timeout, an exec failure or a malformed sidecar, all
+    # with a perfectly available runtime.
+    _clean = not _blocking and not _suspect and not _override_error
+    if _clean and _probes:
         st.success(
-            f"{len(plan.files)} file(s) will be written, nothing collides, and "
-            "every series is accounted for."
+            f"{len(plan.files)} file(s) will be written, nothing collides, every "
+            f"series is accounted for, and the phase encoding of the {len(_probes)} "
+            "series dcm2niix could read matches its label."
         )
+    elif _clean:
+        st.info(
+            f"{len(plan.files)} file(s) will be written, nothing collides, and "
+            "every series is accounted for — but the phase-encoding checks did "
+            "not run, so this is clean only as far as duckbrain could look."
+        )
+    # Unconditional, not folded into the clean branch: a session that also has a
+    # collision must still say the phase encoding went unchecked, or the user
+    # fixes the collision, reruns, and gets green from a check that never ran.
+    if _probe_note := probe_note(_runtime, _probes):
+        st.caption(_probe_note)
     for w in _notes:
         st.caption(f"ℹ️ {w.message}")
 

@@ -18,6 +18,7 @@ from duckbrain.core.dcm2niix_probe import (
     PE_FOR_DIR,
     SeriesProbe,
     by_series_number,
+    probe_runtime,
     probe_session,
     probe_unavailable_reason,
 )
@@ -62,6 +63,60 @@ def test_probe_never_raises_on_an_empty_series_directory(tmp_path):
     empty.mkdir()
     assert probe_session([empty]) == {}
     assert probe_session([]) == {}
+
+
+# ---- which dcm2niix would run ----
+#
+# Every one of these pins ``shutil.which`` and the container path. Left to the
+# machine they would assert a property of it: the Talapas dev box has apptainer
+# on PATH and a real containers_dir, the GitHub runners have neither, so the
+# same test would take a different branch on each. See
+# ``memory/local-tests-are-not-ci-tests``.
+
+
+def _which(*present):
+    return lambda name: f"/usr/bin/{name}" if name in present else None
+
+
+def test_probe_runtime_prefers_the_pinned_image(tmp_path, monkeypatch):
+    """The image holds the build that will convert; a host binary may not."""
+    sif = tmp_path / "dcm2bids-3.2.0.sif"
+    sif.write_bytes(b"")
+    monkeypatch.setattr("shutil.which", _which("apptainer", "dcm2niix"))
+
+    runtime = probe_runtime(sif)
+    assert runtime.available
+    assert runtime.container == sif
+    assert runtime.fallback == ""
+
+
+def test_probe_runtime_falls_back_to_a_host_dcm2niix_and_says_so(tmp_path, monkeypatch):
+    """Falling back is fine; falling back silently is not."""
+    monkeypatch.setattr("shutil.which", _which("dcm2niix"))
+
+    runtime = probe_runtime(tmp_path / "missing.sif")
+    assert runtime.available
+    assert runtime.container is None
+    assert "container image not found" in runtime.fallback
+
+
+def test_probe_runtime_names_both_reasons_when_nothing_can_run(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda _: None)
+
+    runtime = probe_runtime(tmp_path / "missing.sif")
+    assert not runtime.available
+    assert "container image not found" in runtime.reason
+    assert "not on PATH" in runtime.reason
+
+
+def test_probe_runtime_with_no_container_asks_only_about_the_host(monkeypatch):
+    """No phantom 'container not found' for a project that never named one."""
+    monkeypatch.setattr("shutil.which", lambda _: None)
+
+    runtime = probe_runtime(None)
+    assert not runtime.available
+    assert "container" not in runtime.reason.replace("no container was given", "")
+    assert runtime.fallback == ""
 
 
 # ---- the plan-time checks, driven by synthetic probes ----

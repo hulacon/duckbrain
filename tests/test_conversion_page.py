@@ -13,6 +13,9 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from duckbrain.config import save_project_config, scaffold_project
+from duckbrain.core import dcm2niix_probe
+from duckbrain.core.dcm2niix_probe import SeriesProbe
+from duckbrain.gui.conversion_panels import _probe_cached
 
 PAGE = "src/duckbrain/gui/pages/3_BIDS_Conversion.py"
 
@@ -41,8 +44,53 @@ def project(tmp_path):
         {"project": {"name": "test", "use_sessions": "auto"}},
     )
     os.environ["DUCKBRAIN_PROJECT_DIR"] = str(proj)
+    # Without this every test here inherits the developer's real
+    # ~/.config/duckbrain, whose `containers_dir` exists on Talapas and does not
+    # on a CI runner — so the page takes a different branch on each machine and
+    # the suite asserts a property of the box. That is exactly how four commits
+    # shipped with CI red after four green local runs; see
+    # `memory/local-tests-are-not-ci-tests`.
+    os.environ["DUCKBRAIN_USER_CONFIG"] = str(tmp_path / "no-such-user-config.toml")
+    # The probe cache is process-wide, and tmp_path keys differ per test only by
+    # accident of the fingerprint. Clearing makes that independent of luck.
+    _probe_cached.clear()
     yield proj
     os.environ.pop("DUCKBRAIN_PROJECT_DIR", None)
+    os.environ.pop("DUCKBRAIN_USER_CONFIG", None)
+
+
+@pytest.fixture
+def probed(project, tmp_path, monkeypatch):
+    """A project whose pinned dcm2bids image resolves, with dcm2niix stubbed.
+
+    Both halves pinned: the container path and `shutil.which`. Left to the
+    machine this would probe through whatever apptainer and dcm2niix happen to
+    be installed, which is not a test.
+    """
+    containers = tmp_path / "containers"
+    containers.mkdir()
+    (containers / "dcm2bids-3.2.0.sif").write_bytes(b"")
+    user_config = tmp_path / "user.toml"
+    user_config.write_text(
+        f'[paths]\ncontainers_dir = "{containers}"\n\n[containers]\ndcm2bids_version = "3.2.0"\n'
+    )
+    os.environ["DUCKBRAIN_USER_CONFIG"] = str(user_config)
+    monkeypatch.setattr(
+        "shutil.which", lambda name: f"/usr/bin/{name}" if name == "apptainer" else None
+    )
+
+    def _stub(directions):
+        monkeypatch.setattr(
+            dcm2niix_probe,
+            "probe_session",
+            lambda dirs, container=None, **kw: {
+                f"Series_{n:02d}_x": SeriesProbe(series_number=n, phase_encoding_direction=d)
+                for n, d in directions.items()
+            },
+        )
+        _probe_cached.clear()
+
+    yield _stub
 
 
 def _tables(at):
@@ -86,11 +134,44 @@ def test_plan_shows_which_pair_corrects_the_run(project):
     assert fmap[2] == ""
 
 
-def test_clean_session_reports_no_blocking_problem(project):
+def test_clean_session_reports_no_blocking_problem(probed):
+    """Green means every check ran, so this needs a probe that ran."""
+    probed({3: "j-", 4: "j"})
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
     assert not at.error
     assert any("will be written" in s.value for s in at.success)
+
+
+def test_the_panel_says_when_the_phase_encoding_could_not_be_checked(project, monkeypatch):
+    """The way this feature ships broken: a skipped check rendering as a pass.
+
+    Nothing else in the suite would catch it — the page has no findings, so it
+    would print its green success message and look right.
+    """
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    assert not [s for s in at.success if "will be written" in s.value]
+    assert any("as far as duckbrain could look" in i.value for i in at.info)
+    captions = [c.value for c in at.caption]
+    assert any("Phase encoding was not checked" in c for c in captions)
+    assert any("not on PATH" in c for c in captions)
+
+
+def test_a_contradicting_phase_encoding_is_reported_before_conversion(probed):
+    """End to end: the probe reaches plan_warnings and the page shows the error.
+
+    Both halves acquired anterior->posterior despite the `_ap`/`_pa` names, so
+    the pair estimates nothing and fMRIPrep would mis-correct rather than skip.
+    """
+    probed({3: "j-", 4: "j-"})
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    assert any("opposing directions" in e.value for e in at.error)
+    assert not [s for s in at.success if "will be written" in s.value]
 
 
 def test_json_override_is_off_by_default_and_must_be_opted_into(project):
