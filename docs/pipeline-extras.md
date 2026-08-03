@@ -186,14 +186,26 @@ about what it measured — so it is Slice B's first task, not a footnote.
 
 ### The real costs, and what isn't ours to settle
 
-- 🔴 **Hard prerequisite: `#19.1`.** DWI classifies but has **no emission path** —
-  no bval/bvec handling, no `dwi/` description in `generate_config`, excluded
-  from `EMITTED_CLASSIFICATIONS`. QSIPrep has nothing to read until that lands,
-  and no amount of stage plumbing changes that. Note `#19.1`'s own caveat, which
-  lands squarely on validation here: the LCNI curator dropped the diffusion
-  series too, so **there is no canonical BIDS output to diff against**. Validation
-  will be internal consistency plus "QSIPrep accepts it" — not the curator
-  comparison every other conversion capability was checked against.
+- ✅ **The hard prerequisite `#19.1` is met (closed 2026-07-30).** DWI now
+  converts: `dwi/…_dwi.nii.gz` with `.bval`/`.bvec`, plus `…_sbref` for a
+  diffusion reference, validated on real multi-shell data from two scanners. So
+  QSIPrep has something to read, and what was the blocking cost is now a fixture.
+
+  **Its caveat is inherited whole and lands squarely on validation here:** the
+  LCNI curator dropped the diffusion series too, so **there is no canonical BIDS
+  output to diff against**. Validation will be internal consistency plus "QSIPrep
+  accepts it" — not the curator comparison every other conversion capability was
+  checked against. `#19.1` answered that for the *conversion* by asserting
+  against the acquisition (shell count, bvec shape, `PhaseEncodingDirection`
+  against the `dir-` label); the same stance is what this stage will need.
+
+  **One thing `#19.1` deliberately left for this item to decide** (`#19.10`): a
+  diffusion series carries **no `B0FieldSource`**. duckbrain had nothing that
+  consumed it, and its fieldmap binding is keyed on `(task, run)` — which
+  diffusion has neither of — so choosing one would have been an unreviewable
+  guess, invisible in the Conversion page's `fieldmap` column. QSIPrep is the
+  consumer that makes the question real, and the answer belongs here rather than
+  in the emitter.
 - **A container must be built or pulled** for `pennlinc/qsiprep` — one more
   instance of `#2`. Confirm one exists on Talapas before committing to a date.
 - **eddy is hours per subject.** This is a scheduling change, not just a stage.

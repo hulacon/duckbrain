@@ -453,10 +453,11 @@ each because doing it now would have been a guess:
   validated for BOLD only. The decisive reason is reviewability, though:
   `resolve_fmap_assignments` filters `role != "bold"`, and that is what the
   Conversion page's `fieldmap` column renders from — so a binding chosen in the
-  emitter would be applied silently and could not be overridden. **Trigger: the
-  day a diffusion preprocessing stage lands** (`docs/pipeline-extras.md` scopes
-  QSIPrep). Doing it before that is writing metadata nothing reads, in a column
-  nothing shows.
+  emitter would be applied silently and could not be overridden. Doing it before
+  a consumer exists is writing metadata nothing reads, in a column nothing shows.
+  **This now belongs to `#7.2`**, which was scoped 2026-08-01 and is the
+  consumer: QSIPrep reads `B0FieldSource`, so it is the item that can say what
+  the right binding *is*. Cross-referenced from `docs/pipeline-extras.md` §9.
 - **`[expected]` cannot say how much diffusion a session should hold.**
   `expectations.py` counts anat suffixes, fieldmap pairs and task runs; a `dwi/`
   tree is invisible to it, and `checks.py`'s shortfall arithmetic is anat/func
@@ -1172,8 +1173,12 @@ other five are unstarted.
    coarser-key grader; per-session jobs **silently clobber each other's anat**
    unless `--subject-anatomical-reference sessionwise` is forced; and
    `--output-resolution` is required with no defensible default, so it must raise
-   rather than guess. **Prerequisite: `#19.1`** — DWI does not convert, so there
-   is nothing to preprocess until it does. Two smaller findings worth having
+   rather than guess. **Its prerequisite `#19.1` is met** (closed 2026-07-30 —
+   DWI converts, with `.bval`/`.bvec`, validated on two scanners), and it hands
+   this item one open decision: a diffusion series carries no `B0FieldSource`,
+   because nothing consumed it and the binding is keyed on `(task, run)`, which
+   diffusion has neither of. QSIPrep is the consumer that makes it answerable.
+   Two smaller findings worth having
    either way: QSIPrep is **not** a forcing function for `#5b` Case 3 (it has no
    anat-reuse flag, and its ACPC/LPS+ anat is not fMRIPrep's anyway), and the QC
    layer already claims `dwi` for three measures MRIQC does not emit for it — see
