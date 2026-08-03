@@ -17,7 +17,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#16`](#16) **next** — sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
 [Licensing](#licensing-follow-ups) ·
-[`#19`](#19) conversion coverage (rest of it) ·
+[`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
+oracle it lacked) ·
 [`#23`](#23) `st.components.v1.html` past removal date ·
 [`#29`](#29) a Streamlit cache that never invalidates ·
 [`#27`](#27) `4_Preprocessing.py` has no test ·
@@ -412,6 +413,18 @@ prove the corpus untouched rather than assert it. It is **not** in the repo and
 has been rebuilt from scratch three times; if a fourth item in this section needs
 it, that is the point to stop rebuilding and commit it.
 
+**The sweep's "plan warnings" dimension is wider since 2026-08-03 (`#22`), and a
+rebuild has to opt into it.** `plan_warnings` takes `probes=` and grows
+`pe-collinear` and `pe-direction` from it, but *only* when a caller passes one —
+absence skips both silently, by design. So a harness that calls `plan_warnings`
+the old way is not measuring the same thing the GUI and the bulk path now
+measure, and a diff against the frozen baseline will look clean for the two
+dimensions most likely to move. Pass the container:
+`by_series_number(probe_session([s.path for s in series], sif))` at ~0.5 s per
+session, which is noise against the header reads the sweep already pays for. The
+baseline itself predates the probe, so the first sweep that turns it on should
+expect new warnings and triage them rather than read them as a regression.
+
 **The beta tester's tree at `/projects/hulacon/shared/mmmsourcedata` is the live
 fixture two items here had none of.** It carries `cmrr_diff_3shell` in **four**
 phase-encoding directions — `ap`, `pa`, `rl`, `lr` — which is what let `#19.1`
@@ -449,6 +462,14 @@ each because doing it now would have been a guess:
   against the saved config's description counts, so it picked `dwi/` up for free.
 - **NORDIC does not stage `dwi/`.** NORDIC is a BOLD denoiser; this is a note that
   the omission is deliberate, not an oversight to find later.
+
+**One thing `#22` leaves sitting here for `#7.2`.** `SeriesProbe` already carries
+`total_readout_time` and `effective_echo_spacing`, read for free from the same
+sidecar and consumed by nothing today. Both are what QSIPrep wants from a
+diffusion acquisition. That does not move the `B0FieldSource` bullet above — that
+one is blocked on a *consumer*, not on information — but it means the field is
+readable at plan time when the consumer arrives, without a second pass over the
+DICOMs.
 
 **This is the prerequisite for `#7` item 2 (QSIPrep).** That stage has nothing to
 read until DWI converts, and the missing canonical output above is inherited
@@ -500,6 +521,27 @@ removed the ordering constraint (the `rl`/`lr` diffusion references escaped
 pairing only through going unrecognised; they now classify `dwi` on their
 sibling's authority and never reach `detect_fieldmaps`), so this is unblocked —
 it is waiting on data, not on other work.
+
+**Two things `#22`'s wiring (2026-08-03) changes about that wait.**
+
+*There is now a partial oracle, so "nothing to validate against" is too strong.*
+`pe-collinear` is deliberately **orientation-free** — it asks only that the two
+halves' signs differ on a shared axis and never consults `PE_FOR_DIR` — so it can
+confirm that an LR/RL pair genuinely opposes without a canonical tree to diff
+against and without the AP/PA convention holding. That is not a full validation
+of the *emission* (it says nothing about whether the `dir-` label is the right way
+round), but it is exactly the property pairing exists to guarantee, and it costs
+nothing extra to have.
+
+*And the weakest rows now announce themselves.* `pe-direction` compares the
+name-derived label to the scanner and, since `#19.1`, covers `dwi` — which is the
+only thing that exercises the `RL`/`LR` rows. Until 2026-08-03 that check had no
+caller, so a site where those rows invert would have said nothing. It now fires at
+preflight *and* post-conversion, so the first real LR/RL dataset reports the
+disagreement rather than converting quietly. Whoever picks this up should
+therefore look for `pe-direction` warnings first: on a site where R→L reads `i-`
+(the first-principles reading these two measured rows contradict), that is the
+signal, and the fix is the table, not the pairing.
 
 ### `#19.3` — Which fieldmap pair, when a session has more than one
 
@@ -554,6 +596,43 @@ header `ImageType` plus an identical `SeriesDescription` plus ordering, never
   fails, since a magnitude is recognised by `len(echo_numbers) > 1`. Worth a
   decision, not a speculative fix — there is nothing local to validate against,
   which is `#19.2`'s reasoning.
+
+  **The probe changes what is available here, and it is the reason to reopen this
+  (measured 2026-08-03, after `#22` wired it in).** Both fragilities are name- and
+  order-dependencies, and the probe answers both from the single file it already
+  reads. On `Crave_control/CC052` and `Dissonance/EUG027`, through the pinned
+  container:
+
+  | | magnitude (#5) | phase (#6) |
+  |---|---|---|
+  | `ImageType` | `ORIGINAL PRIMARY M ND NORM` | `ORIGINAL PRIMARY P ND PHASE` ← |
+  | `EchoTime` | `0.00437` | `0.00683` |
+  | `EchoTime1`/`EchoTime2` | absent | `0.00437` / `0.00683` |
+
+  Two usable joins fall out. The explicit `PHASE` token names which half is which
+  **regardless of series order**, which is the first fragility outright. And the
+  phase sidecar's `EchoTime1` *equals the magnitude's `EchoTime`* — dcm2niix
+  reconstructs both echo times from the phase series alone — which is a
+  **content-based link between the halves that never reads their names**, and so
+  is the second fragility.
+
+  **Why that specifically matters: it is additive, not a loosening.** The bullet
+  below is this item's real constraint — relaxing the identical-`SeriesDescription`
+  match to fix the `gre_field_mapping` case would merge the `_ND` and non-`_ND`
+  reconstructions and pair a corrected magnitude with an uncorrected phase. Echo-time
+  agreement is *extra evidence* admitted alongside the name match rather than in
+  place of it, so the ND behaviour that depends on the strict match survives
+  untouched. That is the shape any fix here should take.
+
+  **What still blocks it, and it is a weaker blocker than before.** The corpus
+  holds no session actually exhibiting either fragility, so there is a local
+  oracle now but still no failing case — "no evidence available" has become "no
+  failing case available". Both readings above rest on two LCNI sessions running
+  what looks like one `fieldmap_2mm` protocol, so confirm on a second site
+  (`mmmsourcedata`) before building on them. Note also that `EchoTime1`/`EchoTime2`
+  are the same values the bullet above deliberately declines to *inject* — reading
+  them to decide pairing is not the same act as writing them into a sidecar, and
+  that distinction should stay explicit in whatever lands.
 - **Pairing on an identical `SeriesDescription` is load-bearing for a second
   reason, so any loosening has to preserve it.** It is what makes
   `nd_duplicates = "both"` work with no fieldmap-specific code at all: the two
