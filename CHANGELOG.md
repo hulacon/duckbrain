@@ -12,6 +12,30 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **The conversion preflight now checks phase encoding against the scanner, and
+  says when it couldn't.** The `dir-ap`/`dir-pa` label duckbrain writes has
+  always come from the `_ap`/`_pa` token in the operator's series name — the raw
+  DICOM tag gives an axis with no polarity and is absent entirely on XA30 — so
+  it was the one thing in a fieldmap plan taken purely on trust. duckbrain now
+  runs dcm2niix header-only before conversion and reports two things a plan
+  cannot show on its own: a **pepolar pair whose halves were acquired the same
+  way** (an error — such a pair estimates nothing, and fMRIPrep would
+  *mis*-correct the runs bound to it rather than skip them), and a **`dir-` label
+  that disagrees with what the scanner actually did** (a warning).
+
+  It costs ~0.5 s per session and is cached, because it reads one file per series
+  rather than the whole session — 0.15 s warm against the 90 s that reading every
+  file would take. It prefers your pinned `dcm2bids` image over a host `dcm2niix`,
+  so the preview comes from the same build that will do the conversion, and it
+  says so when it falls back.
+
+  **When it can't run, the panel says so instead of looking clean.** A machine
+  with no container runtime is a normal state, not an error — but a preflight
+  that quietly skips a check and still shows a green tick is exactly the failure
+  this project treats as worse than a visible refusal, so the success message is
+  replaced rather than annotated. Bulk conversion checks the same things, and
+  states once up front when it won't be able to.
+
 - **BIDS validation actually validates.** It has been on by default since
   2026-07-21 and had never been usable: on every project the validator followed
   the `sourcedata/sub-XX/dicom` symlink that ingestion creates and reported every
@@ -119,6 +143,17 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   untouched reads exactly as before. Reconvert to clear it.
 
 ### Fixed
+
+- **A gradient-echo fieldmap would have been refused as a broken pepolar pair.**
+  The "both halves encoded the same way" check bucketed every planned fieldmap
+  file by group with no test for which *kind* of fieldmap it was. A gradient-echo
+  fieldmap puts its magnitude and phase series in one group, and those share a
+  phase-encoding direction by construction — they are two reconstructions of one
+  acquisition, not two traversals of k-space — so the check read them as a pair
+  that estimates nothing. Since that is an error, bulk conversion would have
+  refused the session outright. Caught before the check had any caller, but it
+  would have hit 32 of the 54 fieldmap sessions in the reference corpus, against
+  the 22 pepolar ones the check is actually for.
 
 - **`dataset_description.json` was rewritten wholesale** every time the Ingestion
   page's "Generate" button was pressed, destroying any hand-added `License`,
