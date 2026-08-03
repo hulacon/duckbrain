@@ -136,6 +136,120 @@ class TestEvidenceViewer:
         assert not at.toggle
 
 
+@pytest.fixture
+def reports(tmp_path):
+    """An MRIQC report for one run and an fMRIPrep report for its subject.
+
+    Both name a figure beside them, because the size the panel promises is the
+    document *plus* what it draws on — a report counted at its own file size
+    would understate the spend by an order of magnitude.
+    """
+    mriqc = tmp_path / "mriqc"
+    (mriqc / "figures").mkdir(parents=True)
+    (mriqc / "figures" / "carpet.svg").write_text(FIGURE_SVG)
+    (mriqc / "sub-010_task-rest_run-1_bold.html").write_text(
+        '<html><body><img src="./figures/carpet.svg"/></body></html>'
+    )
+
+    fmriprep = tmp_path / "fmriprep"
+    (fmriprep / "sub-010" / "figures").mkdir(parents=True)
+    (fmriprep / "sub-010" / "figures" / "dseg.svg").write_text(FIGURE_SVG)
+    (fmriprep / "sub-010.html").write_text(
+        '<html><body><object data="./sub-010/figures/dseg.svg"></object></body></html>'
+    )
+    return mriqc, fmriprep
+
+
+def _reports_script(mriqc_dir, fmriprep_dir, run_key):
+    import streamlit as st
+
+    from duckbrain.gui import qc_panels
+
+    st.write(f"offered={qc_panels.full_report_panel(mriqc_dir, fmriprep_dir, run_key)}")
+
+
+def _report_panel(mriqc_dir, fmriprep_dir, run_key="sub-010_task-rest_run-1_bold"):
+    return AppTest.from_function(
+        _reports_script,
+        kwargs={
+            "mriqc_dir": str(mriqc_dir),
+            "fmriprep_dir": str(fmriprep_dir),
+            "run_key": run_key,
+        },
+        default_timeout=30,
+    ).run()
+
+
+class TestFullReportPanel:
+    def test_nothing_is_loaded_on_arrival(self, reports):
+        """~80 MB read into the server's RAM is a cost the reviewer chooses."""
+        at = _report_panel(*reports)
+        assert not at.exception
+        assert at.toggle, "no report was offered"
+        assert all(t.value is False for t in at.toggle)
+        assert not at.get("iframe")
+
+    def test_the_size_is_named_before_it_is_spent(self, reports):
+        at = _report_panel(*reports)
+        assert all("MB" in c.value for c in at.caption)
+
+    def test_the_size_counts_the_figures_not_just_the_document(self, reports):
+        """A report is small; what it draws on is not. Naming the file's own size
+        would promise 0.0 MB and then spend fifteen."""
+        mriqc, _ = reports
+        report = mriqc / "sub-010_task-rest_run-1_bold.html"
+        assert qc_panels._payload_bytes_cached.__wrapped__(str(report), (0.0, 0)) == (
+            report.stat().st_size + len(FIGURE_SVG)
+        )
+
+    def test_both_tools_are_offered_for_one_run(self, reports):
+        at = _report_panel(*reports)
+        assert at.markdown[-1].value == "offered=2"
+        labels = " ".join(t.label for t in at.toggle)
+        assert "MRIQC" in labels and "fMRIPrep" in labels
+
+    def test_the_session_report_beats_the_subject_one(self, reports):
+        """fMRIPrep keys by subject *or* by subject and session. Matching the
+        looser key when the tighter file exists hands over another session."""
+        mriqc, fmriprep = reports
+        (fmriprep / "sub-010_ses-02.html").write_text("<html><body>ses 2</body></html>")
+        at = _report_panel(mriqc, fmriprep, run_key="sub-010_ses-02_task-rest_run-1_bold")
+        assert any("sub-010_ses-02" in t.label for t in at.toggle)
+        assert not any(t.label.endswith("sub-010") for t in at.toggle)
+
+    def test_a_run_with_no_report_is_told_so(self, tmp_path):
+        at = _report_panel(tmp_path / "mriqc", tmp_path / "fmriprep")
+        assert not at.exception
+        assert at.markdown[-1].value == "offered=0"
+        assert not at.toggle
+        assert any("Neither tool has written" in c.value for c in at.caption)
+
+    def test_opening_one_embeds_the_report_with_its_figure_served(self, reports):
+        """The point of the panel, end to end: the document reaches the browser
+        and the figure it names is a URL the app really serves."""
+        at = _report_panel(*reports)
+        at.toggle[0].set_value(True).run()
+        assert not at.exception
+        (frame,) = at.get("iframe")
+        assert "./figures/carpet.svg" not in frame.proto.srcdoc
+        assert "/media/" in frame.proto.srcdoc
+
+
+class TestFmriprepReportKeys:
+    def test_a_sessionless_run_asks_only_for_the_subject(self):
+        assert qc_panels._fmriprep_report_keys("sub-015_task-rest_run-1_bold") == ["sub-015"]
+
+    def test_a_session_run_asks_for_both_most_specific_first(self):
+        assert qc_panels._fmriprep_report_keys("sub-015_ses-01_task-rest_bold") == [
+            "sub-015_ses-01",
+            "sub-015",
+        ]
+
+    def test_a_key_with_no_subject_asks_for_nothing(self):
+        """Rather than building ``sub-None`` and globbing for it."""
+        assert qc_panels._fmriprep_report_keys("bold") == []
+
+
 class TestDomainIntro:
     def test_it_states_the_review_question(self):
         def script():

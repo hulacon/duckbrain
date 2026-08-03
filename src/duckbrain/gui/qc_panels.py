@@ -552,6 +552,108 @@ def domain_links(run_key: str, modality: str) -> None:
             )
 
 
+def _fmriprep_report_keys(run_key: str) -> list[str]:
+    """The stems an fMRIPrep report for *run_key* could carry, most specific first.
+
+    fMRIPrep keys its reports by subject, or by subject and session when a run
+    was preprocessed session-aggregated. A run key names both, so try the longer
+    stem first and fall back — matching on ``sub-01`` when ``sub-01_ses-02.html``
+    is what exists would hand a reviewer another session's report.
+    """
+    entities = dict(part.split("-", 1) for part in run_key.split("_") if "-" in part)
+    subject = entities.get("sub")
+    if not subject:
+        return []
+    session = entities.get("ses")
+    keys = [f"sub-{subject}_ses-{session}"] if session else []
+    keys.append(f"sub-{subject}")
+    return keys
+
+
+@st.cache_data(show_spinner=False)
+def _payload_bytes_cached(report_path: str, fingerprint: tuple) -> int:
+    """What embedding *report_path* would pull in, cached against *fingerprint*.
+
+    The answer costs a read of the report plus a ``stat`` of every figure it
+    names, and it is wanted on *every* rerun to label a toggle nobody may click.
+    Measured on `divatten_beta_v2`'s fMRIPrep reports (~95 figures each, GPFS):
+    55 ms cold, 22 ms warm, per report. Small, but Streamlit reruns the page on
+    every click, and two reports are offered — so it is paid over and over for
+    a number that only changes when the derivative does.
+
+    ``fingerprint`` has **no leading underscore, and that is load-bearing**:
+    Streamlit excludes underscore-prefixed arguments from the cache key, so
+    ``_fingerprint`` would key this on the path alone and it would never
+    invalidate. ``conversion_panels._probe_cached`` says the same thing at
+    length; don't "fix" either to match ``_load_metrics`` above, which has the
+    bug.
+    """
+    from duckbrain.core import report_embed
+
+    return report_embed.payload_bytes(Path(report_path))
+
+
+def full_report_panel(
+    mriqc_dir: Path | str,
+    fmriprep_dir: Path | str,
+    run_key: str,
+    *,
+    modality: str = "bold",
+) -> int:
+    """Offer the tools' own reports for this run, whole. Returns how many.
+
+    Everything else on these pages is duckbrain's *reading* of the derivatives:
+    the figures a domain is reviewed through, and the numbers beside what they
+    mean. This is the document MRIQC and fMRIPrep wrote, and it carries what no
+    per-figure view reconstructs — the methods boilerplate a paper has to cite,
+    fMRIPrep's About section and its error list, and the report in the order
+    nireports chose to argue it. Between the pages replacing the old embedded
+    view and now, nothing in duckbrain could reach any of that.
+
+    Behind a toggle that names the cost first, because the cost is *why* it
+    stopped being the default view. Streamlit's media manager reads every figure
+    into the server's RAM as the page is built, so the spend is real and it is
+    not lazy: ~15 MB for an MRIQC T1w report, ~80 MB for an fMRIPrep subject,
+    against ~1.1 MB for the single figure the evidence viewer shows. The
+    evidence viewer stays the way to review a run; this is the way to read what
+    the tool said.
+    """
+    from duckbrain.gui.components import embed_tool_report
+
+    mriqc_dir, fmriprep_dir = Path(mriqc_dir), Path(fmriprep_dir)
+    offered: list[tuple[str, Path]] = []
+
+    name = qc_report.find_mriqc_reports(mriqc_dir, modality).get(run_key)
+    if name:
+        offered.append(("MRIQC — this run", mriqc_dir / name))
+
+    fmriprep_reports = qc_report.find_fmriprep_reports(fmriprep_dir)
+    for key in _fmriprep_report_keys(run_key):
+        if key in fmriprep_reports:
+            offered.append((f"fMRIPrep — {key}", fmriprep_dir / fmriprep_reports[key]))
+            break
+
+    if not offered:
+        st.caption(
+            "Neither tool has written a report covering this run. MRIQC writes "
+            "one per run and fMRIPrep one per subject — run them from "
+            "**Preprocessing**."
+        )
+        return 0
+
+    for label, path in offered:
+        try:
+            stat = path.stat()
+            fingerprint = (stat.st_mtime, stat.st_size)
+        except OSError:
+            fingerprint = (0.0, 0)
+        payload = _payload_bytes_cached(str(path), fingerprint)
+        st.caption(f"**{label}** — `{path.name}` · {payload / 1e6:.1f} MB, loaded only when shown")
+        if st.toggle(f"Open {label}", key=f"fullreport_{run_key}_{path.name}"):
+            embed_tool_report(path)
+    return len(offered)
+
+
 def verdict_panel(scope: Scope, reviewer: str) -> None:
     """Record keep / exclude / investigate for the selected run.
 
@@ -706,6 +808,11 @@ def render_overview() -> None:
         + (f"verdict: **{verdict}**" if verdict else "no verdict recorded")
     )
     domain_links(scope.run_key, scope.modality)
+
+    with st.expander("Open the tool's own report"):
+        full_report_panel(
+            scope.mriqc_dir, scope.fmriprep_dir, scope.run_key, modality=scope.modality
+        )
 
     if not scope.run:
         return

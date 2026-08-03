@@ -389,6 +389,29 @@ class TestOverview:
         """Slice B was dropped, not the capability — the report still exports."""
         assert any("Export" in e.label for e in _run(OVERVIEW).expander)
 
+    def test_the_tools_own_report_is_reachable_again(self, full):
+        """Between the per-figure move and now, nothing in duckbrain opened one.
+
+        The figures are reviewable a domain at a time on the pages; the methods
+        boilerplate, fMRIPrep's About and its error list are only in the tool's
+        own document, and it had no route.
+        """
+        at = _run(OVERVIEW, run="sub-010_task-rest_run-1_bold")
+        assert not at.exception
+        assert any("tool's own report" in e.label for e in at.expander)
+        assert any("fMRIPrep" in t.label for t in at.toggle)
+
+    def test_the_report_is_not_read_until_it_is_asked_for(self, full):
+        """An expander's body runs while collapsed, so the toggle is the gate.
+
+        Streamlit's media manager reads every figure into the server's RAM as
+        the page is built — ~80 MB for an fMRIPrep subject — and that is exactly
+        the spend the per-figure viewer exists to avoid paying by default.
+        """
+        at = _run(OVERVIEW, run="sub-010_task-rest_run-1_bold")
+        assert not at.get("iframe")
+        assert all(t.value is False for t in at.toggle)
+
     def test_the_export_is_not_built_until_it_is_asked_for(self, full):
         """An expander's body runs while collapsed, so this has to be explicit.
 

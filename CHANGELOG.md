@@ -142,6 +142,22 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   what moves it, not the upgrade itself — a session whose saved config is
   untouched reads exactly as before. Reconvert to clear it.
 
+- **MRIQC's and fMRIPrep's own reports are openable again**, from "Open the
+  tool's own report" on the QC Overview. The QC pages review a run through
+  individual figures and native tables, which is the right default — but the
+  tools' own documents carry things no per-figure view reconstructs: the methods
+  boilerplate a paper has to cite, fMRIPrep's About section and its error list,
+  and the report in the order nireports chose to argue it. Since the pages
+  replaced the old embedded view, none of that had a route; you had to find the
+  file on the filesystem.
+
+  Each report sits behind its own toggle **labelled with what it will cost** —
+  the document plus every figure it draws on, which is roughly 15 MB for an
+  MRIQC report and 80 MB for an fMRIPrep subject. Nothing is read until you ask
+  for it, because the server holds those bytes in memory once it has. MRIQC's is
+  matched to the selected run and fMRIPrep's to its subject, preferring a
+  session-specific report where one exists.
+
 ### Changed
 
 - **Streamlit 1.56 is now the minimum** (was 1.48). The embedded MRIQC/fMRIPrep
