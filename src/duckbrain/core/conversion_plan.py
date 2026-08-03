@@ -296,18 +296,29 @@ _DIR_ENTITY_RE = re.compile(r"(?:^|_)dir-([A-Za-z0-9]+)")
 def _fmap_halves(
     plan: ConversionPlan, probes: dict[int, "SeriesProbe"] | None
 ) -> dict[str | None, dict[int, "SeriesProbe"]]:
-    """Probed fieldmap files per group, keyed by series number.
+    """Probed *pepolar* fieldmap halves per group, keyed by series number.
 
     Only files that are both planned as a fieldmap *and* were probed appear, so
     a session with no probes yields nothing and every check over this is skipped
     rather than guessing.
+
+    ``suffix == "epi"`` is what restricts this to pepolar, and it is not a
+    refinement — without it the only consumer is wrong. A gradient-echo fieldmap
+    puts a magnitude series and its phase series in *one* group (see
+    ``_group_by_identifier``), so this yields two entries that share a
+    phase-encoding direction **by construction**: they are two reconstructions
+    of one acquisition, not two traversals of k-space. "Opposing traversal" is
+    not a property they can have, so testing them for it can only produce a
+    false error — and it did, on every GRE session, which is 32 of the LCNI
+    corpus's fieldmaps against the 22 pepolar ones the check is for. Pinned by
+    ``test_a_gradient_echo_group_is_not_read_as_a_pepolar_pair``.
     """
     if not probes:
         return {}
     halves: dict[str | None, dict[int, SeriesProbe]] = {}
     for f in plan.files:
         probe = probes.get(f.series_number)
-        if f.datatype != "fmap" or probe is None:
+        if f.datatype != "fmap" or f.suffix != "epi" or probe is None:
             continue
         halves.setdefault(f.fmap_group, {})[f.series_number] = probe
     return halves

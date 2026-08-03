@@ -146,6 +146,39 @@ def test_a_dir_label_contradicting_the_scanner_is_reported():
     assert all(w.severity == "warning" for w in mismatches)
 
 
+def test_a_gradient_echo_group_is_not_read_as_a_pepolar_pair():
+    """A GRE magnitude and its phasediff share a direction *by construction*.
+
+    They are two reconstructions of one acquisition, so they cannot oppose and
+    asking whether they do can only produce a false error. Before ``_fmap_halves``
+    filtered on ``suffix == "epi"`` this raised ``pe-collinear`` — an *error*,
+    which on the bulk path refuses the conversion outright — for every
+    gradient-echo session. ``"i"`` is the value the LCNI corpus's canonical BIDS
+    actually carries for both halves.
+    """
+    from duckbrain.core import dcm2bids_config, dicom_inspect
+    from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
+
+    from test_series_classification import _gre_session
+
+    series = _gre_session()
+    detection = dicom_inspect.detect_fieldmaps(series)
+    config = dcm2bids_config.generate_config(series, detection, subject="CC052", session="1")
+    plan = plan_conversion(config, series, subject="CC052", session="1")
+    probes = _probes(
+        **{
+            "5": SeriesProbe(series_number=5, phase_encoding_direction="i"),
+            "6": SeriesProbe(series_number=6, phase_encoding_direction="i"),
+        }
+    )
+
+    warnings = plan_warnings(plan, detection, probes=probes)
+    assert not [w for w in warnings if w.kind == "pe-collinear"]
+    # Free regression pin: the GRE trio carries no ``dir-`` entity, so the label
+    # check has nothing to compare and must stay silent too.
+    assert not [w for w in warnings if w.kind == "pe-direction"]
+
+
 def test_no_probes_means_the_pe_checks_are_skipped_not_passed():
     """The checks must be absent without a probe, not silently satisfied."""
     from duckbrain.core.conversion_plan import plan_warnings
