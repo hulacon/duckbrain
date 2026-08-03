@@ -12,7 +12,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import duckbrain.core.pipeline as P
-from duckbrain.config import save_project_config, scaffold_project
+from duckbrain.config import USER_CONFIG_ENV, save_project_config, scaffold_project
 from duckbrain.slurm.monitor import JobInfo
 
 PAGE = "src/duckbrain/gui/pages/0_Project_Status.py"
@@ -34,6 +34,12 @@ def _markdowns(at):
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     proj = tmp_path / "proj"
+    # Never read the developer's real ~/.config/duckbrain — it names a
+    # containers_dir that exists on Talapas and on no CI runner, so a test that
+    # inherited it would assert a property of the machine and pass here while
+    # failing there. That is exactly how the validator tests broke the build for
+    # four commits. `test_config.py` and `test_setup_page.py` already do this.
+    monkeypatch.setenv(USER_CONFIG_ENV, str(tmp_path / "user_config.toml"))
     scaffold_project(str(proj))
     # sub-01: ingested + converted (so fmriprep/mriqc are runnable); sub-02: ingested only.
     _touch(proj / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")

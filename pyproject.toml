@@ -99,6 +99,16 @@ branch = true
 # legitimate to lower this is a change that widens the denominator the way that
 # one did — and then the commit message has to say so.
 #
+# **Measure with the container runtime absent before you raise this.** A Talapas
+# dev box has `singularity` on PATH and a `~/.config/duckbrain` naming a real
+# containers_dir, so code that inspects an image actually runs and reports ~0.5
+# points higher than CI, which has neither: 86.01% locally against 85.45% on a
+# runner, at the time this was written. The gating number is the lower one, so
+# the slack here is thinner than a local run suggests. Reproduce CI with a PATH
+# that hides singularity/apptainer and DUCKBRAIN_USER_CONFIG pointed at a
+# nonexistent file — the same check that catches tests which assert a property of
+# the machine, which is what broke the build for four commits on 2026-08-03.
+#
 # Now that the pages are measured, the QC pages are the pattern to copy rather
 # than admire: they are four-statement declarations calling one tested module
 # (`gui.qc_panels`), so splitting one 108-statement page into five *raised* the
