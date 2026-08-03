@@ -207,7 +207,12 @@ what's open, `docs/releasing.md` to cut the next one.
   The coverage floor (`[tool.coverage.report] fail_under`) is a **ratchet**: raise
   it when coverage rises, never lower it to green a build. Read the current value
   from `pyproject.toml`, not from here. Everything under `src/duckbrain` is
-  measured, pages included.
+  measured, pages included, and **branches are counted as well as statements** —
+  so an `if` whose fall-through no test takes is a gap the report names, even
+  though the line itself ran. That is deliberate: this project's bugs are
+  one-directional conditions in code that executes fine, not unexecuted lines.
+  A consequence worth knowing before you compare numbers: the total is not on the
+  same scale as any figure in git history from before 2026-08-03.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
   Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.

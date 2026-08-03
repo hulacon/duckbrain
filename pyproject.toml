@@ -69,17 +69,41 @@ testpaths = ["tests"]
 # and CLAUDE.md both pass a bare `--cov`.
 source = ["src/duckbrain"]
 
+# Branch coverage, not just statements, because the difference is exactly this
+# project's failure mode. Statement coverage asks "did this line run"; an `if`
+# with no `else` has no line for its fall-through, so a condition that only ever
+# went one way still reports as fully covered. duckbrain is an orchestrator whose
+# characteristic bug is a path that quietly does the wrong thing — inverted
+# fieldmap intent, an anat-reuse flag that no-ops, a twin guard that hid 26 of 26
+# twins on a scanner writing neither token. Every one of those was a one-directional
+# condition in code that ran fine.
+#
+# Found its first one immediately: `write_dataset_description`'s
+# "don't blank an existing GeneratedBy" branch had never executed, because every
+# test happened to pass one. Statement coverage called that line covered.
+#
+# Turning this on *lowers* the reported total (87.42% -> 85.99%) and that is not a
+# regression — it is a stricter denominator. Don't compare a branch-inclusive
+# figure against a statement-only one from before this line existed.
+branch = true
+
 [tool.coverage.report]
 # A ratchet, not a target. The floor sits about a point under the last measured
 # total, so a statement-count difference between Python versions can't fail CI on
 # its own. Raise it when coverage rises — never lower it to make a red build
 # green.
 #
+# This number counts **branches as well as statements** (see `branch = true`
+# above), so it is not comparable to the pre-2026-08-03 values in git history:
+# 85 here is stricter than the 86 it replaced, not looser. The one time it is
+# legitimate to lower this is a change that widens the denominator the way that
+# one did — and then the commit message has to say so.
+#
 # Now that the pages are measured, the QC pages are the pattern to copy rather
 # than admire: they are four-statement declarations calling one tested module
 # (`gui.qc_panels`), so splitting one 108-statement page into five *raised* the
 # total. A page that holds logic is a page that holds untested logic.
-fail_under = 86
+fail_under = 85
 
 [tool.ruff]
 line-length = 100
