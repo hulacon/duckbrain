@@ -142,6 +142,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   what moves it, not the upgrade itself — a session whose saved config is
   untouched reads exactly as before. Reconvert to clear it.
 
+### Changed
+
+- **Streamlit 1.56 is now the minimum** (was 1.48). The embedded MRIQC/fMRIPrep
+  report viewer used `st.components.v1.html`, whose announced removal date —
+  2026-06-01 — has passed; it still works in 1.56–1.59, but the first upgrade to
+  drop it would blank every embedded report with no warning. It now uses
+  `st.iframe`, which landed in 1.56. If you installed duckbrain before this,
+  `pip install -e .` again from your checkout. Nothing else changes: the frame
+  gets the same sandbox flags it always did, and reports render as before.
+
 ### Fixed
 
 - **A gradient-echo fieldmap would have been refused as a broken pepolar pair.**

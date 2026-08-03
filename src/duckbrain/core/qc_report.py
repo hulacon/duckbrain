@@ -6,12 +6,16 @@ sending to someone. MRIQC and fMRIPrep already work this way, emitting
 self-contained HTML into ``derivatives/``; a duckbrain QC report belongs beside
 them and opens the same way.
 
-So this module renders **one** HTML string, delivered two ways: embedded in the
-QC page via ``st.components.v1.html()``, and written to ``derivatives/`` as a
-shareable export. The split that matters is read vs. write, not HTML vs.
-Streamlit — recording a decision needs a server-side callback that static HTML
-cannot do, so that half stays in Streamlit widgets outside the iframe. There is
-only ever one renderer to maintain.
+So this module renders **one** HTML string, and the QC pages hand it to the user
+as a file — downloaded, or written to ``derivatives/`` beside MRIQC's own reports
+(``gui/qc_panels.py``, "Export a standalone HTML report"). It was once *also*
+embedded in the QC page itself; the QC surface was regrouped into one page per
+review question and those render natively in Streamlit, so the embed is gone and
+only the export remains.
+What the embed decided still holds, though, because it fell along a seam that
+already existed: recording a decision needs a server-side callback that static
+HTML cannot do, so the write half was always Streamlit's and the read half is
+this document. There is only ever one renderer to maintain.
 
 Everything here is deliberately free of Streamlit, which is what lets it be
 tested at all: the logic used to live in the page, where no test could import it.
@@ -341,13 +345,14 @@ def render_report(
         :data:`REPORT_SUBDIR` and so stays right if that moves. Never pass an
         absolute path — see the module docstring.
 
-        Pass ``None`` for the copy embedded in the QC page, where no relative
-        path can resolve: that copy sits in a sandboxed ``srcdoc`` iframe whose
-        base URL is the *page's*, not the report's, so ``../mriqc/…`` addressed
-        a directory OnDemand does not serve and the link did nothing at all.
-        The Report column then names the report instead of linking it, and page
-        5 opens it — a dead link that looks live is the failure this argument
-        exists to avoid.
+        Pass ``None`` when the HTML has no location of its own for a relative
+        path to resolve against; the Report column then names the report instead
+        of linking it. Written for the in-page embed, which no longer exists (see
+        the module docstring) — that copy sat in a ``srcdoc`` iframe whose base
+        URL was the *page's*, not the report's, so ``../mriqc/…`` addressed a
+        directory OnDemand does not serve and the link did nothing at all. A dead
+        link that looks live is the failure this argument exists to avoid, and
+        any future delivery path without a location of its own wants it too.
     motion_status : (state, sentence), optional
         From :func:`describe_motion_source`. Rendered as a banner whenever
         fMRIPrep did not fill every motion cell, so that a table which is
@@ -580,10 +585,9 @@ def _run_table_note(report_base: str | None) -> str:
 def _report_cell(run: dict, report_base: str | None) -> str:
     """The Report column: a link where one can resolve, a plain name where none can.
 
-    ``report_base=None`` is the embedded copy, which has no location to be
-    relative to. It still says which MRIQC report covers the run, because that
-    is a fact the reviewer wants; it just does not dress it as something to
-    click.
+    ``report_base=None`` is a copy with no location to be relative to. It still
+    says which MRIQC report covers the run, because that is a fact the reviewer
+    wants; it just does not dress it as something to click.
     """
     name = run["report"]
     if not name:
@@ -804,8 +808,8 @@ def _plotly_js() -> str:
     files. It costs a fixed ~4.9 MB and the run table adds under a kilobyte per
     run, so the payload is effectively constant in dataset size.
 
-    Cached because the page renders the report twice — once to embed and once to
-    export, differing only in ``report_base`` — and this is ~4.9 MB of it.
+    Cached because the QC page rebuilds the whole report on every rerun it is
+    asked for one, and this is ~4.9 MB of it.
     """
     try:
         from plotly.offline import get_plotlyjs

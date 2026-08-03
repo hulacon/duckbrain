@@ -148,6 +148,22 @@ def test_embed_tool_report_serves_the_figures(tmp_path):
     assert not at.warning
 
 
+def test_embed_tool_report_puts_the_rewritten_markup_in_the_frame(tmp_path):
+    """The return value says the rewrite succeeded; this says the rewritten
+    markup is what actually reached the browser.
+
+    ``st.iframe`` sniffs its argument, and a path-shaped one would be re-read
+    from disk — serving MRIQC's original relative ``src`` and a blank figure,
+    with ``complete=True`` still returned. Assert on ``srcdoc`` so that swap
+    fails here rather than in the GUI.
+    """
+    at = AppTest.from_function(_embed_app, kwargs={"report_path": str(_mriqc_report(tmp_path))})
+    at.run()
+    (frame,) = at.get("iframe")
+    assert "./figures/carpet.svg" not in frame.proto.srcdoc
+    assert "/media/" in frame.proto.srcdoc
+
+
 def test_embed_tool_report_says_so_when_a_figure_is_missing(tmp_path):
     """A report with holes in it must announce them. Rendering it silently
     incomplete is the failure mode this feature exists to end."""

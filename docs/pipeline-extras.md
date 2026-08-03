@@ -157,9 +157,11 @@ Use the **per-figure SVG evidence path**, not `embed_tool_report`. That is the
 architecture `#24` deliberately moved *to* (~1.1 MB for the figure a reviewer
 wants vs ~80 MB for a whole subject report), the argument transfers to QSIPrep
 unchanged because its reports are the same nireports shape and size class, and
-`embed_tool_report` currently has **no production call site** and sits on `#23`'s
-deprecation — reviving it would give it one and make `#23` harder to close. Keep
-a *link* to the report for the sampling-scheme animation and boilerplate.
+`embed_tool_report` still has **no production call site** — reviving it would
+give it one, and the size argument above is why it lost the last one. (It is no
+longer a *deprecation* risk — it moved to `st.iframe` on 2026-08-03 — so size is
+the whole of the argument now.) Keep a *link* to the report for the
+sampling-scheme animation and boilerplate.
 
 The structural edits, in rough order of size: replace `evidence_for`'s hardcoded
 `if modality == "bold"` (`qc_domains.py`) with a per-figure `modalities` field,
