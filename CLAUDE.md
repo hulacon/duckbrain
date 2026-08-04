@@ -220,11 +220,13 @@ what's open, `docs/releasing.md` to cut the next one.
   Python 3.10 and 3.12) — run them locally before committing, since every setting
   lives in `pyproject.toml` and a local run enforces exactly what CI does:
   ```bash
-  ruff check . && ruff format --check . && python -m pytest tests/ -q --cov --cov-report=term-missing
+  ruff check . && ruff format --check . && mypy && python -m pytest tests/ -q --cov --cov-report=term-missing
   ```
-  `--check` and the bare `--cov` are both load-bearing: `ruff format .` *rewrites*
-  instead of failing, and a `--cov=<value>` overrides the source in
-  `pyproject.toml` — which is exactly how the Streamlit pages went unmeasured.
+  `--check`, the bare `--cov` and the bare `mypy` are all load-bearing: `ruff
+  format .` *rewrites* instead of failing, a `--cov=<value>` overrides the source
+  in `pyproject.toml` — which is exactly how the Streamlit pages went unmeasured
+  — and passing paths to `mypy` overrides `[tool.mypy] files` the same way, so
+  you'd check something other than what CI checks.
   The coverage floor (`[tool.coverage.report] fail_under`) is a **ratchet**: raise
   it when coverage rises, never lower it to green a build. Read the current value
   from `pyproject.toml`, not from here. Everything under `src/duckbrain` is
@@ -234,6 +236,14 @@ what's open, `docs/releasing.md` to cut the next one.
   one-directional conditions in code that executes fine, not unexecuted lines.
   A consequence worth knowing before you compare numbers: the total is not on the
   same scale as any figure in git history from before 2026-08-03.
+
+  `mypy` runs as its **own CI job**, not a step in the 3.10/3.12 matrix, so that
+  it answers one way rather than depending on which third-party builds pip
+  resolved on a given leg. It checks the three modules listed in `[tool.mypy]
+  files` and is a **ratchet** like the coverage floor: those files were fully
+  annotated before it was turned on, so it holds a property rather than opening a
+  project. Widening the list means re-measuring first — read the list from
+  `pyproject.toml`, not from here.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
   Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.

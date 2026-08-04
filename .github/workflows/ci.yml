@@ -84,3 +84,33 @@ jobs:
         # name and silently excluded every Streamlit page — for a week after the
         # config was fixed, this line alone would have kept CI on the old way.
         run: pytest tests/ -q --cov --cov-report=term-missing
+
+  types:
+    # A separate job rather than a step in the matrix above, deliberately. The
+    # matrix installs different third-party builds on 3.10 and 3.12;
+    # `python_version` in [tool.mypy] pins the *analysis* target (which typeshed
+    # mypy reads) but not which pandas/pydicom pip resolved, so a matrix step
+    # could go red on one leg alone for reasons nobody changed. One job answers
+    # one way, and names itself in the checks list when it fails.
+    #
+    # Blocking, not `continue-on-error`. An advisory check is one nobody reads —
+    # the same reason CLAUDE.md refuses to leave a pending check in a commit
+    # message. It is only safe to gate on because the config was dialled to a
+    # measured zero first (see [tool.mypy]); do not add files here without
+    # re-measuring.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Type check
+        # Bare `mypy`: the file list lives in [tool.mypy] so a local run checks
+        # exactly what CI does. Passing paths here would override it silently.
+        run: mypy
