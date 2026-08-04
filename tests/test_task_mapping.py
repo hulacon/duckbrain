@@ -5,16 +5,16 @@ fix the *task* label only; run numbers stay positional and per-session. Per-sess
 edits are already the `mapping=` override covered in test_dcm2bids_config.py.
 """
 
-from duckbrain.core.dicom_inspect import SeriesInfo, FieldmapDetection
 from duckbrain.core.dcm2bids_config import (
     TaskRule,
     TaskRunEntry,
     build_task_run_mapping,
     generate_config,
-    task_rules_from_mapping,
     task_rules_from_config,
+    task_rules_from_mapping,
     task_rules_to_config_section,
 )
+from duckbrain.core.dicom_inspect import FieldmapDetection, SeriesInfo
 
 
 def _series(num, desc, cls, n=300):
@@ -204,10 +204,10 @@ def test_save_project_task_map_preserves_other_keys(tmp_path):
     # Read the project file directly (not load_config) to stay isolated from the
     # developer's real user config / env.
     from duckbrain.config import (
-        save_project_config,
-        save_project_task_map,
         _load_toml,
         project_config_path,
+        save_project_config,
+        save_project_task_map,
     )
 
     save_project_config(tmp_path, {"project": {"name": "study"}, "slurm": {"account": "lab"}})
@@ -222,9 +222,9 @@ def test_save_project_task_map_preserves_other_keys(tmp_path):
 
 def test_save_project_task_map_empty_removes_section(tmp_path):
     from duckbrain.config import (
-        save_project_task_map,
         _load_toml,
         project_config_path,
+        save_project_task_map,
     )
 
     save_project_task_map(tmp_path, [TaskRule("MB4_rest", "rest")])
@@ -280,11 +280,11 @@ def test_sanitize_task_label_public_wrapper():
 
 def test_save_project_fmap_map_preserves_other_keys(tmp_path):
     from duckbrain.config import (
+        _load_toml,
+        project_config_path,
         save_project_config,
         save_project_fmap_map,
         save_project_task_map,
-        _load_toml,
-        project_config_path,
     )
     from duckbrain.core.dcm2bids_config import FmapRule, fmap_rules_from_config
 
@@ -300,9 +300,9 @@ def test_save_project_fmap_map_preserves_other_keys(tmp_path):
 
 def test_save_project_fmap_map_empty_removes_section(tmp_path):
     from duckbrain.config import (
-        save_project_fmap_map,
         _load_toml,
         project_config_path,
+        save_project_fmap_map,
     )
     from duckbrain.core.dcm2bids_config import FmapRule, fmap_rules_from_config
 

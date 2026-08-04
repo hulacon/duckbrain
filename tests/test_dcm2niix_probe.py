@@ -23,7 +23,6 @@ from duckbrain.core.dcm2niix_probe import (
     probe_unavailable_reason,
 )
 
-
 # ---- the probe itself ----
 
 
@@ -129,7 +128,6 @@ def _probes(**by_number):
 def test_a_pepolar_pair_encoded_the_same_way_is_an_error():
     """Two halves with one direction estimate nothing, and dcm2bids won't notice."""
     from duckbrain.core.conversion_plan import plan_warnings
-
     from test_conversion_plan import _bold, _plan, _series
 
     series = [
@@ -155,7 +153,6 @@ def test_a_pepolar_pair_encoded_the_same_way_is_an_error():
 
 def test_an_opposing_pair_raises_nothing():
     from duckbrain.core.conversion_plan import plan_warnings
-
     from test_conversion_plan import _bold, _plan, _series
 
     series = [
@@ -177,7 +174,6 @@ def test_an_opposing_pair_raises_nothing():
 def test_a_dir_label_contradicting_the_scanner_is_reported():
     """The ``_ap``/``_pa`` token is the *only* thing duckbrain has; check it."""
     from duckbrain.core.conversion_plan import plan_warnings
-
     from test_conversion_plan import _bold, _plan, _series
 
     series = [
@@ -213,7 +209,6 @@ def test_a_gradient_echo_group_is_not_read_as_a_pepolar_pair():
     """
     from duckbrain.core import dcm2bids_config, dicom_inspect
     from duckbrain.core.conversion_plan import plan_conversion, plan_warnings
-
     from test_series_classification import _gre_session
 
     series = _gre_session()
@@ -237,7 +232,6 @@ def test_a_gradient_echo_group_is_not_read_as_a_pepolar_pair():
 def test_no_probes_means_the_pe_checks_are_skipped_not_passed():
     """The checks must be absent without a probe, not silently satisfied."""
     from duckbrain.core.conversion_plan import plan_warnings
-
     from test_conversion_plan import _bold, _plan, _series
 
     series = [

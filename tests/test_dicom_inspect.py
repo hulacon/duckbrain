@@ -3,11 +3,11 @@
 import pytest
 
 from duckbrain.core.dicom_inspect import (
-    list_series,
     classify_series,
     detect_fieldmaps,
     extract_task_label,
     get_bold_series,
+    list_series,
     parse_task_run,
     reproin_entities,
 )

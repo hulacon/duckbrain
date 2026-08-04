@@ -6,7 +6,6 @@ import json
 import subprocess
 from pathlib import Path
 
-
 # Only functional-family suffixes are restricted to the session. Anatomicals
 # (t1w/t2w) are deliberately left unfiltered: in multi-session studies the
 # anatomical is often acquired in a single session and shared, so filtering it

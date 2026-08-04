@@ -1,9 +1,9 @@
 """Tests for duckbrain config loader."""
 
 import json
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
@@ -101,7 +101,7 @@ time = "72:00:00"
 
 
 def test_get_slurm_resources(tmp_config_dir):
-    from duckbrain.config import load_config, get_slurm_resources
+    from duckbrain.config import get_slurm_resources, load_config
 
     config = load_config(tmp_config_dir)
     res = get_slurm_resources(config, "fmriprep")
@@ -595,8 +595,12 @@ def test_project_partition_reaches_every_stage(tmp_path, monkeypatch):
     displayed reached no job at all. Stages declare `long` now; the two role
     names resolve from [slurm].
     """
-    from duckbrain.config import load_config, save_project_config, scaffold_project
-    from duckbrain.config import get_slurm_resources
+    from duckbrain.config import (
+        get_slurm_resources,
+        load_config,
+        save_project_config,
+        scaffold_project,
+    )
 
     proj = tmp_path / "p"
     scaffold_project(str(proj))

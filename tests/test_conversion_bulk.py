@@ -247,7 +247,6 @@ def test_a_gradient_echo_session_still_converts_when_probed(tmp_path, monkeypatc
     32 of the LCNI corpus's fieldmap sessions, with no UI to explain why.
     """
     from duckbrain.core.conversion import generate_session_config
-
     from test_series_classification import _gre_session
 
     series = _gre_session()

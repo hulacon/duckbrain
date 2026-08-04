@@ -12,8 +12,8 @@ from pathlib import Path
 import streamlit as st
 
 from duckbrain.config import (
-    PROJECT_ENV,
     _SHARED_PATH_KEYS,
+    PROJECT_ENV,
     _load_toml,
     forget_project,
     load_config,

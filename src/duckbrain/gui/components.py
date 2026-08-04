@@ -6,7 +6,6 @@ from pathlib import Path
 
 import streamlit as st
 
-
 _DP_MAX_BUTTONS = 300
 _DP_LIST_HEIGHT = 280
 

@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 # ---- QC settings ----
 
 #: Used only when the config cannot be read. Kept in step with ``[qc]`` in

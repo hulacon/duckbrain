@@ -123,13 +123,28 @@ fail_under = 88
 [tool.ruff]
 line-length = 100
 
+# Where ruff looks to decide an import is *ours*. Load-bearing for isort, and
+# `tests` is the part that isn't obvious: the test files import each other's
+# helpers (`from test_conversion_plan import _bold, _plan, _series`), which is
+# legal because pytest puts `tests/` on `sys.path` — but without `tests` listed
+# here ruff classifies those as third-party and sorts them *above* `duckbrain`,
+# which is the wrong answer as well as a bigger diff.
+#
+# `known-first-party` below then says the same thing about the package a second
+# way. That is deliberate rather than redundant: `src` makes ruff resolve the
+# name by probing the filesystem, so the classification would depend on what
+# happens to be on disk — and a gate whose answer differs between a dev box and
+# a CI runner is the exact failure that cost this repo four red commits
+# (memory/local-tests-are-not-ci-tests).
+src = [".", "src", "tests"]
+
 [tool.ruff.lint]
 # Started as pycodestyle + pyflakes only, deliberately. That was the first gate
 # the repo had ever had; a wider ruleset would have meant a large mechanical diff
 # competing for attention with the two real bugs the narrow one found (a missing
 # `Path` import in an annotation, and a dead series lookup in
 # `_fmap_description`). It is being widened a ruleset at a time, each with its
-# own commit — isort and pyupgrade still to come.
+# own commit — pyupgrade still to come.
 #
 # `B` (flake8-bugbear) is the first widening, and the reason to start here is
 # `B905`: `zip()` silently truncates to the shorter argument, so two sequences
@@ -144,7 +159,13 @@ line-length = 100
 #
 # The one `B023` is a false positive with a `noqa` and a stated reason; nothing
 # in the codebase defers a closure built in a loop.
-select = ["B", "E", "F", "W"]
+#
+# `I` (isort) is the second, and it is purely mechanical — it found no bug and
+# was never going to. It earns its place by making import order a thing nobody
+# has to think about or review again, which is worth one 47-site diff once. See
+# `src` above for the setting that makes its answer correct, and
+# `[tool.ruff.lint.isort]` below.
+select = ["B", "E", "F", "I", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # Streamlit pages must call st.set_page_config() before anything else touches
@@ -154,3 +175,16 @@ select = ["B", "E", "F", "W"]
 # The test suite groups an import with the narrative section that uses it, which
 # is how these files stay readable at ~500 lines.
 "tests/*" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["duckbrain"]
+# Deliberately NOT `lines-after-imports = 2`. It reads like it would only affect
+# the top of a file, but it applies to *function-local* import blocks too — which
+# both the Streamlit pages and the test suite use heavily — and takes this
+# ruleset from 47 findings to 102, all of them blank lines. The default already
+# matches what `ruff format` wants at module level.
+#
+# Nothing here overrides the E402 ignores above, and nothing needs to: ruff's
+# isort sorts each *contiguous* block on its own, so on a page whose imports sit
+# after an `st.set_page_config` / config guard, the blocks either side of the
+# guard are sorted separately and no import is ever moved across it.

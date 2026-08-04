@@ -68,8 +68,9 @@ def test_cancel_job_invokes_scancel(monkeypatch):
 
 
 def test_cancel_job_raises_on_failure(monkeypatch):
-    import duckbrain.slurm.monitor as M
     import pytest
+
+    import duckbrain.slurm.monitor as M
 
     class R:
         returncode = 1

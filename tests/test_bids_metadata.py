@@ -134,8 +134,8 @@ def test_write_participants_append_dedupes(tmp_path):
 
 
 def test_converter_generated_by_names_duckbrain_and_dcm2bids(monkeypatch, tmp_path):
-    from duckbrain.core.bids_metadata import converter_generated_by
     import duckbrain.core.conversion as C
+    from duckbrain.core.bids_metadata import converter_generated_by
 
     img = tmp_path / "dcm2bids-3.2.0.sif"
     img.write_text("img")
@@ -156,8 +156,8 @@ def test_converter_generated_by_degrades_to_duckbrain_alone(tmp_path):
 
 
 def test_root_description_records_the_converter(monkeypatch, tmp_path):
-    from duckbrain.core.bids_metadata import converter_generated_by
     import duckbrain.core.conversion as C
+    from duckbrain.core.bids_metadata import converter_generated_by
 
     img = tmp_path / "dcm2bids-3.2.0.sif"
     img.write_text("img")

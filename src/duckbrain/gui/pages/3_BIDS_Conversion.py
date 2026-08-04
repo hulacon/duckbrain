@@ -3,11 +3,10 @@
 import dataclasses
 import json
 from datetime import datetime
-
-import streamlit as st
-import pandas as pd
 from pathlib import Path
 
+import pandas as pd
+import streamlit as st
 
 st.set_page_config(page_title="BIDS Conversion — duckbrain", layout="wide")
 st.title("BIDS Conversion")
@@ -45,9 +44,9 @@ for s in ingested:
 # ---- Bulk conversion (skips per-session review) ----
 bids_dir = paths.get("bids_dir", "")
 from duckbrain.core.conversion import (
-    session_bids_exists,
-    save_dcm2bids_config,
     get_container_path,
+    save_dcm2bids_config,
+    session_bids_exists,
 )
 from duckbrain.core.dcm2niix_probe import probe_runtime
 from duckbrain.core.ingestion import sub_ses_relpath
@@ -110,7 +109,7 @@ with st.expander(
         key="bulk_submit",
         disabled=not target,
     ):
-        from duckbrain.core.pipeline import advance_one, _resolve_log_dir
+        from duckbrain.core.pipeline import _resolve_log_dir, advance_one
 
         log_dir = _resolve_log_dir(config)
         results = []
@@ -172,11 +171,11 @@ if not dicom_dir.exists():
 from duckbrain.core.dicom_inspect import (
     EMITTED_CLASSIFICATIONS,
     ND_POLICIES,
-    list_series,
     classify_series,
     detect_fieldmaps,
     is_complete_group,
     is_reproin_name,
+    list_series,
     nd_policy_from_config,
     nd_twin_bases,
 )
@@ -396,35 +395,34 @@ if fieldmaps.warnings:
 # Mapping, Fieldmap Binding) that shared a grain but not a surface, so the user
 # had to join series numbers, task labels and group names by eye. See TODO #13 /
 # docs/conversion-legibility.md.
-from duckbrain.core.dcm2bids_config import (
-    # The opt-out sentinel, taken from the module that acts on it rather than
-    # respelled here: this page writes the value, generate_config reads it, and a
-    # second copy of the literal is a place for them to disagree quietly.
-    _NO_FMAP,
-    anat_suffix_for,
-    build_task_run_mapping,
-    collapse_fmap_rules,
-    generate_config,
-    config_to_json,
-    FmapRule,
-    TaskRunEntry,
-    fmap_rules_from_config,
-    resolve_fmap_assignments,
-    task_rules_from_config,
-    task_rules_from_mapping,
+from duckbrain.core.conversion import (
+    compare_dcm2bids_configs,
+    generate_session_config,
 )
 from duckbrain.core.conversion_plan import (
     plan_conversion,
     plan_warnings,
     read_config_into_table,
 )
-from duckbrain.core.conversion import (
-    compare_dcm2bids_configs,
-    generate_session_config,
+from duckbrain.core.dcm2bids_config import (
+    # The opt-out sentinel, taken from the module that acts on it rather than
+    # respelled here: this page writes the value, generate_config reads it, and a
+    # second copy of the literal is a place for them to disagree quietly.
+    _NO_FMAP,
+    FmapRule,
+    TaskRunEntry,
+    anat_suffix_for,
+    build_task_run_mapping,
+    collapse_fmap_rules,
+    config_to_json,
+    fmap_rules_from_config,
+    generate_config,
+    resolve_fmap_assignments,
+    task_rules_from_config,
+    task_rules_from_mapping,
 )
-from duckbrain.gui.conversion_panels import probe_note, session_probes
 from duckbrain.core.dicom_inspect import sanitize_task_label
-
+from duckbrain.gui.conversion_panels import probe_note, session_probes
 
 # ---- A previously reviewed config on disk -----------------------------------
 # `_build_dcm2bids` reuses <sourcedata>/sub-XX/[ses-YY]/dcm2bids_config.json when

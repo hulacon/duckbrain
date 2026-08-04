@@ -1,8 +1,8 @@
 """Page 4: Preprocessing — fMRIPrep, NORDIC, MRIQC submission."""
 
-import streamlit as st
 from pathlib import Path
 
+import streamlit as st
 
 st.set_page_config(page_title="Preprocessing — duckbrain", layout="wide")
 st.title("Preprocessing")

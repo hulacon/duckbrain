@@ -1,15 +1,16 @@
 """Tests for duckbrain ingestion module."""
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from duckbrain.core.ingestion import (
+    BidsMapping,
+    SessionInfo,
     auto_number_sessions,
     discover_sessions,
     ingest_session,
     list_ingested_sessions,
-    BidsMapping,
-    SessionInfo,
 )
 
 

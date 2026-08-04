@@ -9,13 +9,13 @@ never flagged just for lacking a log row.
 import json
 from pathlib import Path
 
+from duckbrain.core.bids_metadata import write_derivative_description
 from duckbrain.core.consistency import (
     ConsistencyIssue,
     _check_tool_crashes,
     check_consistency,
     read_derivative_provenance,
 )
-from duckbrain.core.bids_metadata import write_derivative_description
 from duckbrain.core.pipeline import record_submission
 
 

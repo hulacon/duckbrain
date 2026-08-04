@@ -141,8 +141,8 @@ def test_column_bulk_run_gated_by_confirm(project, monkeypatch):
 
 def test_submission_log_panel_renders(project):
     # Pre-seed the durable log; the cockpit should surface it.
-    from duckbrain.core.pipeline import record_submission
     from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
 
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "999001")
@@ -156,6 +156,7 @@ def test_consistency_warning_panel_renders(project):
     # use_nordic on, but the fMRIPrep derivative was generated from raw data —
     # check_consistency should flag it and the cockpit should surface the ⚠️.
     import json
+
     from duckbrain.config import save_project_config
 
     save_project_config(str(project), {"project": {"name": "test"}, "nordic": {"use_nordic": True}})
@@ -184,8 +185,8 @@ def test_no_consistency_warning_when_clean(project):
 
 def test_running_cell_links_to_job_with_detail(project, monkeypatch):
     # A running job, recorded in the durable log so the cell can reference its id.
-    from duckbrain.core.pipeline import record_submission
     from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
 
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "55123")
@@ -214,9 +215,9 @@ def test_running_cell_links_to_job_with_detail(project, monkeypatch):
 
 
 def test_running_cell_cancel_gated_and_invokes_scancel(project, monkeypatch):
-    from duckbrain.core.pipeline import record_submission
-    from duckbrain.config import load_config
     import duckbrain.slurm.monitor as M
+    from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
 
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "55123")
@@ -254,8 +255,8 @@ def test_all_jobs_panel_lists_orphan_jobs(project, monkeypatch):
 
 def test_failed_cell_exposes_log_and_rerun(project, monkeypatch):
     # sub-01 fmriprep reported failed by SLURM, with a recorded job + log on disk.
-    from duckbrain.core.pipeline import record_submission
     from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
 
     cfg = load_config(project_dir=str(project))
     record_submission(cfg, "fmriprep", "01", "", "77001")

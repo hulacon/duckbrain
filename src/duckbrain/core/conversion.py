@@ -254,10 +254,10 @@ def generate_session_config(
     """
     import warnings
 
-    from .dicom_inspect import list_series, classify_series, detect_fieldmaps
-    from .dcm2bids_config import build_task_run_mapping, generate_config
     from .conversion_plan import plan_conversion, plan_warnings
+    from .dcm2bids_config import build_task_run_mapping, generate_config
     from .dcm2niix_probe import by_series_number, probe_runtime, probe_session
+    from .dicom_inspect import classify_series, detect_fieldmaps, list_series
 
     if series_list is None:
         series_list = list_series(dicom_dir)

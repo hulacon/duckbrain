@@ -2,23 +2,24 @@
 
 import re
 
-from duckbrain.core.dicom_inspect import (
-    SeriesInfo,
-    parse_task_run,
-    extract_task_label,
-)
 import pytest
 
 from duckbrain.core.dcm2bids_config import (
-    build_task_run_mapping,
-    generate_config,
     FmapRule,
     TaskRunEntry,
+    build_task_run_mapping,
     fmap_rules_from_config,
     fmap_rules_to_config_section,
+    generate_config,
     resolve_fmap_assignments,
 )
-from duckbrain.core.dicom_inspect import FieldmapDetection, detect_fieldmaps
+from duckbrain.core.dicom_inspect import (
+    FieldmapDetection,
+    SeriesInfo,
+    detect_fieldmaps,
+    extract_task_label,
+    parse_task_run,
+)
 
 
 def _series(num, desc, cls, n=300):

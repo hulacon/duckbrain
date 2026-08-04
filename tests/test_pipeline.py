@@ -13,8 +13,8 @@ import pytest
 
 import duckbrain.core.pipeline as P
 from duckbrain.core.pipeline import (
-    STAGE_SPECS,
     SLURM_STAGES,
+    STAGE_SPECS,
     PipelineError,
     advance_one,
     effective_depends_on,
@@ -181,6 +181,7 @@ def test_nordic_no_bold_raises(monkeypatch, tmp_path):
 
 def test_nordic_launch_stamps_derivative_provenance(monkeypatch, tmp_path):
     import json
+
     import duckbrain.core.nordic as N
 
     monkeypatch.setattr(N, "get_bold_runs", lambda bids, sub, ses: [tmp_path / "a_bold.nii.gz"])
@@ -864,6 +865,7 @@ def test_run_provenance_container_stage_runtime_is_the_image(monkeypatch, tmp_pa
 
 def test_nordic_stamp_records_matlab_as_its_own_generatedby_entry(monkeypatch, tmp_path):
     import json
+
     import duckbrain.core.nordic as N
 
     monkeypatch.setattr(N, "get_bold_runs", lambda bids, sub, ses: [tmp_path / "a_bold.nii.gz"])

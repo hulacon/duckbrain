@@ -12,7 +12,6 @@ from pathlib import Path
 
 from duckbrain.core.nordic import build_nordic_bids_input, nordic_output_dir
 
-
 # ---- nordic_output_dir ------------------------------------------------------
 
 

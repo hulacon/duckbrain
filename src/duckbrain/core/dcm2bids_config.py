@@ -63,10 +63,10 @@ from .dicom_inspect import (
     FieldmapDetection,
     SeriesInfo,
     extract_task_label,
+    is_complete_group,
     parse_task_run,
     phase_encoding_direction_token,
     reproin_entities,
-    is_complete_group,
     sanitize_task_label,
     split_trailing_index,
 )

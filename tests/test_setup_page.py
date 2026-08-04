@@ -224,8 +224,9 @@ def test_shared_resources_show_the_shared_value_not_the_projects(project, tmp_pa
 
 
 def test_saving_shared_resources_keeps_the_recent_projects_list(project, tmp_path):
-    from duckbrain.config import USER_CONFIG_ENV, _load_toml, save_user_config
     import os
+
+    from duckbrain.config import USER_CONFIG_ENV, _load_toml, save_user_config
 
     save_user_config({"recent": {"projects": ["/x", "/y"]}})
     at = _open(project)

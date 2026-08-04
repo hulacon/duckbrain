@@ -2,7 +2,7 @@
 
 import pytest
 
-from duckbrain.slurm.templates import render_sbatch, build_context
+from duckbrain.slurm.templates import build_context, render_sbatch
 
 BASE_PATHS = {
     "work_dir": "/tmp",

@@ -52,7 +52,8 @@ if config.get("nordic", {}).get("use_nordic", False):
         "gated on the `nordic` stage."
     )
 
-from duckbrain.core.surveyor import STAGES, Status, summarize
+from duckbrain.core.checks import run_checks
+from duckbrain.core.consistency import check_consistency
 from duckbrain.core.pipeline import (
     SLURM_STAGES,
     advance_one,
@@ -60,8 +61,7 @@ from duckbrain.core.pipeline import (
     stage_runnable,
     survey_live,
 )
-from duckbrain.core.consistency import check_consistency
-from duckbrain.core.checks import run_checks
+from duckbrain.core.surveyor import STAGES, Status, summarize
 
 # ---- Refresh controls ----
 c_refresh, c_auto = st.columns([1, 3])
