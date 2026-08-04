@@ -821,11 +821,34 @@ The work, then:
   `.venv` and fall through, so they gain a conda branch ahead of it and nobody's
   working checkout breaks. `#2`'s `UNVALIDATED` new-user walk should then be
   walked on the **conda** path, since that becomes the documented one.
-- Decide **where the env lives**. `~/.conda/envs` is per-user and invisible to
-  others (`/home/bhutch` is `drwx------` — the same wall `#2` hit with the
-  containers). A shared `--prefix` under `/projects/hulacon/shared` would let one
-  build serve the PIRG, and there is no shared env there today. That is a
-  distribution decision, not a packaging one, and it belongs with `#2`.
+- ✅ **Where the env lives — answered, with a precedent to copy.**
+  `~/.conda/envs` is per-user and invisible to others (`/home/bhutch` is
+  `drwx------` — the same wall `#2` hit with the containers), so a shared
+  `--prefix` it is: **`/projects/hulacon/shared/envs/<name>`**. That parent is
+  `drwxrwsr-x` and setgid, so one build serves the PIRG. It was empty until
+  2026-08-04, when **braintwill** built the first one there and wrote the recipe
+  up in `docs/talapas-conda.md` (repo: `…/shared/mmmdata/code/braintwill`).
+  Three pieces transfer directly rather than needing re-derivation: its
+  `conda/condarc`, the `$CONDARC`-replacement trick (a lower-priority condarc
+  cannot out-rank FSL's `#!final`, but *replacing* the file in conda's search
+  path works — verified, 180 packages, conda-forge only), and
+  `scripts/setup_env.sh`, which ends by asserting nothing resolved off
+  conda-forge and failing loudly if anything did. Still a distribution decision
+  in the `#2` sense — who else gets told about it — but the location question is
+  closed.
+
+  Two corrections to the findings above, from that build. **`pkgs_dirs` is not
+  pinned solely to the read-only FSL path** — `~/.conda/pkgs` is listed first, so
+  the cache problem is milder than stated, though naming `CONDA_PKGS_DIRS`
+  explicitly is still right. And **conda-forge now has ruff 0.16.1**, so the
+  `ruff>=0.16,<0.17` pin may be satisfiable there after all; recheck before
+  assuming the dev extra must stay on pip.
+
+  Note braintwill deliberately runs **Python 3.12 / pandas 3.0.5 / numpy 2.5.1**,
+  not duckbrain's 3.11. That is not a divergence to reconcile: the two repos
+  share no imports, and one env across the ecosystem was considered and rejected
+  — mmmdata sits on pandas 2.3.3 and merging would force a side. See the
+  "cross-repo conventions" section of that doc.
 - CI (`.github/workflows/ci.yml`) is a separate call: GitHub runners have no FSL
   condarc and pip works fine there, so switching CI to conda buys little and
   costs solve time on every push. Leaving CI on pip while users get conda means
