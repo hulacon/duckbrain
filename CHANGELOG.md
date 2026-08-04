@@ -170,6 +170,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Preprocessing silently dropped subjects the session selection didn't cover.**
+  In a study where subjects don't share sessions — one scanned in `ses-01`,
+  another only in `ses-02` — selecting both subjects and one session submitted
+  jobs for the matching subject and skipped the other without a word. The
+  results table listed what *was* launched, so a batch missing half its subjects
+  looked exactly like one that worked, and the omission surfaced only later as a
+  stage that never completed. Skipped subjects are now named, and a selection
+  that leaves nothing to launch says so rather than rendering an empty table.
+
 - **The QC pages showed the previous MRIQC run's numbers until the Streamlit
   server was restarted.** Re-run MRIQC on a subject — after fixing a conversion,
   or with a newer container — and the measures, the outlier flags and the cohort

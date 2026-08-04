@@ -7,6 +7,7 @@ argument is what makes a directory and three lines enough.
 """
 
 import pytest
+from streamlit.testing.v1 import AppTest
 
 from duckbrain.gui import preproc_panels as P
 
@@ -57,3 +58,47 @@ def test_targets_is_empty_when_the_selection_misses_the_subject(bids):
     ``test_preprocessing_page.py``.
     """
     assert P.targets(bids, "02", ["01"]) == []
+
+
+def _batch(root, subjects, sessions, study_sessions):
+    """Run in a fresh module by AppTest, so it closes over nothing and imports its own."""
+    from pathlib import Path
+
+    from duckbrain.gui import preproc_panels
+
+    preproc_panels.run_batch(
+        {},
+        "mriqc",
+        Path(root),
+        subjects,
+        sessions,
+        study_sessions,
+        submit=True,
+        export=False,
+    )
+
+
+def test_a_batch_with_no_units_left_refuses_instead_of_rendering_an_empty_table(bids):
+    """Driven directly: the Preprocessing page cannot reach this state.
+
+    Its session multiselect only ever offers the union of the selected subjects'
+    sessions, so a selection that matches no subject is caught by the earlier
+    "select at least one session" guard (pinned in ``test_preprocessing_page.py``).
+    ``run_batch`` is a module function, though, and any other caller can hand it
+    this — an empty ``st.dataframe`` would say nothing at all.
+    """
+    at = AppTest.from_function(
+        _batch,
+        kwargs={
+            "root": str(bids),
+            "subjects": ["02"],
+            "sessions": ["01"],
+            "study_sessions": ["01"],
+        },
+        default_timeout=30,
+    ).run()
+    assert not at.exception
+
+    assert any("sub-02" in w.value for w in at.warning)
+    assert any("Nothing to launch" in e.value for e in at.error)
+    assert not at.dataframe, "an empty results table explains nothing; don't render one"

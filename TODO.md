@@ -19,7 +19,6 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
 oracle it lacked) ·
-[`#27`](#27) `4_Preprocessing.py` has no test ·
 [`#28`](#28) an fMRIPrep run that produced almost nothing and exited 0 ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
@@ -691,34 +690,6 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 
 ---
 
-<a id="27"></a>
-## #27 — `4_Preprocessing.py` has no test driving it
-
-Surfaced by `#26`'s fix, which is the only reason it is legible: the coverage
-source was a package name and could never match a Streamlit page, so all seven
-read 0% and nothing distinguished a page that was well covered from one that was
-not covered at all. With a path source the other six land between 43% and 100%
-and this one is **0% — 157 of 157 statements**.
-
-It is not a small page and it is not a read-only one. It builds and submits
-fMRIPrep, MRIQC and NORDIC jobs, and it writes project config. It is also where
-the anat-reuse silent no-op lived (`memory/silent-nooption-failures`) — the exact
-bug class that renders a page which looks right, and the one CLAUDE.md's
-"a silently-degrading option is worse than one that fails" rule exists for.
-
-The pattern to copy is the QC pages': `5a_QC_Signal.py` is a four-statement
-declaration over `gui/qc_panels.py`, and splitting one 108-statement page into
-five *raised* the total, because the logic moved somewhere a test can import it.
-`3_BIDS_Conversion.py` is the counter-example — 80% covered by 36 AppTest tests
-without any extraction, so AppTest alone is enough if the page is driven. Either
-route is fine; the cheap first move is a handful of AppTest runs asserting the
-rendered submission command, since that is what the suite already asserts against
-everywhere else.
-
-Do not lower the floor to accommodate it.
-
----
-
 <a id="28"></a>
 ## #28 — An fMRIPrep run produced almost nothing and exited 0
 
@@ -1300,6 +1271,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-04 | `#27` | **The page that submits every job now has tests, and driving it found a subject it was dropping in silence.** 0% → 100%, floor 85 → 88. Route taken was AppTest at the boundary, **not** this item's suggested "assert the rendered submission command": that command is already asserted in `test_pipeline.py` and `test_sbatch_templates.py`, so re-deriving it through the GUI would have tested the pipeline three more times and the page not at all. 19 tests stub `advance_one` on `duckbrain.core.pipeline` — a single patch, because the page imports it *inside* the submit branch at call time — and assert which stage, which units, which parameters crossed. One test does run the real chain with only `submit_job` stubbed, via **MRIQC**, the one stage with neither an fsaverage preflight nor a licence lookup, so a fake `.sif` and a pinned `shutil.which` are the whole setup; without it nothing would prove the page reaches SLURM at all. **Then the extraction, second and deliberately**: the three tabs each held a near-verbatim copy of the same submit loop, ~90 of 321 lines, and `gui/preproc_panels.run_batch` is that loop once — safe only because the tests already pinned the behaviour, and the proof is that all 19 passed **unchanged** across it. Page 321 → 224 lines and 100% covered, module 100%, total up on fewer statements. Taking `bids_path` as an argument instead of closing over the page's global is what made `targets` reachable from `tests/test_preproc_panels.py` with a tmp_path and no Streamlit. **What driving it found**: a subject whose sessions miss the selection returned an empty target list and vanished from the batch — select two subjects and one session in a study where they don't share sessions, get one job and a results table that looks complete. Now named. The all-dropped case turned out to be **unreachable from the page** and the reason is worth keeping: the session multiselect offers only the union of the selected subjects' sessions, and Streamlit *clears* the selection when that union changes, so the earlier guard always catches it first — pinned by `test_changing_subjects_clears_a_session_that_no_longer_applies`, with the empty-batch branch itself tested against the module. Two page changes were prerequisites, not cleanups: `get_slurm_resources` moved out of the fMRIPrep tab (all three read it; it worked only because Streamlit executes every tab body), and the six fMRIPrep option widgets gained `key=`, without which AppTest reaches them only by position and a layout edit silently re-points the very assertion that reads every option back out of the call. Floor measured under the CI shim, not a dev-box run, per `memory/local-tests-are-not-ci-tests`. |
 | 2026-08-04 | `#29` | **A cache key Streamlit was throwing away** — `cache_data` drops underscore-prefixed arguments, so `_load_metrics`'s `_fingerprint` keyed on `(mriqc_dir, modality)` alone and every QC page served the first MRIQC run's numbers until the server restarted. The rename, the test that fails before it (`test_a_rerun_of_mriqc_is_not_served_the_previous_numbers`), and an AST sweep over every `st.cache_*` in the package (`tests/test_streamlit_caches.py`, `EXEMPT` empty) so the next cache cannot repeat it. The two docstrings that named `_load_metrics` as the bad example now point at that test instead: a comment asserting a defect in another function is a claim about current state with nothing to notice when it stops being true. |
 | 2026-08-03 | `#23` | **`st.components.v1.html` swapped for `st.iframe`, and the floor raised to pay for it.** `streamlit>=1.48` → `>=1.56`, in the same commit and deliberately: `st.iframe` landed in 1.56 (2026-03-31), and a `hasattr` fallback would have left a second code path nobody runs. What the item asked to check, checked: the sandbox is **identical** — one flag list in `static/js/IFrameUtil.*.js`, `allow-same-origin` *and* `allow-scripts` together, serves both elements — so the swap neither costs nor buys isolation, and `core.report_embed.resolve_asset` remains the control doing the work. Two things `st.iframe` adds that its argument-sniffing makes easy to lose: pass the markup as a **string**, since a `Path` re-reads the file and would discard the asset-link rewriting `embed_tool_report` exists for, and keep `height` an `int`, since `"content"` injects a sizing script and a `MutationObserver` into the report document. Pinned by a test on the frame's `srcdoc` — the old tests asserted only the return value, which a path-shaped argument would still have made `True`. Stale docstrings fixed with it: `core/qc_report.py` claimed the report is embedded via `st.components.v1.html()`, which `#24` slice C made false, and three more places still described a `report_base=None` "embedded copy" that no caller passes. |
 | 2026-08-03 | `#22` | **The dcm2niix probe is wired in, and it exposed a check that was wrong in the other direction.** Both probe-fed checks had shipped 2026-07-24 with zero callers, so the *signed* phase-encoding direction — unreachable from raw tags, absent on XA30, and the one thing in a fieldmap plan taken entirely on the operator's word — went unchecked before every conversion. Wiring it required fixing `pe-collinear` first: `_fmap_halves` bucketed every planned `fmap` file with no pepolar test, so a gradient-echo magnitude and its phasediff (one group, two series, one direction **by construction**) read as a pepolar pair that estimates nothing. That is an *error*, which on the bulk path refuses the conversion — and it would have fired on **32** of the corpus's fieldmap sessions against the **22** pepolar ones the check is for. `suffix == "epi"` is the discriminator. Then: `probe_runtime` (prefer the pinned image over a host dcm2niix, and *say* when you fell back), `gui/conversion_panels.py` (cache keyed on the series names and file counts `list_series` already has plus the image's mtime/size — deliberately not an rglob, which would stat ~2000 files on GPFS to protect a 0.15 s call), and the same probe on the bulk/SLURM path via a `container=` parameter, since a probe wired only into the page would leave bulk checking strictly less than the reviewed path. **The panel is the part that mattered**: green is now *replaced* by an `st.info` when nothing was probed, not annotated, and the "not checked" caption renders unconditionally — a session with a collision *and* an unrunnable probe must still say the phase encoding went unchecked. **Measured, and it closed the one open question**: 52/52 fmap/dwi series across 25 sessions and both Siemens dialects report a signed direction, zero blank — so a `pe-unchecked` finding would be pure noise and was dropped. Validated live: `fmap_eyeball`'s two- and three-pair sessions read `j-`/`j` throughout at 0.46 s for 38 series, a Crave_control GRE session reads `i`/`i` and raises nothing, and `divatten_beta` renders the green message naming 33 probed series. Left open as `#29`: the qc_panels cache the probe cache was about to copy |

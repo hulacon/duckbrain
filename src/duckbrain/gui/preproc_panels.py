@@ -101,8 +101,17 @@ def run_batch(
     from duckbrain.core.pipeline import advance_one
 
     results = []
+    skipped = []
     for sub in subjects:
-        for ses in targets(bids_path, sub, sessions):
+        unit_sessions = targets(bids_path, sub, sessions)
+        if not unit_sessions:
+            # Reached when the subject has a ses- level but none of the selected
+            # sessions. Naming it is the point: the user asked for this subject,
+            # and a batch that silently returns fewer units than were selected
+            # looks exactly like one that worked.
+            skipped.append(sub)
+            continue
+        for ses in unit_sessions:
             try:
                 ref = advance_one(config, stage, sub, ses, export_only=export, **params)
             except Exception as e:
@@ -116,5 +125,22 @@ def run_batch(
                 )
             else:
                 results.append({"subject": sub, "session": ses, "path": ref, "status": "exported"})
+
+    if skipped:
+        named = ", ".join(f"sub-{s}" for s in skipped)
+        st.warning(
+            f"Skipped {named}: no selected session exists for "
+            f"{'them' if len(skipped) > 1 else 'it'}. Widen the session selection "
+            "to include these subjects."
+        )
+    if not results:
+        # An empty dataframe renders as an empty table and explains nothing.
+        # Not reachable from the Preprocessing page as it stands: the session
+        # multiselect offers only the union of the selected subjects' sessions,
+        # and Streamlit clears the selection when that union changes, so the
+        # "Select at least one session" guard above catches it first. It is
+        # reachable by any other caller, which is the reason to keep it.
+        st.error("Nothing to launch — no selected subject has any selected session.")
+        return
 
     st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)

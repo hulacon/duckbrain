@@ -325,6 +325,45 @@ def test_a_failing_unit_becomes_an_error_row_and_the_batch_goes_on(project, monk
     assert rows["02"]["job_id"] == "424242"
 
 
+def test_a_subject_the_selection_misses_is_named_not_dropped(project, calls):
+    """sub-02 has only ses-02, so a ses-01 selection leaves it with no units.
+
+    It used to vanish from the batch in silence: the user selected two subjects,
+    one job was launched, and the table looked like a complete run. Naming it is
+    the whole fix.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _pick(at, "fp_subjects", ["01", "02"])
+    _pick(at, "fp_sessions", ["01"])
+    at.button(key="fp_submit").click().run()
+    assert not at.exception
+
+    assert [(sub, ses) for _, sub, ses, _ in calls] == [("01", "01")]
+    assert any("sub-02" in w.value for w in at.warning)
+    assert [r["subject"] for r in _rows(at)] == ["01"]
+
+
+def test_changing_subjects_clears_a_session_that_no_longer_applies(project, calls):
+    """Streamlit's own doing, and it is why the all-dropped case has no page path.
+
+    The session multiselect offers only the union of the selected subjects'
+    sessions, so when the subject selection changes under it the old value stops
+    being an option and Streamlit clears it. The "select a session" guard then
+    catches the submit. ``run_batch``'s empty-batch branch is tested directly in
+    ``test_preproc_panels.py`` instead.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _pick(at, "fp_subjects", ["01"])
+    _pick(at, "fp_sessions", ["01"])
+    _pick(at, "fp_subjects", ["02"])
+    assert not at.exception
+    assert at.session_state["fp_sessions"] == []
+
+    at.button(key="fp_submit").click().run()
+    assert any("at least one session" in e.value for e in at.error)
+    assert calls == []
+
+
 # ---- tab-specific display ---------------------------------------------------
 
 
