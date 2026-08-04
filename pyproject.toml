@@ -239,7 +239,15 @@ known-first-party = ["duckbrain"]
 # phase-encoding direction and a list of dropped series, 130 lines apart in
 # `plan_warnings`; `run` meaning both a BOLD's counted index and an SBRef's
 # possibly-absent one). Fixed by renaming, not by annotating around.
-python_version = "3.10"  # the floor is what has to typecheck, not what runs mypy
+# The floor is what has to typecheck. But this is *not* independent of which
+# interpreter runs mypy, which is the trap it took a red build to find: it makes
+# mypy parse every third-party stub with 3.10 grammar too, and a package that
+# requires a newer Python may ship stubs written in newer syntax (numpy 2.5 uses
+# PEP 695 `type X = ...`). A stub it cannot parse is a *blocking* error — mypy
+# exits 2 having checked nothing. So the CI job that runs this pins Python 3.10 to
+# match, which makes the mismatch impossible: anything pip resolves for 3.10 is
+# something that supports 3.10. Change one and change the other.
+python_version = "3.10"
 files = [
     "src/duckbrain/core/conversion_plan.py",
     "src/duckbrain/core/dcm2bids_config.py",

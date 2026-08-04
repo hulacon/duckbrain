@@ -89,21 +89,39 @@ jobs:
     # A separate job rather than a step in the matrix above, deliberately. The
     # matrix installs different third-party builds on 3.10 and 3.12;
     # `python_version` in [tool.mypy] pins the *analysis* target (which typeshed
-    # mypy reads) but not which pandas/pydicom pip resolved, so a matrix step
-    # could go red on one leg alone for reasons nobody changed. One job answers
-    # one way, and names itself in the checks list when it fails.
+    # mypy reads) but not which pandas/pydicom/numpy pip resolved, so a matrix
+    # step could go red on one leg alone for reasons nobody changed. One job
+    # answers one way, and names itself in the checks list when it fails.
+    #
+    # That was not a hypothetical: the interpreter this job runs on turned out to
+    # decide whether mypy could run at all, for precisely that reason. See below.
     #
     # Blocking, not `continue-on-error`. An advisory check is one nobody reads —
     # the same reason CLAUDE.md refuses to leave a pending check in a commit
     # message. It is only safe to gate on because the config was dialled to a
     # measured zero first (see [tool.mypy]); do not add files here without
     # re-measuring.
+    #
+    # **On 3.10, the floor, and that has to match `[tool.mypy] python_version`.**
+    # It ran on 3.12 for exactly one commit and exited 2 — mypy could not run at
+    # all: `python_version = "3.10"` makes it parse *every* stub with 3.10
+    # grammar, and numpy 2.5 (which requires Python >=3.12, so only a 3.12 leg
+    # installs it) writes PEP 695 `type X = ...` in its stubs. Unparseable at
+    # 3.10, and a syntax error in a stub is blocking, not an ignorable finding.
+    #
+    # Running the floor-targeted check *on* the floor makes that impossible by
+    # construction: every dependency pip resolves for 3.10 is one that supports
+    # 3.10, so its stubs parse at 3.10. Should a package ever ship PEP 695 stubs
+    # while still claiming 3.10, the escape is to raise `python_version` or drop
+    # the package from the analysis — **not** a per-module
+    # `follow_imports = "skip"`, which was measured and does not help: mypy parses
+    # the stub before it decides whether to follow it.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
