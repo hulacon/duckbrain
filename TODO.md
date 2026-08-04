@@ -830,6 +830,26 @@ The work, then:
   containing one rather than installing a subset and reporting success, so a pip
   step has to be added deliberately.
 
+  Two more findings from actually building it, both of which apply to any
+  pip→conda migration and neither of which the channel work would have caught:
+
+  - 🔴 **A resolved dependency is not a verified one — conda-forge has name
+    collisions that solve cleanly.** braintwill asked conda-forge for `himalaya`
+    and got version 1.2.0, which installs a single binary and no Python package
+    at all, from unrelated software. `import himalaya` failed at runtime behind a
+    clean solve, a green channel-purity check, and a plausible `conda list` row;
+    the real library is PyPI-only at 0.4.11. The tell was the version *lineage*
+    (1.2.0 vs 0.4.x is not one project's history). Since `#20` moves eight
+    packages off pip, **check each resolved version against what pip currently
+    gives**, and end the setup script by importing every one of them — that
+    import is what caught this, nothing earlier did.
+  - 🟡 **An incremental solve is not a fresh one.** Re-running the setup against
+    an existing prefix moved nilearn 0.14.0 → 0.13.1 while scikit-learn went the
+    other way; deleting the prefix and rebuilding restored both. Fine in a
+    working env, not fine in a committed lockfile, which is supposed to describe
+    what a new user gets. If `#20` ships a lockfile, generate it from a clean
+    build.
+
   Still a distribution decision in the `#2` sense — who else gets told about
   it — but the location question is closed.
 
