@@ -170,6 +170,25 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **The QC pages showed the previous MRIQC run's numbers until the Streamlit
+  server was restarted.** Re-run MRIQC on a subject — after fixing a conversion,
+  or with a newer container — and the measures, the outlier flags and the cohort
+  positions on all five QC pages went on describing the run before it. Nothing
+  said so: the page renders identically either way, and the numbers look
+  plausible, because they were true once.
+
+  The metrics load is cached against a `(count, newest mtime)` fingerprint of the
+  MRIQC directory, and Streamlit was discarding it — `st.cache_data` excludes
+  arguments whose name begins with an underscore from the cache key, and the
+  parameter was named `_fingerprint`. So the effective key was the directory and
+  the modality, neither of which changes when MRIQC re-runs into the same place.
+  Renaming the parameter is the entire fix.
+
+  Two tests hold it now: one changes a metric on disk and asserts the second read
+  sees it, and one parses every `st.cache_*` function in the package and rejects
+  any key argument wearing a leading underscore, so the next cache cannot repeat
+  it.
+
 - **A gradient-echo fieldmap would have been refused as a broken pepolar pair.**
   The "both halves encoded the same way" check bucketed every planned fieldmap
   file by group with no test for which *kind* of fieldmap it was. A gradient-echo

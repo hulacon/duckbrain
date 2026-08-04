@@ -62,12 +62,11 @@ def _probe_cached(
 ) -> dict[int, SeriesProbe]:
     """Probe one session, keyed as ``plan_warnings`` wants it.
 
-    ``fingerprint`` has **no leading underscore, and that is load-bearing**.
-    Streamlit deliberately excludes underscore-prefixed arguments from the cache
-    key (``runtime/caching/cache_utils.py``: "Underscore-prefixed args are
-    deliberately excluded from hashing"), so naming it ``_fingerprint`` — as
-    ``qc_panels._load_metrics`` does — would key this on the paths alone and it
-    would never invalidate. It is a cache key, so it has to be hashed.
+    ``fingerprint`` has **no leading underscore, and that is load-bearing**:
+    Streamlit excludes underscore-prefixed arguments from the cache key, so this
+    would key on the paths alone and never invalidate. The rule, why the
+    convention exists, and its one escape hatch are in
+    ``tests/test_streamlit_caches.py``, which enforces it over every cache here.
     """
     return dcm2niix_probe.by_series_number(
         dcm2niix_probe.probe_session(series_dirs, container or None, timeout_s=_TIMEOUT_S)

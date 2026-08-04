@@ -299,3 +299,52 @@ class TestSizeNote:
 def test_the_panels_module_is_importable_without_a_runtime():
     """It must be safe to import from a test or a script, not only from a page."""
     assert Path(qc_panels.__file__).exists()
+
+
+# ---------------------------------------------------------------------------
+# The metrics cache
+# ---------------------------------------------------------------------------
+
+import json
+import os
+
+
+class TestMetricsCache:
+    """A second MRIQC run into the same directory must reach the page.
+
+    Driven by calling the cached function directly rather than under ``AppTest``:
+    the staleness reproduces in bare Python, and putting a page in between only
+    adds ways for this to pass for the wrong reason — ``scope_bar`` turns an empty
+    frame into a warning path.
+    """
+
+    def test_a_rerun_of_mriqc_is_not_served_the_previous_numbers(self, tmp_path):
+        mriqc = tmp_path / "mriqc"
+        mriqc.mkdir()
+        metrics = mriqc / "sub-010_task-rest_run-1_bold.json"
+        metrics.write_text(json.dumps({"bids_name": metrics.stem, "tsnr": 40.0}))
+
+        # The cache is process-wide, and tmp_path keys differ per test only by
+        # accident of the path. Clearing makes that independent of luck.
+        qc_panels._load_metrics.clear()
+        before = qc_panels._fingerprint_of(mriqc, "*_bold.json")
+        first = qc_panels._load_metrics(str(mriqc), "bold", before)
+        assert first["tsnr"].tolist() == [40.0]
+
+        metrics.write_text(json.dumps({"bids_name": metrics.stem, "tsnr": 41.0}))
+        # Moved explicitly rather than left to the rewrite: an overwrite inside
+        # the same second can leave st_mtime exactly where it was, and with the
+        # file count unchanged the mtime is the only half of the fingerprint that
+        # can move at all.
+        moved = metrics.stat().st_mtime + 10
+        os.utime(metrics, (moved, moved))
+
+        after = qc_panels._fingerprint_of(mriqc, "*_bold.json")
+        assert after != before, "the fingerprint did not move — this tests nothing"
+
+        # The value and not the row count: a count survives every rewrite that
+        # does not add a file, which is what an ordinary MRIQC re-run is.
+        second = qc_panels._load_metrics(str(mriqc), "bold", after)
+        assert second["tsnr"].tolist() == [41.0], (
+            "served the previous MRIQC run: the fingerprint is not reaching the cache key"
+        )

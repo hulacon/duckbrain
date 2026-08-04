@@ -23,6 +23,7 @@ from streamlit.testing.v1 import AppTest
 
 from duckbrain.config import save_project_config, scaffold_project
 from duckbrain.core.qc_guidance import get_guidance
+from duckbrain.gui import qc_panels
 
 #: Read from the registry rather than retyped, so a relabelled measure moves the
 #: assertion with it instead of failing on prose.
@@ -89,6 +90,10 @@ def _write_mriqc(derivatives: Path):
 
 @pytest.fixture
 def project(tmp_path):
+    # The metrics cache is process-wide, and tmp_path keys differ per test only
+    # by accident of the path. Relying on that is what hid a cache key Streamlit
+    # was discarding — see tests/test_streamlit_caches.py.
+    qc_panels._load_metrics.clear()
     proj = tmp_path / "proj"
     scaffold_project(str(proj))
     save_project_config(str(proj), {"project": {"name": "qc test"}})

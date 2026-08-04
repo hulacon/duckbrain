@@ -186,13 +186,29 @@ def _pick(label: str, options: list, session_key: str, **kwargs):
 
 
 @st.cache_data(show_spinner="Reading MRIQC output…")
-def _load_metrics(mriqc_dir: str, modality: str, _fingerprint: tuple) -> pd.DataFrame:
-    """Cached MRIQC load. ``_fingerprint`` changes when the derivative does."""
+def _load_metrics(mriqc_dir: str, modality: str, fingerprint: tuple) -> pd.DataFrame:
+    """Cached MRIQC load, keyed on the state of the derivative and not just its path.
+
+    ``fingerprint`` carries no leading underscore, and that is the whole of it:
+    Streamlit drops underscore-prefixed arguments from the cache key, so
+    ``_fingerprint`` keyed this on ``(mriqc_dir, modality)`` — neither of which
+    changes when MRIQC re-runs into the same output directory — and every QC page
+    went on showing the previous run's numbers until the server restarted. Pinned
+    by ``test_a_rerun_of_mriqc_is_not_served_the_previous_numbers``; the naming
+    rule itself is enforced package-wide by ``tests/test_streamlit_caches.py``.
+    """
     return qc.load_mriqc_metrics(mriqc_dir, modality)
 
 
 def _fingerprint_of(root: Path, pattern: str) -> tuple:
-    """(count, newest mtime) of matching files — enough to invalidate the cache."""
+    """(count, newest mtime) of matching files — enough to invalidate the cache.
+
+    *pattern* is the loader's own glob, so this is taken over exactly the files
+    the cached call reads. The walk is affordable here in a way it is not for
+    ``conversion_panels.probe_fingerprint``, which refuses one for a good reason
+    that does not apply: ~3 ms warm over `divatten_beta_v2`'s 639-file MRIQC
+    tree, against a load of 10 ms warm and 1.4 s cold.
+    """
     try:
         stats = [p.stat().st_mtime for p in root.rglob(pattern)]
     except OSError:
@@ -582,11 +598,9 @@ def _payload_bytes_cached(report_path: str, fingerprint: tuple) -> int:
     a number that only changes when the derivative does.
 
     ``fingerprint`` has **no leading underscore, and that is load-bearing**:
-    Streamlit excludes underscore-prefixed arguments from the cache key, so
-    ``_fingerprint`` would key this on the path alone and it would never
-    invalidate. ``conversion_panels._probe_cached`` says the same thing at
-    length; don't "fix" either to match ``_load_metrics`` above, which has the
-    bug.
+    Streamlit excludes underscore-prefixed arguments from the cache key, so this
+    would key on the path alone and never invalidate. Enforced for every cache in
+    the package by ``tests/test_streamlit_caches.py``.
     """
     from duckbrain.core import report_embed
 
