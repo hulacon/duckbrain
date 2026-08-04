@@ -105,12 +105,17 @@ def _plan_table(at):
     raise AssertionError("no plan table rendered")
 
 
+def _by_series(table, column):
+    """Map the plan table's ``Series #`` onto one of its other columns."""
+    return dict(zip(table["Series #"], table[column]))
+
+
 def test_page_shows_predicted_bids_filenames(project):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
 
     plan = _plan_table(at)
-    becomes = dict(zip(plan["Series #"], plan["becomes"]))
+    becomes = _by_series(plan, "becomes")
 
     assert becomes[2] == "sub-001_ses-01_T1w.nii.gz"
     assert becomes[9] == "sub-001_ses-01_task-perFace_run-1_bold.nii.gz"
@@ -123,7 +128,7 @@ def test_plan_shows_which_pair_corrects_the_run(project):
     assert not at.exception
 
     plan = _plan_table(at)
-    fmap = dict(zip(plan["Series #"], plan["fieldmap"]))
+    fmap = _by_series(plan, "fieldmap")
 
     # One unnamed pair: the bold and both fieldmaps carry the same token.
     assert fmap[9] == fmap[3] == fmap[4]
@@ -261,7 +266,7 @@ def test_fieldmap_rows_carry_their_own_pair_token(two_pair_project):
     """The relation reads off a single row in both directions, not across tables."""
     plan = _plan_table(at := AppTest.from_file(PAGE, default_timeout=90).run())
     assert not at.exception
-    fmap = dict(zip(plan["Series #"], plan["fieldmap"]))
+    fmap = _by_series(plan, "fieldmap")
 
     # The two pairs get distinct, stable tokens...
     assert fmap[3] == fmap[4]
@@ -274,7 +279,7 @@ def test_fieldmap_rows_carry_their_own_pair_token(two_pair_project):
 def test_two_runs_of_one_task_can_take_different_pairs(two_pair_project):
     """The case the granularity decision was made for, end to end through the GUI."""
     at = AppTest.from_file(PAGE, default_timeout=90).run()
-    second_pair = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[30]
+    second_pair = _by_series(_plan_table(at), "fieldmap")[30]
 
     # Row 5 is series 19 — run 2, acquired after the re-shoot.
     at.session_state[EDITOR_KEY] = {
@@ -286,7 +291,7 @@ def test_two_runs_of_one_task_can_take_different_pairs(two_pair_project):
     assert not at.exception
     assert not at.error
 
-    fmap = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))
+    fmap = _by_series(_plan_table(at), "fieldmap")
     assert fmap[19] == second_pair
     assert fmap[9] != second_pair  # run 1 keeps the original pair
 
@@ -302,7 +307,7 @@ def test_editing_a_task_updates_becomes_in_the_same_rerun(two_pair_project):
     at.run()
     assert not at.exception
 
-    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    becomes = _by_series(_plan_table(at), "becomes")
     assert becomes[9] == "sub-001_ses-01_task-renamed_run-1_bold.nii.gz"
 
 
@@ -573,7 +578,7 @@ def test_the_nd_choice_is_seeded_from_the_project_config(nd_project):
     assert at.radio(key="nd_duplicates_choice").value == "uncorrected"
 
     plan = _plan_table(at)
-    becomes = dict(zip(plan["Series #"], plan["becomes"]))
+    becomes = _by_series(plan, "becomes")
     assert becomes[1009] == "sub-001_ses-01_T1w.nii.gz"
     assert becomes[1010] == "— not converted"
 
@@ -585,7 +590,7 @@ def test_choosing_both_shows_two_anatomicals_in_becomes(nd_project):
     assert not at.exception
 
     plan = _plan_table(at)
-    becomes = dict(zip(plan["Series #"], plan["becomes"]))
+    becomes = _by_series(plan, "becomes")
     assert becomes[1009] == "sub-001_ses-01_acq-nd_T1w.nii.gz"
     assert becomes[1010] == "sub-001_ses-01_acq-dis_T1w.nii.gz"
 
@@ -598,9 +603,7 @@ def test_choosing_both_shows_two_anatomicals_in_becomes(nd_project):
 def test_unticking_convert_leaves_the_series_out(two_pair_project):
     """The whole feature, end to end: `becomes` says so and no file is planned."""
     at = AppTest.from_file(PAGE, default_timeout=90).run()
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[19].endswith(
-        "run-2_bold.nii.gz"
-    )
+    assert _by_series(_plan_table(at), "becomes")[19].endswith("run-2_bold.nii.gz")
 
     at.session_state[EDITOR_KEY] = {
         "edited_rows": {5: {"convert": False}},  # series 19, run 2
@@ -611,7 +614,7 @@ def test_unticking_convert_leaves_the_series_out(two_pair_project):
     assert not at.exception
     assert not at.error
 
-    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    becomes = _by_series(_plan_table(at), "becomes")
     assert becomes[19] == "— not converted"
     # The rest of the session is untouched — a skip is not a bulk opt-out.
     assert becomes[9].endswith("run-1_bold.nii.gz")
@@ -637,7 +640,7 @@ def test_series_duckbrain_cannot_convert_start_unticked(two_pair_project):
     """So the box agrees with `becomes` instead of promising a file for a scout."""
     at = AppTest.from_file(PAGE, default_timeout=90).run()
     plan = _plan_table(at)
-    convert = dict(zip(plan["Series #"], plan["convert"]))
+    convert = _by_series(plan, "convert")
 
     assert convert[1] is False or not convert[1]  # the scout
     assert convert[2] and convert[9] and convert[3]
@@ -654,7 +657,7 @@ def test_skipping_one_fieldmap_half_takes_the_pair_and_says_so(two_pair_project)
     at.run()
     assert not at.exception
 
-    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    becomes = _by_series(_plan_table(at), "becomes")
     assert becomes[3] == becomes[4] == "— not converted"
     assert any("whole pair" in w.value for w in at.warning)
 
@@ -668,7 +671,7 @@ def test_unticking_a_fieldmap_half_does_not_hide_the_table(two_pair_project):
     user with no way back and nothing to look at.
     """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
-    before = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    before = _by_series(_plan_table(at), "becomes")
 
     at.session_state[EDITOR_KEY] = {
         "edited_rows": {2: {"convert": False}},
@@ -680,7 +683,7 @@ def test_unticking_a_fieldmap_half_does_not_hide_the_table(two_pair_project):
     # Every row still there, and the unticked one is still visible and re-tickable.
     plan = _plan_table(at)
     assert list(plan["Series #"]) == [1, 2, 3, 4, 9, 19, 30, 32]
-    assert not dict(zip(plan["Series #"], plan["convert"]))[3]
+    assert not _by_series(plan, "convert")[3]
 
     # And re-ticking restores exactly the original plan. Stated as a re-tick,
     # which is what the browser sends: an *empty* delta used to pass this
@@ -691,7 +694,7 @@ def test_unticking_a_fieldmap_half_does_not_hide_the_table(two_pair_project):
         "deleted_rows": [],
     }
     at.run()
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"])) == before
+    assert _by_series(_plan_table(at), "becomes") == before
 
 
 def test_runs_bound_to_a_skipped_pair_are_still_written_uncorrected(two_pair_project):
@@ -711,7 +714,7 @@ def test_runs_bound_to_a_skipped_pair_are_still_written_uncorrected(two_pair_pro
     at.run()
     assert not at.exception
 
-    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    becomes = _by_series(_plan_table(at), "becomes")
     assert becomes[9].endswith("run-1_bold.nii.gz")
     assert becomes[19].endswith("run-2_bold.nii.gz")
 
@@ -757,8 +760,8 @@ def test_a_skip_survives_the_saved_config_round_trip(two_pair_project):
     assert not fresh.exception
 
     plan = _plan_table(fresh)
-    assert not dict(zip(plan["Series #"], plan["convert"]))[19]
-    assert dict(zip(plan["Series #"], plan["becomes"]))[19] == "— not converted"
+    assert not _by_series(plan, "convert")[19]
+    assert _by_series(plan, "becomes")[19] == "— not converted"
 
 
 # ---- an edit is a decision, not a delta ------------------------------------
@@ -778,7 +781,7 @@ def test_a_row_edit_survives_a_later_rerun(two_pair_project):
     what a browser sends once the remounted table has no delta of its own.
     """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
-    fmap = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))
+    fmap = _by_series(_plan_table(at), "fieldmap")
     other = fmap[30]  # the second pair — series 9 seeds to the first
     assert other != fmap[9]
 
@@ -788,11 +791,11 @@ def test_a_row_edit_survives_a_later_rerun(two_pair_project):
         "deleted_rows": [],
     }
     at.run()
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == other
+    assert _by_series(_plan_table(at), "fieldmap")[9] == other
 
     at.run()
     assert not at.exception
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == other
+    assert _by_series(_plan_table(at), "fieldmap")[9] == other
 
 
 def test_save_writes_the_reviewed_plan_not_the_seed(two_pair_project):
@@ -810,9 +813,7 @@ def test_save_writes_the_reviewed_plan_not_the_seed(two_pair_project):
         "deleted_rows": [],
     }
     at.run()
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[19] == (
-        "— not converted"
-    )
+    assert _by_series(_plan_table(at), "becomes")[19] == "— not converted"
 
     # She clicks Save. The browser has no edit left to re-send, and must not need one.
     next(b for b in at.button if b.label == "Save Config JSON").click().run()
@@ -833,7 +834,7 @@ def test_discarding_row_edits_puts_the_heuristic_back(two_pair_project):
     the user would otherwise fix the row in.
     """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
-    seeded = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9]
+    seeded = _by_series(_plan_table(at), "fieldmap")[9]
 
     at.session_state[EDITOR_KEY] = {
         "edited_rows": {4: {"fieldmap": "🟢 2"}},
@@ -841,7 +842,7 @@ def test_discarding_row_edits_puts_the_heuristic_back(two_pair_project):
         "deleted_rows": [],
     }
     at.run()
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == "🟢 2"
+    assert _by_series(_plan_table(at), "fieldmap")[9] == "🟢 2"
 
     # The browser ships the full widget state with every rerun, and the table
     # keeps its delta whenever its data didn't change — so the discard has to
@@ -854,7 +855,7 @@ def test_discarding_row_edits_puts_the_heuristic_back(two_pair_project):
     }
     at.run()
     assert not at.exception
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == seeded
+    assert _by_series(_plan_table(at), "fieldmap")[9] == seeded
     # And it takes itself off screen once there is nothing left to discard.
     assert not [b for b in at.button if b.key == "reset_row_edits"]
 
@@ -896,7 +897,7 @@ def test_binding_a_bold_to_a_half_pair_does_not_hide_the_table(half_pair_project
     gone and the stop would have been a locked door.
     """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[30] == "🟢 2"
+    assert _by_series(_plan_table(at), "fieldmap")[30] == "🟢 2"
 
     at.session_state[EDITOR_KEY] = {
         "edited_rows": {4: {"fieldmap": "🟢 2"}},  # series 9, bound to the half pair
@@ -911,7 +912,7 @@ def test_binding_a_bold_to_a_half_pair_does_not_hide_the_table(half_pair_project
     # The table is still up, still shows what she picked, and every row survives.
     plan = _plan_table(at)
     assert list(plan["Series #"]) == [1, 2, 3, 4, 9, 30]
-    assert dict(zip(plan["Series #"], plan["fieldmap"]))[9] == "🟢 2"
+    assert _by_series(plan, "fieldmap")[9] == "🟢 2"
     # Two ways back, and both are on screen: change the cell, or discard.
     assert [b for b in at.button if b.key == "reset_row_edits"]
 
@@ -940,9 +941,7 @@ def test_a_bold_on_a_half_pair_is_written_uncorrected_not_re_bound(half_pair_pro
     bold = next(d for d in saved["descriptions"] if d["criteria"]["SeriesNumber"] == 9)
     assert "B0FieldSource" not in (bold.get("sidecar_changes") or {})
     # And the run itself is still written — losing the correction is not losing the data.
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[9].endswith(
-        "_bold.nii.gz"
-    )
+    assert _by_series(_plan_table(at), "becomes")[9].endswith("_bold.nii.gz")
 
 
 def test_discarding_recovers_from_a_binding_that_warns(half_pair_project):
@@ -957,7 +956,7 @@ def test_discarding_recovers_from_a_binding_that_warns(half_pair_project):
     next(b for b in at.button if b.key == "reset_row_edits").click().run()
     assert not at.exception
     assert not [w for w in at.warning if "holds only one" in w.value]
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["fieldmap"]))[9] == "🔵 1"
+    assert _by_series(_plan_table(at), "fieldmap")[9] == "🔵 1"
 
 
 # Two pairs whose names differ only by a period, which `_b0_identifier` has to
@@ -1017,7 +1016,7 @@ def test_type_shows_the_suffix_where_the_datatype_alone_underdetermines_it(proje
     """
     plan = _plan_table(at := AppTest.from_file(PAGE, default_timeout=60).run())
     assert not at.exception
-    types = dict(zip(plan["Series #"], plan["Type"]))
+    types = _by_series(plan, "Type")
     assert types[2] == "anat/T1w"
     assert types[9] == "func"
     assert types[1] == "scout"
@@ -1058,9 +1057,7 @@ def test_relabelling_a_series_converts_it_in_the_same_rerun(project):
     """The half-applied version of this edit is the bug TODO #13.1 warned about:
     the column would follow the new type while the emission followed the old one."""
     at = AppTest.from_file(PAGE, default_timeout=60).run()
-    assert dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))[1] == (
-        "— not converted"
-    )
+    assert _by_series(_plan_table(at), "becomes")[1] == "— not converted"
 
     # Row 0 is series 1, the scout — really a functional run this study named badly.
     at.session_state[EDITOR_KEY] = {
@@ -1073,9 +1070,9 @@ def test_relabelling_a_series_converts_it_in_the_same_rerun(project):
     assert not at.error
 
     plan = _plan_table(at)
-    row = dict(zip(plan["Series #"], plan["becomes"]))
+    row = _by_series(plan, "becomes")
     assert row[1].endswith("_bold.nii.gz")
-    assert dict(zip(plan["Series #"], plan["Type from"]))[1] == "project"
+    assert _by_series(plan, "Type from")[1] == "project"
 
 
 def test_relabelling_an_anat_writes_the_declared_suffix_not_the_named_one(project):
@@ -1090,7 +1087,7 @@ def test_relabelling_an_anat_writes_the_declared_suffix_not_the_named_one(projec
     }
     at.run()
     assert not at.exception
-    becomes = dict(zip(_plan_table(at)["Series #"], _plan_table(at)["becomes"]))
+    becomes = _by_series(_plan_table(at), "becomes")
     assert becomes[2] == "sub-001_ses-01_FLAIR.nii.gz"
 
 
@@ -1108,8 +1105,8 @@ def test_a_type_that_cannot_be_declared_is_refused_by_name(project):
     assert any("can't be declared" in w.value for w in at.warning)
     # And the row keeps the type duckbrain read, rather than showing a dead value.
     plan = _plan_table(at)
-    assert dict(zip(plan["Series #"], plan["Type"]))[9] == "func"
-    assert dict(zip(plan["Series #"], plan["becomes"]))[9].endswith("_bold.nii.gz")
+    assert _by_series(plan, "Type")[9] == "func"
+    assert _by_series(plan, "becomes")[9].endswith("_bold.nii.gz")
 
 
 def test_saving_types_as_the_project_default_makes_every_session_follow(project):
@@ -1145,6 +1142,6 @@ def test_a_project_declaration_seeds_the_table(project):
     save_project_series_types(str(project), [TypeRule("AAhead_scout", "anat", "T2w")])
     plan = _plan_table(at := AppTest.from_file(PAGE, default_timeout=60).run())
     assert not at.exception
-    assert dict(zip(plan["Series #"], plan["Type"]))[1] == "anat/T2w"
-    assert dict(zip(plan["Series #"], plan["Type from"]))[1] == "project"
-    assert dict(zip(plan["Series #"], plan["becomes"]))[1] == "sub-001_ses-01_T2w.nii.gz"
+    assert _by_series(plan, "Type")[1] == "anat/T2w"
+    assert _by_series(plan, "Type from")[1] == "project"
+    assert _by_series(plan, "becomes")[1] == "sub-001_ses-01_T2w.nii.gz"
