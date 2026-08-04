@@ -703,7 +703,7 @@ def _parse_log_rows(text: str) -> tuple[list[str], list[dict]]:
     if not lines:
         return [], []
     header = [_SUBMISSION_RENAMES.get(c, c) for c in lines[0].split("\t")]
-    rows = [dict(zip(header, ln.split("\t"))) for ln in lines[1:]]
+    rows = [dict(zip(header, ln.split("\t"), strict=False)) for ln in lines[1:]]
     return header, rows
 
 

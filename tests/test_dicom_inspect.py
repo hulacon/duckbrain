@@ -122,7 +122,7 @@ def test_classify_no_sbref_never_promotes_on_volume_count(tmp_path):
     """
     session_dir = tmp_path / "session"
     session_dir.mkdir()
-    for name, n in [("Series_1_diff_mb3_98dir", 98), ("Series_2_mprage", 176)]:
+    for name, _n in [("Series_1_diff_mb3_98dir", 98), ("Series_2_mprage", 176)]:
         d = session_dir / name
         d.mkdir()
         (d / "f.dcm").touch()

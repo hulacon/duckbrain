@@ -124,13 +124,27 @@ fail_under = 88
 line-length = 100
 
 [tool.ruff.lint]
-# pycodestyle + pyflakes only, deliberately. This is the first gate the repo has
-# ever had; a wider ruleset would have meant a large mechanical diff competing
-# for attention with the two real bugs the narrow one found (a missing `Path`
-# import in an annotation, and a dead series lookup in `_fmap_description`).
-# Widen it — isort, bugbear, pyupgrade — a ruleset at a time, each with its own
-# commit.
-select = ["E", "F", "W"]
+# Started as pycodestyle + pyflakes only, deliberately. That was the first gate
+# the repo had ever had; a wider ruleset would have meant a large mechanical diff
+# competing for attention with the two real bugs the narrow one found (a missing
+# `Path` import in an annotation, and a dead series lookup in
+# `_fmap_description`). It is being widened a ruleset at a time, each with its
+# own commit — isort and pyupgrade still to come.
+#
+# `B` (flake8-bugbear) is the first widening, and the reason to start here is
+# `B905`: `zip()` silently truncates to the shorter argument, so two sequences
+# that *should* be the same length diverging is not an error, it is missing
+# output. That is this project's characteristic failure mode — the same shape as
+# an inverted fieldmap intent or a twin guard that hid 26 of 26 twins: code that
+# runs fine and quietly does less than it says. `strict=` forces the question to
+# be answered per site rather than assumed, and the answers here are not
+# uniform — three `core/` sites document an unequal zip as intended behaviour and
+# take `strict=False`, while the two GUI sites zip against `st.columns(len(X))`,
+# where the length *is* the argument, and take `strict=True`.
+#
+# The one `B023` is a false positive with a `noqa` and a stated reason; nothing
+# in the codebase defers a closure built in a loop.
+select = ["B", "E", "F", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # Streamlit pages must call st.set_page_config() before anything else touches

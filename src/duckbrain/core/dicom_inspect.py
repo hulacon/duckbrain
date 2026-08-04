@@ -460,7 +460,9 @@ def _nd_twin_groups(series_list: list[SeriesInfo]) -> list[_NDGroup]:
         nd_members.sort(key=lambda s: s.series_number)
         candidates.sort(key=lambda s: s.series_number)
         group = groups.setdefault(base.lower(), _NDGroup(base=base))
-        for nd, corrected in zip(nd_members, candidates):
+        # Not strict: an unequal pairing is the documented outcome, not a bug —
+        # see the "surplus on either side" paragraph in the docstring above.
+        for nd, corrected in zip(nd_members, candidates, strict=False):
             group.nd.append(nd)
             group.corrected.append(corrected)
     return list(groups.values())
@@ -1096,7 +1098,7 @@ def _strip_acq_params(label: str) -> str:
         tokens.pop()
     seps = parts[1::2][: max(len(tokens) - 1, 0)]
     out = tokens[0]
-    for sep, tok in zip(seps, tokens[1:]):
+    for sep, tok in zip(seps, tokens[1:], strict=False):
         out += sep + tok
     return out
 

@@ -107,7 +107,7 @@ def _plan_table(at):
 
 def _by_series(table, column):
     """Map the plan table's ``Series #`` onto one of its other columns."""
-    return dict(zip(table["Series #"], table[column]))
+    return dict(zip(table["Series #"], table[column], strict=True))
 
 
 def test_page_shows_predicted_bids_filenames(project):

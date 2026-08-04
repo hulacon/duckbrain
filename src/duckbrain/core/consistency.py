@@ -941,7 +941,7 @@ def _check_fmap_intent_at(root: Path, where: str) -> list[ConsistencyIssue]:
             issues.append(
                 ConsistencyIssue(
                     check="fmap-intent",
-                    subject=subject,
+                    subject=subject,  # noqa: B023 — called in-iteration, never stored
                     stage="converted",
                     message=message,
                 )

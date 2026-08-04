@@ -659,7 +659,7 @@ def dashboard():
     summary = summarize(matrix)
     st.subheader("Overview")
     cols = st.columns(len(STAGES))
-    for col, stage in zip(cols, STAGES):
+    for col, stage in zip(cols, STAGES, strict=True):
         counts = summary[stage]
         # A stage that applies to no unit reads "—", not "0/N": 0-of-N is a
         # progress claim, and it was the headline number telling a finished

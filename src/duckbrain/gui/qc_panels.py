@@ -559,7 +559,7 @@ def domain_links(run_key: str, modality: str) -> None:
     resulting URL is one a reviewer can send to someone else.
     """
     cols = st.columns(len(qc_domains.DOMAINS))
-    for col, domain in zip(cols, qc_domains.DOMAINS):
+    for col, domain in zip(cols, qc_domains.DOMAINS, strict=True):
         with col:
             _page_link(
                 DOMAIN_PAGES[domain.key],
