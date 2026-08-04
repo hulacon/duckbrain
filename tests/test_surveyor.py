@@ -106,6 +106,7 @@ def test_fmriprep_complete(tmp_path):
     _touch(fp / "sub-01.html")
     _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
     _touch(fp / "sub-01" / "func" / "sub-01_task-rest_desc-preproc_bold.nii.gz")
+    _touch(fp / "sub-01" / "func" / "sub-01_task-rest_desc-confounds_timeseries.tsv")
     df = survey_project(_config(tmp_path))
     assert df.loc[0, "fmriprep"] == Status.COMPLETE
 
@@ -153,6 +154,9 @@ def test_fmriprep_sessionless_and_multisession_same_tracker(tmp_path):
     _touch(fp / "sub-01.html")
     _touch(fp / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_desc-preproc_T1w.nii.gz")
     _touch(fp / "sub-01" / "ses-01" / "func" / "sub-01_ses-01_task-rest_desc-preproc_bold.nii.gz")
+    _touch(
+        fp / "sub-01" / "ses-01" / "func" / "sub-01_ses-01_task-rest_desc-confounds_timeseries.tsv"
+    )
     df = survey_project(_config(tmp_path))
     row = df[df.session == "01"].iloc[0]
     assert row["fmriprep"] == Status.COMPLETE
@@ -168,6 +172,9 @@ def test_fmriprep_complete_when_anat_lives_in_another_session(tmp_path):
     _touch(fp / "sub-01.html")
     _touch(fp / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_desc-preproc_T1w.nii.gz")
     _touch(fp / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_desc-preproc_bold.nii.gz")
+    _touch(
+        fp / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_desc-confounds_timeseries.tsv"
+    )
     df = survey_project(_config(tmp_path))
     assert df[df.session == "02"].iloc[0]["fmriprep"] == Status.COMPLETE
 
@@ -417,6 +424,9 @@ def test_fmriprep_complete_with_several_output_spaces_per_run(tmp_path):
                 / "func"
                 / f"sub-01_task-rest_run-{i}_space-{space}_desc-preproc_bold.nii.gz"
             )
+        # One confounds file per run, whatever the number of spaces — fMRIPrep
+        # writes it once, in no space at all.
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-confounds_timeseries.tsv")
 
     df = survey_project(_config(tmp_path))
     assert df.loc[0, "fmriprep"] == Status.COMPLETE
@@ -438,6 +448,7 @@ def test_fmriprep_expectation_follows_the_nordic_tree(tmp_path):
     _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
     for i in (1, 2, 3):  # ...and fMRIPrep did all 3
         _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-preproc_bold.nii.gz")
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-confounds_timeseries.tsv")
 
     row = survey_project(_nordic_config(tmp_path)).loc[0]
     assert row["fmriprep"] == Status.COMPLETE
@@ -445,7 +456,12 @@ def test_fmriprep_expectation_follows_the_nordic_tree(tmp_path):
 
 
 def test_fmriprep_anat_only_unit_needs_no_func(tmp_path):
-    """An empty expected set is no requirement, not an unmet one."""
+    """An empty expected set is no requirement, not an unmet one.
+
+    Untouched by the confounds requirement by construction, and that is the
+    property keeping it from breaking longitudinal anat reuse: a unit with no
+    BOLD owes no confounds either.
+    """
     _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
     fp = tmp_path / "derivatives" / "fmriprep"
     _touch(fp / "sub-01.html")
@@ -453,6 +469,88 @@ def test_fmriprep_anat_only_unit_needs_no_func(tmp_path):
 
     df = survey_project(_config(tmp_path))
     assert df.loc[0, "fmriprep"] == Status.COMPLETE
+
+
+def _fmriprep_anat(root, sub="01"):
+    """The subject-level markers, so only the func requirement is under test."""
+    fp = root / "derivatives" / "fmriprep"
+    _touch(fp / f"sub-{sub}.html")
+    _touch(fp / f"sub-{sub}" / "anat" / f"sub-{sub}_desc-preproc_T1w.nii.gz")
+    return fp
+
+
+def test_fmriprep_with_preproc_bold_but_no_confounds_is_partial(tmp_path):
+    """The hole this closes, at the shape `divatten_beta_v2` produced.
+
+    Preprocessed images for every run and not one confounds TSV: the board read
+    COMPLETE while the QC dashboard had no fMRIPrep input at all and said
+    nothing about why.
+    """
+    _seed_bold_runs(tmp_path, "sub-01", 3)
+    fp = _fmriprep_anat(tmp_path)
+    for i in (1, 2, 3):
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-preproc_bold.nii.gz")
+
+    assert survey_project(_config(tmp_path)).loc[0, "fmriprep"] == Status.PARTIAL
+
+
+def test_fmriprep_with_confounds_but_no_preproc_bold_is_partial(tmp_path):
+    """The other half of the intersection: either file alone is half a run."""
+    _seed_bold_runs(tmp_path, "sub-01", 3)
+    fp = _fmriprep_anat(tmp_path)
+    for i in (1, 2, 3):
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-confounds_timeseries.tsv")
+
+    assert survey_project(_config(tmp_path)).loc[0, "fmriprep"] == Status.PARTIAL
+
+
+def test_fmriprep_confounds_for_only_some_runs_is_partial(tmp_path):
+    """Per run, not per subject — the granularity the rest of DB-002 is at."""
+    _seed_bold_runs(tmp_path, "sub-01", 3)
+    fp = _fmriprep_anat(tmp_path)
+    for i in (1, 2, 3):
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-preproc_bold.nii.gz")
+    for i in (1, 2):
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-confounds_timeseries.tsv")
+
+    assert survey_project(_config(tmp_path)).loc[0, "fmriprep"] == Status.PARTIAL
+
+
+def test_an_empty_confounds_file_does_not_count(tmp_path):
+    """A truncated write is not an output; `_found_keys` requires a size."""
+    _seed_bold_runs(tmp_path, "sub-01", 1)
+    fp = _fmriprep_anat(tmp_path)
+    _touch(fp / "sub-01" / "func" / "sub-01_task-rest_run-1_desc-preproc_bold.nii.gz")
+    (fp / "sub-01" / "func" / "sub-01_task-rest_run-1_desc-confounds_timeseries.tsv").write_text("")
+
+    assert survey_project(_config(tmp_path)).loc[0, "fmriprep"] == Status.PARTIAL
+
+
+def test_a_confounds_tsv_keys_to_the_same_run_as_its_bold(tmp_path):
+    """The fact the whole confounds requirement rests on.
+
+    If `_entity_key` split these two apart, every run would look like two runs
+    and no unit could ever grade complete.
+    """
+    from duckbrain.core.surveyor import _entity_key
+
+    assert _entity_key("sub-01_task-rest_run-1_desc-confounds_timeseries.tsv") == _entity_key(
+        "sub-01_task-rest_run-1_bold.nii.gz"
+    )
+
+
+def test_run_progress_counts_a_run_with_no_confounds_as_unfinished(tmp_path):
+    """The number and the colour come from one comparison, so both must move."""
+    from duckbrain.core.surveyor import run_progress
+
+    _seed_bold_runs(tmp_path, "sub-01", 3)
+    fp = _fmriprep_anat(tmp_path)
+    for i in (1, 2, 3):
+        _touch(fp / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_desc-preproc_bold.nii.gz")
+
+    config = _config(tmp_path)
+    assert survey_project(config).loc[0, "fmriprep"] == Status.PARTIAL
+    assert run_progress(config, "fmriprep", "01", "") == (0, 3)
 
 
 def test_mriqc_partial_when_one_runs_iqm_is_missing(tmp_path):

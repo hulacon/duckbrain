@@ -190,6 +190,36 @@ def _fmriprep_input_dir(config: dict) -> str:
     return paths["bids_dir"]
 
 
+def _fmriprep_func_keys(root: Path, subject: str, session: str) -> set[str]:
+    """Runs fMRIPrep actually **finished**: a preproc BOLD *and* its confounds.
+
+    The intersection, not the union, because either file alone is a run that
+    stopped partway. The confounds TSV earns its place in the requirement rather
+    than being one more glob: it is the QC dashboard's *only* fMRIPrep input
+    (``qc_report.CONFOUNDS_GLOB``, ``qc.summarize_motion``), so a tree of preproc
+    BOLDs with no confounds used to grade finished while every motion column sat
+    blank and nothing said why. Shared by :func:`_fmriprep_status` and
+    :func:`run_progress` so the grade and the ``n/N`` beside it cannot disagree.
+
+    **The false positive this knowingly accepts.** ``--level minimal`` and
+    ``--level resampling`` write no confounds, and either can reach fMRIPrep
+    through the Preprocessing page's free-text flags box. duckbrain does not
+    record what it requested, so it cannot tell that run from a broken one, and
+    re-parsing the submitted sbatch on the cockpit's render path would be
+    treating "recoverable" as "recorded". Guessing was refused; the cost of not
+    guessing is bounded, which is what makes accepting it reasonable — no
+    ``STAGE_SPECS`` entry depends on ``fmriprep``, so a stricter grade blocks no
+    downstream stage. It colours a cell PARTIAL, offers a re-run where a green
+    cell offered nothing, and stops ``pipeline.survey_live`` suppressing a real
+    sacct failure for that unit.
+    """
+    return _found_keys(
+        root, _fmt("{ss}/**/func/sub-{sub}*_desc-preproc_bold.nii.gz", subject, session)
+    ) & _found_keys(
+        root, _fmt("{ss}/**/func/sub-{sub}*_desc-confounds_timeseries.tsv", subject, session)
+    )
+
+
 # ---- unit discovery ---------------------------------------------------------
 
 
@@ -331,13 +361,13 @@ def _fmriprep_status(config: dict, subject: str, session: str) -> Status:
     ]
     anat_ok = all(_has_match(root, p) for p in anat_required)
 
-    # Func is one preprocessed BOLD per input BOLD. An anat-only unit has an
-    # empty expected set and so carries no func requirement at all — the
-    # expectation *is* the list of files the input tree holds.
+    # Func is one preprocessed BOLD *and* one confounds TSV per input BOLD; see
+    # `_fmriprep_func_keys` for why the confounds file is part of the
+    # requirement. An anat-only unit has an empty expected set and so carries no
+    # func requirement at all — the expectation *is* the list of files the input
+    # tree holds.
     expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
-    found = _found_keys(
-        root, _fmt("{ss}/**/func/sub-{sub}*_desc-preproc_bold.nii.gz", subject, session)
-    )
+    found = _fmriprep_func_keys(root, subject, session)
     subtree_exists = _has_match(root, _fmt("{ss}", subject, session))
 
     if not expected:
@@ -467,7 +497,9 @@ def run_progress(config: dict, stage: str, subject: str, session: str) -> tuple[
     has no BOLD runs to count.
 
     Shares :func:`_expected_bold_keys` and :func:`_found_keys` with the trackers
-    so the number shown and the status shown cannot disagree.
+    so the number shown and the status shown cannot disagree — fMRIPrep through
+    :func:`_fmriprep_func_keys`, which is what keeps a cell from reading ``4/4``
+    beside PARTIAL when the confounds are missing.
     """
     paths = config["paths"]
     if stage == "nordic":
@@ -478,10 +510,7 @@ def run_progress(config: dict, stage: str, subject: str, session: str) -> tuple[
         )
     elif stage == "fmriprep":
         expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
-        found = _found_keys(
-            Path(paths["derivatives_dir"]) / "fmriprep",
-            _fmt("{ss}/**/func/sub-{sub}*_desc-preproc_bold.nii.gz", subject, session),
-        )
+        found = _fmriprep_func_keys(Path(paths["derivatives_dir"]) / "fmriprep", subject, session)
     elif stage == "mriqc":
         expected = _expected_bold_keys(paths["bids_dir"], subject, session)
         root = Path(paths["derivatives_dir"]) / "mriqc"
