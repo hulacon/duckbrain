@@ -205,6 +205,34 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Two studies with the same subject label could share one fMRIPrep cache.**
+  Scratch for a job was `<work_dir>/sub-<label>` — and `work_dir` is node-local
+  `/tmp`, while subject labels restart at `01` in every study. Two projects that
+  both have a `sub-010` and land on the same compute node were writing into one
+  nipype working directory. nipype serves a cache hit indistinguishably from a
+  computation, so one study's intermediate results could stand in for another's
+  with nothing on the board or in the log to show it. Scratch is now qualified by
+  project (and by user, since `/tmp` is shared between people too), so nothing
+  collides. Nothing you do changes: the path is derived, and `work_dir` in your
+  config still names the base.
+
+  If you have run fMRIPrep or MRIQC on a shared node before this, treat any
+  derivative you cannot account for as suspect and re-run it. There is no way
+  after the fact to tell a reused cache entry from a computed one.
+
+- **Jobs now clear their own scratch, instead of leaving it on the node forever.**
+  Nothing had ever removed a work directory, so node-local disk filled with
+  intermediates from finished runs until something else evicted them. A job now
+  removes its own when the run looks finished — and *not* when it doesn't, so a
+  crash keeps its cache for you to read and a re-run after a walltime kill
+  resumes from where the killed attempt got to rather than starting over.
+
+  "Looks finished" deliberately isn't the exit code: fMRIPrep and MRIQC can exit
+  0 from a run that crashed on nipype's master thread (see the crash-record entry
+  above), and deleting the evidence on the strength of that would be trusting the
+  one signal known to lie. A job cleans up only if it also wrote no crash file
+  during the attempt.
+
 - **Preprocessing silently dropped subjects the session selection didn't cover.**
   In a study where subjects don't share sessions — one scanned in `ses-01`,
   another only in `ses-02` — selecting both subjects and one session submitted

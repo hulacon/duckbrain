@@ -77,7 +77,7 @@ def build_context(config: dict, step: str, **extra) -> dict:
     Merges the full config with per-step SLURM overrides and any
     additional keyword arguments (subject, session, etc.).
     """
-    from ..config import get_slurm_resources
+    from ..config import get_slurm_resources, unit_work_dir
 
     slurm = get_slurm_resources(config, step)
     paths = config.get("paths", {})
@@ -93,4 +93,12 @@ def build_context(config: dict, step: str, **extra) -> dict:
         "bids_validate": (config.get("conversion") or {}).get("bids_validate", True),
     }
     context.update(extra)
+    # Derived here rather than by each caller, so no template ever has to build a
+    # scratch path out of `paths.work_dir` itself — that is how the bare
+    # `/tmp/sub-<label>` two studies could share got written twice. Set after the
+    # update so `extra` cannot quietly supply a different one; the tests in
+    # test_sbatch_templates.py assert no template reads `paths.work_dir`.
+    context["work_dir"] = unit_work_dir(
+        config, step, str(context.get("subject") or ""), str(context.get("session") or "")
+    )
     return context

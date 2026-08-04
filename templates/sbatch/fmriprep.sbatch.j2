@@ -28,7 +28,13 @@ echo "Node: $(hostname)"
    `derivatives` branch) shipped without `--skip-bids-validation --notrack` and
    failed BIDS validation on every session past the first. Pinned by
    test_no_comment_breaks_a_line_continuation. #}
-WORK_DIR={{ (paths.work_dir ~ "/sub-" ~ subject ~ ("_ses-" ~ session if session else "")) | sh }}
+# WORK_DIR is qualified by project, step and unit (config.unit_work_dir): it is
+# node-local, and every study's subject labels restart at 01, so a bare
+# /tmp/sub-<label> is one nipype cache shared by every project with that label
+# that lands on this node. It is stable across attempts on purpose — a re-run
+# after a walltime kill resumes from what the killed attempt left.
+WORK_DIR={{ work_dir | sh }}
+OUTPUT_DIR={{ output_dir | sh }}
 
 # TemplateFlow home and tmpdir are per-job (under WORK_DIR): a shared home on the
 # node-local FS races when two fMRIPrep jobs land on the same node and both
@@ -36,6 +42,11 @@ WORK_DIR={{ (paths.work_dir ~ "/sub-" ~ subject ~ ("_ses-" ~ session if session 
 export SINGULARITYENV_TEMPLATEFLOW_HOME="$WORK_DIR/templateflow"
 export SINGULARITY_TMPDIR="$WORK_DIR/tmp"
 mkdir -p "$WORK_DIR" "$SINGULARITYENV_TEMPLATEFLOW_HOME" "$SINGULARITY_TMPDIR"
+
+# Marks when THIS attempt began, so the cleanup below can tell a crash this run
+# wrote from one an earlier attempt left in the same derivative.
+ATTEMPT_STAMP="$WORK_DIR/.duckbrain-attempt"
+touch "$ATTEMPT_STAMP"
 
 # Output dir is bind-mounted below; Singularity requires the source to pre-exist.
 # When --derivatives points at the output dir itself (the anat-reuse case) it is
@@ -67,4 +78,25 @@ singularity run --cleanenv \
 EXIT_CODE=$?
 echo "Finished: $(date)"
 echo "Exit code: $EXIT_CODE"
+
+# Node-local scratch is nobody's to keep once a run is genuinely done: nothing
+# downstream reads it (the FreeSurfer tree lives under the output dir, not here),
+# and nothing else ever removes it, so it accumulates on the node until an
+# eviction nobody asked for. Removed only when the run looks finished, so a
+# failure keeps its nipype cache for the next attempt to resume from and for
+# whoever has to read it. A walltime kill keeps it by construction — the shell
+# never reaches this line.
+#
+# "Looks finished" is NOT the exit code alone. fMRIPrep runs some nodes on
+# nipype's master thread, where a crash is discarded before the not-run report,
+# so the workflow prints success and the process returns 0 having produced almost
+# nothing (consistency._check_tool_crashes has the mechanism). The crash file
+# the tool writes is the artifact that disagrees; deleting the work dir on exit 0
+# would be trusting exactly the signal that lies. -newer the attempt stamp
+# because a crash record outlives the attempt that wrote it.
+if [ "$EXIT_CODE" -eq 0 ] &&
+   [ -z "$(find "$OUTPUT_DIR" -maxdepth 2 -name 'crash-*' -newer "$ATTEMPT_STAMP" 2>/dev/null)" ]; then
+  rm -rf "$WORK_DIR"
+fi
+
 exit $EXIT_CODE

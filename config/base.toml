@@ -20,7 +20,13 @@ use_sessions = "auto"
 bids_dir = ""              # Root BIDS dataset directory
 sourcedata_dir = ""        # Where organized DICOMs live (usually <bids_dir>/sourcedata)
 derivatives_dir = ""       # Usually <bids_dir>/derivatives
-work_dir = "/tmp"          # Scratch for fMRIPrep etc. — node-local, outside BIDS tree
+# Scratch for fMRIPrep/MRIQC intermediates — node-local, outside the BIDS tree.
+# The BASE only: each job gets <work_dir>/duckbrain-<user>-<project>-<hash>/<step>_<unit>,
+# because subject labels restart at 01 in every study and a bare <work_dir>/sub-01
+# would be one nipype cache shared by every project that lands on the node. See
+# config.unit_work_dir. Jobs clear their own tree when the run looks finished and
+# keep it when it does not, so a re-run resumes.
+work_dir = "/tmp"
 containers_dir = ""        # Singularity .sif/.simg images
 nordic_toolbox_dir = ""    # Path to NORDIC_Raw MATLAB toolbox
 fs_license = ""            # FreeSurfer license file path

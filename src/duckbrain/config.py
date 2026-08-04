@@ -18,7 +18,10 @@ or the ``DUCKBRAIN_PROJECT_DIR`` environment variable.
 
 from __future__ import annotations
 
+import getpass
+import hashlib
 import os
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -139,6 +142,56 @@ def derive_paths(config: dict, project_dir: str | Path) -> dict:
         if not paths.get(key):
             paths[key] = value
     return config
+
+
+#: Everything a directory name may not safely carry once it is interpolated into
+#: a shell script and a Singularity bind spec (a bind is `src:dst`, so a colon in
+#: the name would split it in two).
+_SCRATCH_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _scratch_owner() -> str:
+    """The login name to qualify node-local scratch with, or ``user``."""
+    try:
+        return _SCRATCH_UNSAFE.sub("-", getpass.getuser())[:32].strip("-") or "user"
+    except Exception:  # no passwd entry and no LOGNAME/USER/USERNAME set
+        return "user"
+
+
+def unit_work_dir(config: dict, step: str, subject: str = "", session: str = "") -> str:
+    """Node-local scratch for one (project, step, unit), qualified so it collides with nothing.
+
+    ``work_dir`` is node-local (``/tmp`` by default) and that is the right place
+    for fMRIPrep's intermediates — but subject labels restart at ``01`` in every
+    study, so a bare ``<work_dir>/sub-010`` is one directory shared by every
+    project that has a ``sub-010`` and lands on the same compute node. nipype
+    serves a cache hit indistinguishably from a computation, so one run's node
+    results can silently stand in for another's, and nothing bounds how often
+    two studies collide.
+
+    The qualifier is the **project directory**: hashed, because the full path is
+    too long to spell into a directory name, but prefixed with its basename so
+    the tree is still recognisable when someone goes looking on the node. The
+    login name is in there too — ``/tmp`` is shared between users as well as
+    between projects, and whoever creates the tree first owns it, so without it
+    the second user gets an unexplained permission error rather than a wrong
+    answer.
+
+    Read from ``config[paths][bids_dir]`` and never from a caller's context: the
+    ``use_nordic`` fMRIPrep run is handed a *derivative* as its BIDS input, and
+    keying on that would give the same unit two caches depending on a toggle.
+
+    Stable per (project, step, unit) and deliberately **not** per attempt: a
+    re-run after a walltime kill resumes from the nipype cache the killed
+    attempt left behind, which is the only reason the tree is worth keeping.
+    """
+    paths = config.get("paths", {})
+    base = str(paths.get("work_dir") or "/tmp").rstrip("/") or "/tmp"
+    project_dir = str(paths.get("bids_dir") or "")
+    slug = _SCRATCH_UNSAFE.sub("-", Path(project_dir).name)[:32].strip("-.") or "project"
+    digest = hashlib.blake2b(project_dir.encode("utf-8"), digest_size=4).hexdigest()
+    unit = f"sub-{subject}" + (f"_ses-{session}" if session else "") if subject else "all"
+    return f"{base}/duckbrain-{_scratch_owner()}-{slug}-{digest}/{step}_{unit}"
 
 
 def load_config(

@@ -15,9 +15,17 @@ echo "Node: $(hostname)"
 
 {# Paths carry `| sh` — one interpolation, one shell argument. Expansions need
    their own quotes; the filter protects the assignment, not each later use. #}
-WORK_DIR={{ (paths.work_dir ~ "/mriqc_sub-" ~ subject ~ ("_ses-" ~ session if session else "")) | sh }}
+{# WORK_DIR is qualified by project, step and unit (config.unit_work_dir) — it is
+   node-local, and a bare /tmp/mriqc_sub-<label> is one nipype cache shared by
+   every project with that subject label that lands on this node. #}
+WORK_DIR={{ work_dir | sh }}
 OUTPUT_DIR={{ (paths.derivatives_dir ~ "/mriqc") | sh }}
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
+
+# Marks when THIS attempt began, so the cleanup below can tell a crash this run
+# wrote from one an earlier attempt left in the same derivative.
+ATTEMPT_STAMP="$WORK_DIR/.duckbrain-attempt"
+touch "$ATTEMPT_STAMP"
 
 singularity run --cleanenv \
   -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir ~ ":ro") | sh }} \
@@ -35,4 +43,14 @@ singularity run --cleanenv \
 EXIT_CODE=$?
 echo "Finished: $(date)"
 echo "Exit code: $EXIT_CODE"
+
+# Same rule as fmriprep.sbatch.j2, and for the same reason — that template
+# carries the full account. Clear node-local scratch only when the run looks
+# finished, and judge that from the crash record nipype writes rather than from
+# an exit code a master-thread crash never reaches.
+if [ "$EXIT_CODE" -eq 0 ] &&
+   [ -z "$(find "$OUTPUT_DIR" -maxdepth 2 -name 'crash-*' -newer "$ATTEMPT_STAMP" 2>/dev/null)" ]; then
+  rm -rf "$WORK_DIR"
+fi
+
 exit $EXIT_CODE

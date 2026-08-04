@@ -20,7 +20,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
 oracle it lacked) ·
 [`#18`](#18) type checking · [`#20`](#20) conda environment ·
-[`#31`](#31) a shared, uncleaned `work_dir` · [`#32`](#32) two memory ceilings ·
+[`#32`](#32) two memory ceilings ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -702,29 +702,6 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 
 ---
 
-<a id="31"></a>
-## #31 — `work_dir` is `/tmp/sub-<label>`, shared and never cleaned
-
-Found while diagnosing `#28`; it is **not** what caused it. The rendered sbatch
-sets `WORK_DIR={{ paths.work_dir }}/sub-<label>[_ses-<label>]`, and `work_dir`
-defaults to `/tmp` — node-local, which is right for fMRIPrep intermediates. Two
-things follow that are not right:
-
-- **Not namespaced by project.** Two projects that both have a `sub-010`, landing
-  on the same compute node, share one nipype cache. nipype serves a cache hit
-  indistinguishably from a computation, so run A's node results can silently
-  stand in for run B's. Nothing bounds how often that happens — subject labels
-  restart at `01` in every study.
-- **Never removed.** No `rm -rf`, no `trap`, nothing in `advance_one`. It grows
-  on node-local scratch until something else evicts it.
-
-The fix is a project-qualified path. Settle first whether anything *depends* on
-the cache surviving between attempts of the same unit — a re-run after a walltime
-kill does, which is the argument for keeping the path stable per (project, unit)
-rather than per attempt.
-
----
-
 <a id="32"></a>
 ## #32 — fMRIPrep is told a different memory ceiling than SLURM enforces
 
@@ -828,14 +805,33 @@ The work, then:
   `drwxrwsr-x` and setgid, so one build serves the PIRG. It was empty until
   2026-08-04, when **braintwill** built the first one there and wrote the recipe
   up in `docs/talapas-conda.md` (repo: `…/shared/mmmdata/code/braintwill`).
-  Three pieces transfer directly rather than needing re-derivation: its
-  `conda/condarc`, the `$CONDARC`-replacement trick (a lower-priority condarc
-  cannot out-rank FSL's `#!final`, but *replacing* the file in conda's search
-  path works — verified, 180 packages, conda-forge only), and
-  `scripts/setup_env.sh`, which ends by asserting nothing resolved off
-  conda-forge and failing loudly if anything did. Still a distribution decision
-  in the `#2` sense — who else gets told about it — but the location question is
-  closed.
+  Its `scripts/setup_env.sh` transfers, and so does the channel handling — but
+  take the **working** version, because the first attempt there was wrong and
+  this item currently plans the same mistake.
+
+  🔴 **`conda env create -f environment.yml` cannot be made safe on Talapas.**
+  Checked 2026-08-04. It accepts no channel flags at all and merges the file's
+  `channels:` with the condarc ones, so it resolves against FSL's channel *and*
+  `defaults`. Two plausible workarounds also fail: pointing `$CONDARC` at a clean
+  file **adds** to conda's search path rather than replacing `~/.condarc`, so
+  FSL's `#!final` channels still apply; and `CONDA_CHANNELS` is outranked by
+  `#!final` too. What works is `--override-channels -c conda-forge` on a plain
+  `conda create`/`conda install`, so braintwill's script reads the package list
+  out of `environment.yml` itself and never calls `conda env`. Verify with
+  `conda config --show channels`. Note the giveaway, which is the reusable
+  lesson: the check that "confirmed" the `$CONDARC` trick had
+  `--override-channels` on its command line, so the flag did the work while the
+  mechanism under test did nothing.
+
+  That script ends by asserting nothing resolved off conda-forge and *failing* if
+  anything did — worth copying, since that assertion is the only thing between
+  this landmine and a silently contaminated env. One caveat if duckbrain keeps a
+  `pip:` section: the script refuses to run against an `environment.yml`
+  containing one rather than installing a subset and reporting success, so a pip
+  step has to be added deliberately.
+
+  Still a distribution decision in the `#2` sense — who else gets told about
+  it — but the location question is closed.
 
   Two corrections to the findings above, from that build. **`pkgs_dirs` is not
   pinned solely to the read-only FSL path** — `~/.conda/pkgs` is listed first, so
@@ -1390,6 +1386,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-04 | `#31` | **Node-local scratch is qualified by project now, and a job clears its own.** `config.unit_work_dir` builds `<work_dir>/duckbrain-<user>-<project>-<hash8>/<step>_sub-XX[_ses-YY]`: the digest is what separates two studies, the basename is only so the tree is recognisable on the node, and the login name is there because `/tmp` is shared between users too and the first creator owns the tree — without it the second user gets an unexplained `EACCES` rather than a wrong answer. Derived in `build_context` rather than by each caller, because the bug was two templates independently spelling `paths.work_dir ~ "/sub-"`; `test_no_template_builds_a_scratch_path_out_of_paths_work_dir` sweeps the whole directory so a third cannot. Read from `config[paths][bids_dir]` and never from the context, or a `use_nordic` fMRIPrep run — handed a *derivative* as its BIDS input — would give one unit two caches depending on a toggle. **Stable per (project, step, unit) and not per attempt**, which is the question the item asked to settle first: a re-run after a walltime kill resumes from the cache the killed attempt left, and that is the only reason the tree is worth keeping rather than always wiping. **Cleanup is not keyed on the exit code** — that would trust exactly the signal `#28` proved lies. A job removes its work dir when it exits 0 *and* wrote no `crash-*` under its derivative newer than a stamp it touched at start; `-newer` and not merely "exists", or the first crash a project ever recorded would switch cleanup off for good. A kill keeps the tree by construction: the shell never reaches the line. All four states execute for real in `tests/test_sbatch_templates.py` against a stubbed `singularity`, over both nipype stages, and each was checked to fail against the behaviour it replaced. `core/fmriprep.py`/`core/mriqc.py`'s `build_*_command` are untouched: they take `work_dir` from a caller, have no caller in `src/`, and are not on the submission path |
 | 2026-08-04 | `#28` | **Diagnosed, and the item's own premise was wrong: it *was* the `#21` fsaverage race, the other branch of it.** Job 45644650, submitted 2026-07-24T18:33:05 — not a 07-27 job; those are the successful re-run that wiped and recreated the tree, which is why no crash file survives. The submitted sbatch is **byte-identical** to that re-run's, so command construction is exonerated and `#16.1`'s request record was never needed to answer this. `code/logs/fmriprep_45644650.out:405-462` has `fsdir_run_…` raising `OSError: [Errno 39] Directory not empty: 'label'` in `niworkflows/interfaces/bids.py:1463 shutil.rmtree(dest)`: `sub-010` is the job whose own `rmtree` *lost* the footrace, where the other four inherited a half-copied tree and died in `recon-all` hours later. Everything downstream of `fsdir` was pruned, and the log still ends "fMRIPrep finished successfully!" with exit 0 — the mechanism is in `consistency._check_tool_crashes`'s docstring. The cause is already closed by `core/fsaverage.py`; what was open is that duckbrain **read nothing**, and now reads the crash record the tool writes (`84cb31f`) and requires the confounds TSV before grading fMRIPrep complete (`0eb9be4`). Output-space grading stays impossible by construction and stays with `#16.1`. Opened `#31` and `#32` from what the diagnosis walked past |
 | 2026-08-04 | `#27` | **The page that submits every job now has tests, and driving it found a subject it was dropping in silence.** 0% → 100%, floor 85 → 88. Route taken was AppTest at the boundary, **not** this item's suggested "assert the rendered submission command": that command is already asserted in `test_pipeline.py` and `test_sbatch_templates.py`, so re-deriving it through the GUI would have tested the pipeline three more times and the page not at all. 19 tests stub `advance_one` on `duckbrain.core.pipeline` — a single patch, because the page imports it *inside* the submit branch at call time — and assert which stage, which units, which parameters crossed. One test does run the real chain with only `submit_job` stubbed, via **MRIQC**, the one stage with neither an fsaverage preflight nor a licence lookup, so a fake `.sif` and a pinned `shutil.which` are the whole setup; without it nothing would prove the page reaches SLURM at all. **Then the extraction, second and deliberately**: the three tabs each held a near-verbatim copy of the same submit loop, ~90 of 321 lines, and `gui/preproc_panels.run_batch` is that loop once — safe only because the tests already pinned the behaviour, and the proof is that all 19 passed **unchanged** across it. Page 321 → 224 lines and 100% covered, module 100%, total up on fewer statements. Taking `bids_path` as an argument instead of closing over the page's global is what made `targets` reachable from `tests/test_preproc_panels.py` with a tmp_path and no Streamlit. **What driving it found**: a subject whose sessions miss the selection returned an empty target list and vanished from the batch — select two subjects and one session in a study where they don't share sessions, get one job and a results table that looks complete. Now named. The all-dropped case turned out to be **unreachable from the page** and the reason is worth keeping: the session multiselect offers only the union of the selected subjects' sessions, and Streamlit *clears* the selection when that union changes, so the earlier guard always catches it first — pinned by `test_changing_subjects_clears_a_session_that_no_longer_applies`, with the empty-batch branch itself tested against the module. Two page changes were prerequisites, not cleanups: `get_slurm_resources` moved out of the fMRIPrep tab (all three read it; it worked only because Streamlit executes every tab body), and the six fMRIPrep option widgets gained `key=`, without which AppTest reaches them only by position and a layout edit silently re-points the very assertion that reads every option back out of the call. Floor measured under the CI shim, not a dev-box run, per `memory/local-tests-are-not-ci-tests`. |
 | 2026-08-04 | `#29` | **A cache key Streamlit was throwing away** — `cache_data` drops underscore-prefixed arguments, so `_load_metrics`'s `_fingerprint` keyed on `(mriqc_dir, modality)` alone and every QC page served the first MRIQC run's numbers until the server restarted. The rename, the test that fails before it (`test_a_rerun_of_mriqc_is_not_served_the_previous_numbers`), and an AST sweep over every `st.cache_*` in the package (`tests/test_streamlit_caches.py`, `EXEMPT` empty) so the next cache cannot repeat it. The two docstrings that named `_load_metrics` as the bad example now point at that test instead: a comment asserting a defect in another function is a claim about current state with nothing to notice when it stops being true. |

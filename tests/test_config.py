@@ -687,3 +687,62 @@ def test_saving_the_nd_choice_preserves_bids_validate(tmp_path):
     stored = _load_toml(project_config_path(tmp_path))["conversion"]
     assert stored["nd_duplicates"] == "both"
     assert stored["bids_validate"] is False
+
+
+# --- unit_work_dir: the qualifier's edges --------------------------------------
+#
+# The happy path and the collision it exists to prevent are pinned next to the
+# templates that consume it, in test_sbatch_templates.py. What is here is the
+# set of degenerate inputs a real config can hand it — every one of which used
+# to produce a *shorter* path, and a shorter path is a shared one.
+
+
+def test_scratch_qualifier_survives_a_project_dir_with_nothing_nameable_in_it():
+    """Neither half of the qualifier may collapse to empty: the digest is the
+    part that actually separates two projects, and the slug is only there so a
+    human can recognise the tree on the node."""
+    from duckbrain.config import unit_work_dir
+
+    def scratch(bids_dir):
+        cfg = {"paths": {"work_dir": "/tmp", "bids_dir": bids_dir}}
+        return unit_work_dir(cfg, "fmriprep", "04")
+
+    # A name with no ASCII-safe character left in it, and one that is nothing but
+    # dots — which unstripped would name a directory that walks back up the tree.
+    for bids_dir in ("/projects/仕事", "/a/.."):
+        assert "-project-" in scratch(bids_dir)
+        assert "/.." not in scratch(bids_dir)
+    # ...and two such projects are still told apart, because the digest and not
+    # the slug is what separates them.
+    assert scratch("/projects/仕事") != scratch("/a/..")
+
+
+def test_scratch_falls_back_to_tmp_when_work_dir_is_unset():
+    """`base.toml` ships "/tmp", but a project config may blank it — and an empty
+    base would put the tree at the filesystem root."""
+    from duckbrain.config import unit_work_dir
+
+    assert unit_work_dir({"paths": {"work_dir": ""}}, "mriqc", "04").startswith("/tmp/duckbrain-")
+    assert unit_work_dir({}, "mriqc", "04").startswith("/tmp/duckbrain-")
+
+
+def test_scratch_for_a_stage_with_no_subject_is_still_a_directory():
+    from duckbrain.config import unit_work_dir
+
+    assert unit_work_dir({"paths": {}}, "mriqc", "").endswith("/mriqc_all")
+
+
+def test_scratch_owner_falls_back_when_the_environment_has_no_login_name(monkeypatch):
+    """`getpass.getuser()` raises when there is no passwd entry and no
+    LOGNAME/USER/USERNAME — a real state inside a stripped container. The name is
+    a nicety (it keeps two users off one /tmp tree); failing to build a work dir
+    at all over its absence would not be."""
+    import getpass
+
+    from duckbrain.config import unit_work_dir
+
+    def boom():
+        raise OSError("no login name")
+
+    monkeypatch.setattr(getpass, "getuser", boom)
+    assert "-user-" in unit_work_dir({"paths": {}}, "mriqc", "04")

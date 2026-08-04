@@ -497,3 +497,203 @@ def test_mriqc_reads_raw_bids_even_when_the_project_uses_nordic():
     # The positional BIDS root MRIQC is handed, and the bind that backs it.
     assert '/projects/study "$OUTPUT_DIR" participant' in script
     assert "-B /projects/study:/projects/study:ro" in script
+
+
+# --- node-local scratch: qualified per project, and cleared when it is done ---
+#
+# `work_dir` is node-local (/tmp) and every study's subject labels restart at 01,
+# so the bare `/tmp/sub-<label>` these templates used to build was one nipype
+# cache shared by every project with that label that landed on the same node —
+# and nipype serves a cache hit indistinguishably from a computation. Nothing
+# removed it either, so it grew until an eviction nobody asked for took it.
+
+import os
+import stat
+import subprocess
+from pathlib import Path
+
+from duckbrain.config import unit_work_dir
+
+SBATCH_TEMPLATES = ["dcm2bids", "fmriprep", "mriqc", "nordic_denoise", "nordic_bids_input"]
+
+
+def test_no_template_builds_a_scratch_path_out_of_paths_work_dir():
+    """The derivation lives in one place (``config.unit_work_dir``, reached via
+    ``build_context``), so a template cannot reintroduce the unqualified path.
+
+    A text sweep and not a rendering assertion on purpose: the bug was two
+    templates independently spelling ``paths.work_dir ~ "/sub-"``, and a new
+    template spelling it a third time is exactly what no per-template test would
+    catch.
+    """
+    from duckbrain.slurm.templates import _get_templates_dir
+
+    for path in sorted(_get_templates_dir().glob("*.sbatch.j2")):
+        assert "paths.work_dir" not in path.read_text(), path.name
+
+
+def _work_dir_line(script):
+    return next(line for line in script.splitlines() if line.startswith("WORK_DIR="))
+
+
+def test_two_projects_sharing_a_subject_label_get_different_scratch():
+    """The collision this item exists for: sub-010 in two studies, one node."""
+    a, b = _cfg(), _cfg()
+    a["paths"]["bids_dir"] = "/projects/hulacon/bhutch/divatten_beta_v2"
+    b["paths"]["bids_dir"] = "/projects/hulacon/shared/mmmduck"
+    kw = dict(subject="010", session="01", container_path="/x", mem_gb=8)
+    first = _work_dir_line(render_sbatch("mriqc", build_context(a, "mriqc", **kw)))
+    second = _work_dir_line(render_sbatch("mriqc", build_context(b, "mriqc", **kw)))
+    assert first != second
+    # ...and each is still recognisable as its project on the node.
+    assert "divatten_beta_v2" in first and "mmmduck" in second
+
+
+def test_scratch_is_stable_across_attempts_of_the_same_unit():
+    """Stable per (project, step, unit), never per attempt — a re-run after a
+    walltime kill resumes from the cache the killed attempt left behind, which is
+    the only reason the tree is worth keeping instead of always wiping it."""
+    kw = dict(subject="04", session="01", container_path="/x", mem_gb=8)
+    one = _work_dir_line(render_sbatch("mriqc", build_context(_cfg(), "mriqc", **kw)))
+    two = _work_dir_line(render_sbatch("mriqc", build_context(_cfg(), "mriqc", **kw)))
+    assert one == two
+
+
+def test_each_step_and_unit_gets_its_own_scratch():
+    cfg = _cfg()
+    seen = {
+        unit_work_dir(cfg, step, subject, session)
+        for step in ("fmriprep", "mriqc")
+        for subject, session in (("04", "01"), ("04", "02"), ("05", "01"))
+    }
+    assert len(seen) == 6
+
+
+def test_a_nordic_fmriprep_run_shares_scratch_with_its_raw_twin():
+    """``_build_fmriprep`` hands the template a *derivative* as ``bids_dir`` when
+    ``use_nordic`` is on. The scratch qualifier reads the project directory from
+    config instead, so flipping the toggle does not silently give one unit two
+    caches (nor point two projects' NORDIC runs at one)."""
+    cfg = _cfg()
+    common = dict(
+        subject="04",
+        session="01",
+        output_dir="/projects/study/derivatives/fmriprep",
+        container_path="/x",
+        fs_license="/l",
+        fs_license_dir="/",
+        output_spaces=["func"],
+        filter_file="",
+        anat_only=False,
+        derivatives="",
+    )
+    raw = build_context(cfg, "fmriprep", bids_dir="/projects/study", **common)
+    nordic = build_context(
+        cfg, "fmriprep", bids_dir="/projects/study/derivatives/nordic/bids_format", **common
+    )
+    assert raw["work_dir"] == nordic["work_dir"]
+
+
+def _run_rendered(script, tmp_path, *, exit_code=0, crash=None):
+    """Execute a rendered sbatch with `singularity` stubbed out.
+
+    Returns the WORK_DIR the script chose, so the caller can ask whether it
+    survived. The stub, not the test, writes any crash file — it has to land
+    *after* the attempt stamp, the way a real crash does.
+    """
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    stub = bindir / "singularity"
+    body = "#!/bin/bash\n"
+    if crash:
+        body += f'mkdir -p "$(dirname {crash})" && touch {crash}\n'
+    body += f"exit {exit_code}\n"
+    stub.write_text(body)
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+
+    path = tmp_path / "job.sh"
+    path.write_text(script)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+    proc = subprocess.run(["bash", str(path)], env=env, capture_output=True, text=True)
+    assert proc.returncode == exit_code, proc.stderr
+    return _work_dir_line(script).split("=", 1)[1].strip("'")
+
+
+#: The two nipype stages that keep a work dir. Both are exercised, because the
+#: cleanup guard is duplicated in both templates and a shell conjunction that
+#: drifts in one of them fails silently in the direction of never cleaning up.
+NIPYPE_STAGES = ["fmriprep", "mriqc"]
+
+
+def _stage_script(tmp_path, stage):
+    """A rendered script for *stage*, with every path it touches under tmp_path.
+
+    Returns ``(script, derivative_root)`` — the derivative is where the crash
+    record goes, since that is where the tool writes it.
+    """
+    cfg = _cfg()
+    cfg["paths"]["work_dir"] = str(tmp_path / "scratch")
+    cfg["paths"]["derivatives_dir"] = str(tmp_path / "derivatives")
+    out = f"{tmp_path}/derivatives/{stage}"
+    extra = dict(subject="04", session="01", container_path="/x")
+    if stage == "fmriprep":
+        extra.update(
+            bids_dir="/b",
+            output_dir=out,
+            fs_license="/l",
+            fs_license_dir="/",
+            output_spaces=["func"],
+            filter_file="",
+            anat_only=False,
+            derivatives="",
+        )
+    else:
+        extra.update(mem_gb=8)
+    return render_sbatch(stage, build_context(cfg, stage, **extra)), out
+
+
+@pytest.mark.parametrize("stage", NIPYPE_STAGES)
+def test_a_finished_run_clears_its_own_scratch(tmp_path, stage):
+    """Nothing else ever removed it. It is node-local, nothing downstream reads
+    it (the FreeSurfer tree lives under the output dir), and it grew until some
+    eviction nobody asked for took it."""
+    script, _ = _stage_script(tmp_path, stage)
+    work = _run_rendered(script, tmp_path)
+    assert not Path(work).exists()
+
+
+@pytest.mark.parametrize("stage", NIPYPE_STAGES)
+def test_a_failed_run_keeps_its_scratch_for_the_next_attempt(tmp_path, stage):
+    script, _ = _stage_script(tmp_path, stage)
+    work = _run_rendered(script, tmp_path, exit_code=1)
+    assert Path(work).is_dir()
+
+
+@pytest.mark.parametrize("stage", NIPYPE_STAGES)
+def test_a_crash_record_keeps_the_scratch_even_though_the_job_exited_zero(tmp_path, stage):
+    """The reason cleanup is not keyed on the exit code. A nipype tool runs some
+    nodes on the master thread, where a crash never reaches the not-run report —
+    the workflow prints success, the process returns 0, and the crash file it
+    wrote is the only artifact that disagrees (``consistency._check_tool_crashes``
+    has the full mechanism). Wiping the work dir on exit 0 would be trusting
+    exactly the signal that lies."""
+    script, out = _stage_script(tmp_path, stage)
+    work = _run_rendered(script, tmp_path, exit_code=0, crash=f"{out}/logs/crash-x.txt")
+    assert Path(work).is_dir()
+
+
+@pytest.mark.parametrize("stage", NIPYPE_STAGES)
+def test_a_superseded_crash_record_does_not_block_cleanup(tmp_path, stage):
+    """A crash file outlives the attempt that wrote it — it lives in the
+    derivative, not the work dir, so an in-place re-run inherits the last one.
+    Same staleness problem ``consistency._is_current_crash`` has, answered here
+    with -newer against a stamp this attempt touched: only a crash from THIS run
+    keeps the tree. Without it the first crash a project ever recorded would
+    switch cleanup off for good."""
+    script, out = _stage_script(tmp_path, stage)
+    stale = Path(out) / "logs" / "crash-old.txt"
+    stale.parent.mkdir(parents=True)
+    stale.touch()
+    os.utime(stale, (0, 0))
+    work = _run_rendered(script, tmp_path)
+    assert not Path(work).exists()
