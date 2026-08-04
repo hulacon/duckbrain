@@ -1,7 +1,6 @@
 """Page 4: Preprocessing — fMRIPrep, NORDIC, MRIQC submission."""
 
 import streamlit as st
-import pandas as pd
 from pathlib import Path
 
 
@@ -14,6 +13,7 @@ try:
     # tabs read it, and a tab body that returns early would leave the others
     # with a NameError.
     from duckbrain.config import get_slurm_resources, load_config
+    from duckbrain.gui import preproc_panels
 
     config = load_config()
 except FileNotFoundError:
@@ -36,52 +36,11 @@ Path(log_dir).mkdir(parents=True, exist_ok=True)
 
 # ---- Discover subjects/sessions ----
 bids_path = Path(bids_dir)
-subjects = sorted(
-    d.name.replace("sub-", "")
-    for d in bids_path.iterdir()
-    if d.is_dir() and d.name.startswith("sub-")
-)
+subjects = preproc_panels.list_subjects(bids_path)
 
 if not subjects:
     st.warning("No subjects found in BIDS directory.")
     st.stop()
-
-
-def _get_sessions(subject: str) -> list[str]:
-    sub_dir = bids_path / f"sub-{subject}"
-    return sorted(
-        d.name.replace("ses-", "")
-        for d in sub_dir.iterdir()
-        if d.is_dir() and d.name.startswith("ses-")
-    )
-
-
-def _targets(subject: str, selected_sessions: list[str]) -> list[str]:
-    """Sessions to process for *subject*.
-
-    A subject with no ``ses-`` level (single-session study) yields ``[""]`` — one
-    run, no session entity. A multi-session subject yields the intersection of
-    its sessions with the user's selection.
-    """
-    subj_ses = _get_sessions(subject)
-    if not subj_ses:
-        return [""]
-    return [s for s in selected_sessions if s in subj_ses]
-
-
-def _session_picker(selected_subjects: list[str], key: str) -> tuple[list[str], list[str]]:
-    """Render the Sessions multiselect (hidden for single-session studies).
-
-    Returns ``(study_sessions, selected)`` where ``study_sessions`` is empty when
-    no selected subject has a ``ses-`` level.
-    """
-    study_sessions = sorted({s for sub in selected_subjects for s in _get_sessions(sub)})
-    if study_sessions:
-        return study_sessions, st.multiselect("Sessions", study_sessions, key=key)
-    if selected_subjects:
-        st.caption("Single-session study (no ses- entity)")
-    return [], []
-
 
 # ---- Tabs ----
 tab_fmriprep, tab_nordic, tab_mriqc = st.tabs(["fMRIPrep", "NORDIC", "MRIQC"])
@@ -103,7 +62,9 @@ with tab_fmriprep:
     with col1:
         fp_subjects = st.multiselect("Subjects", subjects, key="fp_subjects")
     with col2:
-        fp_study_sessions, fp_sessions = _session_picker(fp_subjects, "fp_sessions")
+        fp_study_sessions, fp_sessions = preproc_panels.session_picker(
+            bids_path, fp_subjects, "fp_sessions"
+        )
 
     st.markdown("**Options**")
     col1, col2, col3 = st.columns(3)
@@ -163,49 +124,22 @@ with tab_fmriprep:
         fp_export = st.button("Export Scripts", key="fp_export")
 
     if fp_submit or fp_export:
-        if not fp_subjects:
-            st.error("Select at least one subject.")
-        elif fp_study_sessions and not fp_sessions:
-            st.error("Select at least one session.")
-        else:
-            from duckbrain.core.pipeline import advance_one
-
-            results = []
-            for sub in fp_subjects:
-                for ses in _targets(sub, fp_sessions):
-                    try:
-                        ref = advance_one(
-                            config,
-                            "fmriprep",
-                            sub,
-                            ses,
-                            export_only=fp_export,
-                            output_spaces=fp_spaces,
-                            anat_only=fp_anat_only,
-                            use_derivatives=fp_use_derivatives,
-                            extra_flags=fp_extra_flags,
-                            nprocs=fp_nprocs,
-                            mem_gb=fp_mem,
-                        )
-                        if fp_submit:
-                            results.append(
-                                {
-                                    "subject": sub,
-                                    "session": ses,
-                                    "job_id": ref,
-                                    "status": "submitted",
-                                }
-                            )
-                        else:
-                            results.append(
-                                {"subject": sub, "session": ses, "path": ref, "status": "exported"}
-                            )
-                    except Exception as e:
-                        results.append(
-                            {"subject": sub, "session": ses, "status": "error", "error": str(e)}
-                        )
-
-            st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
+        preproc_panels.run_batch(
+            config,
+            "fmriprep",
+            bids_path,
+            fp_subjects,
+            fp_sessions,
+            fp_study_sessions,
+            submit=fp_submit,
+            export=fp_export,
+            output_spaces=fp_spaces,
+            anat_only=fp_anat_only,
+            use_derivatives=fp_use_derivatives,
+            extra_flags=fp_extra_flags,
+            nprocs=fp_nprocs,
+            mem_gb=fp_mem,
+        )
 
 # ============================================================
 # NORDIC Tab
@@ -217,14 +151,16 @@ with tab_nordic:
     with col1:
         nd_subjects = st.multiselect("Subjects", subjects, key="nd_subjects")
     with col2:
-        nd_study_sessions, nd_sessions = _session_picker(nd_subjects, "nd_sessions")
+        nd_study_sessions, nd_sessions = preproc_panels.session_picker(
+            bids_path, nd_subjects, "nd_sessions"
+        )
 
     # Show BOLD count per selection
     if nd_subjects and (nd_sessions or not nd_study_sessions):
         from duckbrain.core.nordic import get_bold_runs
 
         for sub in nd_subjects:
-            for ses in _targets(sub, nd_sessions):
+            for ses in preproc_panels.targets(bids_path, sub, nd_sessions):
                 bolds = get_bold_runs(bids_dir, sub, ses)
                 label = f"sub-{sub}/ses-{ses}" if ses else f"sub-{sub}"
                 st.markdown(f"{label}: **{len(bolds)} BOLD runs**")
@@ -240,37 +176,16 @@ with tab_nordic:
         nd_export = st.button("Export Scripts", key="nd_export")
 
     if nd_submit or nd_export:
-        if not nd_subjects:
-            st.error("Select at least one subject.")
-        elif nd_study_sessions and not nd_sessions:
-            st.error("Select at least one session.")
-        else:
-            from duckbrain.core.pipeline import advance_one
-
-            results = []
-            for sub in nd_subjects:
-                for ses in _targets(sub, nd_sessions):
-                    try:
-                        ref = advance_one(config, "nordic", sub, ses, export_only=nd_export)
-                        if nd_submit:
-                            results.append(
-                                {
-                                    "subject": sub,
-                                    "session": ses,
-                                    "job_id": ref,
-                                    "status": "submitted",
-                                }
-                            )
-                        else:
-                            results.append(
-                                {"subject": sub, "session": ses, "path": ref, "status": "exported"}
-                            )
-                    except Exception as e:
-                        results.append(
-                            {"subject": sub, "session": ses, "status": "error", "error": str(e)}
-                        )
-
-            st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
+        preproc_panels.run_batch(
+            config,
+            "nordic",
+            bids_path,
+            nd_subjects,
+            nd_sessions,
+            nd_study_sessions,
+            submit=nd_submit,
+            export=nd_export,
+        )
 
 # ============================================================
 # MRIQC Tab
@@ -282,7 +197,9 @@ with tab_mriqc:
     with col1:
         mq_subjects = st.multiselect("Subjects", subjects, key="mq_subjects")
     with col2:
-        mq_study_sessions, mq_sessions = _session_picker(mq_subjects, "mq_sessions")
+        mq_study_sessions, mq_sessions = preproc_panels.session_picker(
+            bids_path, mq_subjects, "mq_sessions"
+        )
 
     mq_slurm = get_slurm_resources(config, "mriqc")
     with st.expander("SLURM Resources"):
@@ -295,34 +212,13 @@ with tab_mriqc:
         mq_export = st.button("Export Scripts", key="mq_export")
 
     if mq_submit or mq_export:
-        if not mq_subjects:
-            st.error("Select at least one subject.")
-        elif mq_study_sessions and not mq_sessions:
-            st.error("Select at least one session.")
-        else:
-            from duckbrain.core.pipeline import advance_one
-
-            results = []
-            for sub in mq_subjects:
-                for ses in _targets(sub, mq_sessions):
-                    try:
-                        ref = advance_one(config, "mriqc", sub, ses, export_only=mq_export)
-                        if mq_submit:
-                            results.append(
-                                {
-                                    "subject": sub,
-                                    "session": ses,
-                                    "job_id": ref,
-                                    "status": "submitted",
-                                }
-                            )
-                        else:
-                            results.append(
-                                {"subject": sub, "session": ses, "path": ref, "status": "exported"}
-                            )
-                    except Exception as e:
-                        results.append(
-                            {"subject": sub, "session": ses, "status": "error", "error": str(e)}
-                        )
-
-            st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
+        preproc_panels.run_batch(
+            config,
+            "mriqc",
+            bids_path,
+            mq_subjects,
+            mq_sessions,
+            mq_study_sessions,
+            submit=mq_submit,
+            export=mq_export,
+        )
