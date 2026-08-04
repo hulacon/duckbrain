@@ -10,7 +10,10 @@ st.title("Preprocessing")
 
 # ---- Load config ----
 try:
-    from duckbrain.config import load_config
+    # get_slurm_resources is imported here, not in the fMRIPrep tab: all three
+    # tabs read it, and a tab body that returns early would leave the others
+    # with a NameError.
+    from duckbrain.config import get_slurm_resources, load_config
 
     config = load_config()
 except FileNotFoundError:
@@ -112,19 +115,24 @@ with tab_fmriprep:
                     "output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
                 )
             ),
+            key="fp_spaces",
         )
     with col2:
         fp_nprocs = st.number_input(
-            "nprocs", value=config.get("fmriprep", {}).get("nprocs", 8), min_value=1
+            "nprocs",
+            value=config.get("fmriprep", {}).get("nprocs", 8),
+            min_value=1,
+            key="fp_nprocs",
         )
         fp_mem = st.number_input(
-            "mem_gb", value=config.get("fmriprep", {}).get("mem_gb", 32), min_value=4
+            "mem_gb", value=config.get("fmriprep", {}).get("mem_gb", 32), min_value=4, key="fp_mem"
         )
     with col3:
-        fp_anat_only = st.checkbox("Anat-only mode", value=False)
+        fp_anat_only = st.checkbox("Anat-only mode", value=False, key="fp_anat_only")
         fp_use_derivatives = st.checkbox(
             "Reuse anat derivatives",
             value=False,
+            key="fp_use_derivatives",
             help="Reuses preprocessed anatomicals instead of rebuilding them. The "
             "anat may come from any session of the subject — that is the point in a "
             "longitudinal study, where it is acquired once and shared. Requires a "
@@ -136,6 +144,7 @@ with tab_fmriprep:
     fp_extra_flags = st.text_input(
         "Custom fMRIPrep flags",
         value=config.get("fmriprep", {}).get("extra_flags", ""),
+        key="fp_extra_flags",
         help="Extra flags appended verbatim to the fMRIPrep command, e.g. "
         "`--fs-no-reconall --dummy-scans 2 --bold2anat-dof 12`. Applied to every "
         "selected subject/session. Don't repeat flags duckbrain already sets "
@@ -143,8 +152,6 @@ with tab_fmriprep:
     )
 
     # SLURM resources
-    from duckbrain.config import get_slurm_resources
-
     fp_slurm = get_slurm_resources(config, "fmriprep")
     with st.expander("SLURM Resources"):
         st.json(fp_slurm)

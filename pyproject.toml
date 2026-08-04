@@ -118,7 +118,7 @@ branch = true
 # than admire: they are four-statement declarations calling one tested module
 # (`gui.qc_panels`), so splitting one 108-statement page into five *raised* the
 # total. A page that holds logic is a page that holds untested logic.
-fail_under = 85
+fail_under = 88
 
 [tool.ruff]
 line-length = 100
