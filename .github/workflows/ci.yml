@@ -113,4 +113,22 @@ jobs:
       - name: Type check
         # Bare `mypy`: the file list lives in [tool.mypy] so a local run checks
         # exactly what CI does. Passing paths here would override it silently.
-        run: mypy
+        #
+        # Echoed back as `::error::` workflow annotations, which put the failure
+        # on the diff instead of only in a log. Not a nicety: Actions job logs
+        # need an authenticated token to read, while annotations are readable
+        # from the check-runs API without one, so this is the difference between
+        # a failure that can be diagnosed from outside the browser and one that
+        # can only be stared at. Covers exit 2 (mypy could not run) as well as
+        # exit 1 (type errors) — the first time this job went red it was a 2, and
+        # the bare `run: mypy` said nothing about why.
+        run: |
+          set +e
+          out=$(mypy 2>&1); status=$?
+          printf '%s\n' "$out"
+          if [ "$status" -ne 0 ]; then
+            printf '%s\n' "$out" | while IFS= read -r line; do
+              [ -n "$line" ] && printf '::error::%s\n' "$line"
+            done
+          fi
+          exit "$status"
