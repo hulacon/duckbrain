@@ -1,4 +1,4 @@
-# The gate duckbrain went its first two releases without (TODO #18).
+# The gate duckbrain went its first two releases without.
 #
 # Scope is deliberately the checks that can pass on a runner with no cluster:
 # no SLURM, no Singularity, no /projects, no scanner data. Everything the test

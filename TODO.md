@@ -19,8 +19,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
 oracle it lacked) ·
-[`#18`](#18) type checking · [`#20`](#20) conda environment ·
-[`#32`](#32) two memory ceilings ·
+[`#20`](#20) conda environment · [`#32`](#32) two memory ceilings ·
+[`#33`](#33) widen the type-checked surface ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -672,6 +672,41 @@ would do anyway. Harmless either way; worth resolving *before* anyone adds more 
 it. Confirm against the pinned container's source, then either delete the ordering
 or leave a comment saying why it stays.
 
+### `#19.12` — Should an unequal ND/corrected pairing be refused, not truncated?
+
+**Surfaced 2026-08-04 by `#18`'s `B905` pass, and deliberately not answered
+there** — it is behaviour, and a lint commit is the wrong place to change
+behaviour. `_nd_twin_groups` in `core/dicom_inspect.py` zips the ND side against
+the corrected side after sorting both by series number, so when the two come in
+unequal numbers the surplus is silently dropped from the group. Its own docstring
+authorizes that ("a surplus on either side when the two do not come in equal
+numbers"), which is why the zip now reads `strict=False` with a pointer to that
+paragraph rather than raising.
+
+The question is whether the docstring is right. A surplus **ND** series left out
+of the group is never demoted, so under the default `corrected` policy it
+converts anyway — as an extra anatomical alongside the pair the policy chose.
+That is the exact symptom of the third pairing defect
+(`memory/nd-duplicate-reconstructions`): pMAP101's 1008 went unclaimed and
+"converted as a spurious third anatomical under every policy including the
+default". That defect was closed by pairing in acquisition order, which fixes the
+*equal*-length many-to-one case; the unequal case still reaches the same outcome
+by the other route.
+
+**Nothing exercises it.** Walking all **166** sessions of
+`/projects/lcni/dcm/repository/dicoms` and bucketing by `_ND_STRIP`'s base
+exactly as `_nd_twin_groups` does gives **52** twin base-groups that have a
+counterpart at all, and **0** of them unequal (measured 2026-08-04). So there is
+no fixture, and any change here needs a unit test as its only oracle — the same
+position `memory/nd-duplicate-reconstructions` records for ND fieldmaps
+generally, where the corpus also cannot validate. Decide it as a policy question
+(refuse and report, versus demote the surplus, versus keep truncating and say so
+in the plan's drop notices), not by whichever is easiest to code.
+
+Note the 52 is base-*groups*, not sessions, so it is not the 46 twinned sessions
+`#19.7` counts nor the ledger's "52 corpus sessions" — three different
+denominators that happen to collide on a number.
+
 ### `#19.7` — Re-measure agreement once LCNI re-converts the anatomicals
 
 **The number, and why it is frozen.** As of 2026-07-24 duckbrain reproduced 391
@@ -716,24 +751,62 @@ memory available (32.77GB)` while 48 GB was in fact allocated.
 
 ---
 
-<a id="18"></a>
-## #18 — Static analysis: type checking, and widening the lint
+<a id="33"></a>
+## #33 — Widen the type-checked surface
 
-The external review of 2026-07-22 is otherwise closed (see the ledger), as is the
-CI work under `#18.1`. Two follow-ons, both deliberately deferred rather than
-forgotten:
+`#18` closed with mypy gating three modules (`conversion_plan`,
+`dcm2bids_config`, `consistency`) and the ruff ruleset at `B`/`E`/`F`/`FIX`/`I`/
+`TD`/`UP`/`W`. Both were deliberately stopped at what could be gated *today*.
+What is left is real work rather than a config line, which is why it is its own
+item and not an unfinished part of that one.
 
-- **No `[tool.mypy]`.** Start on new and high-risk core modules —
-  `conversion_plan`, `dcm2bids_config`, `consistency` — not repo-wide.
-- **Widening ruff.** Bugbear, isort and pyupgrade have 59 findings between them
-  (measured 2026-07-22); each wants its own commit, or the gate arrives as one
-  unreviewable diff. `B905` (`zip(..., strict=)`) is the one with real
-  bug-catching value; start there. The eight sites each need a judgment about
-  whether the lengths must match.
+**Read the file list from `pyproject.toml`, not from here**, and **re-measure
+before adding to it** — the whole reason `#18` landed green is that the config
+was set after measuring, not guessed.
 
-**DB-002's fuller recommendation — a persisted expected-output manifest — is the
-same feature as `#16.1`'s request record**, and is folded in there along with the
-trigger for building it. Don't build it twice.
+### `#33.1` — More files under `[tool.mypy] files`
+
+Repo-wide is not distant: `src` is ~91% annotated (543 functions, 44 missing a
+return type, 87 of 998 parameters bare, measured 2026-08-04). But the gaps are
+not evenly spread, and that shapes the order.
+
+- **Next, and cheap:** `core/dicom_inspect.py` and `core/series_types.py`. Both
+  are already in the three modules' import closure, both are fully annotated,
+  neither imports a third-party library directly.
+- **Not `core/pipeline.py` yet** — 22 unannotated arguments and 6 missing
+  returns, and it is the pandas boundary, so it wants `#33.2` settled first.
+- **The pages last, and expect them to be the whole cost.**
+  `gui/pages/0_Project_Status.py` alone holds 45 unannotated arguments and 16
+  missing returns — 61 of the repo's 131 gaps — and the pages are what drag
+  streamlit, plotly and nibabel into the analysis. Of the packages that matter
+  here only **pandas and plotly ship no `py.typed`**.
+
+### `#33.2` — `disallow_any_generics`, and the dcm2bids description dicts
+
+The knob `#18` explicitly declined, and the reason it is a design project:
+~131 bare `dict` / `list[dict]` sites, of which every public entry point in the
+three checked modules is one (`check_consistency(config: dict)` and friends).
+The real content is the dcm2bids **description dicts** — heterogeneous literals
+built and then conditionally extended (`dcm2bids_config.py` ~`:836`), then
+chain-subscripted downstream (`d["criteria"]["SeriesNumber"]`,
+`desc["sidecar_changes"]["B0FieldSource"]`). Typing them properly means real
+`TypedDict`s with optional keys, i.e. `NotRequired`, which the 3.10 floor cannot
+have without adding `typing_extensions`. Weigh that before starting.
+
+Two knobs sit behind the same decision: `warn_return_any` (noisy against
+untyped pandas today) and `disallow_untyped_calls` (fires on every call into a
+`follow_imports = silent` module, so it is effectively repo-wide-or-nothing).
+
+### `#33.3` — Rulesets measured and deferred
+
+Counts from 2026-08-04, recorded so nobody re-measures: `ARG` 298, `D` 235,
+`N` 55, `PTH` 30. `RUF`/`SIM`/`C4` unmeasured.
+
+`D` (pydocstyle) is **declined, not deferred**: a several-hundred-line
+docstring-*format* diff across a codebase whose docstrings are its best feature
+is a net loss, and the rules it would enforce are about punctuation and mood,
+not content. The others are open questions; `PTH` is the most likely to be worth
+it and the most likely to be mechanical.
 
 ---
 
@@ -1406,6 +1479,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-04 | `#18` | **Static analysis — both follow-ons closed.** Ruff widened a ruleset per commit as the item asked: `B`, then `I`, then `UP`, plus `TD`+`FIX` at zero findings to make CLAUDE.md's "no `# TODO:` in source" rule a gate instead of a promise (verified first that it does *not* match the sanctioned mid-sentence `(TODO #17.4)` citation style — all 13 in `src` still pass). The item's own numbers were stale and are corrected here: 100 findings, not 59, and **44** `B905` sites, not eight. But only **5** were in `src`; the other 39 were one repeated shape in `test_conversion_page.py`, collapsed to a single `_by_series` helper in a prior commit so the bugbear diff was 8 lines of judgment rather than 45 of mechanism. The judgments did not come out uniform, which is the value: three `core/` sites document an unequal zip as intended and take `strict=False`, two GUI sites zip against `st.columns(len(X))` and take `strict=True`. The one `B023` is a false positive with a stated `noqa`. **mypy gates the three modules the item named**, in its own CI job (not a matrix step — the matrix installs different third-party builds per leg, so it could go red on one for reasons nobody caused) and blocking rather than advisory, which is only safe because the config was dialled to a measured zero *first*. `disallow_untyped_defs` cost nothing — all 87 functions in those files were already annotated — so it is a ratchet like the coverage floor, not a cleanup project; `follow_imports = "silent"` contains the closure's 23 modules, and pandas is the one stub gap, named rather than blanketed. **It found five errors, all one shape**: a name bound to two unrelated things in one long function (`expected` meaning both a phase-encoding direction and a list of dropped series 130 lines apart in `plan_warnings`; `run` meaning both a BOLD's counted index and an SBRef's possibly-absent one). Fixed by renaming, since the type complaint was pointing at something a reader trips on too. `disallow_any_generics` and a wider file list are real work rather than config and moved to `#33`; the ND-pairing behaviour question `B905` surfaced moved to `#19.12` |
 | 2026-08-04 | `#31` | **Node-local scratch is qualified by project now, and a job clears its own.** `config.unit_work_dir` builds `<work_dir>/duckbrain-<user>-<project>-<hash8>/<step>_sub-XX[_ses-YY]`: the digest is what separates two studies, the basename is only so the tree is recognisable on the node, and the login name is there because `/tmp` is shared between users too and the first creator owns the tree — without it the second user gets an unexplained `EACCES` rather than a wrong answer. Derived in `build_context` rather than by each caller, because the bug was two templates independently spelling `paths.work_dir ~ "/sub-"`; `test_no_template_builds_a_scratch_path_out_of_paths_work_dir` sweeps the whole directory so a third cannot. Read from `config[paths][bids_dir]` and never from the context, or a `use_nordic` fMRIPrep run — handed a *derivative* as its BIDS input — would give one unit two caches depending on a toggle. **Stable per (project, step, unit) and not per attempt**, which is the question the item asked to settle first: a re-run after a walltime kill resumes from the cache the killed attempt left, and that is the only reason the tree is worth keeping rather than always wiping. **Cleanup is not keyed on the exit code** — that would trust exactly the signal `#28` proved lies. A job removes its work dir when it exits 0 *and* wrote no `crash-*` under its derivative newer than a stamp it touched at start; `-newer` and not merely "exists", or the first crash a project ever recorded would switch cleanup off for good. A kill keeps the tree by construction: the shell never reaches the line. All four states execute for real in `tests/test_sbatch_templates.py` against a stubbed `singularity`, over both nipype stages, and each was checked to fail against the behaviour it replaced. `core/fmriprep.py`/`core/mriqc.py`'s `build_*_command` are untouched: they take `work_dir` from a caller, have no caller in `src/`, and are not on the submission path |
 | 2026-08-04 | `#28` | **Diagnosed, and the item's own premise was wrong: it *was* the `#21` fsaverage race, the other branch of it.** Job 45644650, submitted 2026-07-24T18:33:05 — not a 07-27 job; those are the successful re-run that wiped and recreated the tree, which is why no crash file survives. The submitted sbatch is **byte-identical** to that re-run's, so command construction is exonerated and `#16.1`'s request record was never needed to answer this. `code/logs/fmriprep_45644650.out:405-462` has `fsdir_run_…` raising `OSError: [Errno 39] Directory not empty: 'label'` in `niworkflows/interfaces/bids.py:1463 shutil.rmtree(dest)`: `sub-010` is the job whose own `rmtree` *lost* the footrace, where the other four inherited a half-copied tree and died in `recon-all` hours later. Everything downstream of `fsdir` was pruned, and the log still ends "fMRIPrep finished successfully!" with exit 0 — the mechanism is in `consistency._check_tool_crashes`'s docstring. The cause is already closed by `core/fsaverage.py`; what was open is that duckbrain **read nothing**, and now reads the crash record the tool writes (`84cb31f`) and requires the confounds TSV before grading fMRIPrep complete (`0eb9be4`). Output-space grading stays impossible by construction and stays with `#16.1`. Opened `#31` and `#32` from what the diagnosis walked past |
 | 2026-08-04 | `#27` | **The page that submits every job now has tests, and driving it found a subject it was dropping in silence.** 0% → 100%, floor 85 → 88. Route taken was AppTest at the boundary, **not** this item's suggested "assert the rendered submission command": that command is already asserted in `test_pipeline.py` and `test_sbatch_templates.py`, so re-deriving it through the GUI would have tested the pipeline three more times and the page not at all. 19 tests stub `advance_one` on `duckbrain.core.pipeline` — a single patch, because the page imports it *inside* the submit branch at call time — and assert which stage, which units, which parameters crossed. One test does run the real chain with only `submit_job` stubbed, via **MRIQC**, the one stage with neither an fsaverage preflight nor a licence lookup, so a fake `.sif` and a pinned `shutil.which` are the whole setup; without it nothing would prove the page reaches SLURM at all. **Then the extraction, second and deliberately**: the three tabs each held a near-verbatim copy of the same submit loop, ~90 of 321 lines, and `gui/preproc_panels.run_batch` is that loop once — safe only because the tests already pinned the behaviour, and the proof is that all 19 passed **unchanged** across it. Page 321 → 224 lines and 100% covered, module 100%, total up on fewer statements. Taking `bids_path` as an argument instead of closing over the page's global is what made `targets` reachable from `tests/test_preproc_panels.py` with a tmp_path and no Streamlit. **What driving it found**: a subject whose sessions miss the selection returned an empty target list and vanished from the batch — select two subjects and one session in a study where they don't share sessions, get one job and a results table that looks complete. Now named. The all-dropped case turned out to be **unreachable from the page** and the reason is worth keeping: the session multiselect offers only the union of the selected subjects' sessions, and Streamlit *clears* the selection when that union changes, so the earlier guard always catches it first — pinned by `test_changing_subjects_clears_a_session_that_no_longer_applies`, with the empty-batch branch itself tested against the module. Two page changes were prerequisites, not cleanups: `get_slurm_resources` moved out of the fMRIPrep tab (all three read it; it worked only because Streamlit executes every tab body), and the six fMRIPrep option widgets gained `key=`, without which AppTest reaches them only by position and a layout edit silently re-points the very assertion that reads every option back out of the call. Floor measured under the CI shim, not a dev-box run, per `memory/local-tests-are-not-ci-tests`. |
@@ -1436,7 +1510,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 | 2026-07-24 | — | **Gradient-echo fieldmaps convert** — 96 of the corpus's 404 canonical files, and *more* common there than the pepolar pair. Two consecutive series with the same description; `EchoNumber` joins `SeriesNumber` in the criteria because one magnitude series becomes two files, and `'P'` in `ImageType` is the only thing separating the halves. `EchoTime1`/`EchoTime2` deliberately not injected — dcm2niix writes them. Validated end to end against dcm2bids 3.2.0 on real data, and the result is *better* than the canonical, whose fieldmaps carry no `B0FieldIdentifier` at all so fMRIPrep skips SDC on them |
 | 2026-07-22 | #16 | **Sanity checks, Slice A — a declaration the data can't quietly agree with.** Ben's reframing is what the item turned on: *codifying intent is different from cataloguing what has been done*, and duckbrain was entirely the latter — every expectation in the codebase is re-derived from the data it judges, so a shortfall shrinks the expectation to match and reads COMPLETE. New `[expected]` project-config section (roster + per-session contents + `[expected.exceptions]`), `core/expectations.py`, `core/checks.py` with a cost-aware registry, rendered in the cockpit's existing panel. **Absent means off** — opt-out is the default and has its own test. Elicited from a good session then frozen (BIDScoin's study-bidsmap bootstrap); `elicit` deliberately never proposes the roster, the one thing disk can't know. Validated live on `divatten_beta`: with a task's BOLD and a fieldmap direction removed from a scratch mirror, `survey_project` still read **complete** for all five subjects while the checks caught both — the contrast is pinned by `test_surveyor_still_reads_complete_when_a_run_is_missing`. Live validation also found a real bug: zero has to be a *declaration*, or "this subject has no resting run" is unrecordable. Prior art surveyed and refused deliberately (Nipoppy's manifest borrowed as a shape, CuBIDS never a pip dep, mrQA out of scope) — `docs/sanity-checks.md`. `#16.1`–`#16.3` stay open |
 | 2026-07-22 | #14 | **Inverted fieldmap intent — data cleanup done, and the detector that makes it self-reporting.** The cleanup resolved by *deletion*: the three affected projects were removed, and the one live project (`divatten_beta`, converted after the fix) verified correct in both directions including SBRefs. No fMRIPrep derivative anywhere had been built from inverted data, so the expensive re-run half never arose. The durable half is `fmap-intent` in `core/consistency.py`, deliberately **wider than the original bug** — a *dangling* `B0FieldSource` that no fieldmap declares fails identically and silently, so it is caught too, and the check runs over the NORDIC `bids_input` tree as well as raw BIDS. Validated both ways against real data: silent on `divatten_beta`, and it fires on that same subject's sidecars re-inverted to the pre-fix shape |
-| 2026-07-22 | #18.1 | **Quality gates** — CI on Python 3.10/3.12 (import check + `compileall`, `ruff check`, `ruff format --check`, `pytest --cov`), ruff/coverage/pytest config in `pyproject.toml`, coverage floor 60% as a ratchet. The narrow first ruleset found two real bugs. Type checking and wider lint stay open under `#18` |
+| 2026-07-22 | #18.1 | **Quality gates** — CI on Python 3.10/3.12 (import check + `compileall`, `ruff check`, `ruff format --check`, `pytest --cov`), ruff/coverage/pytest config in `pyproject.toml`, coverage floor 60% as a ratchet. The narrow first ruleset found two real bugs. Type checking and the wider lint were left open under `#18`, and closed there 2026-08-04 |
 | 2026-07-22 | #18 | **External code review answered** (`docs/code-review-260722.md`, DB-001…DB-012) — every finding fixed with a regression test or given a written reason to stand. Two findings were already fixed by `#17.5`–`#17.10` and one half-fixed; **two of its claims were wrong** and were checked rather than actioned; and it missed a regression its own subject introduced (a collision check comparing `target.resolve()` to the source, meaningless for a copied directory). An audit is not uniformly right |
 | 2026-07-22 | #17 | **GUI/config drift audit — `#17.1`–`#17.10` all closed.** One bug class: the computation is correct and the interface describes it wrongly, or a control looks live and isn't. Invisible to the whole suite, since nothing asserted on what is *displayed*, and every one exited 0. Each fix is pinned by a test **checked to fail against the old code**. `#17.1` was reopened once by `#18`/DB-001 — a closed item can be half-closed |
 | 2026-07-22 | #17.2 | **SLURM partition fields reach jobs** — stages declare a *role* (`long = true`) instead of naming a partition. Exposed a second bug it had been hiding: the shipped default `medium` **is not a Talapas partition**, invisible for months *because* the field was inert. Every project set up before 2026-07-22 carries it; Setup now validates against `sinfo` |
