@@ -55,7 +55,7 @@ touch "$ATTEMPT_STAMP"
 # write its outputs.
 mkdir -p {{ output_dir | sh }}
 
-singularity run --cleanenv \
+singularity run {{ container_flags }} \
   -B {{ (bids_dir ~ ":" ~ bids_dir ~ ":ro") | sh }} \
   -B {{ (output_dir ~ ":" ~ output_dir) | sh }} \
   -B "$WORK_DIR:$WORK_DIR" \

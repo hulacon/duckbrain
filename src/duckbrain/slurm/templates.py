@@ -78,6 +78,7 @@ def build_context(config: dict, step: str, **extra) -> dict:
     additional keyword arguments (subject, session, etc.).
     """
     from ..config import get_slurm_resources, unit_work_dir
+    from ..core.containers import isolation_flags_sh
 
     slurm = get_slurm_resources(config, step)
     paths = config.get("paths", {})
@@ -85,6 +86,13 @@ def build_context(config: dict, step: str, **extra) -> dict:
     context = {
         "slurm": slurm,
         "paths": paths,
+        # The flags every `singularity` line must carry, rendered once here so no
+        # template spells them itself — the same rule `work_dir` below follows,
+        # and for the same reason: a flag that has to be on all four lines is one
+        # that will be missing from the fifth. Interpolate it WITHOUT `| sh`;
+        # it is several arguments and quoting collapses it into one.
+        # `core.containers.ISOLATION_FLAGS` says what they are and why.
+        "container_flags": isolation_flags_sh(),
         "containers": config.get("containers", {}),
         "fmriprep": config.get("fmriprep", {}),
         "nordic": config.get("nordic", {}),

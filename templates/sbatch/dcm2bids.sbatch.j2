@@ -47,7 +47,7 @@ echo "Node: $(hostname)"
    reports, it never blocks — the doctrine core/checks.py states, and what
    --bids_validate already did in practice, since dcm2bids ran the validator
    under a Popen wrapper that never inspected the return code. #}
-singularity run --cleanenv \
+singularity run {{ container_flags }} \
   -B {{ (dicom_dir ~ ":" ~ dicom_dir ~ ":ro") | sh }} \
   -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir) | sh }} \
   -B {{ (config_json_dir ~ ":" ~ config_json_dir ~ ":ro") | sh }} \
@@ -63,7 +63,7 @@ EXIT_CODE=$?
 {% if bids_validate %}
 echo
 echo "=== BIDS validation ==="
-singularity exec --cleanenv -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir) | sh }} {{ container_path | sh }} bids-validator --ignoreSymlinks {{ paths.bids_dir | sh }}
+singularity exec {{ container_flags }} -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir) | sh }} {{ container_path | sh }} bids-validator --ignoreSymlinks {{ paths.bids_dir | sh }}
 echo "bids-validator exit: $?"
 {% endif %}
 echo "Finished: $(date)"

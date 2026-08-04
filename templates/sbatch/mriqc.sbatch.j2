@@ -27,7 +27,7 @@ mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
 ATTEMPT_STAMP="$WORK_DIR/.duckbrain-attempt"
 touch "$ATTEMPT_STAMP"
 
-singularity run --cleanenv \
+singularity run {{ container_flags }} \
   -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir ~ ":ro") | sh }} \
   -B "$OUTPUT_DIR:$OUTPUT_DIR" \
   -B "$WORK_DIR:$WORK_DIR" \

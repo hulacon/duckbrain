@@ -43,6 +43,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .containers import isolation_flags
+
 #: Generous: the measured runs are seconds, but a dataset with a very large
 #: derivatives tree still has to be walked, and a timeout that fires is reported
 #: as "could not run" rather than as a clean dataset.
@@ -142,7 +144,7 @@ def validator_command(
     cmd = [
         "singularity",
         "exec",
-        "--cleanenv",
+        *isolation_flags(),
         "-B",
         f"{bids_dir}:{bids_dir}",
         str(container),

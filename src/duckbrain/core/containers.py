@@ -1,4 +1,9 @@
-"""Read build provenance out of a Singularity/Apptainer image.
+"""Running a container, and reading build provenance out of its image.
+
+Two things live here because both are about the container as an object rather
+than about any one tool: the flags **every** invocation must carry
+(:data:`ISOLATION_FLAGS`), and the labels an image records about how it was
+built.
 
 duckbrain identifies a container by its *filename* (``get_container_path`` builds
 ``<tool>-<pin>.simg`` from the ``[containers]`` pin). That is convention, not
@@ -29,6 +34,62 @@ import shutil
 import subprocess
 from functools import lru_cache
 from pathlib import Path
+
+# ---- Isolating a container from the host it runs on -------------------------
+#
+# **Spelled here and nowhere else.** Nine call sites run a container — five
+# Python command builders and four lines across three sbatch templates — and a
+# flag that has to be on all nine is a flag that will be missing from the tenth.
+# `tests/test_container_isolation.py` fails if any of them spells its own.
+#
+# `--cleanenv` alone is not isolation, which is the part that cost a real MRIQC
+# run. It clears environment *variables*; it does not unmount `$HOME`, and it
+# does not stop CPython adding the user's site-packages to `sys.path`. Apptainer
+# binds `$HOME` by default, so inside the container
+# `site.ENABLE_USER_SITE` is True and `~/.local/lib/pythonX.Y/site-packages` is
+# on the path **ahead of** the image's own. Anyone who has ever run
+# `pip install --user` on the cluster is therefore running the container's
+# pipeline against some of the host's libraries.
+#
+# Measured on Talapas 2026-08-04, and it is not a near miss: the MRIQC 24.0.2
+# image is Python 3.11.8 and the fMRIPrep 24.1.1 image is Python 3.11.9, so a
+# single `~/.local/lib/python3.11/site-packages` shadows both. A user with
+# NumPy 2.x there had it override the image's 1.26.4, and MRIQC died building its
+# workflow because transforms3d calls something NumPy 2.0 removed.
+#
+# `PYTHONNOUSERSITE=1` closes exactly that and nothing else. `--no-home` also
+# works and was rejected: it takes `$HOME` away wholesale, and nipype's config,
+# matplotlib's cache and the FreeSurfer licence all live there — trading this bug
+# for a different one. Passed via `--env` rather than an `APPTAINERENV_`/
+# `SINGULARITYENV_` prefix because apptainer now warns that the singularity
+# spelling is deprecated and the prefix form has to pick one.
+#
+# The failure this does *not* prevent is worth naming: a crash is the lucky
+# outcome. A host package close enough to import but not to behave would have
+# changed results silently, which is the shape of every bug this codebase keeps
+# finding.
+#
+# `--env` needs Singularity >= 3.6 / any Apptainer. An older runtime fails loudly
+# on the unknown flag, which is the intended direction — see the "silently
+# degrading option" rule in CLAUDE.md.
+ISOLATION_FLAGS: tuple[str, ...] = ("--cleanenv", "--env", "PYTHONNOUSERSITE=1")
+
+
+def isolation_flags() -> list[str]:
+    """:data:`ISOLATION_FLAGS` as a fresh list, for building an argv."""
+    return list(ISOLATION_FLAGS)
+
+
+def isolation_flags_sh() -> str:
+    """:data:`ISOLATION_FLAGS` as shell text, for an sbatch template.
+
+    Deliberately *not* run through the ``| sh`` quoting filter by its callers:
+    this is several arguments, and quoting would collapse it into one. Same
+    exception `extra_flags` carries, and for the same reason. It is safe because
+    every part is a literal defined above — nothing here comes from config.
+    """
+    return " ".join(ISOLATION_FLAGS)
+
 
 # The Apptainer label recording the source the image was bootstrapped from.
 _DEFFILE_FROM = "org.label-schema.usage.singularity.deffile.from"

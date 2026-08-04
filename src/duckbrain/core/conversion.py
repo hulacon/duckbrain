@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from pathlib import Path
 
+from .containers import isolation_flags
+
 
 def build_dcm2bids_command(
     subject: str,
@@ -56,7 +58,7 @@ def build_dcm2bids_command(
     cmd = [
         "singularity",
         "run",
-        "--cleanenv",
+        *isolation_flags(),
         "-B",
         f"{dicom_dir}:{dicom_dir}:ro",
         "-B",

@@ -53,6 +53,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
+from .containers import isolation_flags
+
 #: Where fMRIPrep keeps its shared SUBJECTS_DIR, relative to the derivatives
 #: root. fMRIPrep's default; duckbrain never passes ``--fs-subjects-dir``.
 SUBJECTS_SUBDIR = "fmriprep/sourcedata/freesurfer"
@@ -168,7 +170,7 @@ def read_installed(root: Path, spaces: list[str]) -> dict[str, set[str]]:
 
 
 def _run_in_container(container: str | Path, script: str, args: list[str], binds: list[str]):
-    cmd = ["singularity", "exec", "--cleanenv"]
+    cmd = ["singularity", "exec", *isolation_flags()]
     for b in binds:
         cmd.extend(["-B", b])
     cmd.extend([str(container), "python", "-c", script, *args])

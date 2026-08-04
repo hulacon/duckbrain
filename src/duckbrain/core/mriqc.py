@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from .containers import isolation_flags
+
 
 def build_mriqc_command(
     bids_dir: str | Path,
@@ -63,7 +65,7 @@ def build_mriqc_command(
         f"{work_dir}:{work_dir}",
     ]
 
-    cmd = ["singularity", "run", "--cleanenv"]
+    cmd = ["singularity", "run", *isolation_flags()]
     for b in binds:
         cmd.extend(["-B", b])
 
