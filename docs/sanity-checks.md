@@ -56,6 +56,23 @@ L3 checks are only expressible against L2, and acquisition-level omissions only
 against L1. Record intent first, check second — which is why Slice A is the
 foundation rather than the SDC report parse that motivated the item.
 
+**One L3 check needs no L2 record, and it is the cheapest one there is**
+(2026-08-04). The rule above holds wherever duckbrain has to compare what was
+*asked* with what appeared. It does not hold where the tool **testifies against
+itself**: a nipype crash dump is the tool's own statement that a node it intended
+to run did not, and it needs nothing from duckbrain to be legible. So
+`consistency._check_tool_crashes` is a directory glob on the render path rather
+than part of Slice C — it needs neither the request record nor Slice C's cache.
+It also sharpens the "nobody does L3" bullet below: it is not that the answer is
+unavailable, it is that fMRIPrep writes it to a file and the state of the art is
+that nobody reads it. A second L3 case turned out to be free for a different
+reason: **confounds**. One `_desc-confounds_timeseries.tsv` per BOLD run is
+fMRIPrep's default behaviour, so the raw BOLD list already says how many there
+should be, and `surveyor._fmriprep_func_keys` requires them without recording
+anything. What remains genuinely blocked on L2 is the **output spaces**, because
+`surveyor._entity_key` strips `space-`/`res-`/`den-` by design and nothing else
+states the ask.
+
 **duckbrain's unique position is L2→L3.** It is the only component in the stack
 that knows the request.
 
@@ -98,7 +115,11 @@ standard to conform to here, only shapes to copy.
   hand. **The bootstrap pattern is what was stolen** — see "elicit, then freeze".
 - **Nobody does L3.** fMRIPrep's own documentation instructs the *human* to
   "verify that susceptibility distortion correction was applied as intended" by
-  reading the HTML report. That instruction is the state of the art.
+  reading the HTML report. That instruction is the state of the art. It goes
+  further than it looks: fMRIPrep also writes a machine-readable record of every
+  node that failed, into its own output directory, and no tool in this space
+  reads that either — duckbrain did not until 2026-08-04, which is how a run that
+  produced almost nothing and exited 0 went a week without an explanation.
 
 ## Where the boundary sits
 

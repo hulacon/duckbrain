@@ -12,6 +12,41 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **An exit code of 0 is not a success signal for fMRIPrep or MRIQC, and
+  duckbrain now says so.** A run on 2026-07-24 raised inside its own
+  FreeSurfer-directory setup node, had everything downstream of it pruned,
+  produced native-space BOLD and nothing else in 46 minutes — no recon-all, no
+  confounds, no standard-space or surface output — then printed "fMRIPrep
+  finished successfully!" and exited 0. SLURM reported COMPLETED. It took a week
+  to explain.
+
+  The cause is structural, not a one-off: fMRIPrep runs a few nodes on its master
+  thread, and a crash there never reaches the workflow's own not-run report, so
+  the process really does succeed. Nothing your job script can check will catch
+  it. What fMRIPrep *does* do is write a crash file into its own output
+  directory, and duckbrain had never read one. It does now — the Project Status
+  warnings panel reports any `crash-*.txt` under `derivatives/fmriprep/logs` or
+  `derivatives/mriqc/logs`, names the file so you can open it, and says what the
+  exit code cannot.
+
+  Crash files from a superseded attempt stay quiet: a dump is reported only when
+  it is stamped at or after the most recent run duckbrain launched for that
+  stage. Where that is unknowable — no submission log, or a filename duckbrain
+  can't date — it reports rather than falls silent, and says which case it is.
+
+- **fMRIPrep is no longer graded complete without its confounds.** A subject
+  reads COMPLETE only when every BOLD run has both a preprocessed image *and* a
+  `_desc-confounds_timeseries.tsv`. That file is where every motion number in the
+  QC dashboard comes from, so a run that wrote preprocessed images and no
+  confounds used to read finished on the board while the QC tables showed no
+  motion at all and explained nothing. The `n/N` beside a partial cell counts the
+  same thing, so the number and the colour cannot disagree.
+
+  One caveat: if you pass `--level minimal` or `--level resampling` through the
+  advanced flags box, fMRIPrep legitimately writes no confounds and those units
+  will read partial. duckbrain does not record the flags a run was launched with,
+  and it will not guess.
+
 - **The conversion preflight now checks phase encoding against the scanner, and
   says when it couldn't.** The `dir-ap`/`dir-pa` label duckbrain writes has
   always come from the `_ap`/`_pa` token in the operator's series name — the raw

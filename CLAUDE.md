@@ -104,6 +104,17 @@ what's open, `docs/releasing.md` to cut the next one.
   toggle can't do what it says, raise — don't submit a job that quietly does
   something else. (Cost us a real fMRIPrep run: "reuse anat derivatives" with
   nothing to reuse rebuilt the anat and said nothing.)
+- **An exit code is not a success signal for a nipype tool.** fMRIPrep and MRIQC
+  run some nodes on the master thread, where a crash never reaches the workflow's
+  not-run report: the workflow prints "finished successfully", the process
+  returns 0, and everything downstream of that node is silently pruned. No
+  `set -e` or `$?` handling in an sbatch can see it, and neither can sacct — one
+  run wrote native BOLD and nothing else in 46 minutes and reported success. What
+  the tool *does* leave is `<derivative>/logs/crash-*.txt`. Read that, not the
+  exit code, before believing a run. `consistency._check_tool_crashes` does, and
+  `tests/test_consistency.py::test_a_crash_from_a_superseded_run_is_silent` pins
+  the part that is easy to get wrong — a crash file outlives the attempt that
+  wrote it, so a check that ignores staleness gets switched off within a week.
 - **A check only a browser can settle goes in `TODO.md` `#30`, not in the commit
   message.** Streamlit primitives whose output AppTest doesn't model (tabs,
   `st.iframe`, `st.data_editor`, popovers, column widths) and anything the
@@ -167,9 +178,12 @@ what's open, `docs/releasing.md` to cut the next one.
   here; this entry has been wrong about both the count and the derivatives.**
   `divatten_beta` (sub-015…019) is the one *known clean*: converted 2026-07-22,
   i.e. after the fieldmap-intent fix, and verified. `divatten_beta_v2` is the
-  larger working project and is what `#28` and the QC work were dogfooded on — 70
-  MRIQC reports, and an fMRIPrep tree whose `fsaverage` was damaged by the `#21`
-  race, so don't treat its derivatives as a clean fixture without checking.
+  larger working project and is what the QC work was dogfooded on — 70 MRIQC
+  reports, and an fMRIPrep tree that **is** now clean: the `#21`-damaged run was
+  deleted and re-run on 2026-07-27, and all five subjects were re-measured
+  2026-08-04 (13 preprocessed BOLD, 13 confounds, `recon-all.done`, MNI and
+  fsaverage6 output each). This entry claimed the opposite for a week after the
+  re-run — check before quoting either way.
   `memory/mmmduck-multisession-fixture` names a third (`/projects/hulacon/shared/mmmduck`,
   read-only), which is the only *longitudinal* fMRIPrep tree on Talapas.
 - **The fieldmap fixture — `/projects/hulacon/bhutch/fmap_eyeball`.** Two
