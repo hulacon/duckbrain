@@ -59,6 +59,24 @@ The checks, and which source each rests on:
 * **Staleness** (mtime) — a derivative older than an input it derives from
   (e.g. NORDIC re-run after fMRIPrep) → "stale, re-run".
 * **Presence** (matrix) — fMRIPrep present but NORDIC missing in a NORDIC project.
+* **Tool crash record** (the tool's own testimony) — fMRIPrep/MRIQC left a nipype
+  ``crash-*.txt`` inside the derivative, contradicting an exit code that said the
+  run succeeded. The one check here whose evidence is not two records duckbrain
+  holds; see below.
+
+**A third channel, and the one thing the source rule above missed.** That rule
+governs how a derivative *was made* — container, version, input variant — and for
+a tool-produced one the submission log really is duckbrain's only channel for it.
+But a nipype tool keeps a second record inside its own output: one
+``logs/crash-<stamp>-<user>-<node>-<uuid>.txt`` per node that failed. That record
+contradicts the *exit code*, not the provenance, and neither
+``dataset_description.json`` nor the log can reach it, because both describe the
+run that was *asked for* rather than the one that happened. On 2026-07-24 an
+fMRIPrep run raised inside its own ``fsdir`` node, had everything downstream of it
+pruned, wrote that file, then printed "fMRIPrep finished successfully!" and exited
+0. sacct said COMPLETED, the sacct overlay stayed silent by design, and nothing in
+duckbrain read the file the tool had just written. So the crash dump is now read
+directly.
 
 Everything degrades quietly: unreadable/absent provenance yields no issue rather
 than a false alarm.
@@ -69,6 +87,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .bids_metadata import duckbrain_version
@@ -1016,16 +1035,200 @@ def _check_fmap_intent(config: dict) -> list[ConsistencyIssue]:
     return issues
 
 
+# ---- the tool's own crash record --------------------------------------------
+
+#: Stages run by a nipype workflow, and the name to call the tool by. Nipype
+#: writes one crash dump per failed node, and both of these put it in the
+#: derivative's own ``logs/``. That shared behaviour is the whole generality of
+#: this check — nothing in it knows what either tool does.
+#:
+#: Verified for fMRIPrep against a real dump (the path it logged on 2026-07-24).
+#: MRIQC is inferred from the same ``<output>/logs`` convention its ``config-*.toml``
+#: and ``mriqc-*.log`` already follow; no MRIQC crash file exists on this
+#: filesystem to confirm it, which is what the second glob below hedges.
+_CRASHDUMP_STAGES = {"fmriprep": "fMRIPrep", "mriqc": "MRIQC"}
+
+#: Where to look, shallowly. The first is what fMRIPrep and MRIQC configure; the
+#: second is nipype's own default (the working directory), kept as a cheap second
+#: guess. Two directory reads, never a recursive walk — this runs on the cockpit's
+#: 30 s render path over derivative trees that reach 147 GB.
+_CRASH_GLOBS = ("logs/crash-*", "crash-*")
+
+#: ``crash-20260724-183435-bhutch-<node>-<uuid>.txt``. Nipype stamps the wall
+#: clock of the machine that crashed into the *filename*, which is why staleness
+#: is judged from the name and never from the mtime: an mtime is destroyed by any
+#: copy of the tree that does not preserve it, so one ``cp -r`` of a project would
+#: resurface every superseded crash at once. The name survives that, and reading
+#: it costs no ``stat()``.
+_CRASH_STAMP = re.compile(r"^crash-(\d{8}-\d{6})-")
+
+#: How far a crash may precede the submission it belongs to and still read as
+#: current. Two clocks are involved, not one — the login node writes
+#: ``submissions.tsv``, the compute node writes the crash file — so an exact
+#: comparison would claim a precision neither side offers. Biased deliberately
+#: toward reporting: a false alarm costs one line a reader settles by opening the
+#: named file, and the silence it replaces cost a week. On the run this check
+#: exists for the real gap was 90 seconds.
+_CRASH_CLOCK_GRACE = timedelta(minutes=2)
+
+
+def _crash_files(root: Path) -> list[Path]:
+    """Nipype crash dumps directly under *root*, newest-named first."""
+    found: set[Path] = set()
+    for pattern in _CRASH_GLOBS:
+        try:
+            found.update(p for p in root.glob(pattern) if p.is_file())
+        except (OSError, ValueError):
+            continue
+    return sorted(found, key=lambda p: p.name, reverse=True)
+
+
+def _crash_stamp(name: str) -> datetime | None:
+    """The wall clock nipype wrote into a crash filename, or None if unreadable."""
+    match = _CRASH_STAMP.match(name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d-%H%M%S")
+    except ValueError:
+        return None
+
+
+def _last_launched(config: dict, stage: str) -> datetime | None:
+    """When duckbrain last submitted *stage* for this project, or None.
+
+    Read from the raw submission log, **not** through ``_latest_per_subject``.
+    That view drops rows whose subject has no output on disk, and a run that
+    produced nothing on disk is exactly the population this serves — the
+    reconciliation that makes it right for provenance would make it blind here.
+
+    Unguarded on purpose: ``read_submissions`` never raises on a malformed log
+    (it falls back to a tolerant hand parse), and ``check_consistency`` already
+    keeps one check from sinking the panel. A second guard here would only add a
+    branch no test can reach.
+    """
+    subs = read_submissions(config)
+    if subs.empty or "stage" not in subs.columns:
+        return None
+    stamps = []
+    for value in subs[subs["stage"] == stage].get("timestamp", []):
+        try:
+            stamps.append(datetime.fromisoformat(str(value).strip()))
+        except ValueError:
+            continue
+    return max(stamps) if stamps else None
+
+
+def _is_current_crash(path: Path, cutoff: datetime | None) -> bool:
+    """Whether a crash dump belongs to the latest attempt, not a superseded one.
+
+    Unknowable means current. Two silences could each be read as "stale", and both
+    readings would be wrong. A project with no submission log is one duckbrain
+    never launched — an externally-run derivative, which this module folds in as a
+    first-class citizen everywhere else — so there is no superseding run for the
+    file to be left over from. And a crash filename nipype has since renamed is a
+    file whose age cannot be established, not a file that is old. Defaulting
+    either to "stale" would switch this check off silently, on exactly the
+    projects and tool versions nobody is watching.
+    """
+    if cutoff is None:
+        return True
+    stamped = _crash_stamp(path.name)
+    return stamped is None or stamped >= cutoff
+
+
+def _check_tool_crashes(config: dict) -> list[ConsistencyIssue]:
+    """A nipype tool recorded a crashed node while its job still exited 0.
+
+    **The durable lesson, and why this is an error rather than a note: an exit
+    code is not a success signal for a nipype tool.** fMRIPrep creates some nodes
+    with ``run_without_submitting=True``; under nipype's MultiProc plugin those
+    execute on the master thread, and when one raises the crash goes through
+    ``_clean_queue`` whose return value is discarded. The node never lands in
+    ``notrun``, ``report_nodes_not_run`` sees an empty list, the workflow prints
+    "fMRIPrep finished successfully!", and the process returns 0 — with everything
+    downstream of the node pruned. No ``set -e``, no ``$?`` check and no sacct
+    overlay can catch that, because the process genuinely succeeded. The only
+    artifact that disagrees is the crash file the tool wrote itself, and until
+    this check nothing in duckbrain read a tool log or a crash file at all.
+
+    Observed 2026-07-24 on ``divatten_beta_v2``: 46 minutes, native-space BOLD
+    only, no recon-all, no anat datasinks, no standard-space or surface
+    resampling, zero confounds.
+
+    **Staleness is the whole difficulty**, because a crash file outlives the
+    attempt that wrote it and a naive check cries wolf forever. A dump is reported
+    only when nipype's own filename stamp falls at or after the most recent
+    submission duckbrain logged for that stage; older dumps belong to superseded
+    attempts. No state store is added and none is needed — the submission log and
+    the tool's filename already carry both halves. The rule only has to cover an
+    *in-place* re-run, since a crash record lives inside the derivative it
+    describes and deleting the tree takes it along.
+
+    **No subject attribution, deliberately.** The filename embeds a nipype node
+    name, and the node that motivated this — ``fsdir_run_…`` — is project-level
+    with no subject anywhere in it. Recovering one would mean encoding fMRIPrep's
+    internal ``single_subject_%s_wf`` naming into duckbrain, which is an
+    implementation detail and not an interface; a wrong attribution renders as
+    ``(sub-XXX)`` in the cockpit and sends the reader to the wrong log; and the
+    remedy does not vary by subject — open the file. The node name is printed
+    unparsed instead, which is where the subject is when there is one.
+    """
+    derivatives = (config.get("paths") or {}).get("derivatives_dir") or ""
+    if not derivatives:
+        return []
+    root = Path(derivatives)
+    issues: list[ConsistencyIssue] = []
+    for stage, tool in _CRASHDUMP_STAGES.items():
+        launched = _last_launched(config, stage)
+        cutoff = launched - _CRASH_CLOCK_GRACE if launched is not None else None
+        current = [p for p in _crash_files(root / stage) if _is_current_crash(p, cutoff)]
+        if not current:
+            continue
+        provenance = (
+            f"Stamped at or after duckbrain's most recent {stage} submission "
+            f"({launched:%Y-%m-%d %H:%M}), so this is the run you are looking at, not a "
+            "superseded attempt."
+            if launched is not None
+            else f"duckbrain has no {stage} submission logged for this project, so there "
+            "is no superseded run this could be left over from."
+        )
+        issues.append(
+            ConsistencyIssue(
+                "tool-crash",
+                severity="error",
+                stage=stage,
+                message=(
+                    f"{tool} recorded {len(current)} crashed node(s) inside its own "
+                    f"derivative, under `{root.name}/{stage}/logs/`: "
+                    f"{_examples([p.name for p in current], limit=2)}. "
+                    f"**The job's exit code does not carry this.** A node {tool} runs on "
+                    "the master thread can raise, have everything downstream of it "
+                    "pruned, and still leave the workflow reporting success and exiting "
+                    "0 — so neither the exit status nor a COMPLETED in the job monitor is "
+                    f"evidence this run did what was asked. {provenance} Open the file: "
+                    "it names the node and holds the traceback. Then check what the "
+                    "derivative is actually missing before using it."
+                ),
+            )
+        )
+    return issues
+
+
 def check_consistency(config: dict) -> list[ConsistencyIssue]:
     """Run all provenance-consistency checks; return the flagged issues.
 
-    Empty list means nothing inconsistent was found. Ordering is stable
-    (config-vs-provenance, version drift, mixed provenance, staleness, presence,
-    fieldmap PE direction, fieldmap intent)
-    so the cockpit renders deterministically.
+    Empty list means nothing inconsistent was found. Ordering is stable (tool
+    crash record, config-vs-provenance, version drift, mixed provenance,
+    staleness, presence, fieldmap PE direction, fieldmap intent) so the cockpit
+    renders deterministically. The crash record goes first because the panel
+    renders in list order and does not sort errors to the top, and it is the one
+    finding that says every other line below it may be describing a run that did
+    not happen.
     """
     issues: list[ConsistencyIssue] = []
     for check in (
+        _check_tool_crashes,
         _check_config_vs_provenance,
         _check_container_drift,
         _check_toolbox_drift,

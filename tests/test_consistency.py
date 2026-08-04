@@ -11,6 +11,7 @@ from pathlib import Path
 
 from duckbrain.core.consistency import (
     ConsistencyIssue,
+    _check_tool_crashes,
     check_consistency,
     read_derivative_provenance,
 )
@@ -77,6 +78,43 @@ def _fmriprep_desc(root, *, raw_link=None, version="24.1.1"):
 
 def _codes(issues):
     return {i.check for i in issues}
+
+
+#: The crash file fMRIPrep actually wrote, quoted from the run this check exists
+#: for (``divatten_beta_v2/code/logs/fmriprep_45644650.out``, job 45644650). A
+#: real filename cannot go quietly stale against a nipype naming change — it
+#: fails.
+_REAL_CRASH = (
+    "crash-20260724-183435-bhutch-fsdir_run_20260724_183340_a02a9236_291e_4c02"
+    "_97ed_1c0f99b79f69-34611e80-f519-41e5-b8b0-d6cca3ff6564.txt"
+)
+#: The submission that produced it, and the re-run three days later that
+#: superseded it — both still in that project's ``submissions.tsv``.
+_CRASHED_RUN = "2026-07-24T18:33:05"
+_RERUN = "2026-07-27T13:24:58"
+
+
+def _crash(root, stage="fmriprep", name=_REAL_CRASH, where="logs"):
+    """Put a nipype crash dump inside *stage*'s derivative, as the tool would."""
+    d = root / "derivatives" / stage / where if where else root / "derivatives" / stage
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text("Traceback (most recent call last): ...")
+    return d / name
+
+
+def _submitted(root, stage="fmriprep", when=_CRASHED_RUN):
+    """One submissions.tsv row for *stage*, stamped *when*.
+
+    Written directly rather than through ``record_submission``, which stamps the
+    current time — the timestamp is the thing under test here.
+    """
+    log = root / "code" / "logs"
+    log.mkdir(parents=True, exist_ok=True)
+    path = log / "submissions.tsv"
+    header = "" if path.exists() else "timestamp\tsubject\tsession\tstage\tjob_id\n"
+    with path.open("a") as fh:
+        fh.write(header + f"{when}\t010\t\t{stage}\t45644650\n")
+    return path
 
 
 # ---- reader -----------------------------------------------------------------
@@ -712,6 +750,160 @@ def test_presence_fmriprep_without_nordic_in_nordic_project(tmp_path):
     issues = check_consistency(cfg)
     assert "presence" in _codes(issues)
     assert any(i.subject == "01" for i in issues if i.check == "presence")
+
+
+# ---- tool crash records -----------------------------------------------------
+#
+# The failure these pin: an fMRIPrep run whose FreeSurfer-directory node raised,
+# had everything downstream of it pruned, and still printed "finished
+# successfully" and exited 0 (job 45644650, 2026-07-24). The crash file is the
+# only artifact that disagrees with the exit code.
+
+
+def test_a_crash_file_is_reported_even_though_the_job_exited_zero(tmp_path):
+    _crash(tmp_path)
+    _submitted(tmp_path)
+    issues = [i for i in check_consistency(_config(tmp_path)) if i.check == "tool-crash"]
+    assert len(issues) == 1
+    assert issues[0].severity == "error"
+    assert issues[0].stage == "fmriprep"
+    assert _REAL_CRASH in issues[0].message
+
+
+def test_the_message_says_the_exit_code_does_not_carry_this(tmp_path):
+    """The durable lesson has to be in the text, not only the filename."""
+    _crash(tmp_path)
+    _submitted(tmp_path)
+    (issue,) = [i for i in check_consistency(_config(tmp_path)) if i.check == "tool-crash"]
+    assert "exit code does not carry this" in issue.message
+
+
+def test_a_crash_from_a_superseded_run_is_silent(tmp_path):
+    """The headline staleness case, on the real pair of timestamps.
+
+    The crash is stamped 2026-07-24; the project was re-run successfully on
+    2026-07-27. A check that kept reporting it would be switched off inside a
+    week.
+    """
+    _crash(tmp_path)
+    _submitted(tmp_path, when=_RERUN)
+    assert "tool-crash" not in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_a_crash_after_the_last_submission_is_reported(tmp_path):
+    """The real case: submitted 18:33:05, crashed 18:34:35, 90 seconds later."""
+    _crash(tmp_path)
+    _submitted(tmp_path, when=_CRASHED_RUN)
+    assert "tool-crash" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_a_crash_within_the_clock_grace_of_its_submission_is_reported(tmp_path):
+    """Two clocks, so the comparison is biased toward reporting, not silence.
+
+    The login node writes the submission row; the compute node writes the crash
+    file. A crash stamped a minute *before* its own submission is skew, not a
+    leftover.
+    """
+    _crash(tmp_path, name="crash-20260724-183205-bhutch-fsdir_run-abc.txt")
+    _submitted(tmp_path, when=_CRASHED_RUN)
+    assert "tool-crash" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_no_submission_log_at_all_still_reports(tmp_path):
+    """An externally-run derivative is not thereby exempt.
+
+    Nothing duckbrain launched means nothing that could have superseded the
+    crash, so the only honest reading is that it is current.
+    """
+    _crash(tmp_path)
+    (issue,) = [i for i in check_consistency(_config(tmp_path)) if i.check == "tool-crash"]
+    assert "no fmriprep submission logged" in issue.message
+
+
+def test_a_stage_with_no_submissions_of_its_own_is_not_shielded_by_another(tmp_path):
+    _crash(tmp_path, stage="fmriprep")
+    _submitted(tmp_path, stage="mriqc", when=_RERUN)
+    assert "tool-crash" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_an_unparsable_crash_filename_is_reported_not_assumed_stale(tmp_path):
+    """A file whose age we cannot establish is not a file that is old."""
+    _crash(tmp_path, name="crash-not-a-date-xyz.txt")
+    _submitted(tmp_path, when=_RERUN)
+    assert "tool-crash" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_a_crash_stamp_that_is_not_a_real_date_is_reported(tmp_path):
+    """Digits in the right shape are not a date: month 13 parses as unknown."""
+    _crash(tmp_path, name="crash-20261345-996699-bhutch-node-uuid.txt")
+    _submitted(tmp_path, when=_RERUN)
+    assert "tool-crash" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_an_unparsable_submission_timestamp_is_no_cutoff(tmp_path):
+    _crash(tmp_path)
+    _submitted(tmp_path, when="the day before yesterday")
+    assert "tool-crash" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_mriqc_crash_files_are_read_the_same_way(tmp_path):
+    _crash(tmp_path, stage="mriqc")
+    _submitted(tmp_path, stage="mriqc")
+    (issue,) = [i for i in check_consistency(_config(tmp_path)) if i.check == "tool-crash"]
+    assert issue.stage == "mriqc"
+    assert "MRIQC" in issue.message
+
+
+def test_a_crash_at_the_derivative_root_is_found(tmp_path):
+    """nipype's own default location, kept as a second guess."""
+    _crash(tmp_path, where="")
+    _submitted(tmp_path)
+    assert "tool-crash" in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_several_crashes_report_as_one_issue(tmp_path):
+    for stamp in ("183435", "184501", "190212"):
+        _crash(tmp_path, name=f"crash-20260724-{stamp}-bhutch-node-uuid.txt")
+    _submitted(tmp_path)
+    (issue,) = [i for i in check_consistency(_config(tmp_path)) if i.check == "tool-crash"]
+    assert "3 crashed node(s)" in issue.message
+    assert "+1 more" in issue.message
+
+
+def test_a_crash_is_not_attributed_to_a_subject(tmp_path):
+    """Pins the refusal, so nobody "improves" it into a wrong attribution.
+
+    The node that caused this — ``fsdir_run_…`` — is project-level and carries no
+    subject at all.
+    """
+    _crash(tmp_path)
+    _submitted(tmp_path)
+    (issue,) = [i for i in check_consistency(_config(tmp_path)) if i.check == "tool-crash"]
+    assert issue.subject == ""
+
+
+def test_an_unreadable_crash_directory_reports_nothing_rather_than_raising(tmp_path, monkeypatch):
+    """Called directly: the panel's own try/except would hide a raise in here."""
+    _crash(tmp_path)
+    _submitted(tmp_path)
+
+    def boom(self, pattern):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "glob", boom)
+    assert _check_tool_crashes(_config(tmp_path)) == []
+
+
+def test_a_derivative_with_no_crash_files_reports_nothing(tmp_path):
+    (tmp_path / "derivatives" / "fmriprep" / "logs").mkdir(parents=True)
+    _submitted(tmp_path)
+    assert "tool-crash" not in _codes(check_consistency(_config(tmp_path)))
+
+
+def test_no_derivatives_path_configured_reports_nothing(tmp_path):
+    cfg = _config(tmp_path)
+    cfg["paths"]["derivatives_dir"] = ""
+    assert "tool-crash" not in _codes(check_consistency(cfg))
 
 
 # ---- clean project ----------------------------------------------------------
