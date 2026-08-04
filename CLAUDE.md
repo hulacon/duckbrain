@@ -104,6 +104,13 @@ what's open, `docs/releasing.md` to cut the next one.
   toggle can't do what it says, raise — don't submit a job that quietly does
   something else. (Cost us a real fMRIPrep run: "reuse anat derivatives" with
   nothing to reuse rebuilt the anat and said nothing.)
+- **A check only a browser can settle goes in `TODO.md` `#30`, not in the commit
+  message.** Streamlit primitives whose output AppTest doesn't model (tabs,
+  `st.iframe`, `st.data_editor`, popovers, column widths) and anything the
+  OnDemand proxy rewrites are the recurring cases. Left in a commit message the
+  check is never done — three such notes sat undischarged in three different
+  documents until `#30` collected them. The queue is batched deliberately: the
+  tunnel costs more than the looking does.
 - **Open work goes in `TODO.md` and nowhere else.** No `# TODO:` markers in
   source — that's a second backlog nothing sorts, prioritizes, or reads. This
   repo has zero and should keep it that way.

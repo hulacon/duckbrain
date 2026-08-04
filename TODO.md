@@ -25,6 +25,7 @@ oracle it lacked) ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
 stages · [`#8`](#8) branding + dark theme ·
+[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
 [Provenance residuals](#provenance--consistency-residuals) ·
 [Loose ideas](#loose-ideas-not-scheduled)
 
@@ -1197,6 +1198,83 @@ will not remind you of:
 - `5_QC_Dashboard.py` hardcodes `#ffcccc`, which reads poorly on a dark
   background. Flagged in `docs/conversion-legibility.md` phase 3 as the thing not
   to repeat, and never fixed.
+
+---
+
+<a id="30"></a>
+## #30 — The GUI eyeball queue
+
+**A running list of things only a human in a real browser can settle, batched on
+purpose.** Each one costs a tunnel or an OnDemand session and about a minute of
+looking; done piecemeal that setup is paid over and over, and in practice it gets
+skipped instead, which is how the entries below accumulated unnoticed in three
+different documents. Do them in one sitting.
+
+**When you land a change AppTest cannot judge, add a line here rather than
+leaving the check in a commit message.** That is the only rule this item has.
+Two things qualify almost every time: anything rendered by a Streamlit primitive
+whose *output* the test framework does not model (tabs, `st.iframe`,
+`st.data_editor`, popovers, column widths), and anything whose URL is rewritten
+by the OnDemand proxy. Delete a line when it is checked — the verdict belongs in
+`git log` or the relevant `docs/` page, not here. The entries are numbered for
+reading, not for citing: they renumber as they are struck off, so point at `#30`
+and never at an entry number.
+
+**Two sessions, not one, and they are different setups.** Entries marked
+**[OOD]** must run through Open OnDemand, because the thing under test is the
+`/node/<host>/<port>/` prefix; the rest are fine over `bash scripts/launch.sh`
+plus the `ssh -L` line it prints.
+
+### Open
+
+1. **[OOD] Do the *exported* dashboard's report links navigate?** The oldest
+   entry and the highest value. mmmdata's shipped dashboard carried 837 absolute
+   `href="file:///gpfs/…"` links; a browser blocks `file://` navigation from an
+   HTTP page, so under the proxy every "View report" did nothing at all — no
+   error, no console message, just a dead click. Slice 2 emitted relative paths
+   to fix the exported copy, and that fix has never been confirmed under the
+   proxy. Open the exported dashboard from `divatten_beta_v2`'s `derivatives/`
+   and click through to an MRIQC report.
+2. **[OOD] Should the app serve tool reports itself?** A design question, not a
+   check, and the one that needs a live session to settle rather than an
+   argument. The embed is a `srcdoc` frame with **no origin**, so a relative link
+   inside it has nothing to resolve against and cannot route to an MRIQC report
+   by construction — the export above is the only way to reach them today.
+   `docs/qc-dashboard-migration.md` calls item 2 "only half-closed" for exactly
+   this. Its analysis predates `#23`'s `st.iframe` swap but survives it: that
+   ledger row measured the two elements' sandboxes as identical.
+3. **The embedded report after the `st.iframe` swap (`#23`).** Closed 2026-08-03
+   on an assertion about the frame's `srcdoc` — the right test for *what was
+   passed*, and silent about what renders. Look for what a srcdoc assertion
+   cannot reach: does the report scroll inside its frame rather than clipping,
+   is the height sane, and do its own internal anchors work.
+4. **The Preprocessing page's three tabs.** Added 2026-08-04 with the page's
+   first tests. All three tab bodies execute on every run, so AppTest sees their
+   contents whether or not Streamlit would draw them — the tab strip itself is
+   unexercised. Confirm the three tabs render and switch, and that **Export
+   Scripts** puts an `.sbatch` in `code/logs`.
+5. **The BIDS validation panel (`#15`).** The validator was proved end to end
+   through a real conversion job — the *log* was read, not the panel. It is an
+   on-demand button whose results table nothing has ever looked at. A clean
+   project (`divatten_beta`) and a dirty one is the useful pair.
+6. **Narrow widths — a laptop, not a desktop monitor.** `#13`'s pass explicitly
+   judged density on a large display and recorded that narrow widths were
+   untested, which matters because OnDemand users are usually on laptops. The
+   Conversion Plan table and the cockpit grid are the two that will break first.
+   Worth doing at 1280px wide before anything else on this list.
+
+**Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
+traps already named there. But `#8` and this item want the same session, and that
+is the obvious economy: the theming pass has to look at every surface anyway.
+
+**Already discharged; do not re-add.** The cockpit's browser eyeball closed
+2026-07-17 (`de1a155` — dashboard width good, folder picker fine); three rows of
+`docs/pipeline-cockpit.md` claimed otherwise until this item was written, and now
+say so. `#13`'s Conversion Plan pass closed 2026-07-30 on `fmap_eyeball`
+(`f1bde41`) — the colour join holds on three pairs. The QC evidence viewer's
+figures were confirmed reaching a browser as self-contained data URIs, which is
+why they are **not** entry 1: a data URI has no URL for the proxy to get wrong,
+and that is by construction rather than by luck.
 
 ---
 
