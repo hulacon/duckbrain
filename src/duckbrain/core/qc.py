@@ -150,7 +150,7 @@ BOLD_IQMS = ["fd_mean", "fd_perc", "tsnr", "dvars_std", "efc", "fber"]
 ANAT_IQMS = ["cnr", "cjv", "efc", "fber", "snr_total", "qi_1", "wm2max"]
 
 
-def cohort_position(values: "pd.Series | list", value: float | None) -> float | None:
+def cohort_position(values: pd.Series | list, value: float | None) -> float | None:
     """Where *value* sits among *values*, as a fraction from 0 (lowest) to 1.
 
     The guidance layer's central claim is that IQMs carry site, scanner and

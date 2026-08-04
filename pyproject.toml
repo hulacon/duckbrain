@@ -143,8 +143,8 @@ src = [".", "src", "tests"]
 # the repo had ever had; a wider ruleset would have meant a large mechanical diff
 # competing for attention with the two real bugs the narrow one found (a missing
 # `Path` import in an annotation, and a dead series lookup in
-# `_fmap_description`). It is being widened a ruleset at a time, each with its
-# own commit — pyupgrade still to come.
+# `_fmap_description`). It was then widened a ruleset at a time, each with its
+# own commit, and that sequence is now finished.
 #
 # `B` (flake8-bugbear) is the first widening, and the reason to start here is
 # `B905`: `zip()` silently truncates to the shorter argument, so two sequences
@@ -165,7 +165,16 @@ src = [".", "src", "tests"]
 # has to think about or review again, which is worth one 47-site diff once. See
 # `src` above for the setting that makes its answer correct, and
 # `[tool.ruff.lint.isort]` below.
-select = ["B", "E", "F", "I", "W"]
+#
+# `UP` (pyupgrade) is the third, and the smallest — 7 findings, all autofixed.
+# Five were quoted annotations, which deserved a moment given that the *narrow*
+# first ruleset caught a real bug that was a missing `Path` import in an
+# annotation. Unquoting cannot reintroduce that: every one of those sites is in
+# a module carrying `from __future__ import annotations`, there is no
+# `TYPE_CHECKING` block or `get_type_hints` call anywhere in the repo, so no
+# annotation is ever evaluated — and a name that isn't imported is now a
+# *pyflakes* error instead of a string nobody reads.
+select = ["B", "E", "F", "I", "UP", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # Streamlit pages must call st.set_page_config() before anything else touches

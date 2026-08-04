@@ -294,8 +294,8 @@ _DIR_ENTITY_RE = re.compile(r"(?:^|_)dir-([A-Za-z0-9]+)")
 
 
 def _fmap_halves(
-    plan: ConversionPlan, probes: dict[int, "SeriesProbe"] | None
-) -> dict[str | None, dict[int, "SeriesProbe"]]:
+    plan: ConversionPlan, probes: dict[int, SeriesProbe] | None
+) -> dict[str | None, dict[int, SeriesProbe]]:
     """Probed *pepolar* fieldmap halves per group, keyed by series number.
 
     Only files that are both planned as a fieldmap *and* were probed appear, so
@@ -343,7 +343,7 @@ class PlanWarning:
 def plan_warnings(
     plan: ConversionPlan,
     fieldmaps: FieldmapDetection | None = None,
-    probes: dict[int, "SeriesProbe"] | None = None,
+    probes: dict[int, SeriesProbe] | None = None,
 ) -> list[PlanWarning]:
     """Preflight a plan: what will go wrong, or is worth confirming, before submitting.
 

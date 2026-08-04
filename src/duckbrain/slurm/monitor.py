@@ -252,7 +252,7 @@ def find_job_logs(job_id: str, log_dir: str) -> list[Path]:
     if not log_dir.is_dir():
         return []
 
-    found: dict[str, "Path"] = {}
+    found: dict[str, Path] = {}
     for ext in ("out", "err", "log"):
         for pattern in (
             f"*_{job_id}.{ext}",  # plain per-job
