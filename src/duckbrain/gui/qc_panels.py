@@ -32,6 +32,7 @@ import streamlit as st
 
 from duckbrain.core import qc, qc_domains, qc_evidence, qc_guidance, qc_report
 from duckbrain.core.qc_domains import ReviewDomain
+from duckbrain.gui.components import flush_toasts, queue_toast
 
 
 def _size_note(nbytes: int, n_files: int) -> str:
@@ -420,6 +421,9 @@ def render_domain_page(domain_key: str) -> None:
     that everything here is exercised by ``AppTest.from_function`` instead of
     living five times over in scripts no test imports.
     """
+    # A sign-off recorded on the previous run confirms itself here; see
+    # `components.queue_toast` for why it cannot confirm itself at the call site.
+    flush_toasts()
     domain = qc_domains.get_domain(domain_key)
     st.title(domain.label)
 
@@ -506,7 +510,7 @@ def domain_signoff(scope: Scope, domain: ReviewDomain) -> None:
             reviewer=reviewer,
             domain=domain.key,
         )
-        st.toast(f"{run_key} · {domain.label}: {state}", icon="✅")
+        queue_toast(f"{run_key} · {domain.label}: {state}")
 
     left, right = st.columns(2)
     with left:
@@ -695,7 +699,7 @@ def verdict_panel(scope: Scope, reviewer: str) -> None:
             reason=st.session_state.get(f"reason_{run_key}", ""),
             reviewer=reviewer,
         )
-        st.toast(f"{run_key}: {verdict}", icon="✅")
+        queue_toast(f"{run_key}: {verdict}")
 
     col1, col2, col3 = st.columns(3)
     for col, verdict, label in (
@@ -756,6 +760,7 @@ def render_overview() -> None:
     """The whole body of the QC overview page."""
     import getpass
 
+    flush_toasts()  # as in render_domain_page
     st.title("QC Overview")
 
     config = load_config_or_stop()

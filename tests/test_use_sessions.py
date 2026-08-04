@@ -15,6 +15,7 @@ import os
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from conftest import page_path
 from duckbrain.config import save_project_config, scaffold_project
 from duckbrain.core.ingestion import (
     SessionInfo,
@@ -22,7 +23,7 @@ from duckbrain.core.ingestion import (
     normalize_use_sessions,
 )
 
-SETUP_PAGE = "src/duckbrain/gui/pages/1_Project_Setup.py"
+SETUP_PAGE = page_path("src/duckbrain/gui/pages/1_Project_Setup.py")
 
 
 def _sessions():

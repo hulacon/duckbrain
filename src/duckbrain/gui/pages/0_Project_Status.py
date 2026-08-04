@@ -62,6 +62,11 @@ from duckbrain.core.pipeline import (
     survey_live,
 )
 from duckbrain.core.surveyor import STAGES, Status, summarize
+from duckbrain.gui.components import flush_toasts, queue_toast
+
+# A launch or cancel on the previous run confirms itself here; see
+# `components.queue_toast` for why it cannot confirm itself at the call site.
+flush_toasts()
 
 # ---- Refresh controls ----
 c_refresh, c_auto = st.columns([1, 3])
@@ -176,10 +181,10 @@ def _stage_params(stage, config, key_prefix, subject="", session=""):
 
 
 def _launch(stage, sub, ses, config, params, *, verb="Submitted"):
-    """Submit one stage for one unit, toast the result, and rerun the fragment."""
+    """Submit one stage for one unit, queue a confirmation, and rerun the fragment."""
     try:
         job_id = advance_one(config, stage, sub, ses, **params)
-        st.toast(f"{verb} {stage} for {_unit_label(sub, ses)} — job {job_id}", icon="✅")
+        queue_toast(f"{verb} {stage} for {_unit_label(sub, ses)} — job {job_id}")
         st.rerun()
     except Exception as e:
         st.error(f"Could not launch: {e}")
@@ -278,7 +283,7 @@ def _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable,
 
             try:
                 cancel_job(job_id)
-                st.toast(f"Cancelled job {job_id} — {stage} {_unit_label(sub, ses)}", icon="🛑")
+                queue_toast(f"Cancelled job {job_id} — {stage} {_unit_label(sub, ses)}", icon="🛑")
                 st.rerun()
             except Exception as e:
                 st.error(f"Could not cancel: {e}")
@@ -304,7 +309,7 @@ def _bulk_popover(stage, units, config):
                 ok += 1
             except Exception as e:
                 errs.append(f"{_unit_label(str(r['subject']), str(r['session']))}: {e}")
-        st.toast(f"Submitted {ok}/{n} {stage} job(s)", icon="✅")
+        queue_toast(f"Submitted {ok}/{n} {stage} job(s)")
         for m in errs:
             st.error(m)
         if ok:

@@ -1387,7 +1387,18 @@ plus the `ssh -L` line it prints.
    through a real conversion job — the *log* was read, not the panel. It is an
    on-demand button whose results table nothing has ever looked at. A clean
    project (`divatten_beta`) and a dirty one is the useful pair.
-6. **Narrow widths — a laptop, not a desktop monitor.** `#13`'s pass explicitly
+6. **Do save/launch confirmations actually appear?** Added 2026-08-04 with the
+   streamlit 1.61 fix. Every "Saved"/"Submitted"/"Cancelled" toast in the GUI is
+   now queued into session state and raised on the *next* run rather than beside
+   the action, because 1.61 discards a toast queued before the `st.rerun()` that
+   follows one. AppTest confirms the message is produced; **what it cannot say is
+   whether a real browser was ever dropping them, or for how long.** If the
+   browser on 1.59 was already silently swallowing these, then this fixed a
+   user-facing bug nobody had reported rather than only a test. Press Save on
+   Project Setup and launch a cell on the cockpit, and see whether a toast
+   appears — and note that the queued one now arrives on the *redrawn* page,
+   which is a slightly different moment than before.
+7. **Narrow widths — a laptop, not a desktop monitor.** `#13`'s pass explicitly
    judged density on a large display and recorded that narrow widths were
    untested, which matters because OnDemand users are usually on laptops. The
    Conversion Plan table and the cockpit grid are the two that will break first.

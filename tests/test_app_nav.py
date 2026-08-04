@@ -13,10 +13,11 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from conftest import page_path
 from duckbrain.config import remember_project, scaffold_project
 from duckbrain.gui.app import _PAGES, _PAGES_DIR, _QC_PAGES, _shorten
 
-APP = "src/duckbrain/gui/app.py"
+APP = page_path("src/duckbrain/gui/app.py")
 
 
 @pytest.fixture

@@ -11,9 +11,10 @@ import os
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from conftest import page_path
 from duckbrain.config import save_project_config, scaffold_project
 
-PAGE = "src/duckbrain/gui/pages/2_Data_Ingestion.py"
+PAGE = page_path("src/duckbrain/gui/pages/2_Data_Ingestion.py")
 
 
 @pytest.fixture

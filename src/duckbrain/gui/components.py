@@ -9,6 +9,44 @@ import streamlit as st
 _DP_MAX_BUTTONS = 300
 _DP_LIST_HEIGHT = 280
 
+# ---- Confirmations that outlive an st.rerun() -------------------------------
+#
+# Every "Saved", "Submitted" and "Cancelled" message in this GUI is written by a
+# handler that immediately calls ``st.rerun()``, because the rerun is what makes
+# the board or the form show the new state. Neither obvious element type survives
+# that: ``st.success`` never could (the rerun restarts the script and discards
+# everything written before it), and ``st.toast`` stopped — **streamlit 1.61
+# discards a toast queued before a rerun, where 1.59 delivered it**. Nothing else
+# on these pages changes visibly for a save, so a dropped confirmation makes the
+# button look inert; for a *job launcher* it means a submitted job reports
+# nothing at all.
+#
+# Parking the message in session state and raising it on the next run depends on
+# no cross-rerun delivery guarantee, so it is correct on both sides of that
+# change and on whatever comes next. Pinned by
+# ``tests/test_gui_components.py::test_a_queued_toast_survives_a_rerun``.
+_TOAST_QUEUE = "_duckbrain_pending_toasts"
+
+
+def queue_toast(message: str, icon: str = "✅") -> None:
+    """Show *message* as a toast on the next script run.
+
+    For any caller that is about to ``st.rerun()``. Queued rather than raised, so
+    the rerun cannot swallow it — see the note above.
+    """
+    st.session_state.setdefault(_TOAST_QUEUE, []).append((message, icon))
+
+
+def flush_toasts() -> None:
+    """Raise anything :func:`queue_toast` left for this run, and clear the queue.
+
+    Call once near the top of a page. Safe to call when nothing is queued, and
+    safe to call more than once — the queue is popped, so only the first call in a
+    run raises.
+    """
+    for message, icon in st.session_state.pop(_TOAST_QUEUE, []):
+        st.toast(message, icon=icon)
+
 
 def _nearest_dir(path: str) -> Path:
     """Deepest existing directory at or above *path* (home as last resort)."""

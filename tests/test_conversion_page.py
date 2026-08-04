@@ -12,12 +12,13 @@ import os
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from conftest import page_path
 from duckbrain.config import save_project_config, scaffold_project
 from duckbrain.core import dcm2niix_probe
 from duckbrain.core.dcm2niix_probe import SeriesProbe
 from duckbrain.gui.conversion_panels import _probe_cached
 
-PAGE = "src/duckbrain/gui/pages/3_BIDS_Conversion.py"
+PAGE = page_path("src/duckbrain/gui/pages/3_BIDS_Conversion.py")
 
 # One anat, a complete AP/PA pair, and a bold the classifier reads as func on its
 # own — the minimum that exercises naming, the fieldmap relation, and a drop.

@@ -30,11 +30,13 @@ from duckbrain.gui import qc_panels
 TSNR = get_guidance("tsnr").label
 FD_MEAN = get_guidance("fd_mean").label
 
-OVERVIEW = "src/duckbrain/gui/pages/5_QC_Overview.py"
-SIGNAL = "src/duckbrain/gui/pages/5a_QC_Signal.py"
-TEMPORAL = "src/duckbrain/gui/pages/5b_QC_Temporal.py"
-ALIGNMENT = "src/duckbrain/gui/pages/5c_QC_Alignment.py"
-ARTIFACTS = "src/duckbrain/gui/pages/5d_QC_Artifacts.py"
+from conftest import page_path
+
+OVERVIEW = page_path("src/duckbrain/gui/pages/5_QC_Overview.py")
+SIGNAL = page_path("src/duckbrain/gui/pages/5a_QC_Signal.py")
+TEMPORAL = page_path("src/duckbrain/gui/pages/5b_QC_Temporal.py")
+ALIGNMENT = page_path("src/duckbrain/gui/pages/5c_QC_Alignment.py")
+ARTIFACTS = page_path("src/duckbrain/gui/pages/5d_QC_Artifacts.py")
 ALL_PAGES = [OVERVIEW, SIGNAL, TEMPORAL, ALIGNMENT, ARTIFACTS]
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mriqc"

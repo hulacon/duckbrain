@@ -197,3 +197,49 @@ def test_media_urls_carry_the_ondemand_base_path(monkeypatch):
 
     monkeypatch.setattr(st, "get_option", lambda name: None)
     assert components._media_url_prefix() == ""
+
+
+# ---- Confirmations that have to outlive an st.rerun() -----------------------
+
+
+def _toast_app():
+    """A button that confirms itself and reruns — the shape every save/launch has."""
+    import streamlit as st
+
+    from duckbrain.gui.components import flush_toasts, queue_toast
+
+    flush_toasts()
+    if st.button("save"):
+        queue_toast("Saved it")
+        st.rerun()
+
+
+def test_a_queued_toast_survives_a_rerun():
+    """The regression that shipped the day streamlit 1.61 was published.
+
+    Every "Saved"/"Submitted"/"Cancelled" message in this GUI is written by a
+    handler that then calls ``st.rerun()``. Raising it directly worked on
+    streamlit 1.59 and silently stopped on 1.61, which discards a toast queued
+    before a rerun — so a save, a job launch and a cancel all reported *nothing*
+    while still doing the work. Asserting it here rather than only through the
+    Setup page keeps the guarantee attached to the helper that provides it.
+    """
+    at = AppTest.from_function(_toast_app)
+    at.run()
+    assert not at.exception
+    assert not at.toast, "nothing was queued yet"
+
+    at.button[0].click().run()
+    assert not at.exception
+    assert [t.value for t in at.toast] == ["Saved it"]
+
+
+def test_a_flushed_toast_is_not_shown_twice():
+    """It is a confirmation of one action, so it must not survive into the run after."""
+    at = AppTest.from_function(_toast_app)
+    at.run()
+    at.button[0].click().run()
+    assert [t.value for t in at.toast] == ["Saved it"]
+
+    at.run()
+    assert not at.toast
