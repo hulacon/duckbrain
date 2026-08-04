@@ -506,9 +506,9 @@ def plan_warnings(
         match = _DIR_ENTITY_RE.search(f.entities)
         if probe is None or f.datatype not in _PE_CONSEQUENCE or not match:
             continue
-        expected = PE_FOR_DIR.get(match.group(1).upper())
+        expected_pe = PE_FOR_DIR.get(match.group(1).upper())
         actual = probe.phase_encoding_direction
-        if expected is None or not actual or actual == expected:
+        if expected_pe is None or not actual or actual == expected_pe:
             continue
         out.append(
             PlanWarning(
@@ -517,7 +517,7 @@ def plan_warnings(
                 message=(
                     f"Series {f.series_number} `{f.description}` is planned as "
                     f"`{f.filename}`, but dcm2niix reads its phase encoding as "
-                    f"`{actual}` where `dir-{match.group(1)}` implies `{expected}`. "
+                    f"`{actual}` where `dir-{match.group(1)}` implies `{expected_pe}`. "
                     "Either the series is named for the wrong direction, or it "
                     "isn't an axial acquisition — the label convention assumes "
                     f"one. {_PE_CONSEQUENCE[f.datatype]}"

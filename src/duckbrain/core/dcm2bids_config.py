@@ -276,13 +276,16 @@ def build_task_run_mapping(
     for s in sbref:
         base = _SBREF_SUFFIX.sub("", s.description)
         pair = by_base.get(base.lower())
+        # Its own name, not the BOLD loop's `run`: a BOLD always ends up with a
+        # run index (counted if the name carries no token), whereas an SBRef with
+        # no paired BOLD and no token keeps `None` and emits no `run-` entity.
         if pair is not None:
-            task, run = pair
+            task, sbref_run = pair
         else:
-            parsed_task, run = parse_task_run(base, template)
+            parsed_task, sbref_run = parse_task_run(base, template)
             rule = lookup.get(base.strip().lower())
             task = rule.task if rule is not None else parsed_task
-        entries.append(TaskRunEntry(s.series_number, s.description, "sbref", task, run))
+        entries.append(TaskRunEntry(s.series_number, s.description, "sbref", task, sbref_run))
 
     return entries
 

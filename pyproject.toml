@@ -40,6 +40,13 @@ dev = [
     # commits that touched none of them. Raise the bound deliberately, in its own
     # commit, so a restyle is reviewed rather than discovered.
     "ruff>=0.16,<0.17",
+    # Bounded for the same reason as ruff, plus one of its own: mypy ships new
+    # checks *and* a new bundled typeshed in every minor, so an unpinned gate
+    # re-resolves in CI and the same commit goes red with nothing in the repo
+    # having changed — third-party stubs it never saw before are enough to do it.
+    # Raise the bound in its own commit so new diagnostics are reviewed rather
+    # than discovered. Patch is deliberately unpinned; those are bug fixes.
+    "mypy>=2.3,<2.4",
 ]
 
 [tool.hatch.version]
@@ -211,3 +218,72 @@ known-first-party = ["duckbrain"]
 # isort sorts each *contiguous* block on its own, so on a page whose imports sit
 # after an `st.set_page_config` / config guard, the blocks either side of the
 # guard are sorted separately and no import is ever moved across it.
+
+[tool.mypy]
+# Type checking, scoped on purpose. The whole package is ~91% annotated already
+# (543 functions in `src`, 44 missing a return type, 87 of 998 parameters bare),
+# so repo-wide is not distant — but it is a different job, because the Streamlit
+# pages are where the gaps concentrate (`0_Project_Status.py` alone holds 61 of
+# the 131) and they are what drags streamlit, plotly and nibabel into the
+# analysis. These three modules were chosen instead because they are the *clean*
+# 15%: every one of their 87 functions was already fully annotated when this
+# landed, and none of them imports a third-party library directly.
+#
+# So this is a **ratchet**, exactly like the coverage floor — it holds a property
+# these files already have. Widen the list a file at a time; the honest next
+# candidates are `core/dicom_inspect.py` and `core/series_types.py`.
+#
+# It was not free, though, which was the point of measuring before setting the
+# knobs: it found five errors, and all five were one shape — a name bound to two
+# unrelated things in one long function (`expected` meaning both a
+# phase-encoding direction and a list of dropped series, 130 lines apart in
+# `plan_warnings`; `run` meaning both a BOLD's counted index and an SBRef's
+# possibly-absent one). Fixed by renaming, not by annotating around.
+python_version = "3.10"  # the floor is what has to typecheck, not what runs mypy
+files = [
+    "src/duckbrain/core/conversion_plan.py",
+    "src/duckbrain/core/dcm2bids_config.py",
+    "src/duckbrain/core/consistency.py",
+]
+
+# The containment mechanism, and the reason the list above can stay short. The
+# three modules' transitive first-party closure is 23 modules (`pipeline`,
+# `surveyor`, `config`, `dicom_inspect`, …); `silent` reads their types while
+# reporting no errors *in* them, which is what makes typing `consistency.py`'s
+# calls into `pipeline` worth anything. Not `"skip"` — that types all 23 as
+# `Any` and throws the value away.
+follow_imports = "silent"
+
+# Free today (87/87 functions annotated) and the whole point: without these, a
+# new untyped function in one of these three files typechecks fine and the file
+# quietly stops being covered by the thing it is listed for.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+strict_equality = true
+
+# Declined, so they aren't rediscovered as oversights:
+#   disallow_untyped_calls — fires on every call into a silently-followed module,
+#     i.e. a whole-repo project wearing a per-module flag.
+#   warn_return_any — noisy against untyped pandas (`consistency._read_json`
+#     returns `json.load(...)` from a `-> dict`). Revisit if pandas gets stubs.
+#   disallow_any_generics — this is the real one, and it is real work rather than
+#     a gate: ~131 bare `dict`/`list[dict]` sites, and the dcm2bids description
+#     dicts would need actual TypedDicts (with `NotRequired`, which the 3.10
+#     floor can't have without `typing_extensions`). Filed in TODO.md.
+#   strict — turns on all three of the above.
+
+[[tool.mypy.overrides]]
+# The one stub gap that reaches this analysis, named rather than blanketed. The
+# closure pulls in exactly five non-stdlib packages — pandas, pydicom, tomli,
+# tomli-w, jinja2 — and pandas is the only one shipping no `py.typed`.
+# streamlit, nibabel and plotly are not in the closure at all, which is the
+# clearest evidence these three modules were the right place to start.
+#
+# NOT a global `ignore_missing_imports`: that would also swallow a typo'd
+# first-party import, which is a bug this gate exists to catch.
+module = ["pandas.*"]
+ignore_missing_imports = true
