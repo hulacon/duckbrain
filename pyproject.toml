@@ -174,7 +174,21 @@ src = [".", "src", "tests"]
 # `TYPE_CHECKING` block or `get_type_hints` call anywhere in the repo, so no
 # annotation is ever evaluated — and a name that isn't imported is now a
 # *pyflakes* error instead of a string nobody reads.
-select = ["B", "E", "F", "I", "UP", "W"]
+#
+# `TD` + `FIX` are not part of that sequence and cost no diff at all — they were
+# already at zero findings when enabled. They are here to make a rule CLAUDE.md
+# states in prose into one the gate states: **open work goes in `TODO.md` and
+# nowhere else**, because a `# TODO:` in source is a second backlog that nothing
+# sorts, prioritizes or reads. The repo has zero and this is what keeps it there.
+#
+# `FIX001`/`FIX002` are the enforcing half — they fire on any leading `# TODO:`
+# or `# FIXME:` regardless of how well-formed it is, so a well-authored one with
+# an issue link doesn't slip past. `TD001` additionally rejects `FIXME`/`XXX`/
+# `HACK` as tags. What none of them touch is the *citation* style CLAUDE.md does
+# sanction — a mid-sentence `(TODO #17.2)` pointing at an item that exists
+# elsewhere — because these rules only match a comment's leading tag. Verified
+# against both forms before enabling.
+select = ["B", "E", "F", "FIX", "I", "TD", "UP", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # Streamlit pages must call st.set_page_config() before anything else touches
