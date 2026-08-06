@@ -270,10 +270,9 @@ known-first-party = ["duckbrain"]
 # silently skips a file looks exactly like a checker that passes it.
 #
 # What is left for a later widening is the rest of `core/`: 36 errors across 13
-# modules as of 2026-08-06, and unlike `gui/` some of them *are* third-party
-# (`plotly.offline` has no stubs). One of them looks like a live bug rather than
-# a typing nit — `checks.py:174` compares `int > None` — so measure that list
-# before believing this sentence about it.
+# modules as of 2026-08-06, filed as TODO #33.4. Unlike `gui/` some of them *are*
+# third-party — `plotly.offline` ships no stubs and no `py.typed` — so that one
+# wants a decision rather than an annotation.
 #
 # It has never been free, which is the point of measuring before setting the
 # knobs.
