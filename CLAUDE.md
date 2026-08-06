@@ -75,11 +75,13 @@ Run `git log --oneline -1`, `git status`, `python -m pytest tests/ -q`.
 Feature-complete across all three planned phases, plus a project surveyor and an
 actionable pipeline cockpit. **Every core stage is validated live on real data**
 on Talapas: DICOM→BIDS (output matches canonical heudiconv), fMRIPrep, MRIQC, and
-NORDIC (producer *and* `use_nordic`→fMRIPrep chaining). Semver, git tags, and all
-three tags published as GitHub Releases; `CHANGELOG.md`. Read the current release
-from `git tag` rather than from here — this sentence claimed `v0.2.0` for eight
-days after `v0.3.0` shipped. The GUI is in active dogfooding. See `TODO.md` for
-what's open, `docs/releasing.md` to cut the next one.
+NORDIC (producer *and* `use_nordic`→fMRIPrep chaining). Semver, annotated git
+tags, a `CHANGELOG.md`, and every tag published as a GitHub Release — that last
+step is the whole announcement channel and is easy to leave undone, so check
+`git tag` against the Releases page rather than trusting a count here (this
+sentence has been wrong about both the current release and the number of them).
+The GUI is in active dogfooding. See `TODO.md` for what's open — it opens with a
+release roadmap as of 2026-08-06 — and `docs/releasing.md` to cut the next one.
 
 ## Rules that bind (read before changing related code)
 

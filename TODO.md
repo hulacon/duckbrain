@@ -15,13 +15,14 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#16`](#16) **next** — sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
+[`#20`](#20) **next** — conda environment ·
+[`#2`](#2) onboarding (after `#20`, not before — see the [Roadmap](#roadmap)) ·
+[`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
 [Licensing](#licensing-follow-ups) ·
-[`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
-oracle it lacked) ·
-[`#20`](#20) conda environment ·
-[`#2`](#2) onboarding · [`#9`](#9) launch surface ·
+[`#19`](#19) conversion coverage — **not scheduled**, mostly data-blocked; take
+sub-items as fixtures appear ·
+[`#9`](#9) launch surface ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
 stages · [`#8`](#8) branding + dark theme ·
@@ -31,6 +32,117 @@ stages · [`#8`](#8) branding + dark theme ·
 [`#5`](#5) standing config / mapping decisions ·
 [Provenance residuals](#provenance--consistency-residuals) ·
 [Loose ideas](#loose-ideas-not-scheduled)
+
+**How the open items bundle into releases: [Roadmap](#roadmap)** — decided
+2026-08-06, and it is what reordered the queue above: `#20`/`#2` moved ahead of
+`#16`, which had been marked **next** since 2026-07-22.
+
+---
+
+<a id="roadmap"></a>
+## Roadmap — which open items ship together, and why
+
+**Decided with Ben 2026-08-06, immediately after cutting `v0.4.0`.** The question
+that produced it was whether `#16`, `#13`, `#19`, `#20` and `#2` could go out as a
+single increment. They can't, and the interesting part is *why not* — the answer
+generalizes past this one bundle, so it lives here rather than in the commit.
+
+**The cut is by kind, not by size.** Two questions sort the queue, and neither is
+"how much work is it":
+
+1. **Does it change a recipe duckbrain authors?** That is `docs/releasing.md`'s
+   own minor-vs-patch test, and it has a mechanical consequence:
+   `consistency._release_line()` reduces to `major.minor`, so any minor bump makes
+   `check_duckbrain_drift()` flag every existing `converted` and `nordic`
+   derivative. A release that changes what gets *written* should flag them. A
+   release that changes only how duckbrain is *installed* should not have to.
+2. **Is it schedulable at all?** Several open items are blocked on data or on
+   another item's design settling, not on effort. Those cannot be committed to a
+   release without making the release hostage to something nobody controls.
+
+Bundling everything collapses both distinctions at once: finished, zero-risk
+packaging work would sit unreleased behind an open architectural question, and the
+whole thing would wait on fixtures that may never arrive.
+
+### `v0.4.0` — cut 2026-08-06 ✅
+
+88 commits and a 474-line changelog section had accumulated in the eight days
+since `v0.3.0`. The trigger was not the size but who was missing it: `#34` (host
+site-packages leaking into every container) and `#36` (MRIQC OOM at the shipped
+defaults) were both reported *by* a beta tester and both fixed only on `main`, and
+`core/updates.py` compares against published Releases, so their GUI said nothing.
+Minor rather than patch because the recipe genuinely moved — diffusion converts,
+the diffusion SBRef stopped being emitted as half a fieldmap, `dir-` widened to
+LR/RL, and the BIDS root files are written at the conversion choke point.
+
+### `v0.5.0` — accessibility: `#20` then `#2`
+
+**Take these next, and in that order.** `#20` already says why the order is not
+arbitrary: it makes conda the documented path, and `#2`'s `UNVALIDATED` new-user
+walk is only worth doing once, on whichever path new users are actually told to
+take. Walking it before the conda env exists means walking it twice.
+
+Why these two make a good release rather than a good pair of chores:
+
+- **Lowest design risk in the queue.** `#20`'s unknowns were retired on-cluster
+  (the FSL condarc, the `conda env create` landmine, the shared prefix, the
+  himalaya name-collision lesson from braintwill's build). What is left is
+  writing a file and a setup script against a recipe someone has already run.
+  `#2` is dogfooding and prose, not architecture.
+- **Invisible to `duckbrain-drift`, and that is a feature.** Neither changes a
+  single byte duckbrain emits, so no existing derivative gets flagged. Nothing has
+  to be weighed; the release is free of that cost entirely.
+- **It is the release the beta testers are actually waiting on.** `#2`'s own
+  measurement is that containers, not code, are the blocker for a second user.
+
+Batch `#30`'s browser-eyeball queue into this one if the tunnel is already open —
+it is explicitly a batch-it item, and a walkthrough for `#2` puts you in front of
+the GUI anyway.
+
+### `v0.6.0` — the expectation layer: `#16.1`, `#16.2`, then `#13.1`
+
+This is the one with genuine design risk in it, which is exactly why it must not
+be bundled with the release above. `#16.2` needs duckbrain's *first cache* — a
+decision `surveyor.py`'s docstring currently advertises the absence of as a virtue
+— and `#16.1` has had its scope narrowed twice already (2026-08-04 left it with
+`output_spaces` and cross-run config drift as its only surviving motivating
+cases). Neither is a bad bet; both are the kind of thing that takes longer than
+planned and should not be able to hold finished work hostage.
+
+`#13.1` comes **last within this release, not alongside it**, and may never be
+built as its own feature: it is parked behind `#16.1` precisely because "which
+series this study converts" may turn out to be a statement of intent belonging in
+`[expected]`, in which case its separate section never gets written. Deciding that
+is part of `#16.1`, not a thing to do in parallel with it.
+
+### `#19` — deliberately not in the version plan
+
+Take its sub-items opportunistically as fixtures appear; do not schedule the item.
+Most of what is open there is **blocked on data, not on effort**:
+
+- `#19.2` waits on an LR/RL *fieldmap*. Neither `mmmsourcedata` nor the LCNI
+  corpus holds one.
+- `#19.6` has a local oracle now (the `PHASE` token, and the phase sidecar's
+  `EchoTime1` matching the magnitude's `EchoTime`) but still no session exhibiting
+  either fragility — "no evidence available" became "no failing case available",
+  which is closer but is still not a thing to schedule.
+- `#19.7` waits on LCNI re-converting their anatomicals.
+- `#19.10` waits on `#7.2`/QSIPrep existing as a *consumer*; writing
+  `B0FieldSource` before then is metadata nothing reads.
+- `#19.12` has no fixture at all — 0 unequal ND pairings across all 166 corpus
+  sessions — so it is a policy decision whenever someone wants to make it.
+
+The exception is `#19.11`, which is a check-then-probably-delete against the
+pinned container's source and needs no fixture. It can ride along with anything.
+
+### The cost this plan accepts, stated once
+
+Three minor bumps instead of one means a beta tester sees the `duckbrain-drift`
+note three times rather than once. Accepted deliberately: it is `note` severity,
+and two of the three releases genuinely change what duckbrain writes, so the note
+is telling the truth each time it fires. The alternative — suppressing real
+provenance drift to keep a notification quiet — is the trade this project has
+consistently refused elsewhere.
 
 ---
 
