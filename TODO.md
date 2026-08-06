@@ -747,19 +747,22 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 
 **Mostly discharged 2026-08-06.** Six modules are gated instead of three, two
 mypy knobs this item had declined are on, `RUF100` is on, and every remaining
-ruleset has a recorded verdict. **What is genuinely left is one thing: the
-Streamlit pages** (`#33.1`), plus `disallow_any_generics` (`#33.2`) if anyone
-wants it.
+ruleset has a recorded verdict. **What is genuinely left is `gui/` — measured at
+115 errors and broken into four commit-sized pieces in `#33.1`** — plus
+`disallow_any_generics` (`#33.2`) if anyone wants it. Start at `#33.1`'s piece
+1; nothing there needs re-measuring first.
 
 **Read the file list and the ruleset from `pyproject.toml`, not from here**, and
 **re-measure before changing either.** The reason `#18` landed green is that the
 config was set after measuring — and this pass found that cuts both ways.
-Three of this item's own estimates were wrong, all in the direction of *deferring
-work that was already free*: `pipeline.py` (filed as blocked, cost 9
-signatures), `disallow_untyped_calls` (filed as repo-wide-or-nothing, 0 errors)
-and `warn_return_any` (filed as pandas-noisy, 3 errors and one live bug). A
-decline written without a number behind it is worth re-measuring before it is
-inherited.
+**Four of this item's own estimates were wrong, every one of them in the
+direction of deferring work that was already tractable**: `pipeline.py` (filed
+as blocked, cost 9 signatures), `disallow_untyped_calls` (filed as
+repo-wide-or-nothing, 0 errors), `warn_return_any` (filed as pandas-noisy, 3
+errors and one live bug), and the pages (filed as a third-party-stub project,
+and the 115 errors contain no stub complaint at all). A deferral written without
+a number behind it is worth re-measuring before it is inherited — this item is
+now four for four on that.
 
 ### `#33.1` — More files under `[tool.mypy] files`
 
@@ -786,13 +789,42 @@ carrying forward:
   cannot tell "no header" from "no such attribute" and would silently degrade
   every fieldmap binding to first-sorted if the attribute were ever renamed.
 
-**What is left is the pages, and they are the whole cost.**
-`gui/pages/0_Project_Status.py` alone holds 45 unannotated arguments and 16
-missing returns — 61 of the repo's 131 gaps — and the pages are what drag
-streamlit, plotly and nibabel into the analysis. Of the packages that matter
-here only **pandas and plotly ship no `py.typed`**. Expect this to be a project,
-not a widening; nothing above predicts it, because nothing above touched a
-third-party API surface.
+**What is left is `gui/`, and it is measured now (2026-08-06) rather than
+predicted — because the prediction was wrong in the same direction as the other
+three.** It read: "the pages are what drag streamlit, plotly and nibabel into
+the analysis … expect a project, not a widening." Adding the whole `gui/` tree
+to the file list is **115 errors, and not one of them is a third-party stub
+complaint.** No `import-untyped`, no `import-not-found`, nothing naming
+streamlit, plotly or nibabel. The friction is entirely first-party, and it
+decomposes into four independent pieces that can land as four commits:
+
+1. **`qc_panels.Scope` — 34 errors, one design decision.** It is
+   `def __init__(self, **kwargs): self.__dict__.update(kwargs)`, so every
+   attribute read off it is invisible to any reader, human or machine. Its own
+   docstring says it is "one reviewer's current selection, plus everything
+   derived from it" — a *fixed* set, assembled in exactly one place
+   (`scope_bar`, ~`:310`). Making it a dataclass with declared fields is the
+   whole fix and is worth doing on its own merits; the 34 errors are one
+   symptom, not 34 problems.
+2. **`3_BIDS_Conversion.py`'s `s` — 13 errors, one rename.** A Streamlit page is
+   one module-level namespace, so `for s in ingested:` (line 41, a session
+   `dict`) and `for s in series_list:` (line 648, a `SeriesInfo`) are the *same
+   variable* 600 lines apart. mypy binds the first and every later use is an
+   error. **This is the third independent instance of the `#18` shape** — one
+   name meaning two unrelated things in one long scope — and the first one a
+   reader could plausibly trip on, since nothing in a 1200-line page suggests
+   line 41 reaches line 648. Rename, don't annotate around.
+3. **46 mechanical annotations** (35 `no-untyped-def`, 11 `no-untyped-call`),
+   the same shape `pipeline.py` was and priced the same way: measure the
+   *bodies* with `--check-untyped-defs` before believing a number.
+4. **A ~22-error tail**, one cluster of which should be read before it is
+   silenced: `qc_panels.py:428–455` uses a `ReviewDomain | None` lookup without
+   a `None` check across five call sites, which is an `AttributeError` on an
+   unknown domain key rather than a typing nit. Check whether the key can be
+   unknown before deciding.
+
+Do them in that order — 1 and 2 are 47 of the 115 and are both refactors that
+stand alone, so the remaining count is honest only after they land.
 
 ### `#33.2` — `disallow_any_generics`, and the dcm2bids description dicts
 
