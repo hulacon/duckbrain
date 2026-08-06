@@ -778,8 +778,10 @@ carrying forward:
   3× overestimate.
 - **What widening actually finds is not missing annotations.** All three files
   were ~fully annotated. What it found, twice, was a field declared `object`
-  where a real type belonged (`SeriesInfo.header`, then the two `dict[str,
-  JobInfo]` maps in `_job_state_maps`) — and around the first of those, four
+  where a real type belonged (`SeriesInfo.header`, then `_job_state_maps`'s
+  `latest` and `survey_live`'s `by_id`, both now `dict[str, JobInfo]` — the
+  cockpit was reading `job.state` off a declared `object` the whole time, which
+  has no attributes at all) — and around the first of those, four
   call sites reaching through `getattr(s.header, "series_time", None)`, which
   cannot tell "no header" from "no such attribute" and would silently degrade
   every fieldmap binding to first-sorted if the attribute were ever renamed.

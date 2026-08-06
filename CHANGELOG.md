@@ -243,6 +243,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **A sidecar containing valid JSON that isn't an object crashed the consistency
+  checker.** The checker reads every sidecar defensively — an unreadable or
+  truncated file is treated as empty rather than stopping the scan — but that
+  guard only covered files that *fail to parse*. A sidecar holding `null`, `[]`
+  or a bare string parses fine and is not a JSON object, so the checker got back
+  something it could not read keys from and raised `AttributeError` mid-scan,
+  reporting nothing about the rest of the project. Such a file now reads as
+  empty, like any other unusable sidecar, and the scan finishes.
+
 - **Two studies with the same subject label could share one fMRIPrep cache.**
   Scratch for a job was `<work_dir>/sub-<label>` — and `work_dir` is node-local
   `/tmp`, while subject labels restart at `01` in every study. Two projects that
