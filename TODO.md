@@ -20,8 +20,6 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
 oracle it lacked) ·
 [`#20`](#20) conda environment ·
-[`#33`](#33) widen the type-checked surface (the whole package is gated now;
-only `#33.2` `disallow_any_generics` is left) ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -738,172 +736,6 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 
 ---
 
-<a id="33"></a>
-## #33 — Widen the type-checked surface
-
-`#18` closed with mypy gating three modules and the ruff ruleset at `B`/`E`/`F`/
-`FIX`/`I`/`TD`/`UP`/`W`. Both were deliberately stopped at what could be gated
-*today*, and everything left over was filed here.
-
-**`#33.1`, `#33.3` and `#33.4` are closed (2026-08-06); the only thing open is
-`#33.2`.** The file list is now **the whole package** — `src/duckbrain/`, 54
-modules and 543 functions, one directory entry — two mypy knobs this item had
-declined are on, `RUF100` is on, and every remaining ruleset has a recorded
-verdict. Widening from here means a stricter knob, not a longer list.
-
-**Read the file list and the ruleset from `pyproject.toml`, not from here**, and
-**re-measure before changing either.** The reason `#18` landed green is that the
-config was set after measuring — and this item finished **eight for eight** on
-its own estimates being wrong, every one in the direction of deferring work that
-was already tractable: `pipeline.py` (filed as blocked, cost 9 signatures),
-`disallow_untyped_calls` (filed as repo-wide-or-nothing, 0 errors),
-`warn_return_any` (filed as pandas-noisy, 3 errors and one live bug), the pages
-(filed as a third-party-stub project, and the 115 errors contained no stub
-complaint at all), twice more inside `#33.1`, then `#33.4` (filed as wanting a
-plotly *decision*; it wanted one config line and the other 35 were first-party),
-and finally the un-scoped remainder — `config.py` and `slurm/`, never estimated
-at all, 11 errors. A deferral written without a number behind it is worth
-re-measuring before it is inherited. **`#33.2` below is the last such number in
-this item, and it has now been re-measured twice.**
-
-### `#33.2` — `disallow_any_generics`, and the dcm2bids description dicts
-
-**The two knobs filed alongside this one are done — both were declined on a
-guess and both measured free** (2026-08-06, and see the config for each). That
-is the reusable lesson here: a decline recorded without a number is worth
-re-measuring before it is inherited.
-
-- `disallow_untyped_calls` was "effectively repo-wide-or-nothing". It is **0
-  errors** — `follow_imports = silent` reads types rather than discarding them.
-  Enabled.
-- `warn_return_any` was "noisy against untyped pandas". It was **3 errors, none
-  of them pandas**, and one was a live bug in the function the note used as its
-  example: `consistency._read_json` promised `-> dict` and returned whatever
-  `json.load` gave it, so `null` / `[]` / a bare string — valid JSON, not
-  sidecars — defeated the `except ValueError` written to absorb exactly that
-  case and raised `AttributeError` at the caller. Fixed, tested, enabled.
-
-**`disallow_any_generics` is now 226 errors, not 90** (re-measured 2026-08-06
-after the file list became the whole package — the knob's cost is a function of
-the gated surface, so the old number was never going to survive `#33.4`). The
-breakdown is what should drive the work, because it is one decision plus a
-sweep, not 226 judgments:
-
-| | count | what it is |
-|---|---|---|
-| `config: dict` parameters | **95** | one decision, then mechanical |
-| return annotations | 50 | mostly `-> dict`; each needs a look |
-| dataclass fields | 31+8 | the `FieldmapDetection` shape — cheapest, most value |
-| everything else | ~42 | locals, `tuple`, `Pattern`, `CompletedProcess`, one `Callable` |
-
-**Start with the 95.** Every one is duckbrain's layered TOML config, whose values
-are heterogeneous *by construction*, so the only honest annotation is
-`dict[str, Any]` — decide once whether that is spelled inline or as a named
-alias, and the largest block in the table is a search-and-replace. It buys little
-on its own; what it buys is getting to the ~130 that are real.
-
-**The `typing_extensions` question is closed, and the answer is no.** The blocker
-recorded here was that the dcm2bids **description dicts** — heterogeneous
-literals built then conditionally extended (`dcm2bids_config.py` ~`:836`) and
-chain-subscripted downstream (`d["criteria"]["SeriesNumber"]`,
-`desc["sidecar_changes"]["B0FieldSource"]`) — need `TypedDict`s with optional
-keys, i.e. `NotRequired`, which is 3.11+. But `NotRequired` is not the only
-spelling of an optional key: a required base class plus a `total=False` subclass
-is the pre-3.11 idiom and gives identical semantics. **Verified on the 3.10 venv
-under `--strict`**: optional keys assign and read fine, and a key that is not
-declared at all is still caught. So no new dependency, and the `TypedDict`s can
-be written whenever someone wants them.
-
-**Not every bare `dict` needs one, and the cheap ones are still worth taking
-first.** `FieldmapDetection`'s four fields were bare `dict`/`set` and are now
-`dict[str, dict[str, int]]`, `dict[str, str]`, `dict[str, float]`, `set[str]` —
-homogeneous maps, no `TypedDict` involved, and typing them is what cleared two of
-the three `warn_return_any` errors above. The 39 dataclass fields in the table
-are where that shape concentrates.
-
-### `#33.3` — Rulesets measured and judged
-
-Everything is measured now (2026-08-06, counts against the configured `select`,
-so they are what enabling each would actually cost). `RUF100` was enabled and is
-the only one that paid. **Recorded so nobody re-measures, and so nobody re-opens
-a decline without new evidence.**
-
-| | findings | verdict |
-|---|---|---|
-| `ARG` | 309 (14 in `src`) | **declined** — it fires on the `#29` fix |
-| `N` | 57 (15 in `src`) | **declined** |
-| `D` | 1274 | **declined** |
-| `PTH` | 30 | **declined** |
-| `RUF` (ruleset) | 37 | **declined**, except `RUF100` (9) — **enabled** |
-| `C4` | 36 | **declined** |
-| `PERF` | 23 | **declined** |
-| `SIM` | 16 | **declined** |
-| `RET` | 3 | **declined** |
-
-`D` (pydocstyle) is declined for the reason it always was: a four-figure
-docstring-*format* diff across a codebase whose docstrings are its best feature
-is a net loss, and the rules are about punctuation and mood, not content. (The
-`235` this item used to record was a subset; the ruleset is 1274.)
-
-`PTH` was the one this item predicted would be worth it, and measuring says no —
-but the *shape* of the finding is the useful part. `PTH` exists to catch string
-path handling: `os.path.join`, `os.path.exists`, manual separator arithmetic.
-This repo has **zero** of those. All 30 findings are `open(p)` → `p.open()` (23)
-plus a tail of `os.chmod`/`os.replace`/`os.symlink`/`os.listdir`. The codebase
-already passes the rule's substantive test and what remains is its cosmetic
-half, so enabling it buys a 30-line diff and no defect.
-
-The rest, each checked at the site rather than by count — this is the part that
-would otherwise get re-litigated:
-
-- **`SIM115`** (open-without-context-manager, 1) reads
-  `tempfile.NamedTemporaryFile(delete=False)` in `slurm/submit.py`. The handle
-  *is* closed and `delete=False` is load-bearing (sbatch reads the file after).
-  A false positive, and it was the single most promising finding in the batch.
-- **`RUF001`–`RUF003`** (12) are not the em-dash false positives you would
-  expect — ruff does not flag `—`. They are EN DASH, MINUS SIGN, and the GUI's
-  deliberate `➕` / `ℹ` / `×` button glyphs. Nothing is compared against them.
-- **`RUF015`/`RUF059`/`RUF012`** (13) are entirely in `tests/`. `RUF015` would
-  make assertions *worse*: `[x for x in … if …][0]` failing with `IndexError`
-  says more at a test failure than `next(…)` raising `StopIteration`.
-- **`C4`** is 32× `dict()` → `{}`; **`PERF`** is 14 manual list comprehensions
-  and 9 `try`/`except`-in-loop, which is the correct shape where it appears;
-  **`RET`** is 3 named returns that are named on purpose.
-
-**`ARG` is the one to re-read before anyone re-opens it, because the raw count
-argues the opposite way.** Split `src` from `tests` first (the `#18` precedent:
-39 of 44 `B905` hits were one shape in one test file) and it drops from 309 to
-14 — a number small enough to check by hand, which is what settles it. All 14
-are deliberately unused, and **five are unused *on purpose, for correctness*:**
-`_inspect_labels_cached(path, mtime, size)` and `ensure(…, mtime, size)` take
-their cache key as arguments an `lru_cache` hashes and the body never reads, and
-the three `fingerprint: tuple` parameters in `qc_panels` / `conversion_panels`
-are **the fix that closed `#29`** — the one whose whole content was that
-`_fingerprint` with a leading underscore is silently dropped from Streamlit's
-cache key, so a re-run of MRIQC served a stale DataFrame until the server
-restarted.
-
-So `ARG001` would point at those five and say "delete this", while
-`tests/test_streamlit_caches.py` exists to forbid the only other spelling. A
-gate that argues against a fix the repo shipped, and against a test written to
-hold it, is worse than no gate. The remaining nine are `pipeline.py`'s four
-uniform `StageSpec.build` signatures and `domains_for_modality(modality)`, whose
-docstring states in full why it ignores the argument.
-
-Two real-but-minor things `ARG` did surface, left alone deliberately rather than
-folded into a linting commit: `core/ingestion.py`'s `plan_ingest` takes a
-`sourcedata_dir` it never reads (an API question, not a bug), and
-`0_Project_Status.py`'s `_stage_params` docstring says "subject/session gate
-options" when only `subject` does.
-
-`N` is declined on shape rather than judgment: **10 of its 15 `src` findings are
-`N999` on the Streamlit page filenames**, and those names are Streamlit's
-multipage API — the leading digit *is* the sidebar ordering. Silencing ten
-findings by `per-file-ignores` to keep three exception-naming opinions
-(`InvalidLabel` → `InvalidLabelError`) is not a trade worth making.
-
----
-
 <a id="20"></a>
 ## #20 — Ship a conda environment, not a `.venv`
 
@@ -1584,6 +1416,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-06 | `#33` | **`disallow_any_generics` is on, which closes `#33.2` and with it the whole item — the type-checked surface is now the whole package under every knob this project has measured.** The knob was **226 errors**, not the 90 the mypy comment carried; that figure predated `#33.4`, and the item had already said the cost is a function of the gated surface. So the ninth and last of this item's estimates was wrong in the same direction as the other eight, and the item's own prediction that it would be — "the last such number" — is the one that held. But the count was never the shape of the work: **199 of the 226 were a bare `dict`, and 95 of those were one parameter, `config`, repeated across 20 modules**. One decision, then a sweep. `dict[str, Any]` is the end of that decision and not a placeholder — four TOML layers deep-merged, every key optional — spelled as a named alias `Config` because 90-odd signatures take one and `dict[str, Any]` is equally what a sidecar, a job-parameter dict and a Jinja context are. **Naming it immediately caught three functions taking the wrong one**: `plan_conversion`, `read_config_into_table` and `config_to_json` take a *dcm2bids* config, which the mechanical sweep had annotated `Config` and which is now `Dcm2BidsConfig`. That is the entire argument for a transparent alias, since mypy sees straight through both. **The `typing_extensions` blocker this item recorded was never real, and the item had already established why**: a required base plus a `total=False` subclass is the pre-3.11 spelling of `NotRequired`. `dcm2bids_config.Description` is written that way. Two rules came out of doing it, and they are in `pyproject.toml` because they decide the next one: a payload **read off disk** stays `dict[str, Any]` (sidecars, dataset descriptions, decision entries and hand-edited configs arrive in more than one schema with every key absent from some real file, which is why each reader is a chain of `.get()` and `isinstance` — a TypedDict over all-optional keys says nothing and reads as a guarantee); a payload **this code builds** gets one, because then the keys really are set in one place. Three qualified: `pipeline.JobIndex` (three keys, two different types, so no `dict[K, V]` describes it — which is how it came to be bare), `qc.DecisionRecord`/`DomainRecord` (and `DecisionRecord` *subclasses* `DomainRecord`, because `_domains_of`'s docstring already claimed a domain record is the run-level one minus the breakdown, and inheritance is that sentence in a form that stays true), and `Description`. **Four defects, all found by writing a type down rather than by looking for them.** `generate_config` bound `desc` to three different descriptions 60 lines apart — the `#18` shape a sixth and seventh time, fixed by renaming. `containers._inspect_labels_cached` returns a tuple of `(key, value)` **pairs** as its own docstring says, and the wrong `tuple[str, ...]` I first wrote was rejected at both the `tuple(labels)` that builds it and the `dict(...)` that consumes it. `qc.parse_entities` really does return `dict[str, str]`, which exposed `summarize_motion` stuffing four floats into the shared helper's result. And `survey_live`'s second return value was the bare dict `JobIndex` replaced. **The one that matters most is a hole in the checker, not in the code.** Naming `StageBuilder` broke the package on import and mypy stayed green: `from __future__ import annotations` defers *annotations*, but a type alias is an ordinary assignment evaluated at module load, so `Callable[[Config, …]]` at module scope needs a `TYPE_CHECKING`-only name at runtime. Six test files stopped collecting. To mypy the guard branch is always taken, so this is permanent blindness rather than a bug to file — hence `tests/test_runtime_type_aliases.py`, which imports every module in the package, and which was verified by putting the bad alias back (mypy clean, three tests red). It also guards itself: an empty `walk_packages` would pass vacuously. Gate verified to *block* rather than pass over — deleting one type argument from `discover_units` turns it red. Coverage measured before and after at 89.80% and 89.81%, so the floor is untouched: this added and removed no reachable code. What is left of widening is `strict`, which is not measured. |
 | 2026-08-06 | `#33.4` | **mypy checks the whole package now — `core/`'s 36 errors, then the 11 nobody had scoped, and the file list is one directory.** `core/` first, as the item asked. Its headline — a third-party *decision* for `plotly` — was right about the shape and wrong about the size: 4 of 36. `plotly-stubs` 0.1.3 exists and makes `qc_report.py` clean with **no code change at all**, which is the measurement that settles it rather than a guess either way; declined anyway, because ten calls into a chart library in one module do not justify a single-maintainer 0.1.x package as a hard dependency of a *blocking* gate, and a stale stub is a false error or a false pass with nothing naming the cause. Two of the 36 were defects. `SessionExpectation` served the declared prescription and the observed count at once, so `fmap_pairs=None` — meaningful on one, impossible on the other — made `checks.py:174` an `int | None < int` that held only by what the caller passed; split into `SessionCounts` with `as_declaration()` the single crossing, and a test on the zero it carries across, since a measured zero read as silence is exactly the fallback this module exists to prevent. `SortResult.errors` was `list[str] | None` repaired in `__post_init__`, so every `.append` was against a declared `None`. Also four JSON/config boundaries returning `Any` under a concrete annotation, two of which now shape-check: a template listing from a script run inside somebody else's container is not a mapping just because it parsed, and an empty manifest reads downstream as "nothing to repair". **Then the remainder, which no note had ever estimated: `config.py` + `slurm/` at 11 errors** — six signatures, `find_job_logs` declaring `log_dir: str` and rebinding it to a `Path` on the next line, and a `try: import tomllib` that could only run below 3.11, where tomllib does not exist. That branch is also why `tomli` needs an override: the analysis target is pinned at 3.10 while the interpreter is whatever the developer has, so without it the gate is green in CI and red on a 3.11 box. Gate verified to *cover* the new files rather than pass over them — deleting two annotations turns it red at 20. `[tool.mypy]`'s comment rewritten, not appended to: it opened by explaining which files were chosen and why the rest was a different job, and none of that is true any more |
 | 2026-08-06 | `#36` | **The headroom was never the lever — synthstrip is admitted against a memory estimate nobody set, so `--mem-gb` could not have restrained it at any value.** The item asked for a measurement before a fix and the measurement changed the fix. MRIQC's scheduler (its own `engine/plugin.py`, admission logic identical to nipype's `MultiProc`) starts a node when a process slot *and* its **declared** `mem_gb` both fit; `workflows/shared.py` builds the synthstrip node with `num_threads` and **no `mem_gb`**, so it carries nipype's `0.2` default and 24 GB of budget admits 120 of them. Scaling `MEM_HEADROOM_GB` with `cpus` — the item's leading candidate — would have grown a number that is never consulted for this node. What *is* honoured is the thread count, and `--omp-nthreads` was sitting unpassed: `#35` had left it alone six days earlier on the correct reasoning that fMRIPrep derives it from `--nprocs` itself, and recorded that MRIQC instead reads the image's `OMP_NUM_THREADS=1` — which is the whole bug, one observation short. Single-threaded nodes each claim one slot, so `--nprocs` of them ran side by side. Now `--omp-nthreads` equals `--nprocs`, one multi-threaded node fills the allocation, and the flat 8 GB constant is correct again for the reason it always claimed: it covers **one** overshooting node, and something now keeps it to one. **Measured rather than reasoned** — one real T1w on n0135: synthstrip peaks at **12.25 GB at 1 thread and 12.24 GB at 4**, so threading is free memory-wise and 2.4× faster (77 s → 32 s), and serialising costs no wall clock. Four concurrent wanted 49 GB of a 32 GB allocation; `sacct MaxRSS` is the cgroup total, not a per-process maximum, which is why the beta user's failures read 28–31 GB with exactly two synthstrips resident. **The shipped 32 GB default was therefore right all along and needed no raise** — the concurrency was wrong, not the allocation. Confirmed live by re-running the two sessions that OOM-killed, at the unchanged 32G/4-CPU default: `sub-06/ses-01` went `OUT_OF_MEMORY` at 7 min / 18.6 GB → **COMPLETED, 48 min, 11.7 GB**, and `sub-07/ses-02` `OUT_OF_MEMORY` at 54 min / 28.3 GB → **COMPLETED, 69 min, 9.1 GB**. Both wrote their full report set with no `crash-*`, and 48 min sits inside the 44–58 min the batch's *surviving* jobs already took, so serialising cost no measurable wall clock there either. One thing the change nearly shipped broken: the explaining comment was written *inside* the command's `\` continuations, where Jinja renders it as a blank line that silently ends the command — MRIQC would have run with no `--mem-gb`, no `-w` and no `--no-sub`. `test_no_comment_breaks_a_line_continuation` caught it, which is `#31`'s sweep earning itself; the comment now sits above `singularity run` and says why |
 | 2026-08-06 | — | **MRIQC's allocation is editable from the GUI**, reported by a beta user whose MRIQC job was OOM-killed and who noticed the fMRIPrep tab had boxes the MRIQC tab did not. Nothing had to be plumbed: `#35` wired `_build_mriqc` to honour `nprocs`/`mem_gb` the same day on the grounds that *"a stage that quietly ignores a parameter its twin acts on is how the next knob gets wired up to nothing"*, and the two widgets are the whole change. Worth recording because the failure mode was the inverse of the one that rule guards — the parameter was live and the page was what had nothing to send it, so the knob existed in every layer except the one a user can reach, and the SLURM Resources panel displayed the number it could not change. The `--mem-gb`-from-allocation derivation makes the box the right remedy for the OOM specifically: one number moves the cgroup limit and the target MRIQC aims at inside it. Pinned in the real rendered script rather than only at the `advance_one` boundary, because a context assertion can only check the side it already knows to look at |

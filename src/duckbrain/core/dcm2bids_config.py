@@ -99,8 +99,9 @@ class Description(_DescriptionKeys, total=False):
     both are added conditionally after the literal is built. ``NotRequired``
     would say the same thing in one class, but it is 3.11 and the floor is 3.10;
     a required base plus a ``total=False`` subclass is the older spelling of
-    exactly that, with no new dependency (TODO #33.2 verified the semantics
-    under ``--strict`` on the 3.10 venv before this was written).
+    exactly that, with no new dependency — the optional keys assign and read,
+    and a key that is not declared at all is still caught. Verified under
+    ``--strict`` on the 3.10 venv before this was written.
 
     ``criteria`` and ``sidecar_changes`` stay ``dict[str, Any]`` on purpose.
     duckbrain only ever writes ``SeriesNumber``/``EchoNumber`` into the first

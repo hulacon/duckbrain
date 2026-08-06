@@ -213,7 +213,7 @@ src = [".", "src", "tests"]
 # against both forms before enabling.
 #
 # `RUF100` is the one rule, not the ruleset — the rest of `RUF` is 28 findings
-# with no defect behind any of them (see TODO #33.3 for each verdict; the
+# with no defect behind any of them (each is judged in the declines below; the
 # `ambiguous-unicode` ones are the GUI's deliberate `➕` / `ℹ` / `×` glyphs).
 # It is the ruff counterpart of mypy's `warn_unused_ignores` above, and it
 # earned its place: all 9 findings were `noqa`s suppressing nothing. Six named
@@ -228,6 +228,60 @@ src = [".", "src", "tests"]
 # right at a DICOM read, and only the machine-readable half was stale. Enabling
 # `BLE` later means re-adding three directives, deliberately, with the reason
 # already sitting there.
+#
+# ---- Every other ruleset, measured and declined (2026-08-06) ----------------
+#
+# Counts are against the `select` below, so each is what enabling it would
+# actually cost today. Written here rather than in `TODO.md` because a decline
+# is a standing decision about this config, not open work; the item that
+# measured them is closed. **Don't re-measure, and don't re-open one without new
+# evidence** — but do re-measure before *inheriting* one, because that is how
+# three mypy knobs on this file turned out to be free after being declined.
+#
+#   ARG   309 (14 in src)   PTH   30            PERF  23
+#   N     57  (15 in src)   RUF   37 (9 = 100)  SIM   16
+#   D     1274              C4    36            RET   3
+#
+# `ARG` is the one to re-read first, because the raw count argues the other way.
+# Split `src` from `tests` and it drops from 309 to 14 — small enough to check
+# by hand, which is what settles it. All 14 are unused deliberately and **five
+# are unused for correctness**: `_inspect_labels_cached(path, mtime, size)` and
+# `ensure(…, mtime, size)` take their cache key as arguments `lru_cache` hashes
+# and the body never reads, and the three `fingerprint` parameters in
+# `qc_panels` / `conversion_panels` are the fix that closed the stale-cache bug
+# — the one whose whole content was that an underscore-prefixed name is dropped
+# from Streamlit's cache key. So `ARG001` would point at those five and say
+# "delete this", while `tests/test_streamlit_caches.py` exists to forbid the
+# only other spelling. A gate that argues against a fix the repo shipped, and
+# against the test written to hold it, is worse than no gate. The other nine are
+# `pipeline.py`'s four uniform `StageSpec.build` signatures and
+# `domains_for_modality`, whose docstring states why it ignores its argument.
+#
+# `N` is declined on shape, not judgment: **10 of its 15 `src` findings are
+# `N999` on the Streamlit page filenames**, and those names are Streamlit's
+# multipage API — the leading digit *is* the sidebar ordering. Silencing ten by
+# `per-file-ignores` to keep three exception-naming opinions is not a trade.
+#
+# `D` (pydocstyle) is a four-figure docstring-*format* diff across a codebase
+# whose docstrings are its best feature, and the rules are about punctuation and
+# mood rather than content.
+#
+# `PTH` was predicted to be the worthwhile one and measuring said no — but the
+# shape of the finding is the useful part. `PTH` catches string path handling:
+# `os.path.join`, `os.path.exists`, manual separator arithmetic. This repo has
+# **zero** of those. All 30 are `open(p)` → `p.open()` (23) plus a tail of
+# `os.chmod`/`os.replace`/`os.symlink`/`os.listdir`. The substantive test is
+# already passed and what remains is the cosmetic half.
+#
+# The rest, checked at the site rather than by count: `SIM115` (1) reads
+# `tempfile.NamedTemporaryFile(delete=False)` in `slurm/submit.py`, where the
+# handle *is* closed and `delete=False` is load-bearing (sbatch reads the file
+# afterwards) — a false positive, and the most promising finding in the batch.
+# `RUF015`/`RUF059`/`RUF012` (13) are entirely in `tests/`, and `RUF015` would
+# make assertions *worse*: `[x for x in … if …][0]` failing with `IndexError`
+# says more than `next(…)` raising `StopIteration`. `C4` is 32× `dict()` → `{}`;
+# `PERF` is 14 manual comprehensions and 9 `try`/`except`-in-loop, which is the
+# correct shape where it appears; `RET` is 3 returns named on purpose.
 select = ["B", "E", "F", "FIX", "I", "RUF100", "TD", "UP", "W"]
 
 [tool.ruff.lint.per-file-ignores]
@@ -260,8 +314,9 @@ known-first-party = ["duckbrain"]
 # It is a **ratchet**, exactly like the coverage floor: it holds a property the
 # code already has. Every knob below was dialled to a *measured* zero before
 # being turned on, and that is the only reason the CI job can block rather than
-# advise. Widening from here means a stricter knob (`disallow_any_generics`,
-# TODO #33.2), not a longer list — and it means measuring first.
+# advise. Widening from here means a stricter knob, not a longer list — and it
+# means measuring first. `disallow_any_generics` was the last one anybody had
+# scoped and it is on; what is left is `strict`, which is not measured.
 #
 # **The history is kept because the estimates are the lesson.** This started at
 # six files, and every note that deferred the next step wrote a number it had not
@@ -281,7 +336,7 @@ known-first-party = ["duckbrain"]
 #   came apart into a dataclass, two renames, five dead functions and signatures.
 # - `core/` was 36 errors across 13 modules, filed as needing a plotly decision.
 #   It needed one line of it; the rest were signatures, four JSON/config
-#   boundaries returning `Any`, and two real defects (TODO #33.4's ledger row).
+#   boundaries returning `Any`, and two real defects.
 # - The remainder — `config.py` and `slurm/` — was never scoped at all, and came
 #   to **11 errors**: six signatures, a `str` parameter reassigned to a `Path` in
 #   `find_job_logs`, and `config.py`'s `tomllib` import dance, whose try/except
@@ -305,7 +360,8 @@ known-first-party = ["duckbrain"]
 #   attributes at all. `dict[str, JobInfo]` now.
 # - `SessionExpectation` was one dataclass serving both the declared prescription
 #   and the observed count, so `checks.py` compared `int | None` against `int` and
-#   held only by what the caller passed. Split into `SessionCounts` (TODO #33.4).
+#   held only by what the caller passed. Split into `SessionCounts`, pinned by
+#   tests/test_expectations.py.
 #
 # The first three files also found five errors of a different kind: a name bound
 # to two unrelated things in one long function (`expected` meaning both a

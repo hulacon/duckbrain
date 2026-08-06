@@ -917,7 +917,7 @@ def test_valid_json_that_is_not_an_object_reads_as_unreadable(tmp_path):
     failures, and these three parse fine — so they returned None/list/str from a
     function declared ``-> dict`` and the caller raised AttributeError out of a
     checker whose entire job is to survive bad files. Found by mypy's
-    ``warn_return_any`` (TODO #33.2); the truncated-file case below is the one
+    ``warn_return_any``; the truncated-file case below is the one
     that always worked, kept here so the pair reads as one contract.
     """
     from duckbrain.core.consistency import _read_json

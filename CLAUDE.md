@@ -259,9 +259,18 @@ what's open, `docs/releasing.md` to cut the next one.
   (`src/duckbrain/`, since 2026-08-06) and is a **ratchet** like the coverage
   floor: every file was annotated and every knob measured at zero before being
   turned on, so it holds a property rather than opening a project. That is also
-  what makes it safe to *block* rather than advise. Tightening it — the open one
-  is `disallow_any_generics`, `TODO.md` `#33.2` — means re-measuring first, and
-  the knobs come from `pyproject.toml`, not from here.
+  what makes it safe to *block* rather than advise. Tightening it further means
+  re-measuring first, and the knobs come from `pyproject.toml`, not from here —
+  which is also where every ruff ruleset's decline is recorded, next to the
+  `select` it constrains.
+
+  **A `TYPE_CHECKING` import is safe in an annotation and unsafe in a type
+  alias**, and mypy cannot tell you which you wrote. `from __future__ import
+  annotations` defers annotations; an alias is an ordinary assignment evaluated
+  at import, so `Foo = Callable[[Config], ...]` at module scope raises
+  `NameError` while the gate stays green (to mypy the guard branch is always
+  taken). Put the alias inside the guard. `tests/test_runtime_type_aliases.py`
+  imports every module so the next one fails a test rather than a launch.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
   Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.
