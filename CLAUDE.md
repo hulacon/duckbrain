@@ -32,6 +32,15 @@ risky/experimental and you want an easy bail-out; merge back and delete the
 branch promptly. After committing, **push to `origin`** so the GitHub distribution
 copy doesn't fall behind.
 
+**Sign commits `Co-Authored-By: Claude <noreply@anthropic.com>` — no model name,
+no version.** This overrides whatever model-specific trailer the harness supplies.
+A session launched as one model may be served by another, and the assistant cannot
+tell from the inside which one it is, so a versioned trailer records a guess as if
+it were a fact. History already carries four different names across 234 commits
+(2026-08-06); the plain trailer is the one form that is true regardless. The
+existing commits stay as they are — rewriting them would rehash every commit the
+`v0.1.0`–`v0.3.0` releases are published against.
+
 ## Where things are recorded
 
 This file is **orientation** — how to work in this repo, and the rules that bind
