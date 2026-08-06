@@ -25,6 +25,7 @@ rewritten to match so a link to one run's alignment review can be sent to someon
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
@@ -120,15 +121,43 @@ _SEEDED = "_qc_scope_seeded"
 MODALITIES = ("bold", "T1w", "T2w")
 
 
+@dataclass(frozen=True)
 class Scope:
     """One reviewer's current selection, plus everything derived from it.
 
     Assembled once per page render by :func:`scope_bar` so the five QC pages
     agree about what is being looked at without each rebuilding it.
+
+    The fields are spelled out because this used to be
+    ``def __init__(self, **kwargs): self.__dict__.update(kwargs)``, and a bag
+    that accepts anything documents nothing: the only way to learn what a
+    ``Scope`` carries was to read all of ``scope_bar`` and every reader of it at
+    once. Two things fell out of writing them down. ``run_key`` reached
+    ``selected_key`` through ``getattr(self, ..., "")``, a default for an
+    attribute that is in fact always assembled — so the fallback was dead and
+    could only ever have masked a typo. And ``metrics_df`` was passed in and
+    read by nobody: ``runs`` is what the table is built from, and the frame it
+    came from has been dead weight since. Both are the kind of thing a declared
+    field makes visible and a kwargs bag cannot.
+
+    Frozen because it is one render's answer to "what is being looked at". A
+    later panel that wanted to change the selection would be writing to a value
+    the panels above it already rendered from.
     """
 
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
+    config: dict
+    modality: str
+    iqm_cols: list[str]
+    runs: list[dict]
+    run: dict | None
+    selected_key: str
+    mriqc_dir: Path
+    fmriprep_dir: Path
+    decisions_dir: Path
+    decisions_read_dirs: list[Path]
+    settings: dict[str, float]
+    iqr_multiplier: float
+    motion_status: tuple[str, str]
 
     @property
     def run_key(self) -> str:
@@ -137,7 +166,7 @@ class Scope:
         Not read off ``run``: when MRIQC has not been run there are no rows, but
         there is still a run to look at fMRIPrep's figures for.
         """
-        return getattr(self, "selected_key", "") or (self.run["run_key"] if self.run else "")
+        return self.selected_key or (self.run["run_key"] if self.run else "")
 
     def values_for(self, measure: str) -> list:
         """Every run's value for *measure* — the cohort this run is judged against."""
@@ -314,7 +343,6 @@ def scope_bar(config: dict, *, with_run: bool = True) -> Scope | None:
         runs=runs,
         run=run,
         selected_key=run_key,
-        metrics_df=metrics_df,
         mriqc_dir=mriqc_dir,
         fmriprep_dir=fmriprep_dir,
         decisions_dir=decisions_dir,
@@ -782,7 +810,7 @@ def render_overview() -> None:
         ),
     )
 
-    state, sentence = scope.motion_status or ("", "")
+    state, sentence = scope.motion_status
     if sentence and state != "complete":
         st.info(sentence)
 
