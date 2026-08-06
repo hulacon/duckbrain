@@ -514,12 +514,12 @@ def domain_signoff(scope: Scope, domain: ReviewDomain) -> None:
     if not run_key:
         return
 
-    record = qc.load_decisions(scope.decisions_read_dirs).get(run_key, {})
-    current = (record.get("domains") or {}).get(domain.key, {})
-    latest = current.get("latest") or {}
+    record = qc.load_decisions(scope.decisions_read_dirs).get(run_key)
+    current = (record.get("domains") or {}).get(domain.key) if record else None
+    latest = (current.get("latest") or {}) if current else {}
 
     st.subheader("Review this aspect")
-    if current.get("signed_off"):
+    if current and current.get("signed_off"):
         st.caption(
             f"**{latest.get('decision')}** — {latest.get('reviewer')} "
             f"{('· ' + latest['reason']) if latest.get('reason') else ''}"
@@ -855,9 +855,9 @@ def render_overview() -> None:
     # domains do not partition the question a verdict answers — none covers task
     # timing, stimulus delivery, or a participant asleep with their eyes open.
     # So this prompts, and the reviewer still has to make the call.
-    record = qc.load_decisions(scope.decisions_read_dirs).get(scope.run_key, {})
+    record = qc.load_decisions(scope.decisions_read_dirs).get(scope.run_key)
     done, total = qc.domain_progress(record, [d.key for d in qc_domains.DOMAINS])
-    verdict = (record.get("latest") or {}).get("decision")
+    verdict = (record.get("latest") or {}).get("decision") if record else None
     st.caption(
         f"{done}/{total} aspects reviewed · "
         + (f"verdict: **{verdict}**" if verdict else "no verdict recorded")

@@ -40,13 +40,24 @@ import pandas as pd
 
 from . import qc_guidance
 
+if TYPE_CHECKING:
+    from ..config import Config
+    from .qc import DecisionRecord
+
+
+#: One rendered run — what :func:`build_run_rows` produces and every ``_render_``
+#: helper below consumes. Sixteen keys of six different types (strings, a nested
+#: IQM map, a list of flagged metric names, an optional motion sub-dict), all of
+#: them always set, so it *could* be a TypedDict. It is not, because the rows
+#: also cross into the Streamlit page and are handed to ``pd.DataFrame`` and to
+#: Jinja, neither of which the declaration would reach — the name is doing the
+#: work here, and the checking would stop at this module's edge anyway.
+RunRow = dict[str, Any]
+
 #: Where the report is written, relative to the derivatives directory. Under
 #: ``duckbrain/`` with everything else duckbrain authors, and in its own
 #: directory so the MRIQC-relative links below have a stable number of levels to
 #: climb no matter what the report is named.
-
-if TYPE_CHECKING:
-    from ..config import Config
 REPORT_SUBDIR = "duckbrain/qc/reports"
 
 #: How to reach ``<derivatives>/mriqc`` from inside :data:`REPORT_SUBDIR`.
@@ -63,7 +74,7 @@ MRIQC_REPORT_BASE = "/".join([".."] * len(Path(REPORT_SUBDIR).parts) + ["mriqc"]
 _RUN_KEY_ENTITIES = ("sub", "ses", "task", "run")
 
 
-def build_run_key(row: pd.Series | dict, modality: str) -> str:
+def build_run_key(row: pd.Series | dict[str, Any], modality: str) -> str:
     """Build the BIDS-style run key used to look up a decision.
 
     Omits entities the row does not carry, so a sessionless project yields
@@ -241,9 +252,9 @@ def build_run_rows(
     modality: str,
     iqm_cols: list[str],
     motion_df: pd.DataFrame | None = None,
-    decisions: dict[str, dict] | None = None,
+    decisions: dict[str, DecisionRecord] | None = None,
     reports: dict[str, str] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[RunRow]:
     """Collapse the loaded tables into one row per run, ready to render.
 
     Takes already-loaded data and returns plain dicts: no filesystem access, no
@@ -252,7 +263,7 @@ def build_run_rows(
     decisions = decisions or {}
     reports = reports or {}
 
-    motion_by_key: dict[str, dict] = {}
+    motion_by_key: dict[str, dict[str, float | None]] = {}
     if motion_df is not None and not motion_df.empty:
         for _, m in motion_df.iterrows():
             motion_by_key[build_run_key(m, modality)] = {
@@ -261,13 +272,13 @@ def build_run_rows(
                 "pct_high_motion": _num(m.get("pct_high_motion")),
             }
 
-    rows = []
+    rows: list[RunRow] = []
     for _, row in metrics_df.iterrows():
         run_key = build_run_key(row, modality)
         iqms = {c: _num(row.get(c)) for c in iqm_cols if c in row}
         flagged = [c for c in iqm_cols if bool(row.get(f"{c}_outlier", False))]
-        record = decisions.get(run_key) or {}
-        latest = record.get("latest") or {}
+        record = decisions.get(run_key)
+        latest = record.get("latest") or {} if record else {}
 
         rows.append(
             {
@@ -446,7 +457,7 @@ def _section(anchor: str, heading: str, body: str) -> str:
     return f'<section id="{anchor}"><h2>{_esc(heading)}</h2>{body}</section>'
 
 
-def _is_signed_off(run: dict) -> bool:
+def _is_signed_off(run: RunRow) -> bool:
     """Whether this row is a call a named person made.
 
     Defers to :func:`core.qc.is_signed_off` so the report and the writer cannot
@@ -585,7 +596,7 @@ def _run_table_note(report_base: str | None) -> str:
     )
 
 
-def _report_cell(run: dict, report_base: str | None) -> str:
+def _report_cell(run: RunRow, report_base: str | None) -> str:
     """The Report column: a link where one can resolve, a plain name where none can.
 
     ``report_base=None`` is a copy with no location to be relative to. It still
@@ -601,7 +612,7 @@ def _report_cell(run: dict, report_base: str | None) -> str:
 
 
 def _render_table(
-    runs: list[dict], iqm_cols: list[str], has_motion: bool, report_base: str | None
+    runs: list[RunRow], iqm_cols: list[str], has_motion: bool, report_base: str | None
 ) -> str:
     if not runs:
         return "<p>No runs.</p>"
@@ -675,7 +686,7 @@ def _render_table(
 
 
 def _render_iqm_charts(
-    runs: list[dict], iqm_cols: list[str], modality: str, subject: str | None
+    runs: list[RunRow], iqm_cols: list[str], modality: str, subject: str | None
 ) -> str:
     try:
         import plotly.graph_objects as go
@@ -735,7 +746,7 @@ def _render_iqm_charts(
     return str(fig.to_html(full_html=False, include_plotlyjs=False))
 
 
-def _render_motion_chart(runs: list[dict], fd_threshold: float) -> str:
+def _render_motion_chart(runs: list[RunRow], fd_threshold: float) -> str:
     try:
         import plotly.graph_objects as go
     except ImportError:  # pragma: no cover - plotly is a hard dependency
@@ -775,7 +786,7 @@ def _render_motion_chart(runs: list[dict], fd_threshold: float) -> str:
     return str(fig.to_html(full_html=False, include_plotlyjs=False))
 
 
-def _render_outlier_detail(runs: list[dict], report_base: str | None) -> str:
+def _render_outlier_detail(runs: list[RunRow], report_base: str | None) -> str:
     items = []
     for r in (x for x in runs if x["is_outlier"]):
         bullets = []
@@ -797,7 +808,7 @@ def _render_outlier_detail(runs: list[dict], report_base: str | None) -> str:
     return "\n".join(items)
 
 
-def _run_label(run: dict) -> str:
+def _run_label(run: RunRow) -> str:
     bits = [f"sub-{run['subject']}"]
     for entity, value in (("ses", run["session"]), ("run", run["run"])):
         if value:

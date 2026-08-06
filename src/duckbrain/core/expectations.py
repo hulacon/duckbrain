@@ -65,10 +65,12 @@ from typing import TYPE_CHECKING
 
 from .ingestion import sub_ses_relpath
 
-#: Config section this module owns, end to end.
-
 if TYPE_CHECKING:
     from ..config import Config
+
+
+#: Config section this module owns, end to end.
+
 SECTION = "expected"
 
 

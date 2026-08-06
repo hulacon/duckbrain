@@ -9,14 +9,16 @@ from typing import TYPE_CHECKING, Any
 
 from .containers import isolation_flags
 
+if TYPE_CHECKING:
+    from ..config import Config
+
+
 # Only functional-family suffixes are restricted to the session. Anatomicals
 # (t1w/t2w) are deliberately left unfiltered: in multi-session studies the
 # anatomical is often acquired in a single session and shared, so filtering it
 # to a func session would leave fMRIPrep with no anatomical. (Matches mmmdata's
 # run_fmriprep.py.)
 
-if TYPE_CHECKING:
-    from ..config import Config
 _SESSION_FILTER_SUFFIXES = ("bold", "sbref", "fmap")
 
 

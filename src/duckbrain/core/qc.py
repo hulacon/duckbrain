@@ -7,17 +7,17 @@ import warnings
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 # ---- QC settings ----
 
 #: Used only when the config cannot be read. Kept in step with ``[qc]`` in
 #: ``config/base.toml``; that file is the place to change a threshold.
-
-if TYPE_CHECKING:
-    from ..config import Config
 DEFAULT_QC_SETTINGS: dict[str, float] = {
     "fd_threshold": 0.5,
     "investigate_threshold": 0.5,
@@ -133,14 +133,14 @@ def load_mriqc_metrics(mriqc_dir: str | Path, modality: str = "bold") -> pd.Data
     return pd.DataFrame(rows)
 
 
-def parse_entities(stem: str) -> dict:
+def parse_entities(stem: str) -> dict[str, str]:
     """Extract BIDS entities from a filename stem.
 
     Public because ``core.qc_evidence`` matches fMRIPrep figures on entities and
     needs the same reading of a filename that the IQM loader uses. A third copy
     would be the one that drifts.
     """
-    entities = {}
+    entities: dict[str, str] = {}
     for part in stem.split("_"):
         if "-" in part:
             key, val = part.split("-", 1)
@@ -154,7 +154,7 @@ BOLD_IQMS = ["fd_mean", "fd_perc", "tsnr", "dvars_std", "efc", "fber"]
 ANAT_IQMS = ["cnr", "cjv", "efc", "fber", "snr_total", "qi_1", "wm2max"]
 
 
-def cohort_position(values: pd.Series | list, value: float | None) -> float | None:
+def cohort_position(values: pd.Series | list[float], value: float | None) -> float | None:
     """Where *value* sits among *values*, as a fraction from 0 (lowest) to 1.
 
     The guidance layer's central claim is that IQMs carry site, scanner and
@@ -267,12 +267,17 @@ def summarize_motion(
                 continue
 
             fd = df["framewise_displacement"].dropna()
-            parts = parse_entities(tsv_path.stem.replace("_desc-confounds_timeseries", ""))
-            parts["mean_fd"] = fd.mean()
-            parts["max_fd"] = fd.max()
-            parts["pct_high_motion"] = (fd > fd_threshold).mean() * 100
-            parts["n_volumes"] = len(fd)
-            rows.append(parts)
+            # A row is the filename's entities plus four numbers, so it is
+            # widened here rather than in `parse_entities`, whose values really
+            # are all strings and whose other caller reads them as such.
+            row: dict[str, Any] = dict(
+                parse_entities(tsv_path.stem.replace("_desc-confounds_timeseries", ""))
+            )
+            row["mean_fd"] = fd.mean()
+            row["max_fd"] = fd.max()
+            row["pct_high_motion"] = (fd > fd_threshold).mean() * 100
+            row["n_volumes"] = len(fd)
+            rows.append(row)
         except Exception:
             continue
 
@@ -280,6 +285,42 @@ def summarize_motion(
 
 
 # ---- QC Decisions ----
+
+
+#: One append-only entry in a run's decision file: ``decision``, ``reviewer``,
+#: ``automated``, an optional ``domain``, a timestamp, free-text notes.
+#:
+#: ``dict[str, Any]`` and not a ``TypedDict``, deliberately. These are read off
+#: disk in **two** on-disk schemas (see :func:`_history_of`), the older of which
+#: duckbrain no longer writes and is never rewritten, and every key is absent
+#: from some file that exists today — which is why every reader here goes
+#: through ``.get()`` and an ``isinstance``. A TypedDict describing that would
+#: have to declare all six keys optional, i.e. say nothing, while reading as a
+#: guarantee to the next person.
+DecisionEntry = dict[str, Any]
+
+
+class DomainRecord(TypedDict):
+    """One domain of a run, assembled from its entries by :func:`_domains_of`."""
+
+    latest: DecisionEntry
+    history: list[DecisionEntry]
+    signed_off: bool
+
+
+class DecisionRecord(DomainRecord):
+    """One run's decisions, assembled by :func:`load_decisions`.
+
+    Subclasses :class:`DomainRecord` rather than repeating its three keys,
+    because a domain record really is the run-level record minus the domain
+    breakdown — a caller reads one from the other without learning a second
+    convention, and stating it as inheritance is what keeps that true.
+
+    Unlike :data:`DecisionEntry` this **is** a TypedDict: nothing on disk has
+    this shape. It is built here, in one place, with all four keys always set.
+    """
+
+    domains: dict[str, DomainRecord]
 
 
 #: Every value a decision record may carry. ``pending`` is the state of a run no
@@ -312,7 +353,7 @@ VALID_DOMAIN_STATES = frozenset({"reviewed", "concerns", "pending"})
 SIGNED_OFF_DOMAIN_STATES = frozenset({"reviewed", "concerns"})
 
 
-def is_signed_off(record: dict | None) -> bool:
+def is_signed_off(record: DecisionEntry | None) -> bool:
     """True when *record* is a decision an identifiable person actually made.
 
     Three things must hold: the record exists, its decision is a real call
@@ -493,7 +534,7 @@ def decision_search_dirs(config: Config) -> list[Path]:
     return [*legacy, decisions_dir(config)]
 
 
-def _history_of(data: dict) -> list[dict]:
+def _history_of(data: dict[str, Any]) -> list[DecisionEntry]:
     """Return a record's entries oldest-first, from either on-disk schema.
 
     Two shapes exist and neither reader understood the other:
@@ -516,7 +557,9 @@ def _history_of(data: dict) -> list[dict]:
     return history
 
 
-def load_decisions(decisions_dir: str | Path | Iterable[str | Path]) -> dict:
+def load_decisions(
+    decisions_dir: str | Path | Iterable[str | Path],
+) -> dict[str, DecisionRecord]:
     """Load all QC decisions, in either on-disk schema and any known location.
 
     Searched recursively, so both duckbrain's flat directory and mmmdata's
@@ -553,7 +596,7 @@ def load_decisions(decisions_dir: str | Path | Iterable[str | Path]) -> dict:
     else:
         roots = [Path(d) for d in decisions_dir]
 
-    merged: dict[str, list[dict]] = {}
+    merged: dict[str, list[DecisionEntry]] = {}
     for root in roots:
         if not root.is_dir():
             continue
@@ -571,7 +614,7 @@ def load_decisions(decisions_dir: str | Path | Iterable[str | Path]) -> dict:
             run_key = data.get("run_key") or json_path.stem.replace("_decision", "")
             merged.setdefault(run_key, []).extend(history)
 
-    decisions: dict[str, dict] = {}
+    decisions: dict[str, DecisionRecord] = {}
     for run_key, history in merged.items():
         verdicts = [e for e in history if not e.get("domain")]
         latest = verdicts[-1] if verdicts else {}
@@ -585,13 +628,13 @@ def load_decisions(decisions_dir: str | Path | Iterable[str | Path]) -> dict:
     return decisions
 
 
-def _domains_of(history: list[dict]) -> dict[str, dict]:
+def _domains_of(history: list[DecisionEntry]) -> dict[str, DomainRecord]:
     """Group a record's domain entries by domain, newest last.
 
     Same shape as the run-level record, so a caller reads one from the other
     without learning a second convention.
     """
-    grouped: dict[str, list[dict]] = {}
+    grouped: dict[str, list[DecisionEntry]] = {}
     for entry in history:
         key = entry.get("domain")
         if key:
@@ -606,7 +649,7 @@ def _domains_of(history: list[dict]) -> dict[str, dict]:
     }
 
 
-def is_domain_signed_off(record: dict | None) -> bool:
+def is_domain_signed_off(record: DecisionEntry | None) -> bool:
     """True when a named person recorded a look at this domain.
 
     The domain counterpart of :func:`is_signed_off`, and it answers the same
@@ -624,7 +667,7 @@ def is_domain_signed_off(record: dict | None) -> bool:
     return bool(reviewer) and reviewer not in AUTOMATED_REVIEWERS
 
 
-def domain_progress(record: dict | None, domain_keys: Iterable[str]) -> tuple[int, int]:
+def domain_progress(record: DecisionRecord | None, domain_keys: Iterable[str]) -> tuple[int, int]:
     """How many of *domain_keys* a person has reviewed, and how many there are.
 
     For **display only**. A run whose four domains are all reviewed has not
@@ -634,12 +677,12 @@ def domain_progress(record: dict | None, domain_keys: Iterable[str]) -> tuple[in
     "Reviewed every domain" and "this run is usable" are different claims, and
     turning the first into the second manufactures a sign-off nobody made.
     """
-    domains = (record or {}).get("domains") or {}
+    domains = record.get("domains") or {} if record else {}
     keys = list(domain_keys)
-    return sum(1 for k in keys if domains.get(k, {}).get("signed_off")), len(keys)
+    return sum(1 for k in keys if (d := domains.get(k)) and d.get("signed_off")), len(keys)
 
 
-def decision_counts(decisions: dict) -> dict[str, int]:
+def decision_counts(decisions: dict[str, DecisionRecord]) -> dict[str, int]:
     """Break a decision set down by how much authority each record carries.
 
     Reported separately rather than summed, because "has a decision" and "was

@@ -51,12 +51,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from ..config import Config
+
+
 # BIDS anat suffixes duckbrain can write. Ordered, because this tuple is also the
 # order the Conversion page's dropdown offers them in; the lookup below is
 # derived from it so the two can never list different suffixes.
 
-if TYPE_CHECKING:
-    from ..config import Config
 BIDS_ANAT_SUFFIX_NAMES = (
     "T1w",
     "T2w",

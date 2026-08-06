@@ -46,12 +46,14 @@ from typing import TYPE_CHECKING
 
 from .containers import isolation_flags
 
+if TYPE_CHECKING:
+    from ..config import Config
+
+
 #: Generous: the measured runs are seconds, but a dataset with a very large
 #: derivatives tree still has to be walked, and a timeout that fires is reported
 #: as "could not run" rather than as a clean dataset.
 
-if TYPE_CHECKING:
-    from ..config import Config
 VALIDATOR_TIMEOUT_S = 300
 
 #: How many file paths one issue carries into the GUI. The flood this module
