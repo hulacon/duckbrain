@@ -359,9 +359,7 @@ def _build_mriqc(
     container = get_container_path(config)
     mq_slurm = get_slurm_resources(config, "mriqc")
     # Same rule as fMRIPrep, and both params mean the same thing here as there —
-    # the allocation. MRIQC has no GUI knob for either today, and they are honoured
-    # anyway rather than dropped: a stage that quietly ignores a parameter its twin
-    # acts on is how the next knob gets wired up to nothing.
+    # the allocation.
     cpus = int(params.get("nprocs", mq_slurm["cpus"]))
     alloc_gb = int(params.get("mem_gb", parse_mem_gb(mq_slurm.get("memory", "32G"))))
     ctx = build_context(

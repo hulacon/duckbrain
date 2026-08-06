@@ -294,22 +294,53 @@ def test_export_sets_export_only_and_reports_a_path(project, calls):
     assert "job_id" not in row
 
 
-@pytest.mark.parametrize(
-    ("stage", "subjects_key", "sessions_key", "submit_key"),
-    [
-        ("nordic", "nd_subjects", "nd_sessions", "nd_submit"),
-        ("mriqc", "mq_subjects", "mq_sessions", "mq_submit"),
-    ],
-)
-def test_nordic_and_mriqc_pass_nothing_but_export_only(
-    project, calls, stage, subjects_key, sessions_key, submit_key
-):
+def test_nordic_passes_nothing_but_export_only(project, calls):
+    """NORDIC is the one stage with no options at all, resources included.
+
+    Its builder takes no resource params, so a knob here would render and reach
+    nothing — the whole failure mode ``test_mriqc_submit_passes_its_resource_knobs``
+    exists to rule out on the stage that does read them.
+    """
     at = AppTest.from_file(PAGE, default_timeout=60).run()
-    _pick(at, subjects_key, ["02"])
-    _pick(at, sessions_key, ["02"])
-    at.button(key=submit_key).click().run()
+    _pick(at, "nd_subjects", ["02"])
+    _pick(at, "nd_sessions", ["02"])
+    at.button(key="nd_submit").click().run()
     assert not at.exception
-    assert calls == [(stage, "02", "02", {"export_only": False})]
+    assert calls == [("nordic", "02", "02", {"export_only": False})]
+
+
+def test_mriqc_submit_passes_its_resource_knobs(project, calls):
+    """MRIQC's allocation is editable from the GUI, like fMRIPrep's.
+
+    Reported by a beta user whose MRIQC job was OOM-killed: the numbers were
+    reachable only by editing the project's TOML, even though ``_build_mriqc``
+    had honoured both parameters since they were added.
+    """
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _pick(at, "mq_subjects", ["02"])
+    _pick(at, "mq_sessions", ["02"])
+    at.number_input(key="mq_nprocs").set_value(12)
+    at.number_input(key="mq_mem").set_value(64).run()
+    at.button(key="mq_submit").click().run()
+    assert not at.exception
+    assert calls == [("mriqc", "02", "02", {"export_only": False, "nprocs": 12, "mem_gb": 64})]
+
+
+def test_the_mriqc_resource_knobs_default_to_the_slurm_allocation(project, calls):
+    from duckbrain.config import get_slurm_resources, load_config, parse_mem_gb
+
+    slurm = get_slurm_resources(load_config(), "mriqc")
+    alloc, cpus = parse_mem_gb(slurm["memory"]), int(slurm["cpus"])
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert (at.number_input(key="mq_mem").value, at.number_input(key="mq_nprocs").value) == (
+        alloc,
+        cpus,
+    )
+    _pick(at, "mq_subjects", ["02"])
+    _pick(at, "mq_sessions", ["02"])
+    at.button(key="mq_submit").click().run()
+    assert (calls[0][3]["mem_gb"], calls[0][3]["nprocs"]) == (alloc, cpus)
 
 
 # ---- validation -------------------------------------------------------------
@@ -440,6 +471,12 @@ def test_mriqc_submit_renders_a_real_sbatch(project, tmp_path, monkeypatch):
     MRIQC because it is the only stage with neither an fsaverage preflight nor a
     FreeSurfer licence requirement, so a container image and a runtime on PATH
     are the whole of what has to be pinned.
+
+    The memory knob is raised here rather than left at its default because the
+    thing a beta user's OOM needed was for one number typed on the page to move
+    *both* of the script's — the cgroup limit that kills the job and the target
+    MRIQC aims at inside it. Only a rendered script can show that; a context
+    assertion checks whichever side it already knows to look at.
     """
     import duckbrain.core.pipeline as P
 
@@ -466,6 +503,8 @@ def test_mriqc_submit_renders_a_real_sbatch(project, tmp_path, monkeypatch):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     _pick(at, "mq_subjects", ["02"])
     _pick(at, "mq_sessions", ["02"])
+    at.number_input(key="mq_nprocs").set_value(12)
+    at.number_input(key="mq_mem").set_value(64).run()
     at.button(key="mq_submit").click().run()
     assert not at.exception
 
@@ -475,6 +514,13 @@ def test_mriqc_submit_renders_a_real_sbatch(project, tmp_path, monkeypatch):
     assert "#!/bin/bash" in script
     assert "sub-02" in script
     assert str(containers / "mriqc-24.0.2.sif") in script
+
+    from duckbrain.config import MEM_HEADROOM_GB
+
+    assert "#SBATCH --mem=64G" in script
+    assert f"--mem-gb {64 - MEM_HEADROOM_GB}" in script
+    assert "#SBATCH --cpus-per-task=12" in script
+    assert "--nprocs 12" in script
 
     assert _rows(at)[0]["job_id"] == "55123"
     log = project / "code" / "logs" / "submissions.tsv"

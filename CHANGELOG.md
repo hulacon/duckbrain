@@ -193,6 +193,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   matched to the selected run and fMRIPrep's to its subject, preferring a
   session-specific report where one exists.
 
+- **MRIQC's CPUs and memory are editable from the Preprocessing page**, the same
+  two boxes fMRIPrep already had. Reported by a beta user whose MRIQC job was
+  OOM-killed: the SLURM Resources panel on the MRIQC tab displayed the
+  allocation but nothing on the page could change it, so raising it meant
+  hand-editing `[slurm.overrides.mriqc] memory` in the project's
+  `code/duckbrain.toml` and knowing that was where to look.
+
+  Both boxes name the **allocation**, as fMRIPrep's do — raising memory moves
+  `#SBATCH --mem` and the `--mem-gb` derived from it (8 GB lower) together, so
+  the number you type is the one SLURM enforces. If MRIQC is being killed for
+  memory, 32 GB is the shipped default and this is the box to raise. Note that
+  CPUs behaves differently here than under fMRIPrep: the 24.0.2 image sets
+  `OMP_NUM_THREADS=1`, so `--nprocs` buys that many single-threaded processes
+  and is the whole of MRIQC's parallelism.
+
 ### Changed
 
 - **A job's CPUs are now one number too.** fMRIPrep's `--nprocs` came from

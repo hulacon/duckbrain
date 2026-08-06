@@ -216,9 +216,34 @@ with tab_mriqc:
             bids_path, mq_subjects, "mq_sessions"
         )
 
+    st.markdown("**Options**")
     mq_slurm = get_slurm_resources(config, "mriqc")
+    col1, col2 = st.columns(2)
+    with col1:
+        mq_nprocs = st.number_input(
+            "CPUs",
+            value=int(mq_slurm["cpus"]),
+            min_value=1,
+            key="mq_nprocs",
+            help="The SLURM allocation for each job, and MRIQC's --nprocs. Unlike "
+            "fMRIPrep, MRIQC does not split this into threads per process — the "
+            "container sets OMP_NUM_THREADS=1 — so this is N single-threaded "
+            "processes, and the whole of MRIQC's parallelism.",
+        )
+    with col2:
+        mq_mem = st.number_input(
+            "Memory (GB)",
+            value=parse_mem_gb(mq_slurm["memory"]),
+            min_value=1,
+            key="mq_mem",
+            help="The SLURM allocation for each job. MRIQC's own --mem-gb is derived "
+            f"from it, {MEM_HEADROOM_GB} GB lower, so the functional synthstrip step — "
+            "which overshoots its target — still dies inside the allocation rather "
+            "than being OOM-killed. Raise this if a job was killed for memory.",
+        )
+
     with st.expander("SLURM Resources"):
-        st.json(mq_slurm)
+        st.json({**mq_slurm, "cpus": str(mq_nprocs), "memory": f"{mq_mem}G"})
 
     col1, col2 = st.columns(2)
     with col1:
@@ -236,4 +261,6 @@ with tab_mriqc:
             mq_study_sessions,
             submit=mq_submit,
             export=mq_export,
+            nprocs=mq_nprocs,
+            mem_gb=mq_mem,
         )
