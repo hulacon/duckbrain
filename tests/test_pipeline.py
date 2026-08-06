@@ -445,6 +445,28 @@ def test_raising_the_cpu_knob_moves_both_numbers(monkeypatch, tmp_path, stage):
     assert _cpu_numbers(_real_script(monkeypatch, tmp_path, stage, nprocs=16)) == (16, 16)
 
 
+@pytest.mark.parametrize("nprocs", [None, 16])
+def test_mriqc_runs_one_multithreaded_node_at_a_time(monkeypatch, tmp_path, nprocs):
+    """``--omp-nthreads`` tracks ``--nprocs``, which is what bounds the memory.
+
+    MRIQC's scheduler admits a node when a process slot and its *declared*
+    ``mem_gb`` both fit, and synthstrip declares nothing — so it is admitted
+    against nipype's 0.2 GB default and ``--mem-gb`` never restrains it. Threads
+    are the part the scheduler honours: equal to ``--nprocs``, one such node fills
+    the slots and the rest wait. Left unset MRIQC reads the image's
+    ``OMP_NUM_THREADS=1``, and ``--nprocs`` synthstrips ran together at 12.25 GB
+    each, which OOM-killed 9 of a beta user's 14 runs at the 32 GB default.
+
+    Parametrised over the knob because the flags have to move together: a raised
+    CPU count that lifted ``--nprocs`` alone would restore the failure exactly.
+    """
+    params = {} if nprocs is None else {"nprocs": nprocs}
+    script = _real_script(monkeypatch, tmp_path, "mriqc", **params)
+    alloc, told = _cpu_numbers(script)
+    omp = int(re.search(r"--omp-nthreads (\d+)", script).group(1))
+    assert omp == told == alloc
+
+
 @pytest.mark.parametrize("key", ["mem_gb", "nprocs"])
 def test_a_config_that_still_pins_an_fmriprep_resource_is_refused(monkeypatch, tmp_path, key):
     """Not ignored — the key reads as the number in force, and would not be one.

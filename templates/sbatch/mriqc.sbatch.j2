@@ -27,6 +27,23 @@ mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
 ATTEMPT_STAMP="$WORK_DIR/.duckbrain-attempt"
 touch "$ATTEMPT_STAMP"
 
+{# --omp-nthreads equals --nprocs below, so at most ONE multi-threaded node runs
+   at a time. It is the only lever that bounds synthstrip's memory: the node
+   carries nipype's default mem_gb=0.2 (MRIQC declares nothing), so the scheduler
+   admits it against a 0.2 GB estimate however low --mem-gb is set — that ceiling
+   cannot restrain a peak it was never told about. Threads are the part the
+   scheduler does honour, and MRIQC documents the arithmetic under --nprocs: with
+   `--nprocs 16 --omp-nthreads 8` at most two 8-thread processes run at once.
+   Left unset, MRIQC reads OMP_NUM_THREADS, which the 24.0.2 image sets to 1, so
+   every heavy node asked for a single slot and --nprocs of them ran side by side.
+   Measured on n0135 against one real T1w: synthstrip peaks at 12.25 GB whether
+   given 1 thread or 4, so four concurrent wanted 49 GB of a 32 GB allocation.
+   Threading is also strictly faster — 77 s at -n 1, 32 s at -n 4 for that same
+   peak — so serialising them costs no wall clock. Pinned by
+   tests/test_pipeline.py::test_mriqc_runs_one_multithreaded_node_at_a_time.
+   Kept out of the command's line continuations on purpose: a comment between two
+   `\`-continued lines renders as a blank one and silently ends the command, which
+   is what test_no_comment_breaks_a_line_continuation caught this comment doing. #}
 singularity run {{ container_flags }} \
   -B {{ (paths.bids_dir ~ ":" ~ paths.bids_dir ~ ":ro") | sh }} \
   -B "$OUTPUT_DIR:$OUTPUT_DIR" \
@@ -36,6 +53,7 @@ singularity run {{ container_flags }} \
   --participant-label {{ subject | sh }} \
 {% if session %}  --session-id {{ session | sh }} \
 {% endif %}  --nprocs {{ slurm.cpus }} \
+  --omp-nthreads {{ slurm.cpus }} \
   --mem-gb {{ mem_gb }} \
   -w "$WORK_DIR" \
   --no-sub

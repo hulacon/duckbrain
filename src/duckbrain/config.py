@@ -308,10 +308,20 @@ def tool_mem_gb(config: dict, step: str, alloc_gb: int | None = None) -> int:
     the total amount of memory available (32.77GB)`` with 16 GB it was never told
     about sitting unused.
 
-    The headroom is because nodes overshoot the target: MRIQC's functional
-    synthstrip (torch brain extraction) does, and with the target equal to the
-    allocation the cgroup OOM-killed the step on all 9 divatten_gui_beta
-    subjects, 2026-07-10.
+    The headroom is because nodes overshoot the target: MRIQC's synthstrip (torch
+    brain extraction, in the anatomical workflow as well as the functional one)
+    does, and with the target equal to the allocation the cgroup OOM-killed the
+    step on all 9 divatten_gui_beta subjects, 2026-07-10.
+
+    **It is a constant because it covers one overshooting node, and something
+    else has to keep it to one.** A node nipype has under-estimated overshoots
+    once per copy of itself, so the buffer would have to scale with concurrency —
+    except that this buffer could not have absorbed synthstrip's overshoot at any
+    size, because synthstrip is admitted against nipype's default ``mem_gb=0.2``
+    and the ceiling derived here is never consulted for it. Concurrency is bounded
+    on the flag that the scheduler does honour, ``--omp-nthreads``; see
+    ``templates/sbatch/mriqc.sbatch.j2``. Raise this number only for a node that
+    genuinely declares its memory and still overshoots.
 
     *alloc_gb* overrides the configured allocation for callers that let an
     operator raise it per job; they are responsible for putting the same number

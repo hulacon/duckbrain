@@ -22,8 +22,6 @@ oracle it lacked) ·
 [`#20`](#20) conda environment ·
 [`#33`](#33) widen the type-checked surface (`gui/` done; `#33.2` needs a
 `typing_extensions` decision, `#33.4` is `core/`) ·
-[`#36`](#36) the memory headroom is flat but the overshoot scales with `--nprocs`
-(measured on a beta user's OOMs; needs a measurement before a fix) ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -1034,53 +1032,6 @@ The work, then:
 
 ---
 
-<a id="36"></a>
-## #36 — The memory headroom is a constant; the overshoot it covers scales with `--nprocs`
-
-`config.tool_mem_gb` holds back a flat `MEM_HEADROOM_GB = 8` so a node that
-overshoots its target dies inside the allocation rather than being OOM-killed.
-That constant was measured against **one** overshooting node. It is not one: the
-overshoot is per *concurrently running* node, and `--nprocs` is what sets how
-many there are.
-
-**The evidence, from a beta user's real runs on `/projects/hulacon/shared/mmmduck`
-(2026-08-04 and again 2026-08-06, unchanged in between).** Fourteen MRIQC jobs at
-the shipped defaults — `#SBATCH --mem=32G`, `--mem-gb 24`, `--nprocs 4` — of which
-nine were `OUT_OF_MEMORY` and two more finished within a gigabyte of the wall.
-Every failure is synthstrip, MRIQC's torch brain extraction, and `slurmstepd`
-reports **two `oom_kill` events in a single step** on `mriqc_06_01`: nodes
-`synthstrip.a0` and `synthstrip.a1` were resident together and the cgroup took
-both. `sacct` `MaxRSS` across the fourteen runs is 17.7–31.5 GB against a 32 GB
-allocation, and `MaxRSS` is polled, so the true peaks are higher than that.
-
-Both the anatomical and the functional workflow do it — `anatMRIQC.synthstrip_wf`
-on `mriqc_06_01`, `funcMRIQC.synthstrip_wf` on `mriqc_07_02` — so the docstring's
-"MRIQC's functional synthstrip" is narrower than the behaviour.
-
-**What is not yet known, and has to be measured before anything is changed.**
-Whether nipype's scheduler is even the right lever: `MultiProc` admits a node when
-both a process slot and its *declared* `mem_gb` estimate fit, and if synthstrip's
-declaration is the 0.2 GB default then the memory budget never binds and
-`--nprocs` is the only real cap. If that is so, raising the allocation cannot
-increase concurrency (the process cap is unmoved) and is a safe remedy, while
-raising `cpus` is a memory decision wearing a throughput label — which is worth
-saying on the widget, and is currently said on neither.
-
-**Do not just raise the constant.** 8 GB is right for one overshooting node, and
-a bigger constant is wrong for a different `nprocs` in the same way. The shapes
-worth weighing: derive the headroom from `cpus`; declare a real `mem_gb` on the
-synthstrip node so the scheduler serialises them itself; or leave the number
-alone and have the GUI refuse — or warn about — a `cpus`/`memory` pair that
-cannot hold that many synthstrips, which is the option consistent with *a
-silently-degrading option is worse than one that fails*.
-
-The immediate remedy shipped 2026-08-06 and is not this item: both numbers are
-now editable from the MRIQC tab, so the user can raise the allocation without
-hand-editing TOML. This is about the default being wrong for a four-process job
-in the first place.
-
----
-
 <a id="2"></a>
 ## #2 — Onboarding for external users
 
@@ -1623,6 +1574,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-06 | `#36` | **The headroom was never the lever — synthstrip is admitted against a memory estimate nobody set, so `--mem-gb` could not have restrained it at any value.** The item asked for a measurement before a fix and the measurement changed the fix. MRIQC's scheduler (its own `engine/plugin.py`, admission logic identical to nipype's `MultiProc`) starts a node when a process slot *and* its **declared** `mem_gb` both fit; `workflows/shared.py` builds the synthstrip node with `num_threads` and **no `mem_gb`**, so it carries nipype's `0.2` default and 24 GB of budget admits 120 of them. Scaling `MEM_HEADROOM_GB` with `cpus` — the item's leading candidate — would have grown a number that is never consulted for this node. What *is* honoured is the thread count, and `--omp-nthreads` was sitting unpassed: `#35` had left it alone six days earlier on the correct reasoning that fMRIPrep derives it from `--nprocs` itself, and recorded that MRIQC instead reads the image's `OMP_NUM_THREADS=1` — which is the whole bug, one observation short. Single-threaded nodes each claim one slot, so `--nprocs` of them ran side by side. Now `--omp-nthreads` equals `--nprocs`, one multi-threaded node fills the allocation, and the flat 8 GB constant is correct again for the reason it always claimed: it covers **one** overshooting node, and something now keeps it to one. **Measured rather than reasoned** — one real T1w on n0135: synthstrip peaks at **12.25 GB at 1 thread and 12.24 GB at 4**, so threading is free memory-wise and 2.4× faster (77 s → 32 s), and serialising costs no wall clock. Four concurrent wanted 49 GB of a 32 GB allocation; `sacct MaxRSS` is the cgroup total, not a per-process maximum, which is why the beta user's failures read 28–31 GB with exactly two synthstrips resident. **The shipped 32 GB default was therefore right all along and needed no raise** — the concurrency was wrong, not the allocation. Confirmed live by re-running the two sessions that OOM-killed, at the unchanged 32G/4-CPU default: `sub-06/ses-01` went `OUT_OF_MEMORY` at 7 min / 18.6 GB → **COMPLETED, 48 min, 11.7 GB**, and `sub-07/ses-02` `OUT_OF_MEMORY` at 54 min / 28.3 GB → **COMPLETED, 69 min, 9.1 GB**. Both wrote their full report set with no `crash-*`, and 48 min sits inside the 44–58 min the batch's *surviving* jobs already took, so serialising cost no measurable wall clock there either. One thing the change nearly shipped broken: the explaining comment was written *inside* the command's `\` continuations, where Jinja renders it as a blank line that silently ends the command — MRIQC would have run with no `--mem-gb`, no `-w` and no `--no-sub`. `test_no_comment_breaks_a_line_continuation` caught it, which is `#31`'s sweep earning itself; the comment now sits above `singularity run` and says why |
 | 2026-08-06 | — | **MRIQC's allocation is editable from the GUI**, reported by a beta user whose MRIQC job was OOM-killed and who noticed the fMRIPrep tab had boxes the MRIQC tab did not. Nothing had to be plumbed: `#35` wired `_build_mriqc` to honour `nprocs`/`mem_gb` the same day on the grounds that *"a stage that quietly ignores a parameter its twin acts on is how the next knob gets wired up to nothing"*, and the two widgets are the whole change. Worth recording because the failure mode was the inverse of the one that rule guards — the parameter was live and the page was what had nothing to send it, so the knob existed in every layer except the one a user can reach, and the SLURM Resources panel displayed the number it could not change. The `--mem-gb`-from-allocation derivation makes the box the right remedy for the OOM specifically: one number moves the cgroup limit and the target MRIQC aims at inside it. Pinned in the real rendered script rather than only at the `advance_one` boundary, because a context assertion can only check the side it already knows to look at |
 | 2026-08-06 | `#33.1` | **All of `gui/` is type-checked — 115 errors to zero, and the file list goes from 6 entries to 23.** The four pieces landed in the order the item set, and the two estimates it carried were both low, which is this item's own recurring shape a fifth and sixth time. Piece 1, `Scope` as a dataclass: 37 errors against 34, and writing the fields down is what found `metrics_df` — assembled, passed in, read by **nobody** — and a `getattr(self, "selected_key", "")` whose default was unreachable. Declaring `runs: list[dict]` also resolved an `st.dataframe` call with no matching overload. Piece 2, the renames: **21 errors against 13, because the item had counted only one of the two collisions.** `s` was a session `dict` at line 41 and a `SeriesInfo` at line 648; `w` was a warning `str` at line 389 and a `PlanWarning` at line 1007 — the third and fourth instances of the shape `#18` found, and the first pair a *reader* trips on rather than only a checker. Piece 3 split in two once `--check-untyped-defs` showed the bodies were **not** free the way `pipeline.py`'s were (33 more errors, 27 of them calls into the same untyped functions): **five helpers in `components.py` had zero callers anywhere**, so 90 lines went rather than gaining signatures they had no caller to satisfy, and the coverage floor rose 88 → 89 on the 44 dead statements leaving the denominator. The 26 real signatures then needed `from __future__ import annotations` on the two pages lacking it, so `SeriesInfo`/`JobInfo`/`DeltaGenerator` sit under `TYPE_CHECKING` and a page that defers its first-party imports past the config guard still does. Piece 4's flagged `ReviewDomain | None` cluster was a symptom one layer down: `get_domain` was declared `-> ReviewDomain | None` and **none of its 27 call sites checked** — the same shrug as `SeriesInfo.header: object | None` — so it raises `KeyError` naming the registered keys instead. `domain_of` keeps its `| None` on purpose; an undocumented measure is a real answer. Also `probe_session` takes `Sequence[str | Path]`, since `list` is invariant and it only ever iterates. Verified against a fresh 3.10 venv on the interpreter CI's `types` job pins, with `singularity` hidden from `PATH` and `DUCKBRAIN_USER_CONFIG` at a nonexistent file, before each of the five commits. **The item's headline prediction — "expect a project, not a widening", because the pages drag streamlit/plotly/nibabel in — was wrong in kind, not just in size: zero of the 115 named a third-party package.** What is left is `core/`, measured at 36 and opened as `#33.4` |
 | 2026-08-06 | `#35` | **`--nprocs` is the allocation's CPUs outright — no headroom, and no `--omp-nthreads`.** The decision the item asked for, settled by reading both images rather than by matching `#32`'s shape: fMRIPrep documents `--nprocs` as "maximum number of threads across all processes", which is the same quantity `--cpus-per-task` grants, so there is nothing to hold back the way memory needs. `--omp-nthreads` stays unpassed because fMRIPrep 24.1.1 sets it to `min(nprocs - 1, 8)` in `config.nipype.init` — already a function of the one input we have, so pinning it would freeze a number the tool derives correctly. The template now reads `--nprocs` from the same `slurm.cpus` the `#SBATCH` directive does, which is what MRIQC always did. **What reading the images added that the item did not anticipate:** MRIQC does *not* derive its per-process cap from nprocs — `_default_omp_threads` is `int(os.getenv('OMP_NUM_THREADS', os.cpu_count()))`, and the 24.0.2 image sets `OMP_NUM_THREADS=1`, so `cpus` buys N single-threaded processes and is the whole of MRIQC's parallelism. That is recorded on the `cpus` key with an instruction to re-measure, because if a future image dropped that variable MRIQC would default to the *node's* 48 CPUs against a 4-CPU allocation. `[fmriprep] nprocs` is deleted and refused at submission on the same terms as `mem_gb`, the two refusals sharing one loop. `_build_mriqc` now honours `nprocs`/`mem_gb` although nothing passes the first: a stage that quietly ignores a parameter its twin acts on is how the next knob gets wired up to nothing. Verified by rendering all four combinations — fMRIPrep defaults `--cpus-per-task=8`/`--nprocs 8`/`--mem=48G`/`--mem-mb 40960`, and both knobs raised to 16/64 G moving all four |

@@ -169,13 +169,17 @@ cpus = "1"
 [slurm.overrides.mriqc]
 time = "06:00:00"
 # The allocation is the authoritative memory number for a stage: MRIQC is handed
-# --mem-gb 24 (alloc - 8 GB headroom) derived from it by config.tool_mem_gb, so
-# its synthstrip overshoot stays inside the cgroup limit.
+# --mem-gb 24 (alloc - 8 GB headroom) derived from it by config.tool_mem_gb.
+# 32G holds the one synthstrip that can be resident at a time (12.25 GB measured)
+# with room for the rest of the workflow. It does NOT hold two, which is what the
+# sbatch's --omp-nthreads exists to prevent — read that comment before raising
+# cpus, because on this stage cpus is a memory decision as much as a speed one.
 memory = "32G"
-# --nprocs comes straight from this. Unlike fMRIPrep, MRIQC does NOT derive its
-# per-process thread cap from nprocs — it reads OMP_NUM_THREADS, which the 24.0.2
-# image sets to 1 — so cpus is the whole of MRIQC's parallelism: N single-threaded
-# processes. Re-measure that before assuming it on a newer image.
+# --nprocs comes straight from this, and so does --omp-nthreads. MRIQC would
+# otherwise read OMP_NUM_THREADS, which the 24.0.2 image sets to 1, leaving every
+# heavy node single-threaded and cpus of them running side by side — the shape
+# that OOM-killed 9 of a beta user's 14 runs at this default. Re-measure the
+# image's OMP_NUM_THREADS before assuming any of this on a newer one.
 cpus = "4"
 
 [slurm.overrides.nordic]

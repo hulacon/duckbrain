@@ -225,10 +225,12 @@ with tab_mriqc:
             value=int(mq_slurm["cpus"]),
             min_value=1,
             key="mq_nprocs",
-            help="The SLURM allocation for each job, and MRIQC's --nprocs. Unlike "
-            "fMRIPrep, MRIQC does not split this into threads per process — the "
-            "container sets OMP_NUM_THREADS=1 — so this is N single-threaded "
-            "processes, and the whole of MRIQC's parallelism.",
+            help="The SLURM allocation for each job, and both of MRIQC's --nprocs "
+            "and --omp-nthreads. Setting them equal means the heavy nodes run one "
+            "at a time on all these CPUs rather than N of them side by side, which "
+            "is what keeps a job inside its memory. So raising this asks for speed "
+            "and buys none of it on those nodes — raise Memory instead if a job "
+            "was killed.",
         )
     with col2:
         mq_mem = st.number_input(
@@ -237,9 +239,9 @@ with tab_mriqc:
             min_value=1,
             key="mq_mem",
             help="The SLURM allocation for each job. MRIQC's own --mem-gb is derived "
-            f"from it, {MEM_HEADROOM_GB} GB lower, so the functional synthstrip step — "
-            "which overshoots its target — still dies inside the allocation rather "
-            "than being OOM-killed. Raise this if a job was killed for memory.",
+            f"from it, {MEM_HEADROOM_GB} GB lower. The number that has to fit is one "
+            "synthstrip — 12.25 GB measured on a real T1w — plus the rest of the "
+            "workflow, which 32 GB covers. Raise this if a job was killed for memory.",
         )
 
     with st.expander("SLURM Resources"):

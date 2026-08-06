@@ -258,6 +258,32 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **MRIQC jobs were being OOM-killed at the shipped defaults, and the allocation
+  was never the problem.** A beta user ran fourteen MRIQC jobs at duckbrain's
+  `32G` / 4-CPU default and nine came back `OUT_OF_MEMORY`; two more finished
+  within a gigabyte of the wall. Every failure was synthstrip, MRIQC's brain
+  extraction, and several jobs died with two copies of it resident at once.
+
+  MRIQC's scheduler starts a step when a CPU slot and the step's *declared*
+  memory estimate both fit. Synthstrip declares no estimate, so it inherits a
+  0.2 GB default and MRIQC's `--mem-gb` — the number duckbrain derives from your
+  allocation — is never consulted for it. Raising memory alone therefore bought
+  nothing: the extra room simply let the same number of copies grow into it.
+
+  What the scheduler does honour is threads, so duckbrain now passes
+  `--omp-nthreads` alongside `--nprocs` and keeps them equal. One heavyweight
+  step runs at a time across all the CPUs you allocated, instead of one per CPU
+  competing for the same memory. Measured on a real T1w, synthstrip peaks at
+  12.25 GB whether it is given one thread or four, and runs **2.4× faster
+  threaded** (77 s → 32 s) — so this costs no wall clock, and four concurrent
+  copies had been asking for 49 GB of a 32 GB allocation.
+
+  **No configuration change is needed and the defaults are unchanged**: `32G`
+  comfortably holds the one synthstrip that can now be resident. If you raised
+  `[slurm.overrides.mriqc] memory` to work around this, you can put it back. Note
+  that on this stage the CPU knob is a memory decision as much as a speed one —
+  the Preprocessing page's help text now says so.
+
 - **A sidecar containing valid JSON that isn't an object crashed the consistency
   checker.** The checker reads every sidecar defensively — an unreadable or
   truncated file is treated as empty rather than stopping the scan — but that
