@@ -99,7 +99,7 @@ _INSPECT_TIMEOUT_S = 30
 
 
 @lru_cache(maxsize=64)
-def _inspect_labels_cached(path: str, mtime: float, size: int) -> tuple:
+def _inspect_labels_cached(path: str, mtime: float, size: int) -> tuple[tuple[str, str], ...]:
     """Run ``apptainer inspect`` and parse ``key: value`` labels.
 
     Keyed on (path, mtime, size) so a rebuilt image at the same path re-inspects

@@ -12,6 +12,7 @@ from .dicom_header import SeriesHeader, classify_from_header, read_series_header
 
 if TYPE_CHECKING:
     from ..config import Config
+    from .series_types import TypeRule
 
 
 @dataclass
@@ -277,7 +278,7 @@ _SBREF_SUFFIX = re.compile(r"_SBRef$", re.IGNORECASE)
 def classify_series(
     series_list: list[SeriesInfo],
     nd_duplicates: str = "corrected",
-    type_rules: list | None = None,
+    type_rules: list[TypeRule] | None = None,
 ) -> list[SeriesInfo]:
     """Classify each series as anat/func/fmap/sbref/physio/scout/derived/dwi/unknown.
 
@@ -654,7 +655,7 @@ def _classify_one(description: str) -> str:
 
 def _detect_gre_fieldmaps(
     fmap_series: list[SeriesInfo],
-) -> tuple[dict, list[str], set[int]]:
+) -> tuple[dict[str, dict[str, int]], list[str], set[int]]:
     """Pair the magnitude and phase halves of a gradient-echo fieldmap.
 
     A Siemens ``gre_field_mapping`` arrives as **two consecutive series** with
@@ -718,7 +719,7 @@ def _detect_gre_fieldmaps(
     return groups, warnings, claimed
 
 
-def is_complete_group(members: dict) -> bool:
+def is_complete_group(members: dict[str, int]) -> bool:
     """True when a fieldmap group has everything it needs to estimate a field.
 
     Both flavours live in one ``groups`` namespace so that binding, naming and
@@ -1159,7 +1160,7 @@ def sanitize_task_label(raw: str) -> str:
     return _sanitize_task_label(raw)
 
 
-def compile_naming_template(template: str) -> re.Pattern:
+def compile_naming_template(template: str) -> re.Pattern[str]:
     """Compile a glob-like naming template into a regex with named groups.
 
     The template uses ``{task}`` and ``{run}`` placeholders; everything else is
@@ -1178,7 +1179,7 @@ def compile_naming_template(template: str) -> re.Pattern:
 
 
 def parse_task_run(
-    description: str, template: str | re.Pattern | None = None
+    description: str, template: str | re.Pattern[str] | None = None
 ) -> tuple[str, int | None]:
     """Parse a series description into (task_label, run_index).
 
@@ -1227,7 +1228,7 @@ def parse_task_run(
     return _sanitize_task_label(task_raw), run
 
 
-def extract_task_label(description: str, template: str | re.Pattern | None = None) -> str:
+def extract_task_label(description: str, template: str | re.Pattern[str] | None = None) -> str:
     """Extract just the BIDS task label from a series description.
 
     Thin wrapper over :func:`parse_task_run`; kept for callers that only need

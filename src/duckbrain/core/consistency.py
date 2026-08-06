@@ -89,7 +89,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .bids_metadata import duckbrain_version
 from .containers import container_build_tag
@@ -131,7 +131,7 @@ class ConsistencyIssue:
 # ---- on-disk provenance readers ---------------------------------------------
 
 
-def _read_json(path: Path) -> dict:
+def _read_json(path: Path) -> dict[str, Any]:
     # The isinstance is not defensive padding — it closes the one hole in the
     # "unreadable file is not a finding" contract above. A truncated or empty
     # sidecar raises ValueError and is absorbed, but `null`, `[]` and `"text"`
@@ -151,10 +151,15 @@ class DerivativeProvenance:
     """What a derivative's ``dataset_description.json`` says about its origin."""
 
     exists: bool
-    generated_by: list  # list of {Name, Version, ...}
+    # `list[Any]`, not `list[dict[...]]`: this is read straight out of a
+    # dataset_description.json a tool or a person wrote, so an entry can be
+    # anything JSON allows. `_tool_entry` isinstance-checks each one for that
+    # reason, and a narrower annotation here would make that guard look like
+    # padding rather than the thing keeping a malformed file from raising.
+    generated_by: list[Any]  # entries are {Name, Version, ...} when well-formed
     raw_link: str  # DatasetLinks.raw, "" if absent
 
-    def _tool_entry(self, tool: str) -> dict:
+    def _tool_entry(self, tool: str) -> dict[str, Any]:
         for entry in self.generated_by:
             if not isinstance(entry, dict):
                 continue
@@ -171,7 +176,7 @@ class DerivativeProvenance:
         """
         return str(self._tool_entry(tool).get("Version", ""))
 
-    def _container(self, tool: str) -> dict:
+    def _container(self, tool: str) -> dict[str, Any]:
         container = self._tool_entry(tool).get("Container", {})
         return container if isinstance(container, dict) else {}
 
@@ -552,7 +557,7 @@ def _check_matlab_drift(config: Config) -> list[ConsistencyIssue]:
 # its latest-per-subject view would report the new toolbox for all of them.
 
 
-def read_nordic_sidecars(config: Config) -> list[dict]:
+def read_nordic_sidecars(config: Config) -> list[dict[str, Any]]:
     """Per-file provenance from every NORDIC output sidecar.
 
     Each entry is the sidecar's ``Duckbrain`` object plus a ``subject`` key.
@@ -560,7 +565,7 @@ def read_nordic_sidecars(config: Config) -> list[dict]:
     means) are skipped — unknowable, not evidence.
     """
     root = Path(config["paths"]["derivatives_dir"]) / "nordic"
-    found: list[dict] = []
+    found: list[dict[str, Any]] = []
     try:
         paths = sorted(root.glob("sub-*/**/func/*_bold.json"))
     except (OSError, ValueError):
@@ -636,7 +641,7 @@ def _recorded_toolbox(config: Config) -> str:
     return read_derivative_provenance(config, "nordic").tool_version("nordic")
 
 
-def _latest_per_subject(config: Config, stage: str) -> dict[str, dict]:
+def _latest_per_subject(config: Config, stage: str) -> dict[str, dict[str, Any]]:
     """Latest submission-log row per subject for *stage*, reconciled against disk.
 
     The log and the filesystem track two related but distinct things: the log
@@ -656,7 +661,7 @@ def _latest_per_subject(config: Config, stage: str) -> dict[str, dict]:
         return {}
     on_disk = _subjects_with_output(config, stage)
     stage_rows = subs[subs["stage"] == stage]
-    latest: dict[str, dict] = {}
+    latest: dict[str, dict[str, Any]] = {}
     for _, row in stage_rows.iterrows():
         subject = str(row.get("subject", ""))
         if subject in on_disk:
@@ -733,7 +738,7 @@ def _check_mixed_provenance(config: Config) -> list[ConsistencyIssue]:
     return issues
 
 
-def _group_subjects_by(latest: dict[str, dict], column: str) -> dict[str, list[str]]:
+def _group_subjects_by(latest: dict[str, dict[str, Any]], column: str) -> dict[str, list[str]]:
     """Subjects grouped by their recorded *column* value, ignoring blanks.
 
     Blanks are "unknown", not a distinct value — otherwise a derivative half of
@@ -875,7 +880,7 @@ def _check_pe_direction(config: Config) -> list[ConsistencyIssue]:
     return issues
 
 
-def _b0_values(sidecar: dict, key: str) -> list[str]:
+def _b0_values(sidecar: dict[str, Any], key: str) -> list[str]:
     """The ``B0Field*`` values on *sidecar*, which BIDS allows to be str or list."""
     raw = sidecar.get(key)
     if isinstance(raw, str):

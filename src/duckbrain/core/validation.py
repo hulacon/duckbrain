@@ -42,7 +42,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .containers import isolation_flags
 
@@ -89,7 +89,7 @@ class ValidationResult:
     duration_s: float = 0.0
     unavailable_reason: str = ""
     issues: tuple[ValidationIssue, ...] = ()
-    summary: dict = field(default_factory=dict)
+    summary: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ran(self) -> bool:
@@ -184,7 +184,9 @@ def validator_unavailable_reason(container: str | Path | None, bids_dir: str | P
     return ""
 
 
-def parse_validator_output(payload: str) -> tuple[tuple[ValidationIssue, ...], dict]:
+def parse_validator_output(
+    payload: str,
+) -> tuple[tuple[ValidationIssue, ...], dict[str, Any]]:
     """Read ``bids-validator --json`` output into issues and its summary.
 
     Tolerant of leading noise on stdout (the container emits a Node warning about
@@ -200,7 +202,7 @@ def parse_validator_output(payload: str) -> tuple[tuple[ValidationIssue, ...], d
     return tuple(out), (data.get("summary") or {})
 
 
-def _first_json_object(payload: str) -> dict:
+def _first_json_object(payload: str) -> dict[str, Any]:
     start = payload.find("{")
     if start < 0:
         return {}
@@ -211,7 +213,7 @@ def _first_json_object(payload: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _issue(raw: dict, severity: str) -> ValidationIssue:
+def _issue(raw: dict[str, Any], severity: str) -> ValidationIssue:
     entries = raw.get("files") or []
     paths = []
     for entry in entries:
@@ -301,5 +303,5 @@ def validate_bids(config: Config, *, timeout_s: int = VALIDATOR_TIMEOUT_S) -> Va
 # ---------------------------------------------------------------------------
 
 
-def _run_validator(cmd: list[str], timeout_s: int) -> subprocess.CompletedProcess:
+def _run_validator(cmd: list[str], timeout_s: int) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=timeout_s)

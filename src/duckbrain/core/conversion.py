@@ -14,6 +14,10 @@ from .containers import isolation_flags
 
 if TYPE_CHECKING:
     from ..config import Config
+    from .dcm2bids_config import Dcm2BidsConfig, Description, FmapRule, TaskRule
+    from .dcm2niix_probe import SeriesProbe
+    from .dicom_inspect import SeriesInfo
+    from .series_types import TypeRule
 
 
 def build_dcm2bids_command(
@@ -118,7 +122,7 @@ def run_dcm2bids(
     container_path: str | Path,
     force: bool = False,
     dry_run: bool = False,
-) -> subprocess.CompletedProcess | list[str]:
+) -> subprocess.CompletedProcess[str] | list[str]:
     """Run dcm2bids conversion.
 
     Parameters
@@ -142,7 +146,7 @@ def run_dcm2bids(
     return result
 
 
-def save_dcm2bids_config(config_dict: dict, output_path: str | Path) -> Path:
+def save_dcm2bids_config(config_dict: Dcm2BidsConfig, output_path: str | Path) -> Path:
     """Write a dcm2bids config dict to a JSON file.
 
     Parameters
@@ -189,14 +193,14 @@ def generate_session_config(
     subject: str,
     session: str,
     template: str | None = None,
-    rules: list | None = None,
-    fmap_rules: list | None = None,
-    series_list: list | None = None,
+    rules: list[TaskRule] | None = None,
+    fmap_rules: list[FmapRule] | None = None,
+    series_list: list[SeriesInfo] | None = None,
     nd_duplicates: str = "corrected",
     skip: Collection[int] | None = None,
-    type_rules: list | None = None,
+    type_rules: list[TypeRule] | None = None,
     container: str | Path | None = None,
-) -> dict:
+) -> Dcm2BidsConfig:
     """Inspect a session's DICOMs and build a default dcm2bids config.
 
     The non-interactive equivalent of the Conversion page's inspect → classify →
@@ -282,7 +286,7 @@ def generate_session_config(
         skip=skip,
     )
 
-    probes: dict = {}
+    probes: dict[int, SeriesProbe] = {}
     if container:
         runtime = probe_runtime(container)
         if runtime.available:
@@ -361,7 +365,7 @@ class ConfigDrift:
         return lines
 
 
-def _flatten(desc: dict) -> dict[str, object]:
+def _flatten(desc: Description) -> dict[str, object]:
     """One level of nesting flattened to ``section.key``, so a diff can name the
     field that moved rather than dumping two dicts at the reader."""
     out: dict[str, object] = {}
@@ -374,7 +378,7 @@ def _flatten(desc: dict) -> dict[str, object]:
     return out
 
 
-def compare_dcm2bids_configs(saved: dict, fresh: dict) -> ConfigDrift:
+def compare_dcm2bids_configs(saved: Dcm2BidsConfig, fresh: Dcm2BidsConfig) -> ConfigDrift:
     """Differences between a saved dcm2bids config and a freshly generated one.
 
     Descriptions are matched on ``id``, which is what dcm2bids itself uses to

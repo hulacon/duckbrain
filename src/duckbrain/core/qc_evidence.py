@@ -106,7 +106,7 @@ def figures_dir(fmriprep_dir: Path | str, subject: str) -> Path:
     return Path(fmriprep_dir) / subject / "figures"
 
 
-def _matches(candidate: dict, target: dict, keys: tuple[str, ...]) -> bool:
+def _matches(candidate: dict[str, str], target: dict[str, str], keys: tuple[str, ...]) -> bool:
     """True when every listed entity the *candidate* carries agrees with *target*.
 
     Entities the candidate does not carry are not checked, so a subject-level

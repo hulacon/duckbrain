@@ -99,7 +99,7 @@ class SeriesProbe:
     multiband_factor: int | None = None
     echo_time: float | None = None
     image_type: tuple[str, ...] = ()
-    raw: dict = field(default_factory=dict, repr=False)
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
     def pe_axis(self) -> str:
@@ -226,7 +226,7 @@ def _as_floats(value: Any) -> tuple[float, ...]:
         return ()
 
 
-def _to_probe(sidecar: dict) -> SeriesProbe:
+def _to_probe(sidecar: dict[str, Any]) -> SeriesProbe:
     number = sidecar.get("SeriesNumber")
     multiband = sidecar.get("MultibandAccelerationFactor")
     return SeriesProbe(

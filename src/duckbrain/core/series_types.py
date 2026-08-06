@@ -49,7 +49,7 @@ make relabelling the only way to drop a series.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -206,6 +206,6 @@ def type_rules_from_config(config: Config) -> list[TypeRule]:
     return out
 
 
-def type_rules_to_config_section(rules: list[TypeRule]) -> dict:
+def type_rules_to_config_section(rules: list[TypeRule]) -> dict[str, Any]:
     """Serialize declarations into a TOML-friendly ``[series_types]`` section."""
     return {"rule": [{"description": r.description, "type": r.token} for r in rules]}

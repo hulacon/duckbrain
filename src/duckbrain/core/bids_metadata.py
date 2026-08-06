@@ -8,7 +8,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pydicom
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from ..config import Config
 
 
-def read_dicom_demographics(dicom_dir: str | Path) -> dict:
+def read_dicom_demographics(dicom_dir: str | Path) -> dict[str, Any]:
     """Extract participant demographics from a DICOM file in a directory.
 
     Reads the first valid DICOM found and extracts PatientSex and PatientAge.
@@ -57,7 +57,7 @@ def read_dicom_demographics(dicom_dir: str | Path) -> dict:
 
 def write_participants_tsv(
     bids_dir: str | Path,
-    participants: list[dict],
+    participants: list[dict[str, Any]],
     append: bool = True,
 ) -> Path:
     """Write or append to participants.tsv and its companion JSON sidecar.
@@ -137,7 +137,7 @@ def duckbrain_version() -> str:
     return describe(_duckbrain_repo()) or __version__
 
 
-def _duckbrain_generated_by() -> dict:
+def _duckbrain_generated_by() -> dict[str, Any]:
     """The ``GeneratedBy`` entry for duckbrain itself.
 
     Prefers a ``git describe`` of duckbrain's *own checkout* over the packaged
@@ -156,7 +156,7 @@ def _duckbrain_generated_by() -> dict:
     return {"Name": "duckbrain", "Version": duckbrain_version()}
 
 
-def converter_generated_by(config: Config) -> list[dict]:
+def converter_generated_by(config: Config) -> list[dict[str, Any]]:
     """``GeneratedBy`` for an ingested BIDS root: duckbrain **and** its converter.
 
     The raw BIDS root is duckbrain's own output too — it ran dcm2bids to make it —
@@ -176,7 +176,7 @@ def converter_generated_by(config: Config) -> list[dict]:
         from .pipeline import resolve_container, run_provenance
 
         prov = run_provenance(config, "converted")
-        entry: dict = {"Name": prov["tool"] or "dcm2bids"}
+        entry: dict[str, Any] = {"Name": prov["tool"] or "dcm2bids"}
         if prov["tool_version"]:
             entry["Version"] = prov["tool_version"]
         if prov["runtime"]:
@@ -194,8 +194,8 @@ def converter_generated_by(config: Config) -> list[dict]:
 def write_dataset_description(
     bids_dir: str | Path,
     name: str = "",
-    extra_fields: dict | None = None,
-    generated_by: list[dict] | None = None,
+    extra_fields: dict[str, Any] | None = None,
+    generated_by: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Write dataset_description.json to the BIDS root, preserving what it didn't write.
 
@@ -258,7 +258,7 @@ def write_dataset_description(
     return desc_path
 
 
-def _read_json(path: Path) -> dict:
+def _read_json(path: Path) -> dict[str, Any]:
     """An existing JSON object, or ``{}`` if it is absent, unreadable or not a dict.
 
     Degrading to ``{}`` means a corrupt file is *replaced* rather than making the
@@ -272,7 +272,7 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def dataset_extra_fields(config: Config) -> dict:
+def dataset_extra_fields(config: Config) -> dict[str, Any]:
     """The ``dataset_description.json`` fields duckbrain elicits from project config.
 
     One helper rather than two call sites assembling it, because the Ingestion
@@ -288,8 +288,8 @@ def ensure_dataset_description(
     bids_dir: str | Path,
     *,
     name: str = "",
-    extra_fields: dict | None = None,
-    generated_by: list[dict] | None = None,
+    extra_fields: dict[str, Any] | None = None,
+    generated_by: list[dict[str, Any]] | None = None,
 ) -> Path | None:
     """Write ``dataset_description.json`` only if the BIDS root has none.
 
@@ -343,7 +343,7 @@ def ensure_readme(bids_dir: str | Path, *, name: str = "") -> Path | None:
     return path
 
 
-def _runtime_generated_by(runtime: str) -> dict:
+def _runtime_generated_by(runtime: str) -> dict[str, Any]:
     """A ``GeneratedBy`` entry for a non-container runtime, e.g. ``matlab/R2024a``.
 
     A container image needs none — it *is* the runtime, and ``Container`` already
@@ -391,7 +391,7 @@ def write_derivative_description(
     deriv_dir.mkdir(parents=True, exist_ok=True)
     desc_path = deriv_dir / "dataset_description.json"
 
-    tool_entry: dict = {}
+    tool_entry: dict[str, Any] = {}
     if tool:
         tool_entry["Name"] = tool
         if tool_version:
@@ -415,7 +415,7 @@ def write_derivative_description(
     if runtime_entry:
         generated_by.append(runtime_entry)
 
-    description: dict = {
+    description: dict[str, Any] = {
         "Name": name or pipeline_name,
         "BIDSVersion": "1.9.0",
         "DatasetType": "derivative",

@@ -213,7 +213,7 @@ def _single_volume(files: list[Path], image_type: tuple[str, ...], enhanced: boo
 
     import pydicom
 
-    seen: set[tuple] = set()
+    seen: set[tuple[Any, ...]] = set()
     for path in files[:_POSITION_SCAN_LIMIT]:
         try:
             ds = pydicom.dcmread(
