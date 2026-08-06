@@ -195,6 +195,26 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Changed
 
+- **A job's memory is now one number, and fMRIPrep is told the truth about it.**
+  Every generated fMRIPrep script carried two: `#SBATCH --mem=48G`, the limit
+  SLURM actually enforces, and `--mem-mb 32768` from a separate `[fmriprep]
+  mem_gb` setting, which is what fMRIPrep scheduled against. Nothing related
+  them, so raising one left the other behind — and at the shipped defaults
+  fMRIPrep spent every run warning that some of its nodes were too big for the
+  memory available while 16 GB it had been allocated went unused.
+
+  The SLURM allocation is now the only memory setting: `[slurm.overrides.<stage>]
+  memory`. What the tool inside is told is derived from it, 8 GB lower, so a node
+  that overshoots its target still dies inside the allocation instead of being
+  OOM-killed by the cgroup. This is what MRIQC already did; fMRIPrep now works
+  the same way, and MRIQC's numbers are unchanged.
+
+  **If your project or user config sets `[fmriprep] mem_gb`, delete it** — the
+  key is no longer read, and a submission that finds it is refused with a message
+  saying so rather than quietly using a ceiling you didn't write. Set the
+  allocation instead. The GUI's fMRIPrep memory box now says "Memory (GB)" and
+  names the allocation, so raising it moves both numbers together.
+
 - **Streamlit 1.56 is now the minimum** (was 1.48). The embedded MRIQC/fMRIPrep
   report viewer used `st.components.v1.html`, whose announced removal date —
   2026-06-01 — has passed; it still works in 1.56–1.59, but the first upgrade to

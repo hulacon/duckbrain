@@ -241,6 +241,25 @@ def test_fmriprep_submit_passes_every_option_the_user_set(project, calls):
     }
 
 
+def test_the_memory_knob_defaults_to_the_slurm_allocation(project, calls):
+    """Not to a separate ``[fmriprep]`` ceiling — there is no longer one.
+
+    The knob names the allocation so that raising it moves both the ``#SBATCH
+    --mem`` directive and the ``--mem-mb`` derived from it; defaulting it to
+    anything else would put the two back out of step the moment it is touched.
+    """
+    from duckbrain.config import get_slurm_resources, load_config, parse_mem_gb
+
+    alloc = parse_mem_gb(get_slurm_resources(load_config(), "fmriprep")["memory"])
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert at.number_input(key="fp_mem").value == alloc
+    _pick(at, "fp_subjects", ["02"])
+    _pick(at, "fp_sessions", ["02"])
+    at.button(key="fp_submit").click().run()
+    assert calls[0][3]["mem_gb"] == alloc
+
+
 def test_export_sets_export_only_and_reports_a_path(project, calls):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     _pick(at, "fp_subjects", ["02"])

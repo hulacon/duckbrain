@@ -6,12 +6,14 @@ that misconfigured / non-launchable stages raise ``PipelineError`` rather than
 submitting junk.
 """
 
+import re
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 import duckbrain.core.pipeline as P
+from duckbrain.config import MEM_HEADROOM_GB
 from duckbrain.core.pipeline import (
     SLURM_STAGES,
     STAGE_SPECS,
@@ -333,11 +335,94 @@ def test_fmriprep_params_reach_context(monkeypatch, tmp_path):
     assert cap["template"] == "fmriprep"
     ctx = cap["ctx"]
     assert ctx["fmriprep"]["nprocs"] == 4
-    assert ctx["fmriprep"]["mem_gb"] == 99
+    # mem_gb names the allocation; fMRIPrep's own ceiling is derived from it.
+    assert ctx["slurm"]["memory"] == "99G"
+    assert ctx["mem_gb"] == 99 - MEM_HEADROOM_GB
     # A string of spaces is split into a list; anat_only flows through.
     assert ctx["output_spaces"] == ["MNI152NLin2009cAsym", "T1w"]
     assert ctx["anat_only"] is True
     assert ctx["derivatives"] == ""  # use_derivatives defaulted False
+
+
+# ---- one memory ceiling per script ------------------------------------------
+
+# What each nipype tool calls its scheduler's memory target, and the factor
+# between that flag's unit and GB.
+_MEM_FLAG = {"fmriprep": ("--mem-mb", 1024), "mriqc": ("--mem-gb", 1)}
+
+
+def _mem_numbers(script, stage):
+    """(allocation, tool ceiling), both GB, read back out of a rendered script."""
+    from duckbrain.config import parse_mem_gb
+
+    flag, per_gb = _MEM_FLAG[stage]
+    alloc = re.search(r"#SBATCH --mem=(\S+)", script).group(1)
+    told = re.search(rf"{flag} (\d+)", script).group(1)
+    return parse_mem_gb(alloc), int(told) // per_gb
+
+
+def _real_script(monkeypatch, tmp_path, stage, **params):
+    """The sbatch text `advance_one` would submit, rendered for real.
+
+    Rendered rather than asserted on the context, because the defect this covers
+    was two template lines disagreeing — a context assertion can only see the
+    side it already knows to look at.
+    """
+    import duckbrain.core.fmriprep as F
+    import duckbrain.core.mriqc as M
+    from duckbrain.slurm.templates import render_sbatch
+
+    (tmp_path / "fs").mkdir(exist_ok=True)
+    lic = tmp_path / "fs" / "license.txt"
+    lic.write_text("x")
+    monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
+    monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
+    monkeypatch.setattr(M, "get_container_path", lambda cfg: "cont.simg")
+
+    cap = {}
+    monkeypatch.setattr(
+        P, "render_sbatch", lambda template, ctx: cap.update(t=template, ctx=ctx) or "s"
+    )
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
+    advance_one(_config(tmp_path), stage, "008", "", **params)
+    return render_sbatch(cap["t"], cap["ctx"])
+
+
+@pytest.mark.parametrize("stage", ["fmriprep", "mriqc"])
+def test_a_script_states_its_memory_once(monkeypatch, tmp_path, stage):
+    """The allocation is authoritative and the tool's ceiling is derived from it.
+
+    fMRIPrep used to carry both ``#SBATCH --mem=48G`` and ``--mem-mb 32768``,
+    from two config keys with nothing relating them, and warned ``Some nodes
+    exceed the total amount of memory available (32.77GB)`` on a run that had
+    48 GB. ``config.tool_mem_gb`` says why the allocation is the side that wins.
+    """
+    alloc, told = _mem_numbers(_real_script(monkeypatch, tmp_path, stage), stage)
+    assert told == alloc - MEM_HEADROOM_GB
+
+
+@pytest.mark.parametrize("stage", ["fmriprep", "mriqc"])
+def test_raising_the_memory_knob_moves_both_numbers(monkeypatch, tmp_path, stage):
+    """The GUI knob names the allocation, so an operator cannot raise one side.
+
+    Letting it set only the tool's target is the same bug wearing a slider: the
+    job would keep the cgroup limit it had and be OOM-killed at the old ceiling.
+    """
+    script = _real_script(monkeypatch, tmp_path, stage, mem_gb=64)
+    assert _mem_numbers(script, stage) == (64, 64 - MEM_HEADROOM_GB)
+
+
+def test_a_config_that_still_pins_fmriprep_mem_gb_is_refused(monkeypatch, tmp_path):
+    """Not ignored — it reads as the ceiling in force, and would not be one.
+
+    The same rule as every other option that cannot do what it says: raise, so
+    the operator fixes the config, rather than submit a job whose real ceiling
+    is a number they never wrote.
+    """
+    cfg = _config(tmp_path)
+    cfg["fmriprep"] = {"mem_gb": 32}
+    with pytest.raises(PipelineError, match="no longer read"):
+        advance_one(cfg, "fmriprep", "008", "")
 
 
 # ---- live-state fusion (survey_live) + run gating ---------------------------

@@ -45,6 +45,7 @@ _TEMPLATE_DEFAULTS = {
         filter_file="",
         anat_only=False,
         derivatives="",
+        mem_gb=40,
     ),
     "mriqc": dict(subject="04", session="01", container_path="/x.sif", mem_gb=8),
     "nordic_denoise": dict(subject="04", session="01", bold_count=2, scripts_dir="/s"),
@@ -133,6 +134,7 @@ def test_dcm2bids_includes_session_flag_when_multi_session():
                 filter_file="",
                 anat_only=False,
                 derivatives="",
+                mem_gb=40,
             ),
         ),
         ("mriqc", dict(subject="04", session="", container_path="/x", mem_gb=8)),
@@ -159,6 +161,7 @@ def _fmriprep(**extra):
         filter_file="",
         anat_only=False,
         derivatives="",
+        mem_gb=40,
     )
     kwargs.update(extra)
     return render_sbatch("fmriprep", build_context(_cfg(), "fmriprep", **kwargs))
@@ -293,6 +296,7 @@ def test_fmriprep_survives_a_path_with_spaces_and_metacharacters():
         filter_file=f"{NASTY}/filter.json",
         anat_only=False,
         derivatives="",
+        mem_gb=40,
     )
     argv = _singularity_argv(render_sbatch("fmriprep", ctx))
 
@@ -389,6 +393,7 @@ def test_no_comment_breaks_a_line_continuation(step, extra):
                 filter_file="",
                 anat_only=False,
                 derivatives="",
+                mem_gb=40,
             ),
         ),
         ("mriqc", dict(subject="04", session="01", container_path=NASTY, mem_gb=8)),
@@ -471,6 +476,7 @@ def test_extra_flags_stays_an_unquoted_shell_fragment():
         filter_file="",
         anat_only=False,
         derivatives="",
+        mem_gb=40,
         extra_flags="--use-syn-sdc --fd-spike-threshold 0.5",
     )
     argv = _singularity_argv(render_sbatch("fmriprep", ctx))
@@ -586,6 +592,7 @@ def test_a_nordic_fmriprep_run_shares_scratch_with_its_raw_twin():
         filter_file="",
         anat_only=False,
         derivatives="",
+        mem_gb=40,
     )
     raw = build_context(cfg, "fmriprep", bids_dir="/projects/study", **common)
     nordic = build_context(
@@ -635,7 +642,7 @@ def _stage_script(tmp_path, stage):
     cfg["paths"]["work_dir"] = str(tmp_path / "scratch")
     cfg["paths"]["derivatives_dir"] = str(tmp_path / "derivatives")
     out = f"{tmp_path}/derivatives/{stage}"
-    extra = dict(subject="04", session="01", container_path="/x")
+    extra = dict(subject="04", session="01", container_path="/x", mem_gb=8)
     if stage == "fmriprep":
         extra.update(
             bids_dir="/b",
@@ -647,8 +654,6 @@ def _stage_script(tmp_path, stage):
             anat_only=False,
             derivatives="",
         )
-    else:
-        extra.update(mem_gb=8)
     return render_sbatch(stage, build_context(cfg, stage, **extra)), out
 
 

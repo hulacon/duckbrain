@@ -17,6 +17,11 @@ echo "Node: $(hostname)"
    variables assigned here need their own quotes ("$WORK_DIR"), since the filter
    only protects the assignment, not every later use of it.
 
+   `mem_gb` is NOT a config value: it is derived from this job's `#SBATCH --mem`
+   above, by config.tool_mem_gb, which is where the reason lives. Nothing here
+   may spell a memory ceiling of its own — two independently-set numbers on one
+   script is the bug that rule exists to prevent.
+
    `extra_flags` is the one deliberate exception: it is a shell fragment the
    operator supplies and it must word-split (`--use-syn-sdc --fd-spike-threshold
    0.5` is three arguments), so it is the one unquoted field in this template.
@@ -68,7 +73,7 @@ singularity run {{ container_flags }} \
 {% endif %}  --output-spaces {{ output_spaces | map("string") | map("sh") | join(' ') }} \
   --fs-license-file {{ fs_license | sh }} \
   --nprocs {{ fmriprep.nprocs }} \
-  --mem-mb {{ fmriprep.mem_gb * 1024 }} \
+  --mem-mb {{ mem_gb * 1024 }} \
   -w "$WORK_DIR" \
 {% if anat_only %}  --anat-only \
 {% endif %}{% if derivatives %}  --derivatives {{ derivatives | sh }} \

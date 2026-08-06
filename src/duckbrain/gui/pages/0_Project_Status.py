@@ -144,8 +144,18 @@ def _stage_params(stage, config, key_prefix, subject="", session=""):
         params["nprocs"] = st.number_input(
             "nprocs", value=fp.get("nprocs", 8), min_value=1, key=f"{key_prefix}_nprocs"
         )
+        # The allocation, not fMRIPrep's --mem-mb: that is derived from this one
+        # (config.tool_mem_gb), so raising it moves both numbers together.
+        from duckbrain.config import MEM_HEADROOM_GB, get_slurm_resources, parse_mem_gb
+
         params["mem_gb"] = st.number_input(
-            "mem_gb", value=fp.get("mem_gb", 32), min_value=4, key=f"{key_prefix}_mem"
+            "Memory (GB)",
+            value=parse_mem_gb(get_slurm_resources(config, "fmriprep")["memory"]),
+            min_value=1,
+            key=f"{key_prefix}_mem",
+            help="The SLURM allocation. fMRIPrep is told "
+            f"{MEM_HEADROOM_GB} GB less, so a node overshooting its target stays "
+            "inside the allocation instead of being OOM-killed.",
         )
         params["anat_only"] = st.checkbox("Anat-only", key=f"{key_prefix}_anat")
         # Reuse needs preprocessed anatomicals already on disk for this SUBJECT —

@@ -110,9 +110,11 @@ fmriprep_version = "24.1.1"
 mriqc_version = "24.0.2"
 
 [fmriprep]
+# No memory key here on purpose. fMRIPrep's --mem-mb is derived from the SLURM
+# allocation below (config.tool_mem_gb); a second, independently-set ceiling is
+# refused at submission rather than ignored.
 output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
 nprocs = 8
-mem_gb = 32
 
 [nordic]
 magnitude_only = true
@@ -167,8 +169,9 @@ cpus = "1"
 
 [slurm.overrides.mriqc]
 time = "06:00:00"
-# 32G allocation; MRIQC is handed --mem-gb 24 (alloc - 8 GB headroom) in
-# _build_mriqc so its synthstrip overshoot stays inside the cgroup limit.
+# The allocation is the authoritative memory number for a stage: MRIQC is handed
+# --mem-gb 24 (alloc - 8 GB headroom) derived from it by config.tool_mem_gb, so
+# its synthstrip overshoot stays inside the cgroup limit.
 memory = "32G"
 cpus = "4"
 
@@ -179,6 +182,7 @@ cpus = "4"
 
 [slurm.overrides.fmriprep]
 time = "48:00:00"
+# fMRIPrep is handed --mem-mb 40960 (alloc - 8 GB headroom) derived from this.
 memory = "48G"
 cpus = "8"
 # The one long-running stage: takes [slurm] partition_long rather than partition.

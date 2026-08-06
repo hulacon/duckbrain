@@ -19,8 +19,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [Licensing](#licensing-follow-ups) ·
 [`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
 oracle it lacked) ·
-[`#20`](#20) conda environment · [`#32`](#32) two memory ceilings ·
-[`#33`](#33) widen the type-checked surface ·
+[`#20`](#20) conda environment ·
+[`#33`](#33) widen the type-checked surface · [`#35`](#35) nprocs vs cpus ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -737,20 +737,6 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 
 ---
 
-<a id="32"></a>
-## #32 — fMRIPrep is told a different memory ceiling than SLURM enforces
-
-One generated script carries both `#SBATCH --mem=48G` (from
-`[slurm.overrides.fmriprep]`) and `--mem-mb 32768` (from `[fmriprep] mem_gb`),
-and nothing relates them. MRIQC does relate them — `_build_mriqc` derives
-`--mem-gb` from the allocation with stated headroom, and says so in a comment on
-the config. Decide which side is authoritative for fMRIPrep and derive the other,
-rather than letting an operator raise one and not the other. Observed on the
-2026-07-24 run, whose log also warned `Some nodes exceed the total amount of
-memory available (32.77GB)` while 48 GB was in fact allocated.
-
----
-
 <a id="33"></a>
 ## #33 — Widen the type-checked surface
 
@@ -807,6 +793,31 @@ docstring-*format* diff across a codebase whose docstrings are its best feature
 is a net loss, and the rules it would enforce are about punctuation and mood,
 not content. The others are open questions; `PTH` is the most likely to be worth
 it and the most likely to be mechanical.
+
+---
+
+<a id="35"></a>
+## #35 — fMRIPrep's `--nprocs` is declared apart from `--cpus-per-task`
+
+`#32`'s twin, left open when that one closed because it is not the same
+*question*. Memory had an answer already proven on MRIQC; CPUs do not.
+
+The fMRIPrep script says `--nprocs 8` from `[fmriprep] nprocs` and
+`#SBATCH --cpus-per-task=8` from `[slurm.overrides.fmriprep] cpus`. Nothing
+relates them; they agree today by coincidence, and an operator raising the
+allocation gets a job that still runs eight-wide. MRIQC already derives its
+`--nprocs` from `slurm.cpus`, so the shipped scripts disagree with each other
+about whether this is one number or two.
+
+What makes it a decision rather than a copy of `#32`: **`--omp-nthreads`.**
+fMRIPrep's total parallelism is `nprocs`, but it also hands some nodes a
+multi-threaded slice of that, defaulting to `min(nprocs - 1, 8)`, and a site that
+deliberately sets `nprocs` below `cpus` is usually trying to buy threads for
+those nodes. duckbrain sets neither knob explicitly. So decide whether the fix is
+`nprocs = cpus` (matching MRIQC, and correct if you never touch `omp-nthreads`)
+or `nprocs` and `omp_nthreads` both derived from `cpus` by a stated split — and
+say which in the config, the way the memory headroom now does. There is no
+observed failure driving this, unlike `#32`; it is a drift waiting to happen.
 
 ---
 
@@ -1490,6 +1501,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-06 | `#32` | **The allocation is authoritative; the tool's ceiling is derived from it.** `config.tool_mem_gb` is the one place the rule lives, and both nipype stages go through it, so fMRIPrep works the way MRIQC already did and MRIQC's numbers are unchanged (32G → `--mem-gb 24`). fMRIPrep at the shipped default now reads `#SBATCH --mem=48G` with `--mem-mb 40960` instead of 32768, which is the 16 GB the 2026-07-24 run was allocated, warned about not having, and never used. `[fmriprep] mem_gb` is deleted from `base.toml` and a config that still carries it is **refused at submission**, before anything touches the filesystem — ignoring it would leave the key reading as the ceiling in force, which is the same silent-degradation rule that governs the anat-reuse toggle. The GUI knob was retargeted rather than removed: it names the allocation, so raising it moves the `#SBATCH` directive and the derived ceiling together, and the SLURM Resources expander shows the job about to be sent rather than the config file. Two things the fix needed that the item didn't mention — `parse_mem_gb`, because `"49152M"` is the same allocation as `"48G"` and the old `.replace("G", "")` would have read it as 49152 GB, and a **raise** when the allocation is at or below the 8 GB buffer, since flooring at a token 1 GB is a ceiling nobody wrote. Pinned by rendering the real scripts and reading both numbers back out of the text (`test_a_script_states_its_memory_once`), over both stages — a context assertion can only check the side it already knows to look at, and the defect was two template lines disagreeing. The same shape is still live for CPUs: `--nprocs` comes from `[fmriprep] nprocs` while `--cpus-per-task` comes from the override, identical today by coincidence — see `#35` |
 | 2026-08-04 | `#34` | **Every container ran against the host's Python, and a beta tester's MRIQC crash is what surfaced it.** `--cleanenv` was on all nine invocation sites and is not isolation: it clears environment *variables*, while apptainer still binds `$HOME` and CPython still puts `~/.local/lib/pythonX.Y/site-packages` on `sys.path` **ahead of** the image's own. Measured inside the real image — `python 3.11.8`, `numpy 1.26.4`, `user site enabled: True`, and `/home/$USER/.local/lib/python3.11/site-packages` on the path. The reporter had NumPy 2.x there; MRIQC imported it instead of the image's 1.26.4 and died building its workflow, because transforms3d calls something NumPy 2.0 removed. **Not MRIQC-specific**: the MRIQC 24.0.2 and fMRIPrep 24.1.1 images are both Python 3.11, so one host directory shadows both, and dcm2bids (3.12) is exposed to a 3.12 one. Fixed with `PYTHONNOUSERSITE=1` via `--env`, spelled **once** in `core.containers.ISOLATION_FLAGS` and reaching the four sbatch lines through `build_context`'s `container_flags` — the `#31` rule, because a flag needed at nine sites is a flag that goes missing at the tenth. `--no-home` also works and was rejected: it removes `$HOME` wholesale, where nipype's config, matplotlib's cache and the FreeSurfer licence live. `tests/test_container_isolation.py` pins both halves — seven behavioural tests that fail against the old flags, and four sweeps (AST over `src/`, text over the templates) that fail when a *new* site spells its own. Verified against the real image with a shadowing home: `user site enabled: False`. **The crash was the lucky outcome** — a host package close enough to import but not to behave would have changed results in silence |
 | 2026-08-04 | `#18` | **Static analysis — both follow-ons closed.** Ruff widened a ruleset per commit as the item asked: `B`, then `I`, then `UP`, plus `TD`+`FIX` at zero findings to make CLAUDE.md's "no `# TODO:` in source" rule a gate instead of a promise (verified first that it does *not* match the sanctioned mid-sentence `(TODO #17.4)` citation style — all 13 in `src` still pass). The item's own numbers were stale and are corrected here: 100 findings, not 59, and **44** `B905` sites, not eight. But only **5** were in `src`; the other 39 were one repeated shape in `test_conversion_page.py`, collapsed to a single `_by_series` helper in a prior commit so the bugbear diff was 8 lines of judgment rather than 45 of mechanism. The judgments did not come out uniform, which is the value: three `core/` sites document an unequal zip as intended and take `strict=False`, two GUI sites zip against `st.columns(len(X))` and take `strict=True`. The one `B023` is a false positive with a stated `noqa`. **mypy gates the three modules the item named**, in its own CI job (not a matrix step — the matrix installs different third-party builds per leg, so it could go red on one for reasons nobody caused) and blocking rather than advisory, which is only safe because the config was dialled to a measured zero *first*. `disallow_untyped_defs` cost nothing — all 87 functions in those files were already annotated — so it is a ratchet like the coverage floor, not a cleanup project; `follow_imports = "silent"` contains the closure's 23 modules, and pandas is the one stub gap, named rather than blanketed. **It found five errors, all one shape**: a name bound to two unrelated things in one long function (`expected` meaning both a phase-encoding direction and a list of dropped series 130 lines apart in `plan_warnings`; `run` meaning both a BOLD's counted index and an SBRef's possibly-absent one). Fixed by renaming, since the type complaint was pointing at something a reader trips on too. `disallow_any_generics` and a wider file list are real work rather than config and moved to `#33`; the ND-pairing behaviour question `B905` surfaced moved to `#19.12` |
 | 2026-08-04 | `#31` | **Node-local scratch is qualified by project now, and a job clears its own.** `config.unit_work_dir` builds `<work_dir>/duckbrain-<user>-<project>-<hash8>/<step>_sub-XX[_ses-YY]`: the digest is what separates two studies, the basename is only so the tree is recognisable on the node, and the login name is there because `/tmp` is shared between users too and the first creator owns the tree — without it the second user gets an unexplained `EACCES` rather than a wrong answer. Derived in `build_context` rather than by each caller, because the bug was two templates independently spelling `paths.work_dir ~ "/sub-"`; `test_no_template_builds_a_scratch_path_out_of_paths_work_dir` sweeps the whole directory so a third cannot. Read from `config[paths][bids_dir]` and never from the context, or a `use_nordic` fMRIPrep run — handed a *derivative* as its BIDS input — would give one unit two caches depending on a toggle. **Stable per (project, step, unit) and not per attempt**, which is the question the item asked to settle first: a re-run after a walltime kill resumes from the cache the killed attempt left, and that is the only reason the tree is worth keeping rather than always wiping. **Cleanup is not keyed on the exit code** — that would trust exactly the signal `#28` proved lies. A job removes its work dir when it exits 0 *and* wrote no `crash-*` under its derivative newer than a stamp it touched at start; `-newer` and not merely "exists", or the first crash a project ever recorded would switch cleanup off for good. A kill keeps the tree by construction: the shell never reaches the line. All four states execute for real in `tests/test_sbatch_templates.py` against a stubbed `singularity`, over both nipype stages, and each was checked to fail against the behaviour it replaced. `core/fmriprep.py`/`core/mriqc.py`'s `build_*_command` are untouched: they take `work_dir` from a caller, have no caller in `src/`, and are not on the submission path |

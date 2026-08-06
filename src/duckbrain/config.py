@@ -271,6 +271,63 @@ def get_slurm_resources(config: dict, step: str) -> dict:
     }
 
 
+# GB held back from a stage's SLURM allocation when deriving the memory ceiling
+# handed to the nipype tool inside it. See :func:`tool_mem_gb`.
+MEM_HEADROOM_GB = 8
+
+_MEM_UNIT_MB = {"K": 1 / 1024, "M": 1.0, "G": 1024.0, "T": 1024.0 * 1024}
+
+
+def parse_mem_gb(memory: str | int | float) -> int:
+    """A SLURM ``--mem`` value → whole GB, rounded down.
+
+    ``sbatch`` takes a number with an optional ``K``/``M``/``G``/``T`` suffix and
+    reads an unsuffixed one as MB, so ``"32768M"`` and ``"32G"`` are the same
+    allocation — which is why this parses rather than strips a ``"G"``.
+    """
+    text = str(memory).strip().upper()
+    unit = "M"
+    if text and text[-1] in _MEM_UNIT_MB:
+        unit, text = text[-1], text[:-1]
+    try:
+        mb = float(text) * _MEM_UNIT_MB[unit]
+    except ValueError:
+        raise ValueError(f"Not a SLURM memory value: {memory!r}") from None
+    return int(mb // 1024)
+
+
+def tool_mem_gb(config: dict, step: str, alloc_gb: int | None = None) -> int:
+    """Memory ceiling, in GB, to hand the nipype tool running in *step*'s container.
+
+    **The SLURM allocation is authoritative; this is derived from it**, and no
+    stage may carry an independently-configured ceiling. The two numbers are not
+    the same kind of thing: ``--mem-gb``/``--mem-mb`` is a soft target for
+    nipype's scheduler, while ``#SBATCH --mem`` is the cgroup limit that actually
+    kills the step. Configure both and they drift with nothing to notice —
+    fMRIPrep ran allocated 48 G while told 32768 MB, warning ``Some nodes exceed
+    the total amount of memory available (32.77GB)`` with 16 GB it was never told
+    about sitting unused.
+
+    The headroom is because nodes overshoot the target: MRIQC's functional
+    synthstrip (torch brain extraction) does, and with the target equal to the
+    allocation the cgroup OOM-killed the step on all 9 divatten_gui_beta
+    subjects, 2026-07-10.
+
+    *alloc_gb* overrides the configured allocation for callers that let an
+    operator raise it per job; they are responsible for putting the same number
+    on ``#SBATCH --mem``.
+    """
+    if alloc_gb is None:
+        alloc_gb = parse_mem_gb(get_slurm_resources(config, step)["memory"])
+    if alloc_gb <= MEM_HEADROOM_GB:
+        raise ValueError(
+            f"{step} is allocated {alloc_gb} GB, which leaves nothing once the "
+            f"{MEM_HEADROOM_GB} GB overshoot buffer is held back. Allocate more than "
+            f"{MEM_HEADROOM_GB} GB in [slurm.overrides.{step}] memory."
+        )
+    return alloc_gb - MEM_HEADROOM_GB
+
+
 def _dump_toml(path: str | Path, data: dict) -> Path:
     """Write *data* to a TOML file, creating parent dirs."""
     import tomli_w

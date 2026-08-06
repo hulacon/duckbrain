@@ -157,6 +157,7 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
 
 
 def _build_fmriprep(config, subject, session, log_dir, params):
+    from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .fmriprep import (
         find_fs_license,
         get_container_path,
@@ -167,6 +168,17 @@ def _build_fmriprep(config, subject, session, log_dir, params):
     paths = config["paths"]
     derivatives_dir = paths["derivatives_dir"]
     fp_cfg = config.get("fmriprep", {})
+
+    # Checked before anything touches the filesystem: it is a config error, and
+    # reporting it behind a missing container or licence would bury it. A config
+    # that still carries the old independent ceiling is refused rather than
+    # ignored — it reads as the number in force, and quietly would not be.
+    if "mem_gb" in fp_cfg:
+        raise PipelineError(
+            "[fmriprep] mem_gb is no longer read — fMRIPrep's --mem-mb is derived "
+            "from the SLURM allocation. Delete it and set the allocation in "
+            "[slurm.overrides.fmriprep] memory instead."
+        )
 
     container = get_container_path(config)
     fs_license = find_fs_license(config)
@@ -230,7 +242,12 @@ def _build_fmriprep(config, subject, session, log_dir, params):
         )
     extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", ""))).strip()
     nprocs = int(params.get("nprocs", fp_cfg.get("nprocs", 8)))
-    mem_gb = int(params.get("mem_gb", fp_cfg.get("mem_gb", 32)))
+    # `mem_gb` names the SLURM allocation; fMRIPrep's --mem-mb is derived from it
+    # (config.tool_mem_gb says why the allocation is the authoritative side).
+    alloc_gb = int(
+        params.get("mem_gb", parse_mem_gb(get_slurm_resources(config, "fmriprep")["memory"]))
+    )
+    mem_gb = tool_mem_gb(config, "fmriprep", alloc_gb=alloc_gb)
 
     ctx = build_context(
         config,
@@ -247,9 +264,13 @@ def _build_fmriprep(config, subject, session, log_dir, params):
         anat_only=anat_only,
         derivatives=output_dir if use_derivatives else "",
         extra_flags=extra_flags,
+        mem_gb=mem_gb,
     )
-    # GUI nprocs/mem_gb override the config defaults the template reads.
-    ctx["fmriprep"] = {**ctx.get("fmriprep", {}), "nprocs": nprocs, "mem_gb": mem_gb}
+    # The GUI's nprocs overrides the config default the template reads; its memory
+    # knob sets the allocation, so both the #SBATCH directive and the derived
+    # ceiling move together — that is the whole point of routing it through here.
+    ctx["fmriprep"] = {**ctx.get("fmriprep", {}), "nprocs": nprocs}
+    ctx["slurm"] = {**ctx["slurm"], "memory": f"{alloc_gb}G"}
     return "fmriprep", ctx
 
 
@@ -317,27 +338,23 @@ def _build_nordic(config, subject, session, log_dir, params):
 
 
 def _build_mriqc(config, subject, session, log_dir, params):
-    from ..config import get_slurm_resources
+    from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .mriqc import get_container_path
 
     container = get_container_path(config)
     mq_slurm = get_slurm_resources(config, "mriqc")
-    mem_str = str(mq_slurm.get("memory", "32G"))
-    alloc_gb = int(mem_str.replace("G", "").replace("g", ""))
-    # MRIQC's --mem-gb is a soft target for its nipype scheduler, not a hard RSS
-    # cap. The func synthstrip node (torch brain extraction) overshoots it, so if
-    # --mem-gb == the SLURM --mem the cgroup OOM-kills the step (observed on all 9
-    # divatten_gui_beta subjects, 2026-07-10). Target the allocation minus an 8 GB
-    # headroom buffer so overshoot stays inside the cgroup limit.
-    mem_gb = int(params.get("mem_gb", max(alloc_gb - 8, 1)))
+    # Same rule as fMRIPrep: `mem_gb` names the allocation and MRIQC's --mem-gb is
+    # derived from it. config.tool_mem_gb carries the reason for both.
+    alloc_gb = int(params.get("mem_gb", parse_mem_gb(mq_slurm.get("memory", "32G"))))
     ctx = build_context(
         config,
         "mriqc",
         subject=subject,
         session=session,
         container_path=str(container),
-        mem_gb=mem_gb,
+        mem_gb=tool_mem_gb(config, "mriqc", alloc_gb=alloc_gb),
     )
+    ctx["slurm"] = {**ctx["slurm"], "memory": f"{alloc_gb}G"}
     return "mriqc", ctx
 
 

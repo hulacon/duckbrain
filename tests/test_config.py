@@ -114,6 +114,71 @@ def test_get_slurm_resources(tmp_config_dir):
     assert res2["partition"] == "medium"
 
 
+@pytest.mark.parametrize(
+    "memory,expected",
+    [("48G", 48), ("48g", 48), ("49152M", 48), ("49152", 48), ("1T", 1024), ("500M", 0)],
+)
+def test_parse_mem_gb_reads_every_spelling_sbatch_accepts(memory, expected):
+    """An unsuffixed ``--mem`` is MB, so ``49152`` and ``48G`` are one allocation.
+
+    The first version of this stripped a ``"G"`` off the string, which reads
+    ``49152M`` as 49152 GB and would have handed the tool a ceiling three orders
+    of magnitude past the cgroup limit.
+    """
+    from duckbrain.config import parse_mem_gb
+
+    assert parse_mem_gb(memory) == expected
+
+
+def test_parse_mem_gb_rejects_a_non_memory_value():
+    from duckbrain.config import parse_mem_gb
+
+    with pytest.raises(ValueError, match="Not a SLURM memory value"):
+        parse_mem_gb("plenty")
+
+
+def test_tool_mem_gb_derives_from_the_allocation(tmp_config_dir):
+    from duckbrain.config import MEM_HEADROOM_GB, load_config, tool_mem_gb
+
+    config = load_config(tmp_config_dir)
+    # Per-stage override (48G) and the [slurm] default (16G) alike.
+    assert tool_mem_gb(config, "fmriprep") == 48 - MEM_HEADROOM_GB
+    assert tool_mem_gb(config, "mriqc") == 16 - MEM_HEADROOM_GB
+
+
+def test_an_allocation_with_no_room_for_the_headroom_raises(tmp_config_dir):
+    """Rather than flooring at some token ceiling and submitting anyway.
+
+    Below the buffer there is no honest number to hand the tool, and a job that
+    runs having been told 1 GB is the silent-degradation the buffer exists to
+    prevent.
+    """
+    from duckbrain.config import MEM_HEADROOM_GB, load_config, tool_mem_gb
+
+    config = load_config(tmp_config_dir)
+    with pytest.raises(ValueError, match="leaves nothing"):
+        tool_mem_gb(config, "fmriprep", alloc_gb=MEM_HEADROOM_GB)
+
+
+def test_no_stage_configures_a_memory_ceiling_of_its_own():
+    """The shipped config must state memory once per stage, in the allocation.
+
+    Two independently-set numbers on one script is the defect this rule closes:
+    ``[fmriprep] mem_gb = 32`` sat beside ``#SBATCH --mem=48G`` and nothing
+    related them, so fMRIPrep scheduled against 32 GB while 16 GB it was never
+    told about went unused.
+
+    Read from ``config/base.toml`` itself rather than through ``load_config``,
+    which would merge in whatever the developer's own user config says and make
+    this a claim about their machine.
+    """
+    from duckbrain.config import _find_config_dir, _load_toml
+
+    shipped = _load_toml(_find_config_dir() / "base.toml")
+    for section in ("fmriprep", "mriqc", "nordic"):
+        assert "mem_gb" not in shipped.get(section, {})
+
+
 def test_missing_base_toml_raises(tmp_path):
     from duckbrain.config import load_config
 

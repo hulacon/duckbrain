@@ -12,7 +12,7 @@ try:
     # get_slurm_resources is imported here, not in the fMRIPrep tab: all three
     # tabs read it, and a tab body that returns early would leave the others
     # with a NameError.
-    from duckbrain.config import get_slurm_resources, load_config
+    from duckbrain.config import MEM_HEADROOM_GB, get_slurm_resources, load_config, parse_mem_gb
     from duckbrain.gui import preproc_panels
 
     config = load_config()
@@ -67,6 +67,7 @@ with tab_fmriprep:
         )
 
     st.markdown("**Options**")
+    fp_slurm = get_slurm_resources(config, "fmriprep")
     col1, col2, col3 = st.columns(3)
     with col1:
         fp_spaces = st.text_input(
@@ -85,8 +86,18 @@ with tab_fmriprep:
             min_value=1,
             key="fp_nprocs",
         )
+        # min_value is 1, not the headroom+1 the allocation actually has to clear:
+        # the default comes from config, and a widget whose value starts below its
+        # own minimum raises out of Streamlit rather than explaining itself. Too
+        # small is caught once, at submission, where the message names the key.
         fp_mem = st.number_input(
-            "mem_gb", value=config.get("fmriprep", {}).get("mem_gb", 32), min_value=4, key="fp_mem"
+            "Memory (GB)",
+            value=parse_mem_gb(fp_slurm["memory"]),
+            min_value=1,
+            key="fp_mem",
+            help="The SLURM allocation for each job. fMRIPrep's own --mem-mb is "
+            f"derived from it, {MEM_HEADROOM_GB} GB lower, so a node that overshoots "
+            "its target still dies inside the allocation rather than being OOM-killed.",
         )
     with col3:
         fp_anat_only = st.checkbox("Anat-only mode", value=False, key="fp_anat_only")
@@ -112,10 +123,11 @@ with tab_fmriprep:
         "(output spaces, nprocs, mem, -w, filter file).",
     )
 
-    # SLURM resources
-    fp_slurm = get_slurm_resources(config, "fmriprep")
+    # SLURM resources. Memory is shown as the knob above sets it, not as the
+    # config file has it — the expander is what an operator checks before hitting
+    # submit, so it has to describe the job about to be sent.
     with st.expander("SLURM Resources"):
-        st.json(fp_slurm)
+        st.json({**fp_slurm, "memory": f"{fp_mem}G"})
 
     col1, col2 = st.columns(2)
     with col1:
