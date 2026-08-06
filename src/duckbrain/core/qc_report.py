@@ -725,7 +725,11 @@ def _render_iqm_charts(
             )
 
     fig.update_layout(height=300 * n_rows, title_text=f"IQM distributions ({modality})")
-    return fig.to_html(full_html=False, include_plotlyjs=False)
+    # `str()` at each of the three plotly returns in this module, not decoration:
+    # plotly ships no type information (see the mypy override in pyproject.toml),
+    # so everything it hands back is untyped and these three values are the only
+    # ones that leave the module — straight into the report HTML.
+    return str(fig.to_html(full_html=False, include_plotlyjs=False))
 
 
 def _render_motion_chart(runs: list[dict], fd_threshold: float) -> str:
@@ -765,7 +769,7 @@ def _render_motion_chart(runs: list[dict], fd_threshold: float) -> str:
         height=350,
         showlegend=False,
     )
-    return fig.to_html(full_html=False, include_plotlyjs=False)
+    return str(fig.to_html(full_html=False, include_plotlyjs=False))
 
 
 def _render_outlier_detail(runs: list[dict], report_base: str | None) -> str:
@@ -814,7 +818,7 @@ def _plotly_js() -> str:
     try:
         from plotly.offline import get_plotlyjs
 
-        return get_plotlyjs()
+        return str(get_plotlyjs())
     except ImportError:  # pragma: no cover - plotly is a hard dependency
         return "/* plotly not installed */"
 

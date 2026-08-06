@@ -156,11 +156,12 @@ class SessionExpectation:
         """
         if not isinstance(data, dict):
             return cls()
+        reason = data.get("reason")
         return cls(
             anat=_count_map(data.get("anat")),
             fmap_pairs=_as_count(data.get("fmap_pairs")),
             task=_count_map(data.get("task")),
-            reason=data.get("reason") if isinstance(data.get("reason"), str) else "",
+            reason=reason if isinstance(reason, str) else "",
         )
 
     def merged_with(self, override: SessionExpectation) -> SessionExpectation:
@@ -177,6 +178,32 @@ class SessionExpectation:
             ),
             task={**self.task, **override.task},
             reason=override.reason or self.reason,
+        )
+
+
+@dataclass(frozen=True)
+class SessionCounts:
+    """What one session actually holds — the observed twin of a declaration.
+
+    The same three fields, and one difference that is the whole reason this is a
+    separate class: ``fmap_pairs`` is always a number. On the declared side
+    ``None`` means *not declared*, a state a count read off disk cannot be in —
+    :func:`_fmap_pair_count` returns ``0`` for an absent ``fmap/`` directory, and
+    zero there is a measurement, not a silence.
+
+    One class served both roles until 2026-08-06, and it made ``got.fmap_pairs <
+    want.fmap_pairs`` in :mod:`duckbrain.core.checks` a comparison against a
+    possible ``None`` that only held because of what the caller happened to pass.
+    """
+
+    anat: dict[str, int] = field(default_factory=dict)
+    fmap_pairs: int = 0
+    task: dict[str, int] = field(default_factory=dict)
+
+    def as_declaration(self) -> SessionExpectation:
+        """These counts read as a declaration — what :func:`elicit` proposes."""
+        return SessionExpectation(
+            anat=dict(self.anat), fmap_pairs=self.fmap_pairs, task=dict(self.task)
         )
 
 
@@ -298,7 +325,7 @@ def _fmap_pair_count(fmap_dir: Path) -> int:
     return sum(1 for dirs in groups.values() if len(dirs - {""}) >= 2)
 
 
-def observe(bids_dir: str | Path, subject: str, session: str = "") -> SessionExpectation:
+def observe(bids_dir: str | Path, subject: str, session: str = "") -> SessionCounts:
     """Count what one session in *bids_dir* actually holds.
 
     The mirror image of a declaration, in the same shape, so the two compare
@@ -323,7 +350,7 @@ def observe(bids_dir: str | Path, subject: str, session: str = "") -> SessionExp
             if label:
                 task[label] = task.get(label, 0) + 1
 
-    return SessionExpectation(
+    return SessionCounts(
         anat=anat,
         fmap_pairs=_fmap_pair_count(unit / "fmap"),
         task=task,
@@ -353,4 +380,4 @@ def elicit(config: dict, subject: str, session: str = "") -> dict:
     number the experimenter states.
     """
     bids_dir = (config.get("paths") or {}).get("bids_dir") or ""
-    return observe(bids_dir, subject, session).to_config_section()
+    return observe(bids_dir, subject, session).as_declaration().to_config_section()

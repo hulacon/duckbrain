@@ -285,10 +285,12 @@ known-first-party = ["duckbrain"]
 # deleting one `-> None` and watching the gate go red, because a checker that
 # silently skips a file looks exactly like a checker that passes it.
 #
-# What is left for a later widening is the rest of `core/`: 36 errors across 13
-# modules as of 2026-08-06, filed as TODO #33.4. Unlike `gui/` some of them *are*
-# third-party — `plotly.offline` ships no stubs and no `py.typed` — so that one
-# wants a decision rather than an annotation.
+# **The whole of `core/` is gated now too** (2026-08-06, TODO #33.4) — 36 errors
+# across 13 modules, and the file list is a directory rather than six names, so a
+# new module in `core/` is covered the day it is written instead of the day
+# someone remembers to add it here. Two of the 36 were defects rather than
+# annotation gaps; see the TODO ledger. Its one genuinely third-party finding was
+# `plotly`, and that is the override at the bottom of this file.
 #
 # It has never been free, which is the point of measuring before setting the
 # knobs.
@@ -326,26 +328,17 @@ known-first-party = ["duckbrain"]
 # something that supports 3.10. Change one and change the other.
 python_version = "3.10"
 files = [
-    "src/duckbrain/core/conversion_plan.py",
-    "src/duckbrain/core/dcm2bids_config.py",
-    "src/duckbrain/core/consistency.py",
-    "src/duckbrain/core/dicom_inspect.py",
-    "src/duckbrain/core/series_types.py",
-    "src/duckbrain/core/pipeline.py",
-    "src/duckbrain/gui/app.py",
-    "src/duckbrain/gui/components.py",
-    "src/duckbrain/gui/preproc_panels.py",
-    "src/duckbrain/gui/conversion_panels.py",
-    "src/duckbrain/gui/qc_panels.py",
-    "src/duckbrain/gui/pages/",
+    "src/duckbrain/core/",
+    "src/duckbrain/gui/",
 ]
 
-# The containment mechanism, and the reason the list above can stay short.
-# `mypy --verbose` parses 25 first-party modules to check these six — the other
-# 19 (`surveyor`, `dicom_header`, `nordic`, `conversion`, `slurm.submit`, …) are
-# followed silently: their types are read while no error is reported *in* them,
-# which is what makes typing `consistency.py`'s calls into `surveyor` worth
-# anything. Not `"skip"` — that types all 19 as `Any` and throws the value away.
+# What reaches the un-gated remainder — `config.py` and `slurm/` — and how.
+# Their types are read while no error is reported *in* them, which is what makes
+# `pipeline.py`'s calls into `slurm.submit` worth anything. Not `"skip"`, which
+# types them as `Any` and throws that value away.
+#
+# It mattered more when the list above was six files and 19 first-party modules
+# sat behind it. Now it is two directories and the closure is nearly the package.
 follow_imports = "silent"
 
 # Free today (146/146 functions annotated) and the whole point: without these, a
@@ -390,10 +383,9 @@ disallow_untyped_calls = true
 warn_return_any = true
 
 [[tool.mypy.overrides]]
-# The one stub gap that reaches this analysis, named rather than blanketed —
-# pandas is the only package in the closure shipping no `py.typed`. streamlit,
-# nibabel and plotly are not in the closure at all, which is the clearest
-# evidence `core/` was the right place to start.
+# Stub gaps, named one at a time rather than blanketed. pandas and plotly are the
+# only two packages in the closure shipping no `py.typed`; streamlit, nibabel,
+# pydicom and jinja2 all ship their own types and need nothing here.
 #
 # It only started doing anything when `pipeline.py` joined the list above.
 # Before that, pandas was reached solely through silently-followed modules, and
@@ -405,5 +397,16 @@ warn_return_any = true
 #
 # NOT a global `ignore_missing_imports`: that would also swallow a typo'd
 # first-party import, which is a bug this gate exists to catch.
-module = ["pandas.*"]
+#
+# **plotly, and the option that was measured and declined.** `plotly-stubs` 0.1.3
+# exists on PyPI, and installing it makes `qc_report.py` clean with no code change
+# at all — including typing the three `to_html`/`get_plotlyjs` returns this module
+# now spells `str(...)`. Declined anyway, on proportion: plotly is imported in
+# exactly one module at ten call sites, none of whose types carry an invariant, so
+# the trade is a single-maintainer 0.1.x stub package as a hard dependency of a
+# *blocking* gate against ten calls into a chart library. Stub drift also does not
+# announce itself — a stale stub is a false error or a false pass, and neither
+# names its cause. Re-measure before re-opening: if plotly ever ships `py.typed`,
+# delete this entry rather than adding a package.
+module = ["pandas.*", "plotly.*"]
 ignore_missing_imports = true

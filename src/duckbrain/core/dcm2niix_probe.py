@@ -50,6 +50,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 _TIMEOUT_S = 120
 
@@ -216,7 +217,7 @@ def _command(
     return [exe, "exec", *flags, str(container), *dcm2niix]
 
 
-def _as_floats(value) -> tuple[float, ...]:
+def _as_floats(value: Any) -> tuple[float, ...]:
     if not isinstance(value, (list, tuple)):
         return ()
     try:

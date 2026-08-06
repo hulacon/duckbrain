@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from .containers import isolation_flags
 
@@ -98,8 +99,8 @@ def build_mriqc_command(
 
 def run_mriqc(
     dry_run: bool = False,
-    **kwargs,
-) -> subprocess.CompletedProcess | list[str]:
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str] | list[str]:
     """Build and optionally execute the MRIQC command.
 
     All kwargs are forwarded to build_mriqc_command.

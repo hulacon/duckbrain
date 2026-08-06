@@ -49,6 +49,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -99,7 +100,7 @@ class SpaceState:
         )
 
 
-def required_spaces(output_spaces, extra_flags: str = "") -> list[str]:
+def required_spaces(output_spaces: str | Sequence[str] | None, extra_flags: str = "") -> list[str]:
     """Which ``fsaverage*`` templates a run with these settings will copy.
 
     ``fsaverage`` is always included when recon-all runs, even if no surface
@@ -169,7 +170,9 @@ def read_installed(root: Path, spaces: list[str]) -> dict[str, set[str]]:
 # ---------------------------------------------------------------------------
 
 
-def _run_in_container(container: str | Path, script: str, args: list[str], binds: list[str]):
+def _run_in_container(
+    container: str | Path, script: str, args: list[str], binds: list[str]
+) -> subprocess.CompletedProcess[str]:
     cmd = ["singularity", "exec", *isolation_flags()]
     for b in binds:
         cmd.extend(["-B", b])
@@ -199,7 +202,9 @@ print(json.dumps(out))
 
 
 @lru_cache(maxsize=8)
-def _manifest_cached(container: str, mtime: float, size: int, spaces: tuple[str, ...]):
+def _manifest_cached(
+    container: str, mtime: float, size: int, spaces: tuple[str, ...]
+) -> dict[str, set[str]]:
     """Keyed on container identity so a swapped image is re-read, not remembered."""
     proc = _run_in_container(container, _MANIFEST_SCRIPT, list(spaces), binds=[])
     if proc.returncode != 0:
@@ -211,7 +216,13 @@ def _manifest_cached(container: str, mtime: float, size: int, spaces: tuple[str,
         raw = json.loads(proc.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:
         raise FsaverageError(f"Unreadable template listing from {container}: {exc}") from exc
-    return {space: set(files) for space, files in raw.items()}
+    # Shape-check rather than trust: this is a JSON payload from a script run in
+    # somebody else's container, and a listing that is not a mapping would
+    # otherwise reach `plan_repairs` as an empty manifest — i.e. as "the
+    # container carries no templates", which reads as nothing to repair.
+    if not isinstance(raw, dict):
+        raise FsaverageError(f"Unreadable template listing from {container}: not a JSON object")
+    return {str(space): {str(f) for f in files} for space, files in raw.items()}
 
 
 def container_manifest(container: str | Path, spaces: list[str]) -> dict[str, set[str]]:
@@ -268,9 +279,12 @@ def install(container: str | Path, root: Path, spaces: list[str]) -> dict[str, i
             f"{(proc.stderr or '').strip()[-400:]}"
         )
     try:
-        return json.loads(proc.stdout.strip().splitlines()[-1])
+        raw = json.loads(proc.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as exc:
         raise FsaverageError(f"Unreadable install report: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise FsaverageError("Unreadable install report: not a JSON object")
+    return {str(space): int(n) for space, n in raw.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +321,7 @@ def reset_cache() -> None:
 def ensure(
     container: str | Path,
     derivatives_dir: str | Path,
-    output_spaces,
+    output_spaces: str | Sequence[str] | None,
     *,
     extra_flags: str = "",
 ) -> PreflightReport | None:
@@ -353,7 +367,7 @@ def ensure(
 def cleanup_staging(derivatives_dir: str | Path) -> list[Path]:
     """Remove staging directories a killed install may have left behind."""
     root = subjects_dir(derivatives_dir)
-    removed = []
+    removed: list[Path] = []
     if not root.is_dir():
         return removed
     for path in root.glob(f"{_STAGING_PREFIX}*"):

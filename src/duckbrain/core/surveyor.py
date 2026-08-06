@@ -28,6 +28,7 @@ Designed to port back to mmmdata, which already grew Nipoppy's shape
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from enum import Enum
 from pathlib import Path
 
@@ -187,7 +188,7 @@ def _fmriprep_input_dir(config: dict) -> str:
     paths = config["paths"]
     if config.get("nordic", {}).get("use_nordic", False):
         return str(nordic_bids_input_dir(paths["derivatives_dir"]))
-    return paths["bids_dir"]
+    return str(paths["bids_dir"])
 
 
 def _fmriprep_func_keys(root: Path, subject: str, session: str) -> set[str]:
@@ -223,7 +224,7 @@ def _fmriprep_func_keys(root: Path, subject: str, session: str) -> set[str]:
 # ---- unit discovery ---------------------------------------------------------
 
 
-def _iter_sub_ses(root: str | Path):
+def _iter_sub_ses(root: str | Path) -> Iterator[tuple[str, str]]:
     """Yield ``(subject, session)`` for every ``sub-XX[/ses-YY]`` under *root*.
 
     ``session`` is ``""`` for single-session (sessionless) layouts. Works for

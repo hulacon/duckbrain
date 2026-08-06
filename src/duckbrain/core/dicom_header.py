@@ -29,6 +29,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pydicom is imported inside the functions that parse (see _read_one)
+    from pydicom import Dataset
 
 # ImageType tokens that mark a series as never-source-data. 'MPR' is the scout
 # reformat (390 series in the corpus), 'CSA REPORT' the Phoenix report, and the
@@ -107,7 +111,11 @@ class SeriesHeader:
         return "P" in self.image_type
 
 
-def _as_tuple(value) -> tuple[str, ...]:
+# `Any`, not `object`, for the raw tag values below: each of these three
+# helpers exists to absorb whatever pydicom put in the element — a str, a
+# MultiValue, an int, or nothing — and each guards with its own
+# try/except. Typing them `object` would make the guard itself unwritable.
+def _as_tuple(value: Any) -> tuple[str, ...]:
     if value is None:
         return ()
     if isinstance(value, str):
@@ -118,7 +126,7 @@ def _as_tuple(value) -> tuple[str, ...]:
         return (str(value),)
 
 
-def _first(sequence, attr):
+def _first(sequence: Any, attr: str) -> Any:
     """Dig one level into a DICOM sequence, tolerating absence at every step."""
     if not sequence:
         return None
@@ -128,7 +136,7 @@ def _first(sequence, attr):
         return None
 
 
-def _shared_group(dataset, sequence_name: str, attr: str):
+def _shared_group(dataset: Dataset, sequence_name: str, attr: str) -> Any:
     """Read ``SharedFunctionalGroupsSequence[0].<sequence_name>[0].<attr>``."""
     shared = getattr(dataset, "SharedFunctionalGroupsSequence", None)
     if not shared:
@@ -140,7 +148,7 @@ def _shared_group(dataset, sequence_name: str, attr: str):
     return _first(inner, attr)
 
 
-def _read_one(path: Path):
+def _read_one(path: Path) -> Dataset | None:
     """Parse one file, or return None if it isn't a DICOM we can use.
 
     ``force=True`` is needed because some exports omit the 128-byte preamble,
@@ -161,7 +169,7 @@ def _read_one(path: Path):
     return dataset
 
 
-def _dicom_time(dataset) -> float | None:
+def _dicom_time(dataset: Dataset) -> float | None:
     """DICOM ``HHMMSS.FFFFFF`` as seconds since midnight."""
     for attr in ("AcquisitionTime", "SeriesTime"):
         raw = str(getattr(dataset, attr, "") or "").strip()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from .containers import isolation_flags
 
@@ -212,8 +213,8 @@ def build_fmriprep_command(
 
 def run_fmriprep(
     dry_run: bool = False,
-    **kwargs,
-) -> subprocess.CompletedProcess | list[str]:
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str] | list[str]:
     """Build and optionally execute the fMRIPrep command.
 
     All kwargs are forwarded to build_fmriprep_command.

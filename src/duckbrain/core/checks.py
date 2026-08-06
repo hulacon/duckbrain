@@ -39,6 +39,7 @@ from dataclasses import dataclass
 
 from .consistency import ConsistencyIssue
 from .expectations import (
+    SessionCounts,
     SessionExpectation,
     declared,
     expected_for,
@@ -137,7 +138,7 @@ def _unit_issues(
     subject: str,
     session: str,
     want: SessionExpectation,
-    got: SessionExpectation,
+    got: SessionCounts,
 ) -> list[ConsistencyIssue]:
     """Compare one unit's declaration against what its BIDS tree holds.
 

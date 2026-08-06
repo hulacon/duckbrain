@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pydicom
@@ -60,11 +60,7 @@ class SortResult:
     skipped_files: int = 0
     failed_files: int = 0
     duplicates: int = 0
-    errors: list[str] | None = None
-
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
+    errors: list[str] = field(default_factory=list)
 
 
 def sort_dicoms(

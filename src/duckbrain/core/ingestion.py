@@ -222,8 +222,7 @@ def _parse_session_folder(folder: Path) -> SessionInfo | None:
     name = folder.name
 
     m = _DATE_TIME_RE.search(name)
-    date = m.group(1) if m else None
-    if date is None:
+    if m is None:
         # Fallback: any 8-digit date anywhere in the name.
         dm = re.search(r"(\d{8})", name)
         if dm is None:
@@ -231,6 +230,7 @@ def _parse_session_folder(folder: Path) -> SessionInfo | None:
         date = dm.group(1)
         head = name[: dm.start()].rstrip("_")
     else:
+        date = m.group(1)
         head = name[: m.start()]
 
     tokens = [t for t in head.split("_") if t]
@@ -279,9 +279,9 @@ def build_dcm_source_path(config: dict) -> Path:
     if explicit:
         return Path(explicit)
 
-    base = dcm.get("base_dir", "/projects/lcni/dcm")
-    group = dcm.get("group", "")
-    project = dcm.get("project", "")
+    base = str(dcm.get("base_dir", "/projects/lcni/dcm"))
+    group = str(dcm.get("group", ""))
+    project = str(dcm.get("project", ""))
     if not group or not project:
         raise ValueError(
             "Set dcm_source.dir (full path to the DICOM export), "
@@ -606,7 +606,7 @@ def list_ingested_sessions(sourcedata_dir: str | Path) -> list[dict]:
         Each dict has keys: subject, session, path, has_dicom.
     """
     sourcedata_dir = Path(sourcedata_dir)
-    sessions = []
+    sessions: list[dict] = []
     if not sourcedata_dir.is_dir():
         return sessions
 

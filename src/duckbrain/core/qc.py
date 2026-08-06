@@ -620,7 +620,7 @@ def is_domain_signed_off(record: dict | None) -> bool:
     return bool(reviewer) and reviewer not in AUTOMATED_REVIEWERS
 
 
-def domain_progress(record: dict | None, domain_keys) -> tuple[int, int]:
+def domain_progress(record: dict | None, domain_keys: Iterable[str]) -> tuple[int, int]:
     """How many of *domain_keys* a person has reviewed, and how many there are.
 
     For **display only**. A run whose four domains are all reviewed has not

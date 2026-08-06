@@ -128,6 +128,19 @@ def test_elicit_then_freeze_round_trips(tmp_path):
     )
 
 
+def test_elicit_proposes_a_measured_zero_rather_than_omitting_it(tmp_path):
+    """A session with no fieldmaps elicits ``fmap_pairs = 0``, not silence.
+
+    The seam between the two classes: ``observe`` returns counts, where zero is a
+    measurement, and ``as_declaration`` hands them to the declared side, where
+    ``None`` — and only ``None`` — means unstated. Drop the zero on the way across
+    and the elicited declaration falls back to the study default it was meant to
+    replace, which is the failure this module's docstring is about.
+    """
+    _session(tmp_path, fmap_dirs=())
+    assert elicit(_config(tmp_path), "001")["fmap_pairs"] == 0
+
+
 def test_elicit_never_proposes_a_roster(tmp_path):
     """The roster is the one thing disk can't know — deriving it would re-close
     exactly the loop this module opens."""

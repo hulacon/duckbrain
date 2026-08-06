@@ -240,9 +240,14 @@ def validate_bids(config: dict, *, timeout_s: int = VALIDATOR_TIMEOUT_S) -> Vali
 
     bids_dir = (config.get("paths") or {}).get("bids_dir", "")
     try:
-        container = resolve_container(config, "converted")
+        # `or ""` rather than carrying the None onward: `resolve_container`
+        # returns None for a stage that runs no container, the reason function
+        # below reads None and "" identically, and keeping this local a path
+        # type is what lets the command be built without re-stating the
+        # no-container message that function already owns.
+        container: str | Path = resolve_container(config, "converted") or ""
     except Exception:
-        container = None
+        container = ""
 
     reason = validator_unavailable_reason(container, bids_dir)
     if reason:
