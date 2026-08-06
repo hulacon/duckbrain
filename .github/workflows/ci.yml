@@ -12,9 +12,39 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Every trigger above answers "did this diff break it?". None of them can
+  # answer "did something break while nobody was pushing?", and that has already
+  # happened here: streamlit 1.61.0 was published between two CI runs and turned
+  # main red with the repo unchanged (memory/streamlit-161-broke-main). Nothing
+  # is pinned against it either — the ruff and mypy bounds exist because those
+  # are *gates*, but streamlit is a runtime dependency and pinning it would just
+  # move the same surprise to whenever someone raises the pin.
+  #
+  # Without this, that failure surfaces on whatever the next push happens to be,
+  # where it reads as though that diff caused it. This repo has already paid for
+  # that confusion once. A weekly run separates "PyPI moved under us" from "you
+  # broke it".
+  #
+  # Monday 15:43 UTC — start of the working week in Eugene (08:43 PDT / 07:43
+  # PST; cron here is always UTC and does not follow DST), and deliberately not
+  # on the hour, which is when GitHub's scheduler is most congested and most
+  # likely to drop or delay a run.
+  #
+  # Two things to know before trusting it. A scheduled failure is reported
+  # against the last commit on main, which did not cause it — read the run's
+  # trigger before reading the commit. And **GitHub disables a scheduled
+  # workflow in a public repo after 60 days with no repository activity**, so a
+  # quiet period switches this off silently; if duckbrain ever goes dormant,
+  # re-enable it from the Actions tab rather than assuming it has been running.
+  schedule:
+    - cron: "43 15 * * 1"
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Keyed on the event as well as the ref so a cron firing mid-push cannot
+  # cancel the run that is actually reporting on someone's commit. Without this
+  # they share a group — `github.ref` is `refs/heads/main` for both — and
+  # `cancel-in-progress` would let the weekly run kill a real one.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
