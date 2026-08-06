@@ -24,10 +24,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
-from ..slurm.monitor import job_history, list_jobs
+from ..slurm.monitor import JobInfo, job_history, list_jobs
 from ..slurm.submit import archived_script_path, export_script, submit_job
 from ..slurm.templates import build_context, render_sbatch
 from .surveyor import STAGES, Status, survey_project
@@ -67,7 +68,9 @@ def _resolve_log_dir(config: dict) -> str:
 # config so a bare ``advance_one(config, stage, sub, ses)`` works.
 
 
-def _build_dcm2bids(config, subject, session, log_dir, params):
+def _build_dcm2bids(
+    config: dict, subject: str, session: str, log_dir: str, params: dict
+) -> tuple[str, dict]:
     from ..config import write_bidsignore
     from .bids_metadata import (
         converter_generated_by,
@@ -156,7 +159,9 @@ def _build_dcm2bids(config, subject, session, log_dir, params):
     return "dcm2bids", ctx
 
 
-def _build_fmriprep(config, subject, session, log_dir, params):
+def _build_fmriprep(
+    config: dict, subject: str, session: str, log_dir: str, params: dict
+) -> tuple[str, dict]:
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .fmriprep import (
         find_fs_license,
@@ -280,7 +285,9 @@ def _build_fmriprep(config, subject, session, log_dir, params):
     return "fmriprep", ctx
 
 
-def _build_nordic(config, subject, session, log_dir, params):
+def _build_nordic(
+    config: dict, subject: str, session: str, log_dir: str, params: dict
+) -> tuple[str, dict]:
     from .nordic import get_bold_runs
 
     paths = config["paths"]
@@ -343,7 +350,9 @@ def _build_nordic(config, subject, session, log_dir, params):
     return "nordic_denoise", ctx
 
 
-def _build_mriqc(config, subject, session, log_dir, params):
+def _build_mriqc(
+    config: dict, subject: str, session: str, log_dir: str, params: dict
+) -> tuple[str, dict]:
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .mriqc import get_container_path
 
@@ -487,7 +496,7 @@ def advance_one(
     session: str = "",
     *,
     export_only: bool = False,
-    **params,
+    **params: Any,
 ) -> str:
     """Launch (or export) the SLURM job that advances one unit through *stage*.
 
@@ -877,7 +886,7 @@ def _norm_state(state: str) -> str:
     return state.split()[0].upper() if state else ""
 
 
-def _attempt_order(job) -> tuple:
+def _attempt_order(job: JobInfo) -> tuple[str, int]:
     """Sort key putting the most recent attempt of a job name last.
 
     ``submit_time`` is sacct's ``Submit``, ISO-8601 and so lexically ordered;
@@ -892,7 +901,7 @@ def _attempt_order(job) -> tuple:
     return (ts, int(base) if base.isdigit() else 0)
 
 
-def _job_state_maps():
+def _job_state_maps() -> tuple[dict[str, str], dict[str, JobInfo], list[JobInfo], list[JobInfo]]:
     """Build name→state lookups from squeue (active) and sacct (recent history).
 
     Returns ``(active, latest, active_jobs, hist)`` — the first two are the
@@ -923,7 +932,7 @@ def _job_state_maps():
         st = _norm_state(j.state)
         active[j.name] = "queued" if st in _QUEUED_STATES else "running"
 
-    latest: dict[str, object] = {}
+    latest: dict[str, JobInfo] = {}
     for j in hist:
         prev = latest.get(j.name)
         if prev is None or _attempt_order(j) >= _attempt_order(prev):
@@ -931,7 +940,7 @@ def _job_state_maps():
     return active, latest, active_jobs, hist
 
 
-def survey_live(config: dict, with_jobs: bool = False):
+def survey_live(config: dict, with_jobs: bool = False) -> pd.DataFrame | tuple[pd.DataFrame, dict]:
     """:func:`~duckbrain.core.surveyor.survey_project` overlaid with SLURM state.
 
     For each surveyor stage that is SLURM-launchable (converted/fmriprep/mriqc),
@@ -970,7 +979,7 @@ def survey_live(config: dict, with_jobs: bool = False):
         matrix[f"{stage}_job"] = vals
 
     if with_jobs:
-        by_id: dict[str, object] = {}
+        by_id: dict[str, JobInfo] = {}
         for j in hist:  # active overrides history for the same id
             by_id[str(j.job_id)] = j
         for j in active_jobs:
@@ -979,7 +988,7 @@ def survey_live(config: dict, with_jobs: bool = False):
     return matrix
 
 
-def stage_runnable(row, stage: str, config: dict | None = None) -> bool:
+def stage_runnable(row: pd.Series, stage: str, config: dict | None = None) -> bool:
     """Whether *stage* can be launched now for the unit in *row* (a survey_live row).
 
     True when the stage is SLURM-launchable, not already complete, has no active
