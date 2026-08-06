@@ -253,13 +253,15 @@ what's open, `docs/releasing.md` to cut the next one.
   A consequence worth knowing before you compare numbers: the total is not on the
   same scale as any figure in git history from before 2026-08-03.
 
-  `mypy` runs as its **own CI job**, not a step in the 3.10/3.12 matrix, so that
-  it answers one way rather than depending on which third-party builds pip
-  resolved on a given leg. It checks the three modules listed in `[tool.mypy]
-  files` and is a **ratchet** like the coverage floor: those files were fully
-  annotated before it was turned on, so it holds a property rather than opening a
-  project. Widening the list means re-measuring first — read the list from
-  `pyproject.toml`, not from here.
+  `mypy` runs as its **own CI job** pinned to Python 3.10, not a step in the
+  3.10/3.12 matrix, so that it answers one way rather than depending on which
+  third-party builds pip resolved on a given leg. It checks **the whole package**
+  (`src/duckbrain/`, since 2026-08-06) and is a **ratchet** like the coverage
+  floor: every file was annotated and every knob measured at zero before being
+  turned on, so it holds a property rather than opening a project. That is also
+  what makes it safe to *block* rather than advise. Tightening it — the open one
+  is `disallow_any_generics`, `TODO.md` `#33.2` — means re-measuring first, and
+  the knobs come from `pyproject.toml`, not from here.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
   Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.
