@@ -111,6 +111,11 @@ def _load_toml(path: str | Path | None) -> dict:
     """Load a TOML file, or return {} if it is missing."""
     if path and Path(path).exists():
         with open(path, "rb") as f:
+            # `dict(...)` rather than returning the parse straight: on any
+            # interpreter above the 3.10 floor `tomli` is not installed, so the
+            # loader mypy sees is untyped and this would return `Any` under a
+            # `dict` annotation. Not decoration — deleting it turns the gate red
+            # on 3.11 only.
             return dict(tomllib.load(f))
     return {}
 
