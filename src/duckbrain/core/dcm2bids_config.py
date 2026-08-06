@@ -57,7 +57,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from .dicom_inspect import (
     _SBREF_SUFFIX,
@@ -80,6 +80,59 @@ from .series_types import BIDS_ANAT_SUFFIXES as _BIDS_ANAT_SUFFIXES
 
 if TYPE_CHECKING:
     from ..config import Config
+
+
+class _DescriptionKeys(TypedDict):
+    """The four keys every description duckbrain emits carries."""
+
+    id: str
+    datatype: str
+    suffix: str
+    criteria: dict[str, Any]
+
+
+class Description(_DescriptionKeys, total=False):
+    """One entry of a dcm2bids config's ``descriptions`` list.
+
+    Split across two classes because ``custom_entities`` and ``sidecar_changes``
+    are genuinely optional — an anat with no ``acq-`` label carries neither, and
+    both are added conditionally after the literal is built. ``NotRequired``
+    would say the same thing in one class, but it is 3.11 and the floor is 3.10;
+    a required base plus a ``total=False`` subclass is the older spelling of
+    exactly that, with no new dependency (TODO #33.2 verified the semantics
+    under ``--strict`` on the 3.10 venv before this was written).
+
+    ``criteria`` and ``sidecar_changes`` stay ``dict[str, Any]`` on purpose.
+    duckbrain only ever writes ``SeriesNumber``/``EchoNumber`` into the first
+    and three known keys into the second, but the same shape is read back out of
+    a **hand-edited** config by :mod:`~duckbrain.core.conversion_plan`, where
+    anything dcm2bids accepts may appear — a ``SeriesDescription`` glob most
+    obviously. Narrowing them here would make the import path lie.
+
+    This is not the same list as ``conversion_plan._KNOWN_DESC_KEYS``, which
+    holds the keys the *conversion table* can render. They agree today. They are
+    kept separate because a seventh key emitted here should make that check
+    report loss, which is exactly what deriving one from the other would hide.
+    """
+
+    custom_entities: str
+    sidecar_changes: dict[str, Any]
+
+
+#: A whole dcm2bids config — the JSON file duckbrain writes and dcm2bids reads.
+#:
+#: **Not** :data:`duckbrain.config.Config`, which is duckbrain's own layered TOML.
+#: Both are ``dict[str, Any]``, both are called ``config``, and three functions
+#: had already collected the wrong one of the two in a reader's head — which is
+#: the whole reason either is named.
+#:
+#: Deliberately not a ``TypedDict``, though :func:`generate_config`'s return is
+#: precise enough to be one. Every function annotated with this reads a config
+#: back **off disk**, where a user may have hand-edited in any key dcm2bids
+#: accepts (``dcm2niixOptions``, ``search_method``, ``post_op``); the import path
+#: exists to *report* those as unrepresentable, and a closed TypedDict would make
+#: reading them an error rather than the finding they are.
+Dcm2BidsConfig = dict[str, Any]
 
 
 @dataclass
@@ -332,7 +385,7 @@ def task_rules_from_config(config: Config) -> list[TaskRule]:
     return out
 
 
-def task_rules_to_config_section(rules: list[TaskRule]) -> dict:
+def task_rules_to_config_section(rules: list[TaskRule]) -> dict[str, Any]:
     """Serialize rules into a TOML-friendly ``[task_mapping]`` section."""
     return {"rule": [{"description": r.description, "task": r.task} for r in rules]}
 
@@ -393,7 +446,7 @@ def collapse_fmap_rules(rules: list[FmapRule]) -> list[FmapRule]:
     return out
 
 
-def fmap_rules_to_config_section(rules: list[FmapRule]) -> dict:
+def fmap_rules_to_config_section(rules: list[FmapRule]) -> dict[str, Any]:
     """Serialize fieldmap bindings into a TOML-friendly ``[fmap_mapping]`` section.
 
     ``run`` is written only when the rule names one, so a project that binds
@@ -481,7 +534,7 @@ def generate_config(
     template: str | None = None,
     fmap_rules: list[FmapRule] | None = None,
     skip: Collection[int] | None = None,
-) -> dict:
+) -> dict[str, list[Description]]:
     """Build a dcm2bids-compatible config dict from classified DICOM series.
 
     Parameters
@@ -526,7 +579,7 @@ def generate_config(
         out of existence raises through the same path, which is the intended
         reading: the project asked for a binding the session can no longer honor.
     """
-    descriptions = []
+    descriptions: list[Description] = []
     sub_ses = f"sub{subject}ses{session}" if subject and session else ""
     skipped = set(skip or ())
     fieldmaps = _without_skipped_groups(fieldmaps, skipped)
@@ -543,9 +596,9 @@ def generate_config(
     for s in series_list:
         if s.classification != "anat" or s.series_number in skipped:
             continue
-        desc = _anat_description(s)
-        if desc:
-            descriptions.append(desc)
+        anat_desc = _anat_description(s)
+        if anat_desc:
+            descriptions.append(anat_desc)
 
     # --- Functionals (BOLD) ---
     func_series = [
@@ -562,7 +615,7 @@ def generate_config(
         acq_suffix = f"-{s.acq_label}" if s.acq_label else ""
         custom_entities = _func_entities(task, s.acq_label, run)
 
-        desc = {
+        bold_desc: Description = {
             "id": f"func-bold-{task}{acq_suffix}{run_suffix}",
             "datatype": "func",
             "suffix": "bold",
@@ -593,9 +646,9 @@ def generate_config(
             series_time=s.header.series_time if s.header is not None else None,
         )
         if fmap_group is not None:
-            desc["sidecar_changes"]["B0FieldSource"] = _b0_identifier(fmap_group, sub_ses)
+            bold_desc["sidecar_changes"]["B0FieldSource"] = _b0_identifier(fmap_group, sub_ses)
 
-        descriptions.append(desc)
+        descriptions.append(bold_desc)
 
     # --- SBRef ---
     for s in series_list:
@@ -610,7 +663,7 @@ def generate_config(
         run_suffix = f"-run{run}" if run is not None else ""
         acq_suffix = f"-{s.acq_label}" if s.acq_label else ""
         custom_entities = _func_entities(task, s.acq_label, run)
-        desc = {
+        sbref_desc: Description = {
             "id": f"func-sbref-{task}{acq_suffix}{run_suffix}",
             "datatype": "func",
             "suffix": "sbref",
@@ -636,9 +689,9 @@ def generate_config(
             series_time=s.header.series_time if s.header is not None else None,
         )
         if fmap_group is not None:
-            desc["sidecar_changes"] = {"B0FieldSource": _b0_identifier(fmap_group, sub_ses)}
+            sbref_desc["sidecar_changes"] = {"B0FieldSource": _b0_identifier(fmap_group, sub_ses)}
 
-        descriptions.append(desc)
+        descriptions.append(sbref_desc)
 
     # --- Diffusion ---
     # After the SBRef pass so the two diffusion suffixes are adjacent in the
@@ -748,7 +801,7 @@ def resolve_fmap_assignments(
 # BIDS anatomical suffixes a ReproIn ``anat-<label>`` may name. Spelled out
 # rather than passed through, so a console typo becomes an unconverted series the
 # user can see rather than an invalid BIDS suffix written into the dataset.
-def _anat_description(series: SeriesInfo) -> dict | None:
+def _anat_description(series: SeriesInfo) -> Description | None:
     """Build an anat description entry.
 
     A project ``[series_types]`` declaration outranks everything here, ReproIn
@@ -831,7 +884,7 @@ def _func_entities(task: str, acq_label: str, run: int | None) -> str:
     return "_".join(parts)
 
 
-def _anat_entry(series: SeriesInfo, suffix: str) -> dict:
+def _anat_entry(series: SeriesInfo, suffix: str) -> Description:
     """One anat description, carrying an ``acq-`` entity when it needs one.
 
     ``acq_label`` is set only where two reconstructions of the same acquisition
@@ -839,7 +892,7 @@ def _anat_entry(series: SeriesInfo, suffix: str) -> dict:
     images to a single filename. A lone survivor keeps the plain name — same
     stance as a single fieldmap pair keeping the bare ``dir-<X>_epi``.
     """
-    entry = {
+    entry: Description = {
         "id": f"anat-{suffix}",
         "datatype": "anat",
         "suffix": suffix,
@@ -851,7 +904,7 @@ def _anat_entry(series: SeriesInfo, suffix: str) -> dict:
     return entry
 
 
-def _dwi_description(series: SeriesInfo) -> dict:
+def _dwi_description(series: SeriesInfo) -> Description:
     """One diffusion description — the volume series, or its reference.
 
     **Returns a description unconditionally**, where :func:`_anat_description`
@@ -883,7 +936,7 @@ def _dwi_description(series: SeriesInfo) -> dict:
     return _dwi_entry(series, suffix, phase_encoding_direction_token(series.description))
 
 
-def _dwi_entry(series: SeriesInfo, suffix: str, direction: str) -> dict:
+def _dwi_entry(series: SeriesInfo, suffix: str, direction: str) -> Description:
     """One dwi description, with its entities in BIDS order.
 
     ``acq-`` before ``dir-``, matching :func:`_fmap_description`; ``run-`` is
@@ -899,7 +952,7 @@ def _dwi_entry(series: SeriesInfo, suffix: str, direction: str) -> dict:
         parts.append(f"dir-{direction.upper()}")
     custom_entities = "_".join(parts)
 
-    entry = {
+    entry: Description = {
         "id": "-".join(p for p in ("dwi", suffix, series.acq_label, direction.lower()) if p),
         "datatype": "dwi",
         "suffix": suffix,
@@ -914,7 +967,9 @@ _ANAT_T1 = re.compile(r"(?<![a-z0-9])t1(?:w|[_-])")
 _ANAT_T2 = re.compile(r"(?<![a-z0-9])t2(?:w|[_-])")
 
 
-def _disambiguate(descriptions: list[dict], datatype: str, suffix: str = "") -> dict[int, int]:
+def _disambiguate(
+    descriptions: list[Description], datatype: str, suffix: str = ""
+) -> dict[int, int]:
     """Give repeated series of one datatype a ``run-`` entity so they stop colliding.
 
     An anat description carried no entities at all, so every T1w in a session
@@ -940,7 +995,7 @@ def _disambiguate(descriptions: list[dict], datatype: str, suffix: str = "") -> 
     references, rather than numbering each suffix independently. Returns
     ``{series_number: run}`` so the caller can do that.
     """
-    by_suffix: dict[tuple[str, str], list[dict]] = {}
+    by_suffix: dict[tuple[str, str], list[Description]] = {}
     for d in descriptions:
         if d.get("datatype") != datatype:
             continue
@@ -960,14 +1015,14 @@ def _disambiguate(descriptions: list[dict], datatype: str, suffix: str = "") -> 
     return runs
 
 
-def _add_run_entity(description: dict, run: int) -> None:
+def _add_run_entity(description: Description, run: int) -> None:
     """Append ``run-N`` to a description's entities and id, in BIDS order."""
     existing = description.get("custom_entities", "")
     description["custom_entities"] = f"{existing}_run-{run}" if existing else f"run-{run}"
     description["id"] = f"{description['id']}-run{run}"
 
 
-def _disambiguate_dwi(descriptions: list[dict], series_list: list[SeriesInfo]) -> None:
+def _disambiguate_dwi(descriptions: list[Description], series_list: list[SeriesInfo]) -> None:
     """Number repeated diffusion runs, and give each reference its sibling's number.
 
     **The two suffixes must not be numbered independently.** Doing so is correct
@@ -1046,7 +1101,7 @@ def _gre_fmap_descriptions(
     b0_field_id: str,
     group_name: str = "",
     extra_entity: str = "",
-) -> list[dict]:
+) -> list[Description]:
     """Build the three descriptions a gradient-echo fieldmap produces.
 
     One magnitude *series* holds two echoes, and dcm2niix splits it into
@@ -1072,8 +1127,8 @@ def _gre_fmap_descriptions(
 
     id_suffix = f"-{group_name}" if group_name else ""
 
-    def entry(suffix: str, criteria: dict) -> dict:
-        description = {
+    def entry(suffix: str, criteria: dict[str, Any]) -> Description:
+        description: Description = {
             "id": f"fmap-{suffix.lower()}{id_suffix}",
             "datatype": "fmap",
             "suffix": suffix,
@@ -1097,7 +1152,7 @@ def _fmap_description(
     b0_field_id: str,
     group_name: str = "",
     extra_entity: str = "",
-) -> dict:
+) -> Description:
     """Build a fieldmap description entry.
 
     ``extra_entity`` (an ``acq-<label>`` or ``run-<n>`` token) distinguishes
@@ -1265,7 +1320,7 @@ def _assign_fmap_group(
 
 
 def _nearest_group_in_time(
-    groups: list[str], group_times: dict, series_time: float | None
+    groups: list[str], group_times: dict[str, float], series_time: float | None
 ) -> str | None:
     """The complete group acquired closest to ``series_time``.
 
@@ -1285,7 +1340,7 @@ def _nearest_group_in_time(
     return timed[0][1]
 
 
-def config_to_json(config: Config, indent: int = 2) -> str:
+def config_to_json(config: Dcm2BidsConfig, indent: int = 2) -> str:
     """Serialize dcm2bids config dict to formatted JSON string."""
     import json
 

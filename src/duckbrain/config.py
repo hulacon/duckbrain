@@ -25,7 +25,11 @@ import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .core.dcm2bids_config import FmapRule, TaskRule
+    from .core.series_types import TypeRule
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -64,7 +68,7 @@ USER_CONFIG_ENV = "DUCKBRAIN_USER_CONFIG"
 _SHARED_PATH_KEYS = ("containers_dir", "fs_license", "nordic_toolbox_dir")
 
 
-def _deep_update(base: dict, override: dict) -> dict:
+def _deep_update(base: Config, override: Config) -> Config:
     """Recursively merge *override* into *base* (mutates base)."""
     for key, value in override.items():
         if key in base and isinstance(base[key], dict) and isinstance(value, dict):
@@ -126,7 +130,7 @@ def resolve_project_dir(project_dir: str | Path | None = None) -> Path | None:
     return Path(env) if env else None
 
 
-def _load_toml(path: str | Path | None) -> dict:
+def _load_toml(path: str | Path | None) -> Config:
     """Load a TOML file, or return {} if it is missing."""
     if path and Path(path).exists():
         with open(path, "rb") as f:
@@ -139,7 +143,7 @@ def _load_toml(path: str | Path | None) -> dict:
     return {}
 
 
-def derive_paths(config: Config, project_dir: str | Path) -> dict:
+def derive_paths(config: Config, project_dir: str | Path) -> Config:
     """Fill unset [paths] entries from the project directory (mutates config).
 
     The project directory *is* the BIDS root; sourcedata/derivatives/code sit
@@ -223,7 +227,7 @@ def unit_work_dir(config: Config, step: str, subject: str = "", session: str = "
 def load_config(
     config_dir: str | Path | None = None,
     project_dir: str | Path | None = None,
-) -> dict:
+) -> Config:
     """Load and deep-merge the configuration layers.
 
     Parameters
@@ -261,7 +265,7 @@ def load_config(
     return config
 
 
-def get_slurm_resources(config: Config, step: str) -> dict:
+def get_slurm_resources(config: Config, step: str) -> dict[str, Any]:
     """Get SLURM resource settings for a pipeline step.
 
     ``time``/``memory``/``cpus`` take the per-stage override when there is one:
@@ -364,7 +368,7 @@ def tool_mem_gb(config: Config, step: str, alloc_gb: int | None = None) -> int:
     return alloc_gb - MEM_HEADROOM_GB
 
 
-def _dump_toml(path: str | Path, data: dict) -> Path:
+def _dump_toml(path: str | Path, data: Config) -> Path:
     """Write *data* to a TOML file, creating parent dirs."""
     import tomli_w
 
@@ -377,7 +381,7 @@ def _dump_toml(path: str | Path, data: dict) -> Path:
 
 def _save_sections(
     path: str | Path,
-    data: dict,
+    data: Config,
     owned: Mapping[str, Sequence[str]] | None = None,
 ) -> Path:
     """Write the top-level sections of *data*, preserving every other section.
@@ -449,7 +453,7 @@ def _save_sections(
     return _dump_toml(path, stored)
 
 
-def save_user_config(data: dict, owned: Mapping[str, Sequence[str]] | None = None) -> Path:
+def save_user_config(data: Config, owned: Mapping[str, Sequence[str]] | None = None) -> Path:
     """Update the user-level config (shared machine resources).
 
     Section-scoped; see :func:`_save_sections`. Preserves ``[recent]``, which the
@@ -460,7 +464,7 @@ def save_user_config(data: dict, owned: Mapping[str, Sequence[str]] | None = Non
 
 def save_project_config(
     project_dir: str | Path,
-    data: dict,
+    data: Config,
     owned: Mapping[str, Sequence[str]] | None = None,
 ) -> Path:
     """Update a project's own config at ``<project_dir>/code/duckbrain.toml``.
@@ -552,7 +556,7 @@ def forget_project(project_dir: str | Path) -> Path:
     return _dump_toml(path, data)
 
 
-def save_project_task_map(project_dir: str | Path, rules: list) -> Path:
+def save_project_task_map(project_dir: str | Path, rules: list[TaskRule]) -> Path:
     """Persist project-wide task/run rules into the project config.
 
     Read-modify-write so it only touches the ``[task_mapping]`` section and
@@ -571,7 +575,7 @@ def save_project_task_map(project_dir: str | Path, rules: list) -> Path:
     return _dump_toml(path, data)
 
 
-def save_project_expectations(project_dir: str | Path, section: dict) -> Path:
+def save_project_expectations(project_dir: str | Path, section: Config) -> Path:
     """Persist the study's declared expectations into the project config.
 
     Read-modify-write so it only touches ``[expected]`` and preserves every other
@@ -595,7 +599,7 @@ def save_project_expectations(project_dir: str | Path, section: dict) -> Path:
     return _dump_toml(path, data)
 
 
-def save_project_series_types(project_dir: str | Path, rules: list) -> Path:
+def save_project_series_types(project_dir: str | Path, rules: list[TypeRule]) -> Path:
     """Persist project-wide series type declarations into the project config.
 
     Read-modify-write so it only touches the ``[series_types]`` section and
@@ -616,7 +620,7 @@ def save_project_series_types(project_dir: str | Path, rules: list) -> Path:
     return _dump_toml(path, data)
 
 
-def save_project_fmap_map(project_dir: str | Path, rules: list) -> Path:
+def save_project_fmap_map(project_dir: str | Path, rules: list[FmapRule]) -> Path:
     """Persist project-wide ``task -> fieldmap group`` bindings into the project config.
 
     Read-modify-write so it only touches the ``[fmap_mapping]`` section and
@@ -703,6 +707,6 @@ def scaffold_project(project_dir: str | Path) -> Path:
     return project_dir
 
 
-def save_local_config(config_dir: str | Path, data: dict) -> Path:
+def save_local_config(config_dir: str | Path, data: Config) -> Path:
     """[legacy] Write local.toml next to base.toml. Prefer save_project_config."""
     return _dump_toml(Path(config_dir) / "local.toml", data)

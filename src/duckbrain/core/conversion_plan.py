@@ -40,12 +40,12 @@ from .dicom_inspect import (
     is_complete_group,
 )
 
+if TYPE_CHECKING:
+    from .dcm2bids_config import Dcm2BidsConfig, Description
+
 # Classifications dcm2bids is *supposed* to leave behind. Everything else that
 # goes unclaimed is worth surfacing: an anat whose suffix vocabulary didn't match
 # used to vanish silently, which is exactly the failure this list must not hide.
-
-if TYPE_CHECKING:
-    from ..config import Config
 _EXPECTED_DROPS = frozenset({"scout", "physio", "derived"})
 
 # A datatype duckbrain *recognises* but cannot yet express. Naming the limit is
@@ -174,7 +174,7 @@ def _bids_filename(subject: str, session: str, entities: str, suffix: str) -> st
     return "_".join(parts) + _IMAGE_EXT
 
 
-def _group_by_identifier(descriptions: list[dict]) -> dict[str, str]:
+def _group_by_identifier(descriptions: list[Description]) -> dict[str, str]:
     """Map each composed ``B0map_…`` identifier back to its group name.
 
     Read off the ``fmap`` descriptions, which hold both halves: the ``id`` was
@@ -208,7 +208,7 @@ def _group_by_identifier(descriptions: list[dict]) -> dict[str, str]:
 
 
 def plan_conversion(
-    config: Config,
+    config: Dcm2BidsConfig,
     series_list: list[SeriesInfo],
     subject: str = "",
     session: str = "",
@@ -698,7 +698,7 @@ class ConfigImport:
     skipped_series: set[int] = field(default_factory=set)
 
 
-def read_config_into_table(config: Config, series_list: list[SeriesInfo]) -> ConfigImport:
+def read_config_into_table(config: Dcm2BidsConfig, series_list: list[SeriesInfo]) -> ConfigImport:
     """Parse a dcm2bids config back into per-series task / run / fieldmap values.
 
     The inverse of what the Conversion Plan table generates, as far as the table
