@@ -260,6 +260,20 @@ def test_the_memory_knob_defaults_to_the_slurm_allocation(project, calls):
     assert calls[0][3]["mem_gb"] == alloc
 
 
+def test_the_slurm_panel_describes_the_job_about_to_be_sent(project, calls):
+    """Not the config file — the memory knob overrides what the panel reads from.
+
+    The panel is what an operator checks before hitting submit, so showing the
+    configured allocation beside a knob that has changed it is the same two-numbers
+    problem one layer up.
+    """
+    import json
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    at.number_input(key="fp_mem").set_value(64).run()
+    assert json.loads(at.json[0].value)["memory"] == "64G"
+
+
 def test_export_sets_export_only_and_reports_a_path(project, calls):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     _pick(at, "fp_subjects", ["02"])
