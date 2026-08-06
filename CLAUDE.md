@@ -153,6 +153,14 @@ what's open, `docs/releasing.md` to cut the next one.
   the safe exception — that review document is frozen, so they can never be
   renumbered by anyone. **Don't retro-sweep existing citations**; drop one when
   you're editing that line anyway.
+  **The test is "does the pointer lead somewhere richer", not "is the item
+  open"** — so `TODO.md`'s unscheduled tails are citable too. `#5` is the live
+  case: it holds no task and never will, but it is where the standing rule on
+  messy source labeling is argued, five source sites point at it for that, and
+  each one lands on a fuller account than the comment making the reference.
+  Reclassifying it out of the priority queue (2026-08-06) did not invalidate
+  them. What the rule actually forbids is a pointer into the *ledger*, which
+  compresses to one line by design.
 
 ## Validation projects (real data, on Talapas)
 

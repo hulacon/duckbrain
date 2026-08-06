@@ -1,6 +1,7 @@
 # duckbrain — TODO
 
-**Open work only.** Closed items are a one-line ledger at the bottom. The detail
+**Open work only**, plus three unscheduled tails after it (`#5`, provenance
+residuals, loose ideas). Closed items are a one-line ledger below those. The detail
 lives in `git log` (the commit message is the record), `CHANGELOG.md` for
 anything user-facing, `docs/` for design, and `memory/` for validation findings.
 Every design rule that still constrains new code is a comment on the code that
@@ -21,10 +22,13 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 oracle it lacked) ·
 [`#20`](#20) conda environment ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
-[`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
+[`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
 stages · [`#8`](#8) branding + dark theme ·
-[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
+[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time)
+
+**Below the queue, unscheduled, and not closed either:**
+[`#5`](#5) standing config / mapping decisions ·
 [Provenance residuals](#provenance--consistency-residuals) ·
 [Loose ideas](#loose-ideas-not-scheduled)
 
@@ -973,57 +977,6 @@ uniformly*, because the redundancy is not evenly spread:
 
 ---
 
-<a id="5"></a>
-## #5 — Config / mapping niceties
-
-Deliberate deferrals, each fine as-is — listed so they aren't rediscovered as bugs.
-
-### The standing rule on messy source labeling: surface it, don't parse it
-
-Validating `#4` against real exports showed how sloppy scanner-console labeling
-gets — `MMM03_sess04CR`, `MMM_15_sess3.2`, `MMM_sub005_sess08`, `MMM_test002`,
-`mmm0_230718`, and a `sess04` that means two different sessions for one subject.
-**That is the experimenter's data-hygiene problem, not duckbrain's parsing
-problem,** and the line is drawn here on purpose:
-
-- **duckbrain accommodates a naming *form*** when it is a form — a regular
-  pattern a study actually uses, e.g. the session-label qualifiers handled by
-  `_SESSION_TOKEN_RE`. Cheap, and they prevent the dangerous failure: a real
-  subject silently disappearing.
-- **duckbrain does not chase one-off typos.** A folder the heuristics can't read
-  gets a **Notes** entry in the ingestion table and an editable subject/session
-  cell. Making a bad guess *visible and overridable* is the whole job; growing a
-  parser branch per malformed folder is how the heuristics become unmaintainable
-  and start misreading the well-formed ones.
-- **So the fix for a study like mmmdata is upstream**, in how sessions are named
-  at the console — or a one-time rename of the export. If a *pattern* emerges (not
-  an instance), that's when it earns code.
-- Parsed session labels are **not unique per subject**, so auto-numbering by date
-  is the reliable path and the parsed labels are a suggestion. See
-  `memory/validation-discovery-and-fieldmaps`.
-
-### Accepted edges
-
-- **`G##_S##` parsing is unit-tested only and stays that way.** No export on this
-  filesystem uses it and it isn't expected to be common. Just **don't record it as
-  live-validated**; close it for free if such an export turns up.
-- **bold→fmap linking binds by acquisition time** (since 2026-07-24) — the rule,
-  its precedence over a declared `[fmap_mapping]`, and the one residue (a tie,
-  when a session shoots two pairs back-to-back) are all in `#19.3`. Nothing about
-  it is an accepted edge any more; it is live work with a live home, and this
-  bullet asserted the *opposite* rule for three days after the change landed,
-  which is why it now points instead of restating.
-- **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
-  becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
-  alone on purpose: renaming it would change the `B0FieldIdentifier` of
-  already-converted data for no functional gain.
-- Task rules are dataset-wide; there's no per-subject *rule* scoping. Per-subject
-  *edits* already cover the exception case.
-- `directory_picker` is dirs-only; `fs_license` stays a text field. File-mode
-  deferred until something needs it.
-
----
-
 <a id="10"></a>
 ## #10 — Template groups: config defaults that vary within a project
 
@@ -1342,6 +1295,68 @@ say so. `#13`'s Conversion Plan pass closed 2026-07-30 on `fmap_eyeball`
 figures were confirmed reaching a browser as self-contained data URIs, which is
 why they are **not** entry 1: a data URI has no URL for the proxy to get wrong,
 and that is by construction rather than by luck.
+
+---
+
+<a id="5"></a>
+## #5 — Standing config / mapping decisions
+
+**Not open work, and it never was** — every bullet below is a decision already
+made, a trigger waiting on the outside world, or a pointer to where the live work
+went. It sat in the priority list until 2026-08-06 promising a task that doesn't
+exist; moved here rather than to the ledger because the standing rule it opens
+with still **binds new code** — `ingestion.py`, `conversion_plan.py`,
+`dcm2bids_config.py` and `dicom_inspect.py` each cite `#5` for it, as do
+`docs/conversion-legibility.md`, `docs/pipeline-extras.md` and
+`docs/handoff-cluster-session.md`. The id and this anchor stay put so those
+citations keep resolving; a ledger row would have said less than the comments
+making the reference.
+
+### The standing rule on messy source labeling: surface it, don't parse it
+
+Validating `#4` against real exports showed how sloppy scanner-console labeling
+gets — `MMM03_sess04CR`, `MMM_15_sess3.2`, `MMM_sub005_sess08`, `MMM_test002`,
+`mmm0_230718`, and a `sess04` that means two different sessions for one subject.
+**That is the experimenter's data-hygiene problem, not duckbrain's parsing
+problem,** and the line is drawn here on purpose:
+
+- **duckbrain accommodates a naming *form*** when it is a form — a regular
+  pattern a study actually uses, e.g. the session-label qualifiers handled by
+  `_SESSION_TOKEN_RE`. Cheap, and they prevent the dangerous failure: a real
+  subject silently disappearing.
+- **duckbrain does not chase one-off typos.** A folder the heuristics can't read
+  gets a **Notes** entry in the ingestion table and an editable subject/session
+  cell. Making a bad guess *visible and overridable* is the whole job; growing a
+  parser branch per malformed folder is how the heuristics become unmaintainable
+  and start misreading the well-formed ones.
+- **So the fix for a study like mmmdata is upstream**, in how sessions are named
+  at the console — or a one-time rename of the export. If a *pattern* emerges (not
+  an instance), that's when it earns code.
+- Parsed session labels are **not unique per subject**, so auto-numbering by date
+  is the reliable path and the parsed labels are a suggestion. See
+  `memory/validation-discovery-and-fieldmaps`.
+
+### Accepted edges
+
+Listed so they aren't rediscovered as bugs. Each is fine as-is.
+
+- **`G##_S##` parsing is unit-tested only and stays that way.** No export on this
+  filesystem uses it and it isn't expected to be common. Just **don't record it as
+  live-validated**; close it for free if such an export turns up.
+- **bold→fmap linking binds by acquisition time** (since 2026-07-24) — the rule,
+  its precedence over a declared `[fmap_mapping]`, and the one residue (a tie,
+  when a session shoots two pairs back-to-back) are all in `#19.3`. Nothing about
+  it is an accepted edge any more; it is live work with a live home, and this
+  bullet asserted the *opposite* rule for three days after the change landed,
+  which is why it now points instead of restating.
+- **`se_epi_2.5mm_ap` reads as a named group `2.5mm`** — the resolution token
+  becomes the group name. Harmless (divatten/PSY607 shoot one pair) and left
+  alone on purpose: renaming it would change the `B0FieldIdentifier` of
+  already-converted data for no functional gain.
+- Task rules are dataset-wide; there's no per-subject *rule* scoping. Per-subject
+  *edits* already cover the exception case.
+- `directory_picker` is dirs-only; `fs_license` stays a text field. File-mode
+  deferred until something needs it.
 
 ---
 
