@@ -253,71 +253,65 @@ known-first-party = ["duckbrain"]
 # guard are sorted separately and no import is ever moved across it.
 
 [tool.mypy]
-# Type checking, scoped on purpose. The whole package is ~91% annotated already
-# (543 functions in `src`, 44 missing a return type, 87 of 998 parameters bare),
-# so repo-wide is not distant — but it is a different job, because the Streamlit
-# pages are where the gaps concentrate (`0_Project_Status.py` alone holds 61 of
-# the 131) and they are what drags streamlit, plotly and nibabel into the
-# analysis. These modules were chosen instead because they are the *clean* 15%:
-# their functions were already fully annotated, and none of them imports a
-# third-party library directly.
+# **The whole package is checked** — `src/duckbrain/`, all 54 modules and 543
+# functions, as of 2026-08-06. A directory rather than a list, so a new module is
+# covered the day it is written instead of the day someone remembers to add it.
 #
-# So this is a **ratchet**, exactly like the coverage floor — it holds a property
-# these files already have. Widen the list a file at a time, and *measure first*:
-# that is why every widening so far has landed green, and once it is why a
-# widening happened at all. `pipeline.py` was filed as the expensive one — "the
-# pandas boundary, wants `disallow_any_generics` settled first" — and measuring
-# said the opposite. The whole bill was 9 signatures and **zero** body errors
-# under `--check-untyped-defs`, because pandas is `Any` here (see the override
-# below), so the boundary this analysis was supposed to founder on is the one
-# place it cannot complain. The estimate had counted 28 annotation *gaps* and
-# read them as 28 units of risk; they were 9 functions and no risk at all.
+# It is a **ratchet**, exactly like the coverage floor: it holds a property the
+# code already has. Every knob below was dialled to a *measured* zero before
+# being turned on, and that is the only reason the CI job can block rather than
+# advise. Widening from here means a stricter knob (`disallow_any_generics`,
+# TODO #33.2), not a longer list — and it means measuring first.
 #
-# The Streamlit pages were "the real job" here for two revisions of this comment,
-# on the theory that gating them meant taking on streamlit, plotly and nibabel
-# stubs. Measured, the whole `gui/` tree was 115 errors and **not one of them
-# named a third-party package**. The friction was entirely first-party and came
-# apart into a dataclass, two renames, five dead functions and a pile of
-# signatures. **The whole of `gui/` is gated now** — every page and every panel.
+# **The history is kept because the estimates are the lesson.** This started at
+# six files, and every note that deferred the next step wrote a number it had not
+# measured. All of them were wrong, all in the same direction:
+#
+# - The six were chosen as the *clean 15%* — already annotated, no direct
+#   third-party import — on a reading that repo-wide was a different job.
+# - `pipeline.py` was filed as the expensive one, "the pandas boundary, wants
+#   `disallow_any_generics` settled first". The bill was 9 signatures and **zero**
+#   body errors under `--check-untyped-defs`, because pandas is `Any` here (see
+#   the override below) — the boundary it was meant to founder on is the one place
+#   it cannot complain. The estimate had counted 28 annotation *gaps* and read
+#   them as 28 units of risk.
+# - The Streamlit pages were "the real job" for two revisions of this comment, on
+#   the theory that gating them meant taking on streamlit, plotly and nibabel
+#   stubs. Measured: 115 errors and **not one named a third-party package**. They
+#   came apart into a dataclass, two renames, five dead functions and signatures.
+# - `core/` was 36 errors across 13 modules, filed as needing a plotly decision.
+#   It needed one line of it; the rest were signatures, four JSON/config
+#   boundaries returning `Any`, and two real defects (TODO #33.4's ledger row).
+# - The remainder — `config.py` and `slurm/` — was never scoped at all, and came
+#   to **11 errors**: six signatures, a `str` parameter reassigned to a `Path` in
+#   `find_job_logs`, and `config.py`'s `tomllib` import dance, whose try/except
+#   could never succeed on the interpreter it existed for.
 #
 # A page's module name starts with a digit, which is not a legal Python
 # identifier — mypy takes the directory anyway and checks all eleven. Verified by
 # deleting one `-> None` and watching the gate go red, because a checker that
 # silently skips a file looks exactly like a checker that passes it.
 #
-# **The whole of `core/` is gated now too** (2026-08-06, TODO #33.4) — 36 errors
-# across 13 modules, and the file list is a directory rather than six names, so a
-# new module in `core/` is covered the day it is written instead of the day
-# someone remembers to add it here. Two of the 36 were defects rather than
-# annotation gaps; see the TODO ledger. Its one genuinely third-party finding was
-# `plotly`, and that is the override at the bottom of this file.
+# Three findings worth keeping, all the same shape — a type that said *less* than
+# every caller assumed:
 #
-# It has never been free, which is the point of measuring before setting the
-# knobs.
+# - `SeriesInfo.header` was `object | None`. Four sites across three modules read
+#   it through `getattr(s.header, "series_time", None)`, a spelling that cannot
+#   tell "no header" from "this header has no such attribute" and would have gone
+#   on returning `None` if the attribute were renamed. It is `SeriesHeader | None`
+#   now, and that lie was the only thing the deferred import bought.
+# - `_job_state_maps` returned two `dict[str, object]` maps, which is how
+#   `survey_live` came to read `job.state` off something declared to have no
+#   attributes at all. `dict[str, JobInfo]` now.
+# - `SessionExpectation` was one dataclass serving both the declared prescription
+#   and the observed count, so `checks.py` compared `int | None` against `int` and
+#   held only by what the caller passed. Split into `SessionCounts` (TODO #33.4).
 #
-# The first three files found five errors, all one shape — a name bound to two
-# unrelated things in one long function (`expected` meaning both a
+# The first three files also found five errors of a different kind: a name bound
+# to two unrelated things in one long function (`expected` meaning both a
 # phase-encoding direction and a list of dropped series, 130 lines apart in
-# `plan_warnings`; `run` meaning both a BOLD's counted index and an SBRef's
-# possibly-absent one). Fixed by renaming, not by annotating around.
+# `plan_warnings`). Fixed by renaming, not by annotating around.
 #
-# `pipeline.py` found nothing new, but annotating `_job_state_maps` turned two
-# more `dict[str, object]` maps into `dict[str, JobInfo]` — same shrug as the
-# header field below, and the reason `survey_live` could read `job.state` off
-# something declared to have no attributes at all.
-#
-# `dicom_inspect` + `series_types` found three, and the one worth recording is
-# that `SeriesInfo.header` was declared `object | None`. Nothing enforced that,
-# so it read as a shrug rather than a claim — but callers believed it, and four
-# sites across three modules reached the field through
-# `getattr(s.header, "series_time", None)`, a spelling that cannot distinguish
-# "no header" from "this header has no such attribute" and would have gone on
-# quietly returning `None` if the attribute were ever renamed. It is
-# `SeriesHeader | None` now and those four are direct attribute access. The lie
-# was also the only thing the deferred `from .dicom_header import …` bought, so
-# that import is at module scope now (`dicom_header` imports nothing
-# first-party, and pydicom only inside its own functions — there was never a
-# cycle or a load cost to dodge).
 # The floor is what has to typecheck. But this is *not* independent of which
 # interpreter runs mypy, which is the trap it took a red build to find: it makes
 # mypy parse every third-party stub with 3.10 grammar too, and a package that
@@ -327,23 +321,23 @@ known-first-party = ["duckbrain"]
 # match, which makes the mismatch impossible: anything pip resolves for 3.10 is
 # something that supports 3.10. Change one and change the other.
 python_version = "3.10"
-files = [
-    "src/duckbrain/core/",
-    "src/duckbrain/gui/",
-]
+files = ["src/duckbrain/"]
 
-# What reaches the un-gated remainder — `config.py` and `slurm/` — and how.
-# Their types are read while no error is reported *in* them, which is what makes
-# `pipeline.py`'s calls into `slurm.submit` worth anything. Not `"skip"`, which
-# types them as `Any` and throws that value away.
+# Vestigial now, and kept deliberately rather than deleted. It was the
+# containment mechanism when the list above was six files and 19 first-party
+# modules sat silently behind them — their types read, no error reported *in*
+# them, which is what made typing `consistency.py`'s calls into `surveyor` worth
+# anything. With the whole package checked there is no first-party module left
+# for it to contain, so it now governs third-party code only.
 #
-# It mattered more when the list above was six files and 19 first-party modules
-# sat behind it. Now it is two directories and the closure is nearly the package.
+# Do not "simplify" it to `"skip"` if the list is ever narrowed again: skip types
+# a followed module as `Any` and throws the value away, which is a silent
+# weakening of every call site that crosses into it.
 follow_imports = "silent"
 
-# Free today (146/146 functions annotated) and the whole point: without these, a
-# new untyped function in one of these files typechecks fine and the file
-# quietly stops being covered by the thing it is listed for.
+# Free today — all 543 functions in the package are annotated — and the whole
+# point: without these, a new untyped function typechecks fine and the file it
+# sits in quietly stops being covered by the thing that lists it.
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
@@ -408,5 +402,15 @@ warn_return_any = true
 # announce itself — a stale stub is a false error or a false pass, and neither
 # names its cause. Re-measure before re-opening: if plotly ever ships `py.typed`,
 # delete this entry rather than adding a package.
-module = ["pandas.*", "plotly.*"]
+module = ["pandas.*", "plotly.*", "tomli"]
 ignore_missing_imports = true
+
+# `tomli` is here for a different reason than the two above: it is not a stub
+# gap, it is a package that is *absent by design* on the interpreter most people
+# run this on. The dependency marker installs it only below 3.11, while
+# `python_version` pins the analysis at 3.10 — so mypy reads `config.py`'s
+# `else: import tomli as tomllib` branch on every interpreter and can only
+# resolve it on 3.10. Without this, the gate is green in CI and red on a 3.11
+# dev box, which is the worst of both: a local check people learn to ignore.
+# On 3.10 the package *is* installed, so its real types are still used — this
+# only ever fires where it could not be found at all.

@@ -18,12 +18,12 @@ def archived_script_path(scripts_dir: str | Path, job_name: str, job_id: str) ->
     return Path(scripts_dir) / f"{job_name}_{job_id}.sbatch"
 
 
-def _stage_script(sbatch_content: str, job_name: str, scripts_dir) -> Path:
+def _stage_script(sbatch_content: str, job_name: str, scripts_dir: str | Path | None) -> Path:
     """Write *sbatch_content* somewhere sbatch can read it."""
     if scripts_dir:
-        scripts_dir = Path(scripts_dir)
-        scripts_dir.mkdir(parents=True, exist_ok=True)
-        script_path = scripts_dir / f"{job_name}.sbatch"
+        target = Path(scripts_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        script_path = target / f"{job_name}.sbatch"
         script_path.write_text(sbatch_content)
         return script_path
     tmp = tempfile.NamedTemporaryFile(
@@ -34,7 +34,9 @@ def _stage_script(sbatch_content: str, job_name: str, scripts_dir) -> Path:
     return Path(tmp.name)
 
 
-def _archive_script(script_path: Path, scripts_dir, job_name: str, job_id: str) -> None:
+def _archive_script(
+    script_path: Path, scripts_dir: str | Path | None, job_name: str, job_id: str
+) -> None:
     """Keep an immutable copy of what was actually submitted.
 
     The staged filename is derived from the job name alone, and a job name is

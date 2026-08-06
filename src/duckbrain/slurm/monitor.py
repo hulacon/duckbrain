@@ -237,7 +237,7 @@ def job_history(user: str | None = None, days: int = 7) -> list[JobInfo]:
     return jobs
 
 
-def find_job_logs(job_id: str, log_dir: str) -> list[Path]:
+def find_job_logs(job_id: str, log_dir: str | Path) -> list[Path]:
     """Resolve the on-disk log files for a job id, sorted by name.
 
     Matches the sbatch ``--output`` conventions duckbrain emits:
@@ -248,8 +248,8 @@ def find_job_logs(job_id: str, log_dir: str) -> list[Path]:
     - ``slurm-<job_id>.out`` — SLURM's default fallback name
     plus the ``.err``/``.log`` counterparts. Deduped by filename.
     """
-    log_dir = Path(log_dir)
-    if not log_dir.is_dir():
+    root = Path(log_dir)
+    if not root.is_dir():
         return []
 
     found: dict[str, Path] = {}
@@ -259,12 +259,12 @@ def find_job_logs(job_id: str, log_dir: str) -> list[Path]:
             f"*_{job_id}_*.{ext}",  # array task (nordic_<A>_<a>.out)
             f"slurm-{job_id}.{ext}",  # SLURM default
         ):
-            for match in log_dir.glob(pattern):
+            for match in root.glob(pattern):
                 found[match.name] = match
     return [found[name] for name in sorted(found)]
 
 
-def tail_text(path, max_bytes: int = 64_000) -> str:
+def tail_text(path: str | Path, max_bytes: int = 64_000) -> str:
     """The last *max_bytes* of *path*, decoded leniently.
 
     Seeks rather than reading the whole file. fMRIPrep logs run to tens of

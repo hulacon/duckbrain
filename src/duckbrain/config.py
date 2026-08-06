@@ -29,10 +29,12 @@ from pathlib import Path
 if sys.version_info >= (3, 11):
     import tomllib
 else:
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        import tomli as tomllib  # type: ignore[no-redef]
+    # No try/except around this: `tomllib` is 3.11+, so below the floor there is
+    # nothing to try, and pyproject's `tomli; python_version < '3.11'` marker is
+    # what guarantees the fallback is installed. The old attempt-tomllib-first
+    # spelling could never succeed here and cost the type checker a `tomllib`
+    # it had to resolve at 3.10, where it does not exist.
+    import tomli as tomllib
 
 
 PROJECT_ENV = "DUCKBRAIN_PROJECT_DIR"
@@ -109,7 +111,7 @@ def _load_toml(path: str | Path | None) -> dict:
     """Load a TOML file, or return {} if it is missing."""
     if path and Path(path).exists():
         with open(path, "rb") as f:
-            return tomllib.load(f)
+            return dict(tomllib.load(f))
     return {}
 
 

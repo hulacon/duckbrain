@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from pathlib import Path
+from typing import Any
 
 import jinja2
 
@@ -71,7 +72,7 @@ def render_sbatch(step_name: str, context: dict, templates_dir: str | Path | Non
     return template.render(**context)
 
 
-def build_context(config: dict, step: str, **extra) -> dict:
+def build_context(config: dict, step: str, **extra: Any) -> dict:
     """Build a template context dict from config + extra variables.
 
     Merges the full config with per-step SLURM overrides and any
