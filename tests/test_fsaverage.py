@@ -10,6 +10,7 @@ The container calls are stubbed. What they do is a `singularity exec` away and
 cannot run in CI; what decides whether to make them is here.
 """
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,11 @@ MANIFEST = {
     "fsaverage": {"label/lh.BA1_exvivo.label", "label/rh.BA1_exvivo.label", "mri/orig.mgz"},
     "fsaverage6": {"surf/lh.white", "surf/rh.white"},
 }
+
+
+def _completed(stdout, returncode=0):
+    """What a stubbed `_run_in_container` hands back — stdout is the payload."""
+    return subprocess.CompletedProcess(args=["singularity"], returncode=returncode, stdout=stdout)
 
 
 @pytest.fixture(autouse=True)
@@ -187,6 +193,35 @@ class TestEnsure:
             ensure("cont.simg", tmp_path, ["func"])
         with pytest.raises(FsaverageError):
             ensure("cont.simg", tmp_path, ["func"])
+
+
+class TestPayloadsFromInsideTheContainer:
+    """The two JSON payloads a stubbed test never sees, and their one contract.
+
+    Both are produced by a script run inside somebody else's image, so neither
+    the syntax nor the *shape* is duckbrain's to assume. What matters is which
+    exception comes out: `pipeline` translates `FsaverageError` and nothing else,
+    so a payload that parses but isn't a mapping must not escape as a bare
+    `TypeError` — that reaches the GUI as a crash rather than a refusal.
+    """
+
+    @pytest.mark.parametrize("payload", ["[1, 2, 3]", '"fsaverage"', "null", "12"])
+    def test_a_listing_that_is_not_a_mapping_refuses_as_an_fsaverage_error(
+        self, monkeypatch, tmp_path, payload
+    ):
+        image = tmp_path / "cont.simg"
+        image.write_bytes(b"")
+        monkeypatch.setattr(FS, "_run_in_container", lambda *a, **k: _completed(payload))
+        with pytest.raises(FsaverageError, match="Unreadable template listing"):
+            FS.container_manifest(image, ["fsaverage"])
+
+    @pytest.mark.parametrize("payload", ['{"fsaverage": "lots"}', "[]"])
+    def test_an_install_report_that_is_not_counts_refuses_the_same_way(
+        self, monkeypatch, tmp_path, payload
+    ):
+        monkeypatch.setattr(FS, "_run_in_container", lambda *a, **k: _completed(payload))
+        with pytest.raises(FsaverageError, match="Unreadable install report"):
+            FS.install("cont.simg", tmp_path, ["fsaverage"])
 
 
 class TestUnreachableContainer:

@@ -328,9 +328,12 @@ def _fmap_pair_count(fmap_dir: Path) -> int:
 def observe(bids_dir: str | Path, subject: str, session: str = "") -> SessionCounts:
     """Count what one session in *bids_dir* actually holds.
 
-    The mirror image of a declaration, in the same shape, so the two compare
-    directly. Used both to *check* a session and — via :func:`elicit` — to
-    propose the declaration in the first place.
+    The mirror image of a declaration, field for field, so the two compare
+    directly — but a :class:`SessionCounts` rather than a
+    :class:`SessionExpectation`, because "not declared" is not a state a count
+    can be in. Used both to *check* a session and — via :func:`elicit`, which
+    goes through :meth:`SessionCounts.as_declaration` — to propose the
+    declaration in the first place.
     """
     unit = Path(bids_dir) / sub_ses_relpath(subject, session)
 

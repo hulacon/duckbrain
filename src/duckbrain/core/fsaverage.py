@@ -212,17 +212,18 @@ def _manifest_cached(
             f"Could not list FreeSurfer templates inside {container}: "
             f"{(proc.stderr or '').strip()[-400:]}"
         )
+    # The conversion is inside the `try` on purpose. This is a JSON payload from
+    # a script run in somebody else's container, so its *shape* is no more
+    # trustworthy than its syntax — and every failure here has to leave as an
+    # `FsaverageError`, which is the only exception `pipeline` translates. A
+    # listing that is not a mapping would otherwise reach `plan_repairs` as an
+    # empty manifest, i.e. as "the container carries no templates", which reads
+    # as nothing to repair.
     try:
         raw = json.loads(proc.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError) as exc:
+        return {str(space): {str(f) for f in files} for space, files in raw.items()}
+    except (ValueError, IndexError, TypeError, AttributeError) as exc:
         raise FsaverageError(f"Unreadable template listing from {container}: {exc}") from exc
-    # Shape-check rather than trust: this is a JSON payload from a script run in
-    # somebody else's container, and a listing that is not a mapping would
-    # otherwise reach `plan_repairs` as an empty manifest — i.e. as "the
-    # container carries no templates", which reads as nothing to repair.
-    if not isinstance(raw, dict):
-        raise FsaverageError(f"Unreadable template listing from {container}: not a JSON object")
-    return {str(space): {str(f) for f in files} for space, files in raw.items()}
 
 
 def container_manifest(container: str | Path, spaces: list[str]) -> dict[str, set[str]]:
@@ -280,11 +281,9 @@ def install(container: str | Path, root: Path, spaces: list[str]) -> dict[str, i
         )
     try:
         raw = json.loads(proc.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError) as exc:
+        return {str(space): int(n) for space, n in raw.items()}
+    except (ValueError, IndexError, TypeError, AttributeError) as exc:
         raise FsaverageError(f"Unreadable install report: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise FsaverageError("Unreadable install report: not a JSON object")
-    return {str(space): int(n) for space, n in raw.items()}
 
 
 # ---------------------------------------------------------------------------
