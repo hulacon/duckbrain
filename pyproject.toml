@@ -125,6 +125,22 @@ branch = true
 # than admire: they are four-statement declarations calling one tested module
 # (`gui.qc_panels`), so splitting one 108-statement page into five *raised* the
 # total. A page that holds logic is a page that holds untested logic.
+#
+# **The "about a point" above is now a measured number rather than a feel.** The
+# per-version spread it exists to absorb was never quantified here; it is
+# **0.03 points** — 89.19% on 3.10 against 89.16% on 3.11, same commit, both in
+# the stripped environment. So 89 against a 89.16 total is ~5x the observed
+# spread, which is why it is set that tight rather than at the 88 a literal
+# reading of "about a point" would give.
+#
+# Two caveats on that measurement, both worth knowing before trusting it.
+# **The 3.12 leg is unverified**: this cluster tops out at 3.11.4, and GitHub
+# Actions created no run for the six commits that raised this (its last run,
+# 2026-08-06T18:16Z, had all three jobs killed after 15 minutes without a runner
+# ever starting them). 3.12 also resolves a different numpy. And the spread was
+# taken across two adjacent minors; a wider gap may not behave like a small one.
+# If a version leg ever fails on this line alone, the answer is 88 — that is a
+# measurement disagreeing with this comment, not a build to be forced green.
 fail_under = 89
 
 [tool.ruff]
