@@ -67,6 +67,17 @@ class TestPartition:
         with pytest.raises(ValueError, match="Duplicate review domain"):
             qc_domains._register(ReviewDomain(key="signal", label="Again", question="?"))
 
+    def test_an_unknown_domain_key_raises_and_names_the_real_ones(self):
+        """A page's domain key is a literal, so an unknown one is a typo in the source.
+
+        `get_domain` used to return `None` for it, which nothing checked — the
+        first symptom was `AttributeError` on `NoneType` a line later, in a
+        different module. Naming the registered keys puts the fix in the message.
+        """
+        with pytest.raises(KeyError, match="no QC review domain 'signl'") as exc:
+            qc_domains.get_domain("signl")
+        assert "'signal'" in str(exc.value)
+
     def test_registering_a_duplicate_evidence_key_raises(self):
         fig = EvidenceFigure(key="same", label="Same", pattern="x.svg", scope="run", look_for="...")
         with pytest.raises(ValueError, match="Duplicate evidence figure"):

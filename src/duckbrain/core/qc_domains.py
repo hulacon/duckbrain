@@ -518,9 +518,29 @@ _register(
 # ---------------------------------------------------------------------------
 
 
-def get_domain(key: str) -> ReviewDomain | None:
-    """Return the domain with *key*, or ``None`` if there is none."""
-    return _BY_KEY.get(key)
+def get_domain(key: str) -> ReviewDomain:
+    """Return the domain with *key*. Raises :class:`KeyError` if there is none.
+
+    This used to be declared ``-> ReviewDomain | None`` and nothing enforced it:
+    of the 27 call sites, **zero** checked the result before reading an
+    attribute off it. That is the difference between a return type and a shrug.
+    The keys are literals written next to the registry — a QC page says
+    ``render_domain_page("signal")`` — so an unknown one is a typo in the
+    source, never a state a user can reach, and the useful behaviour is to say
+    which key was wrong rather than to hand back a ``None`` that becomes
+    ``AttributeError: 'NoneType' object has no attribute 'label'`` one line
+    later.
+
+    :func:`domain_of` keeps its ``| None``, and that is the contrast worth
+    seeing: an undocumented *measure* is a real, expected answer.
+    """
+    try:
+        return _BY_KEY[key]
+    except KeyError:
+        raise KeyError(
+            f"no QC review domain {key!r}; registered domains are "
+            f"{', '.join(repr(d.key) for d in DOMAINS)}"
+        ) from None
 
 
 def domain_of(measure: str) -> ReviewDomain | None:

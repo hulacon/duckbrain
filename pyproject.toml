@@ -262,13 +262,18 @@ known-first-party = ["duckbrain"]
 # stubs. Measured, the whole `gui/` tree was 115 errors and **not one of them
 # named a third-party package**. The friction was entirely first-party and came
 # apart into a dataclass, two renames, five dead functions and a pile of
-# signatures. Every page is gated now; what is left out is `qc_panels.py` and
-# `conversion_panels.py`, for the seven errors in TODO #33.1 piece 4.
+# signatures. **The whole of `gui/` is gated now** — every page and every panel.
 #
 # A page's module name starts with a digit, which is not a legal Python
 # identifier — mypy takes the directory anyway and checks all eleven. Verified by
 # deleting one `-> None` and watching the gate go red, because a checker that
 # silently skips a file looks exactly like a checker that passes it.
+#
+# What is left for a later widening is the rest of `core/`: 36 errors across 13
+# modules as of 2026-08-06, and unlike `gui/` some of them *are* third-party
+# (`plotly.offline` has no stubs). One of them looks like a live bug rather than
+# a typing nit — `checks.py:174` compares `int > None` — so measure that list
+# before believing this sentence about it.
 #
 # It has never been free, which is the point of measuring before setting the
 # knobs.
@@ -315,6 +320,8 @@ files = [
     "src/duckbrain/gui/app.py",
     "src/duckbrain/gui/components.py",
     "src/duckbrain/gui/preproc_panels.py",
+    "src/duckbrain/gui/conversion_panels.py",
+    "src/duckbrain/gui/qc_panels.py",
     "src/duckbrain/gui/pages/",
 ]
 

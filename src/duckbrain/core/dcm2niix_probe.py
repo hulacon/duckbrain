@@ -47,6 +47,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -242,7 +243,10 @@ def _to_probe(sidecar: dict) -> SeriesProbe:
 
 
 def probe_session(
-    series_dirs: list[str | Path],
+    # Sequence, not list: this only ever iterates the argument, and `list` is
+    # invariant — so a caller holding a plain `list[str]` could not pass it
+    # without building a second list to satisfy the annotation.
+    series_dirs: Sequence[str | Path],
     container: str | Path | None = None,
     timeout_s: int = _TIMEOUT_S,
 ) -> dict[str, SeriesProbe]:
