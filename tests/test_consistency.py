@@ -906,6 +906,32 @@ def test_no_derivatives_path_configured_reports_nothing(tmp_path):
     assert "tool-crash" not in _codes(check_consistency(cfg))
 
 
+# ---- reading a sidecar that isn't an object ---------------------------------
+
+
+def test_valid_json_that_is_not_an_object_reads_as_unreadable(tmp_path):
+    """``null`` / ``[]`` / a bare string are all valid JSON and none is a sidecar.
+
+    ``_read_json`` absorbs an unreadable file into ``{}`` on purpose, so every
+    caller can do ``.get()`` without guarding. But it absorbed only *parse*
+    failures, and these three parse fine — so they returned None/list/str from a
+    function declared ``-> dict`` and the caller raised AttributeError out of a
+    checker whose entire job is to survive bad files. Found by mypy's
+    ``warn_return_any`` (TODO #33.2); the truncated-file case below is the one
+    that always worked, kept here so the pair reads as one contract.
+    """
+    from duckbrain.core.consistency import _read_json
+
+    for text in ("null", "[]", '"a string"', "3", ""):
+        p = tmp_path / "sidecar.json"
+        p.write_text(text)
+        assert _read_json(p) == {}, f"{text!r} should read as unreadable"
+
+    p = tmp_path / "sidecar.json"
+    p.write_text('{"EchoTime": 0.03}')
+    assert _read_json(p) == {"EchoTime": 0.03}
+
+
 # ---- clean project ----------------------------------------------------------
 
 

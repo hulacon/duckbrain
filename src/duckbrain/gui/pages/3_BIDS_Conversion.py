@@ -483,7 +483,7 @@ if _saved_config_path.exists():
             nd_duplicates=_project_nd_policy,
         )
         _drift = compare_dcm2bids_configs(json.loads(_saved_config_path.read_text()), _fresh_config)
-    except Exception as _e:  # noqa: BLE001 — a broken saved file is a finding, not a crash
+    except Exception as _e:  # a broken saved file is a finding, not a crash
         st.warning(
             f"Couldn't compare the saved config with a freshly generated one: {_e}. "
             "It will still be used as-is by bulk convert and the cockpit."

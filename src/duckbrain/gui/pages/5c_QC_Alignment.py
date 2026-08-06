@@ -9,6 +9,6 @@ import streamlit as st
 
 st.set_page_config(page_title="Alignment & distortion — duckbrain", layout="wide")
 
-from duckbrain.gui import qc_panels  # noqa: E402
+from duckbrain.gui import qc_panels
 
 qc_panels.render_domain_page("alignment")

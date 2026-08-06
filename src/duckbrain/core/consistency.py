@@ -128,11 +128,18 @@ class ConsistencyIssue:
 
 
 def _read_json(path: Path) -> dict:
+    # The isinstance is not defensive padding — it closes the one hole in the
+    # "unreadable file is not a finding" contract above. A truncated or empty
+    # sidecar raises ValueError and is absorbed, but `null`, `[]` and `"text"`
+    # are all *valid* JSON, so they returned None/list/str from a function
+    # declared `-> dict` and the caller's next `.get()` raised AttributeError
+    # out of a checker whose whole job is to survive bad files.
     try:
         with open(path) as f:
-            return json.load(f)
+            data = json.load(f)
     except (OSError, ValueError):
         return {}
+    return data if isinstance(data, dict) else {}
 
 
 @dataclass(frozen=True)

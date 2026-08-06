@@ -56,22 +56,27 @@ class FieldmapDetection:
     """Result of fieldmap detection."""
 
     strategy: str  # "series_description", "series_number", "none"
-    groups: dict = field(default_factory=dict)  # group_name → {"ap": num, "pa": num}
+    # group_name → {"ap": series_number, "pa": …}, or for a gradient-echo pair
+    # {"magnitude": …, "phasediff": …}. Spelled out rather than left a bare
+    # ``dict``: a bare one makes every group name an ``Any``, and the two places
+    # that return a group name from a ``-> str | None`` were returning that
+    # ``Any`` — a declared type nothing was checking.
+    groups: dict[str, dict[str, int]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     # group_name → extra BIDS entity that keeps multiple pairs from colliding on
     # the same ``dir-<X>`` filename, e.g. "run-1" (order) or "acq-encoding"
     # (named). Empty/absent means no extra entity (the single-pair case).
-    group_entities: dict = field(default_factory=dict)
+    group_entities: dict[str, str] = field(default_factory=dict)
     # group_name → acquisition time (seconds since midnight), averaged over the
     # group's members. This is what lets a bold bind to the fieldmap it was
     # actually shot next to rather than whichever pair sorts first; see
     # dcm2bids_config._assign_fmap_group. Empty when the DICOMs weren't read.
-    group_times: dict = field(default_factory=dict)
+    group_times: dict[str, float] = field(default_factory=dict)
     # Groups that are valid and bindable but should not be chosen *automatically*
     # — the distortion-uncorrected reconstruction, when both were converted. An
     # explicit [fmap_mapping] rule naming one still binds; only the heuristic
     # skips them.
-    deprioritized: set = field(default_factory=set)
+    deprioritized: set[str] = field(default_factory=set)
 
 
 # --- ReproIn ---------------------------------------------------------------

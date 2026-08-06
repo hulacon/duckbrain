@@ -150,8 +150,8 @@ src = [".", "src", "tests"]
 # the repo had ever had; a wider ruleset would have meant a large mechanical diff
 # competing for attention with the two real bugs the narrow one found (a missing
 # `Path` import in an annotation, and a dead series lookup in
-# `_fmap_description`). It was then widened a ruleset at a time, each with its
-# own commit, and that sequence is now finished.
+# `_fmap_description`). It has been widened a ruleset at a time since, each with
+# its own commit and each measured before it was selected.
 #
 # `B` (flake8-bugbear) is the first widening, and the reason to start here is
 # `B905`: `zip()` silently truncates to the shorter argument, so two sequences
@@ -195,7 +195,24 @@ src = [".", "src", "tests"]
 # sanction — a mid-sentence `(TODO #17.2)` pointing at an item that exists
 # elsewhere — because these rules only match a comment's leading tag. Verified
 # against both forms before enabling.
-select = ["B", "E", "F", "FIX", "I", "TD", "UP", "W"]
+#
+# `RUF100` is the one rule, not the ruleset — the rest of `RUF` is 28 findings
+# with no defect behind any of them (see TODO #33.3 for each verdict; the
+# `ambiguous-unicode` ones are the GUI's deliberate `➕` / `ℹ` / `×` glyphs).
+# It is the ruff counterpart of mypy's `warn_unused_ignores` above, and it
+# earned its place: all 9 findings were `noqa`s suppressing nothing. Six named
+# `E402` in files `per-file-ignores` already exempts, so they read as the thing
+# holding the import order down when the config was; three named `BLE001`, a
+# ruleset never selected here. A directive nobody re-checks is a claim about
+# current state that decays into a false one, which is the same reason the repo
+# has no `# TODO:` markers.
+#
+# The three `BLE001` reasons were kept as ordinary comments when the directive
+# went — the prose said something true about why a bare `except Exception` is
+# right at a DICOM read, and only the machine-readable half was stale. Enabling
+# `BLE` later means re-adding three directives, deliberately, with the reason
+# already sitting there.
+select = ["B", "E", "F", "FIX", "I", "RUF100", "TD", "UP", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # Streamlit pages must call st.set_page_config() before anything else touches
@@ -305,16 +322,35 @@ warn_redundant_casts = true
 warn_unused_configs = true
 strict_equality = true
 
-# Declined, so they aren't rediscovered as oversights:
-#   disallow_untyped_calls — fires on every call into a silently-followed module,
-#     i.e. a whole-repo project wearing a per-module flag.
-#   warn_return_any — noisy against untyped pandas (`consistency._read_json`
-#     returns `json.load(...)` from a `-> dict`). Revisit if pandas gets stubs.
-#   disallow_any_generics — this is the real one, and it is real work rather than
-#     a gate: ~131 bare `dict`/`list[dict]` sites, and the dcm2bids description
-#     dicts would need actual TypedDicts (with `NotRequired`, which the 3.10
-#     floor can't have without `typing_extensions`). Filed in TODO.md.
-#   strict — turns on all three of the above.
+# Both of these were filed as declined and both measured free, which is the
+# whole argument for re-measuring a decline rather than inheriting it.
+#
+# `disallow_untyped_calls` was declined as "fires on every call into a silently
+# followed module, i.e. a whole-repo project wearing a per-module flag." It
+# fires zero times: `silent` *reads* types, it does not discard them, and the 19
+# modules in the closure are the well-annotated part of the repo. What it buys
+# is a ratchet that reaches past the file list — an untyped new function in
+# `surveyor.py` is now a build error even though `surveyor.py` is not gated.
+# Expect that error to be reported at the *call site*, in a file the author may
+# not have touched.
+#
+# `warn_return_any` was declined as "noisy against untyped pandas". It was 3
+# errors, none of them pandas, and one was a live bug: `consistency._read_json`
+# promised `-> dict` while returning `json.load(...)`, so `null` / `[]` / a bare
+# string — all valid JSON, none a sidecar — sailed past the `except ValueError`
+# that exists to absorb exactly that, and the caller's `.get()` raised
+# AttributeError out of a checker written never to raise. Pinned by
+# tests/test_consistency.py::test_valid_json_that_is_not_an_object_reads_as_unreadable.
+# The other two returned a group name typed `Any` out of `FieldmapDetection`'s
+# bare `groups: dict`; that dataclass's four fields are spelled out now.
+#
+# Still declined:
+#   disallow_any_generics — 90 errors, and the real ones are the dcm2bids
+#     description dicts, which need actual TypedDicts (with `NotRequired`, which
+#     the 3.10 floor can't have without `typing_extensions`). Filed in TODO #33.2.
+#   strict — turns that on along with these two.
+disallow_untyped_calls = true
+warn_return_any = true
 
 [[tool.mypy.overrides]]
 # The one stub gap that reaches this analysis, named rather than blanketed —

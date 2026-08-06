@@ -140,7 +140,7 @@ def test_every_template_container_line_carries_the_flags():
 # already maintains one valid context per template. Sharing them means a template
 # added there is checked here too, rather than here having its own list that
 # quietly stops covering everything.
-from test_sbatch_templates import _TEMPLATE_DEFAULTS, _cfg  # noqa: E402
+from test_sbatch_templates import _TEMPLATE_DEFAULTS, _cfg
 
 
 def _container_lines(script):

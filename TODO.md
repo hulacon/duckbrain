@@ -20,7 +20,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 [`#19`](#19) conversion coverage (`#19.6` newly actionable — the probe is the
 oracle it lacked) ·
 [`#20`](#20) conda environment ·
-[`#33`](#33) widen the type-checked surface ·
+[`#33`](#33) widen the type-checked surface (mostly discharged — the Streamlit
+pages are what's left) ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -740,59 +741,171 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 <a id="33"></a>
 ## #33 — Widen the type-checked surface
 
-`#18` closed with mypy gating three modules (`conversion_plan`,
-`dcm2bids_config`, `consistency`) and the ruff ruleset at `B`/`E`/`F`/`FIX`/`I`/
-`TD`/`UP`/`W`. Both were deliberately stopped at what could be gated *today*.
-What is left is real work rather than a config line, which is why it is its own
-item and not an unfinished part of that one.
+`#18` closed with mypy gating three modules and the ruff ruleset at `B`/`E`/`F`/
+`FIX`/`I`/`TD`/`UP`/`W`. Both were deliberately stopped at what could be gated
+*today*, and everything left over was filed here.
 
-**Read the file list from `pyproject.toml`, not from here**, and **re-measure
-before adding to it** — the whole reason `#18` landed green is that the config
-was set after measuring, not guessed.
+**Mostly discharged 2026-08-06.** Six modules are gated instead of three, two
+mypy knobs this item had declined are on, `RUF100` is on, and every remaining
+ruleset has a recorded verdict. **What is genuinely left is one thing: the
+Streamlit pages** (`#33.1`), plus `disallow_any_generics` (`#33.2`) if anyone
+wants it.
+
+**Read the file list and the ruleset from `pyproject.toml`, not from here**, and
+**re-measure before changing either.** The reason `#18` landed green is that the
+config was set after measuring — and this pass found that cuts both ways.
+Three of this item's own estimates were wrong, all in the direction of *deferring
+work that was already free*: `pipeline.py` (filed as blocked, cost 9
+signatures), `disallow_untyped_calls` (filed as repo-wide-or-nothing, 0 errors)
+and `warn_return_any` (filed as pandas-noisy, 3 errors and one live bug). A
+decline written without a number behind it is worth re-measuring before it is
+inherited.
 
 ### `#33.1` — More files under `[tool.mypy] files`
 
-Repo-wide is not distant: `src` is ~91% annotated (543 functions, 44 missing a
-return type, 87 of 998 parameters bare, measured 2026-08-04). But the gaps are
-not evenly spread, and that shapes the order.
+**Everything under `core/` that this item named is done** (2026-08-06):
+`dicom_inspect`, `series_types` and `pipeline` are all gated. What each cost and
+what each found is in `git log` and on the config itself. Two things worth
+carrying forward:
 
-- **Next, and cheap:** `core/dicom_inspect.py` and `core/series_types.py`. Both
-  are already in the three modules' import closure, both are fully annotated,
-  neither imports a third-party library directly.
-- **Not `core/pipeline.py` yet** — 22 unannotated arguments and 6 missing
-  returns, and it is the pandas boundary, so it wants `#33.2` settled first.
-- **The pages last, and expect them to be the whole cost.**
-  `gui/pages/0_Project_Status.py` alone holds 45 unannotated arguments and 16
-  missing returns — 61 of the repo's 131 gaps — and the pages are what drag
-  streamlit, plotly and nibabel into the analysis. Of the packages that matter
-  here only **pandas and plotly ship no `py.typed`**.
+- **The estimate for `pipeline.py` was wrong, and wrong in a way worth
+  recognising again.** It was filed as "not yet — 22 unannotated arguments and 6
+  missing returns, and it is the pandas boundary, so it wants `#33.2` settled
+  first." The 28 gaps were 9 functions, `--check-untyped-defs` found **zero**
+  errors in their bodies, and the pandas boundary is the reason rather than the
+  obstacle — pandas is `Any` here, so it is the one place the analysis cannot
+  complain. Counting gaps and reading each as a unit of risk is what produced a
+  3× overestimate.
+- **What widening actually finds is not missing annotations.** All three files
+  were ~fully annotated. What it found, twice, was a field declared `object`
+  where a real type belonged (`SeriesInfo.header`, then the two `dict[str,
+  JobInfo]` maps in `_job_state_maps`) — and around the first of those, four
+  call sites reaching through `getattr(s.header, "series_time", None)`, which
+  cannot tell "no header" from "no such attribute" and would silently degrade
+  every fieldmap binding to first-sorted if the attribute were ever renamed.
+
+**What is left is the pages, and they are the whole cost.**
+`gui/pages/0_Project_Status.py` alone holds 45 unannotated arguments and 16
+missing returns — 61 of the repo's 131 gaps — and the pages are what drag
+streamlit, plotly and nibabel into the analysis. Of the packages that matter
+here only **pandas and plotly ship no `py.typed`**. Expect this to be a project,
+not a widening; nothing above predicts it, because nothing above touched a
+third-party API surface.
 
 ### `#33.2` — `disallow_any_generics`, and the dcm2bids description dicts
 
-The knob `#18` explicitly declined, and the reason it is a design project:
-~131 bare `dict` / `list[dict]` sites, of which every public entry point in the
-three checked modules is one (`check_consistency(config: dict)` and friends).
-The real content is the dcm2bids **description dicts** — heterogeneous literals
-built and then conditionally extended (`dcm2bids_config.py` ~`:836`), then
-chain-subscripted downstream (`d["criteria"]["SeriesNumber"]`,
+**The two knobs filed alongside this one are done — both were declined on a
+guess and both measured free** (2026-08-06, and see the config for each). That
+is the reusable lesson here: a decline recorded without a number is worth
+re-measuring before it is inherited.
+
+- `disallow_untyped_calls` was "effectively repo-wide-or-nothing". It is **0
+  errors** — `follow_imports = silent` reads types rather than discarding them.
+  Enabled.
+- `warn_return_any` was "noisy against untyped pandas". It was **3 errors, none
+  of them pandas**, and one was a live bug in the function the note used as its
+  example: `consistency._read_json` promised `-> dict` and returned whatever
+  `json.load` gave it, so `null` / `[]` / a bare string — valid JSON, not
+  sidecars — defeated the `except ValueError` written to absorb exactly that
+  case and raised `AttributeError` at the caller. Fixed, tested, enabled.
+
+**`disallow_any_generics` itself is still real work: 90 errors.** The shape is
+unchanged, and so is the reason it is a design project rather than a config
+line. The dcm2bids **description dicts** are the real content — heterogeneous
+literals built and then conditionally extended (`dcm2bids_config.py` ~`:836`),
+then chain-subscripted downstream (`d["criteria"]["SeriesNumber"]`,
 `desc["sidecar_changes"]["B0FieldSource"]`). Typing them properly means real
 `TypedDict`s with optional keys, i.e. `NotRequired`, which the 3.10 floor cannot
 have without adding `typing_extensions`. Weigh that before starting.
 
-Two knobs sit behind the same decision: `warn_return_any` (noisy against
-untyped pandas today) and `disallow_untyped_calls` (fires on every call into a
-`follow_imports = silent` module, so it is effectively repo-wide-or-nothing).
+**But not every bare `dict` in the 90 is one of those, and the cheap ones are
+worth taking first.** `FieldmapDetection`'s four fields were bare `dict`/`set`
+and are now `dict[str, dict[str, int]]`, `dict[str, str]`, `dict[str, float]`,
+`set[str]` — homogeneous maps, no `TypedDict` needed, and typing them is what
+cleared two of the three `warn_return_any` errors above. Sweep for that shape
+before opening the `typing_extensions` question; the count that makes this look
+like one big decision is mostly not one.
 
-### `#33.3` — Rulesets measured and deferred
+### `#33.3` — Rulesets measured and judged
 
-Counts from 2026-08-04, recorded so nobody re-measures: `ARG` 298, `D` 235,
-`N` 55, `PTH` 30. `RUF`/`SIM`/`C4` unmeasured.
+Everything is measured now (2026-08-06, counts against the configured `select`,
+so they are what enabling each would actually cost). `RUF100` was enabled and is
+the only one that paid. **Recorded so nobody re-measures, and so nobody re-opens
+a decline without new evidence.**
 
-`D` (pydocstyle) is **declined, not deferred**: a several-hundred-line
+| | findings | verdict |
+|---|---|---|
+| `ARG` | 309 (14 in `src`) | **declined** — it fires on the `#29` fix |
+| `N` | 57 (15 in `src`) | **declined** |
+| `D` | 1274 | **declined** |
+| `PTH` | 30 | **declined** |
+| `RUF` (ruleset) | 37 | **declined**, except `RUF100` (9) — **enabled** |
+| `C4` | 36 | **declined** |
+| `PERF` | 23 | **declined** |
+| `SIM` | 16 | **declined** |
+| `RET` | 3 | **declined** |
+
+`D` (pydocstyle) is declined for the reason it always was: a four-figure
 docstring-*format* diff across a codebase whose docstrings are its best feature
-is a net loss, and the rules it would enforce are about punctuation and mood,
-not content. The others are open questions; `PTH` is the most likely to be worth
-it and the most likely to be mechanical.
+is a net loss, and the rules are about punctuation and mood, not content. (The
+`235` this item used to record was a subset; the ruleset is 1274.)
+
+`PTH` was the one this item predicted would be worth it, and measuring says no —
+but the *shape* of the finding is the useful part. `PTH` exists to catch string
+path handling: `os.path.join`, `os.path.exists`, manual separator arithmetic.
+This repo has **zero** of those. All 30 findings are `open(p)` → `p.open()` (23)
+plus a tail of `os.chmod`/`os.replace`/`os.symlink`/`os.listdir`. The codebase
+already passes the rule's substantive test and what remains is its cosmetic
+half, so enabling it buys a 30-line diff and no defect.
+
+The rest, each checked at the site rather than by count — this is the part that
+would otherwise get re-litigated:
+
+- **`SIM115`** (open-without-context-manager, 1) reads
+  `tempfile.NamedTemporaryFile(delete=False)` in `slurm/submit.py`. The handle
+  *is* closed and `delete=False` is load-bearing (sbatch reads the file after).
+  A false positive, and it was the single most promising finding in the batch.
+- **`RUF001`–`RUF003`** (12) are not the em-dash false positives you would
+  expect — ruff does not flag `—`. They are EN DASH, MINUS SIGN, and the GUI's
+  deliberate `➕` / `ℹ` / `×` button glyphs. Nothing is compared against them.
+- **`RUF015`/`RUF059`/`RUF012`** (13) are entirely in `tests/`. `RUF015` would
+  make assertions *worse*: `[x for x in … if …][0]` failing with `IndexError`
+  says more at a test failure than `next(…)` raising `StopIteration`.
+- **`C4`** is 32× `dict()` → `{}`; **`PERF`** is 14 manual list comprehensions
+  and 9 `try`/`except`-in-loop, which is the correct shape where it appears;
+  **`RET`** is 3 named returns that are named on purpose.
+
+**`ARG` is the one to re-read before anyone re-opens it, because the raw count
+argues the opposite way.** Split `src` from `tests` first (the `#18` precedent:
+39 of 44 `B905` hits were one shape in one test file) and it drops from 309 to
+14 — a number small enough to check by hand, which is what settles it. All 14
+are deliberately unused, and **five are unused *on purpose, for correctness*:**
+`_inspect_labels_cached(path, mtime, size)` and `ensure(…, mtime, size)` take
+their cache key as arguments an `lru_cache` hashes and the body never reads, and
+the three `fingerprint: tuple` parameters in `qc_panels` / `conversion_panels`
+are **the fix that closed `#29`** — the one whose whole content was that
+`_fingerprint` with a leading underscore is silently dropped from Streamlit's
+cache key, so a re-run of MRIQC served a stale DataFrame until the server
+restarted.
+
+So `ARG001` would point at those five and say "delete this", while
+`tests/test_streamlit_caches.py` exists to forbid the only other spelling. A
+gate that argues against a fix the repo shipped, and against a test written to
+hold it, is worse than no gate. The remaining nine are `pipeline.py`'s four
+uniform `StageSpec.build` signatures and `domains_for_modality(modality)`, whose
+docstring states in full why it ignores the argument.
+
+Two real-but-minor things `ARG` did surface, left alone deliberately rather than
+folded into a linting commit: `core/ingestion.py`'s `plan_ingest` takes a
+`sourcedata_dir` it never reads (an API question, not a bug), and
+`0_Project_Status.py`'s `_stage_params` docstring says "subject/session gate
+options" when only `subject` does.
+
+`N` is declined on shape rather than judgment: **10 of its 15 `src` findings are
+`N999` on the Streamlit page filenames**, and those names are Streamlit's
+multipage API — the leading digit *is* the sidebar ordering. Silencing ten
+findings by `per-file-ignores` to keep three exception-naming opinions
+(`InvalidLabel` → `InvalidLabelError`) is not a trade worth making.
 
 ---
 

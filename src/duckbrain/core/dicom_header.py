@@ -154,7 +154,7 @@ def _read_one(path: Path):
 
     try:
         dataset = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
-    except Exception:  # noqa: BLE001 — an unreadable file is a finding, not a crash
+    except Exception:  # an unreadable file is a finding, not a crash
         return None
     if not any(hasattr(dataset, tag) for tag in ("SOPClassUID", "Modality", "ImageType")):
         return None
@@ -214,7 +214,7 @@ def _single_volume(files: list[Path], image_type: tuple[str, ...], enhanced: boo
                 force=True,
                 specific_tags=["ImagePositionPatient"],
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
         position = getattr(ds, "ImagePositionPatient", None)
         if position is None:
