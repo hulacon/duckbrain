@@ -336,7 +336,7 @@ classify_series(
 # ReproIn-named sequences carry their BIDS entities explicitly, so duckbrain uses
 # those instead of inferring them. Worth saying out loud: it tells the user the
 # mapping below is read from the protocol names rather than guessed.
-_reproin_count = sum(1 for s in series_list if is_reproin_name(s.description))
+_reproin_count = sum(1 for series in series_list if is_reproin_name(series.description))
 if _reproin_count:
     st.info(
         f"**ReproIn naming detected** in {_reproin_count} of {len(series_list)} series. "
@@ -355,9 +355,9 @@ fieldmaps = detect_fieldmaps(series_list)
 # Acquisition time per series, for the nearest-in-time fieldmap binding — so the
 # seed column shows what generate_config will actually write.
 series_times = {
-    s.series_number: s.header.series_time
-    for s in series_list
-    if s.header is not None and s.header.series_time is not None
+    series.series_number: series.header.series_time
+    for series in series_list
+    if series.header is not None and series.header.series_time is not None
 }
 fmap_colors = fmap_swatches(fieldmaps.groups)
 
@@ -386,8 +386,8 @@ else:
 
 if fieldmaps.warnings:
     with st.expander("Fieldmap warnings"):
-        for w in fieldmaps.warnings:
-            st.warning(w)
+        for message in fieldmaps.warnings:
+            st.warning(message)
 
 # ---- The single conversion table ----
 # One row per DICOM series, carrying every decision that shapes the output *and*
@@ -479,7 +479,7 @@ if _saved_config_path.exists():
             rules=task_rules_from_config(config),
             fmap_rules=fmap_rules_from_config(config),
             type_rules=project_type_rules,
-            series_list=[dataclasses.replace(s) for s in series_list],
+            series_list=[dataclasses.replace(series) for series in series_list],
             nd_duplicates=_project_nd_policy,
         )
         _drift = compare_dcm2bids_configs(json.loads(_saved_config_path.read_text()), _fresh_config)
@@ -645,15 +645,15 @@ if row_edits:
 
 seed_rows = []
 _unknown_groups: dict[str, list[int]] = {}
-for s in series_list:
-    entry = seed_by_series.get(s.series_number)
+for series in series_list:
+    entry = seed_by_series.get(series.series_number)
     task = entry.task if entry else ""
     run = entry.run if entry else None
-    fieldmap = _seed_fieldmap(s)
+    fieldmap = _seed_fieldmap(series)
     if imported is not None:
-        task = imported.task_by_series.get(s.series_number, task)
-        run = imported.run_by_series.get(s.series_number, run)
-        group = imported.group_by_series.get(s.series_number)
+        task = imported.task_by_series.get(series.series_number, task)
+        run = imported.run_by_series.get(series.series_number, run)
+        group = imported.group_by_series.get(series.series_number)
         if group is not None:
             # A group the detector didn't produce (the JSON renamed a pair, or the
             # config came from another session) has no column value to land in.
@@ -663,27 +663,27 @@ for s in series_list:
             if group in _group_token:
                 fieldmap = _group_token[group]
             else:
-                _unknown_groups.setdefault(group, []).append(s.series_number)
-        elif s.series_number in imported.group_by_series and entry and entry.role == "bold":
+                _unknown_groups.setdefault(group, []).append(series.series_number)
+        elif series.series_number in imported.group_by_series and entry and entry.role == "bold":
             fieldmap = _NO_FMAP_TOKEN if fieldmaps.groups else ""
     # Ticked for anything duckbrain has an emission path for, so the box agrees
     # with `becomes` on first render rather than promising a file for a scout.
-    convert = s.classification in EMITTED_CLASSIFICATIONS
+    convert = series.classification in EMITTED_CLASSIFICATIONS
     if imported is not None and convert:
-        convert = s.series_number not in imported.skipped_series
+        convert = series.series_number not in imported.skipped_series
     seed_rows.append(
         {
-            "Series #": s.series_number,
-            "Description": s.description,
+            "Series #": series.series_number,
+            "Description": series.description,
             # An anatomical shows its suffix, because for anat alone the datatype
             # does not determine the output — and the suffix comes from the
             # emitter (anat_suffix_for calls it) rather than from a second
             # derivation, so the cell cannot claim a suffix the file won't carry.
             # A bare `anat` here means nothing pinned one, which is a series that
             # converts to nothing and the case the dropdown exists to fix.
-            "Type": format_type_token(s.classification, anat_suffix_for(s)),
-            "Type from": s.classified_by,
-            "# Files": s.file_count,
+            "Type": format_type_token(series.classification, anat_suffix_for(series)),
+            "Type from": series.classified_by,
+            "# Files": series.file_count,
             "convert": convert,
             "task": task,
             "run": run,
@@ -993,9 +993,9 @@ _runtime = probe_runtime(_probe_container)
 _probes = session_probes(series_list, _runtime)
 
 findings = plan_warnings(plan, fieldmaps, probes=_probes)
-_blocking = [w for w in findings if w.severity == "error"]
-_suspect = [w for w in findings if w.severity == "warning"]
-_notes = [w for w in findings if w.severity == "info"]
+_blocking = [finding for finding in findings if finding.severity == "error"]
+_suspect = [finding for finding in findings if finding.severity == "warning"]
+_notes = [finding for finding in findings if finding.severity == "info"]
 
 with st.container(border=True):
     st.markdown("**Preflight**")
@@ -1004,10 +1004,10 @@ with st.container(border=True):
             f"The hand-edited JSON is invalid, so the table below still "
             f"reflects the generated config: {_override_error}"
         )
-    for w in _blocking:
-        st.error(w.message)
-    for w in _suspect:
-        st.warning(w.message)
+    for finding in _blocking:
+        st.error(finding.message)
+    for finding in _suspect:
+        st.warning(finding.message)
     # Green has to mean every check ran. The phase-encoding checks skip silently
     # without a probe (`plan_warnings` takes `probes` as optional on purpose), so
     # a success message gated on "no findings" alone would report a clean bill on
@@ -1036,8 +1036,8 @@ with st.container(border=True):
     # fixes the collision, reruns, and gets green from a check that never ran.
     if _probe_note := probe_note(_runtime, _probes):
         st.caption(_probe_note)
-    for w in _notes:
-        st.caption(f"ℹ️ {w.message}")
+    for finding in _notes:
+        st.caption(f"ℹ️ {finding.message}")
 
 # Under an active override the JSON is the config, so the decision columns are
 # read-only and show what the JSON says. Left editable they were three controls
