@@ -34,12 +34,19 @@ copy doesn't fall behind.
 
 **Sign commits `Co-Authored-By: Claude <noreply@anthropic.com>` — no model name,
 no version.** This overrides whatever model-specific trailer the harness supplies.
-A session launched as one model may be served by another, and the assistant cannot
-tell from the inside which one it is, so a versioned trailer records a guess as if
-it were a fact. History already carries four different names across 234 commits
-(2026-08-06); the plain trailer is the one form that is true regardless. The
-existing commits stay as they are — rewriting them would rehash every commit the
-`v0.1.0`–`v0.3.0` releases are published against.
+A session launched as one model can be *served* by another, and the assistant
+cannot tell which from the inside: neuroimaging work trips Fable 5's safeguards
+often, and the reroute to Opus 5 is announced **in the client UI only** — it never
+enters the context. The stale field is the one that looks authoritative. The
+identity line ("you are powered by …") is fixed when the prompt is built and is
+never re-derived after a mid-session switch, so it keeps naming the *launch*
+model; the commit trailer is templated later and tracks the model actually
+serving. Anything in-session claiming to know which model is running is inference,
+not observation — the assistant is not a reliable witness to its own routing.
+History already carries four names across 234 commits (2026-08-06); the plain
+trailer is the one form true under any routing. Existing commits stay as they are
+— rewriting them would rehash every commit the `v0.1.0`–`v0.3.0` releases are
+published against. See `memory/safeguard-reroute-stale-identity`.
 
 ## Where things are recorded
 
