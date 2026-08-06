@@ -57,6 +57,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from .dicom_inspect import (
     _SBREF_SUFFIX,
@@ -76,6 +77,9 @@ from .dicom_inspect import (
 # module is what makes a declaration legal, so a suffix duckbrain can write and a
 # suffix a user may declare cannot drift apart.
 from .series_types import BIDS_ANAT_SUFFIXES as _BIDS_ANAT_SUFFIXES
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 @dataclass
@@ -310,7 +314,7 @@ def task_rules_from_mapping(entries: list[TaskRunEntry]) -> list[TaskRule]:
     return list(by_desc.values())
 
 
-def task_rules_from_config(config: dict) -> list[TaskRule]:
+def task_rules_from_config(config: Config) -> list[TaskRule]:
     """Read project-wide task rules from a merged config's ``[task_mapping]``.
 
     Tolerant of malformed rows (missing description/task are skipped) so a
@@ -333,7 +337,7 @@ def task_rules_to_config_section(rules: list[TaskRule]) -> dict:
     return {"rule": [{"description": r.description, "task": r.task} for r in rules]}
 
 
-def fmap_rules_from_config(config: dict) -> list[FmapRule]:
+def fmap_rules_from_config(config: Config) -> list[FmapRule]:
     """Read project-wide fieldmap bindings from a merged config's ``[fmap_mapping]``.
 
     Tolerant of malformed rows (a missing task or group is skipped) so a
@@ -1281,7 +1285,7 @@ def _nearest_group_in_time(
     return timed[0][1]
 
 
-def config_to_json(config: dict, indent: int = 2) -> str:
+def config_to_json(config: Config, indent: int = 2) -> str:
     """Serialize dcm2bids config dict to formatted JSON string."""
     import json
 

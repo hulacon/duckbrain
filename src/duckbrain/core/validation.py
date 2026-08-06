@@ -42,12 +42,16 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .containers import isolation_flags
 
 #: Generous: the measured runs are seconds, but a dataset with a very large
 #: derivatives tree still has to be walked, and a timeout that fires is reported
 #: as "could not run" rather than as a clean dataset.
+
+if TYPE_CHECKING:
+    from ..config import Config
 VALIDATOR_TIMEOUT_S = 300
 
 #: How many file paths one issue carries into the GUI. The flood this module
@@ -226,7 +230,7 @@ def _issue(raw: dict, severity: str) -> ValidationIssue:
     )
 
 
-def validate_bids(config: dict, *, timeout_s: int = VALIDATOR_TIMEOUT_S) -> ValidationResult:
+def validate_bids(config: Config, *, timeout_s: int = VALIDATOR_TIMEOUT_S) -> ValidationResult:
     """Run the validator over the project's BIDS root and read its findings back.
 
     **Deliberately not memoised**, unlike :mod:`duckbrain.core.fsaverage`, which

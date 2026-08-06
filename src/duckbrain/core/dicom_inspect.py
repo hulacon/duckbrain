@@ -6,8 +6,12 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .dicom_header import SeriesHeader, classify_from_header, read_series_header
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 @dataclass
@@ -361,7 +365,7 @@ _DIS_TOKENS = frozenset({"DIS2D", "DIS3D"})
 ND_POLICIES = ("corrected", "uncorrected", "both")
 
 
-def nd_policy_from_config(config: dict) -> str:
+def nd_policy_from_config(config: Config) -> str:
     """Read ``[conversion] nd_duplicates`` from a merged config.
 
     Raises on an unrecognised value, unlike :func:`~duckbrain.core.dcm2bids_config.

@@ -15,10 +15,13 @@ only real logic in the file — testable with a directory and no Streamlit at al
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import streamlit as st
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 def list_subjects(bids_path: Path) -> list[str]:
@@ -73,7 +76,7 @@ def session_picker(
 
 
 def run_batch(
-    config: dict,
+    config: Config,
     stage: str,
     bids_path: Path,
     subjects: list[str],

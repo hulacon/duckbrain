@@ -31,10 +31,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from .ingestion import sub_ses_relpath
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 STAGES = ("ingested", "converted", "nordic", "fmriprep", "mriqc")
 
@@ -174,7 +178,7 @@ def _grade(expected: set[str], found: set[str], subtree_exists: bool) -> Status:
     return Status.MISSING
 
 
-def _fmriprep_input_dir(config: dict) -> str:
+def _fmriprep_input_dir(config: Config) -> str:
     """The BIDS root fMRIPrep actually reads for this project.
 
     Mirrors ``pipeline._build_fmriprep``: raw BIDS normally, but the assembled
@@ -275,7 +279,7 @@ def _fmt(pattern: str, subject: str, session: str) -> str:
     return pattern.format(ss=ss, sub=subject)
 
 
-def _ingested_status(config: dict, subject: str, session: str) -> Status:
+def _ingested_status(config: Config, subject: str, session: str) -> Status:
     paths = config["paths"]
     dicom = Path(paths["sourcedata_dir"]) / sub_ses_relpath(subject, session) / "dicom"
     resolved = dicom.resolve() if dicom.is_symlink() else dicom
@@ -309,7 +313,7 @@ def _expected_conversion_counts(paths: dict, subject: str, session: str) -> dict
     return counts or None
 
 
-def _converted_status(config: dict, subject: str, session: str) -> Status:
+def _converted_status(config: Config, subject: str, session: str) -> Status:
     paths = config["paths"]
     root = Path(paths["bids_dir"])
     subtree = _fmt("{ss}", subject, session)
@@ -340,7 +344,7 @@ def _converted_status(config: dict, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _fmriprep_status(config: dict, subject: str, session: str) -> Status:
+def _fmriprep_status(config: Config, subject: str, session: str) -> Status:
     paths = config["paths"]
     root = Path(paths["derivatives_dir"]) / "fmriprep"
     if not root.is_dir():
@@ -382,7 +386,7 @@ def _fmriprep_status(config: dict, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _mriqc_status(config: dict, subject: str, session: str) -> Status:
+def _mriqc_status(config: Config, subject: str, session: str) -> Status:
     paths = config["paths"]
     root = Path(paths["derivatives_dir"]) / "mriqc"
     if not root.is_dir():
@@ -416,7 +420,7 @@ def _mriqc_status(config: dict, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _nordic_status(config: dict, subject: str, session: str) -> Status:
+def _nordic_status(config: Config, subject: str, session: str) -> Status:
     paths = config["paths"]
     root = Path(paths["derivatives_dir"]) / "nordic"
     if not root.is_dir():
@@ -442,7 +446,7 @@ _TRACKERS = {
 # ---- public API -------------------------------------------------------------
 
 
-def survey_project(config: dict) -> pd.DataFrame:
+def survey_project(config: Config) -> pd.DataFrame:
     """Build the pipeline status matrix for a project.
 
     Rows are ``(subject, session)`` units; columns are the pipeline stages
@@ -489,7 +493,7 @@ def survey_project(config: dict) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-def run_progress(config: dict, stage: str, subject: str, session: str) -> tuple[int, int] | None:
+def run_progress(config: Config, stage: str, subject: str, session: str) -> tuple[int, int] | None:
     """``(runs_done, runs_expected)`` for a run-counted stage, or None.
 
     A PARTIAL cell with no number is its own silent degrade — it says "not

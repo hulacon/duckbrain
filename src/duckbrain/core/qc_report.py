@@ -34,7 +34,7 @@ import html as _html
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -44,6 +44,9 @@ from . import qc_guidance
 #: ``duckbrain/`` with everything else duckbrain authors, and in its own
 #: directory so the MRIQC-relative links below have a stable number of levels to
 #: climb no matter what the report is named.
+
+if TYPE_CHECKING:
+    from ..config import Config
 REPORT_SUBDIR = "duckbrain/qc/reports"
 
 #: How to reach ``<derivatives>/mriqc`` from inside :data:`REPORT_SUBDIR`.
@@ -74,7 +77,7 @@ def build_run_key(row: pd.Series | dict, modality: str) -> str:
     return "_".join(parts) + f"_{modality}"
 
 
-def resolve_fmriprep_dir(config: dict) -> Path:
+def resolve_fmriprep_dir(config: Config) -> Path:
     """Return the fMRIPrep derivatives directory for this project.
 
     There is exactly one, ``<derivatives>/fmriprep``, whether or not
@@ -90,7 +93,7 @@ def resolve_fmriprep_dir(config: dict) -> Path:
     return Path(config["paths"]["derivatives_dir"]) / "fmriprep"
 
 
-def fmriprep_input_variant(config: dict) -> str:
+def fmriprep_input_variant(config: Config) -> str:
     """What the fMRIPrep derivative was actually built from.
 
     Returns ``"nordic"``, ``"raw"``, or ``"unknown"`` when there is no

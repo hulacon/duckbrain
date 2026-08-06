@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .consistency import ConsistencyIssue
 from .expectations import (
@@ -48,6 +49,9 @@ from .expectations import (
     observe,
 )
 from .surveyor import discover_units
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 #: Reads JSON, filenames and config only — safe on the cockpit's render path.
 CHEAP = "cheap"
@@ -68,7 +72,7 @@ def _shortfall(label: str, want: int, got: int) -> str:
     return f"{label}: expected {want}, found {got}"
 
 
-def _check_roster(config: dict) -> list[ConsistencyIssue]:
+def _check_roster(config: Config) -> list[ConsistencyIssue]:
     """Declared participants versus the subjects that actually exist.
 
     The only check here that can see a subject who was *scanned but never
@@ -213,7 +217,7 @@ def _unit_issues(
     return issues
 
 
-def _check_session_contents(config: dict) -> list[ConsistencyIssue]:
+def _check_session_contents(config: Config) -> list[ConsistencyIssue]:
     """Per-unit anat / fieldmap / task-run counts against the declaration.
 
     Skips units with no BIDS directory: a subject that is ingested but not yet
@@ -243,7 +247,7 @@ REGISTRY: tuple[Check, ...] = (
 )
 
 
-def run_checks(config: dict, *, include_expensive: bool = False) -> list[ConsistencyIssue]:
+def run_checks(config: Config, *, include_expensive: bool = False) -> list[ConsistencyIssue]:
     """Run the registered checks; return the flagged issues.
 
     Empty list means either nothing was found or — far more often — the project

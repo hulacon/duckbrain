@@ -8,8 +8,12 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .containers import isolation_flags
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 def build_dcm2bids_command(
@@ -393,7 +397,7 @@ def compare_dcm2bids_configs(saved: dict, fresh: dict) -> ConfigDrift:
     return drift
 
 
-def get_container_path(config: dict) -> Path:
+def get_container_path(config: Config) -> Path:
     """Get the path to the dcm2bids Singularity image from config."""
     containers_dir = Path(config["paths"]["containers_dir"])
     version = config["containers"]["dcm2bids_version"]

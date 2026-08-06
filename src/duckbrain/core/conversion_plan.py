@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .dcm2niix_probe import PE_FOR_DIR, SeriesProbe
 from .dicom_inspect import (
@@ -42,6 +43,9 @@ from .dicom_inspect import (
 # Classifications dcm2bids is *supposed* to leave behind. Everything else that
 # goes unclaimed is worth surfacing: an anat whose suffix vocabulary didn't match
 # used to vanish silently, which is exactly the failure this list must not hide.
+
+if TYPE_CHECKING:
+    from ..config import Config
 _EXPECTED_DROPS = frozenset({"scout", "physio", "derived"})
 
 # A datatype duckbrain *recognises* but cannot yet express. Naming the limit is
@@ -204,7 +208,7 @@ def _group_by_identifier(descriptions: list[dict]) -> dict[str, str]:
 
 
 def plan_conversion(
-    config: dict,
+    config: Config,
     series_list: list[SeriesInfo],
     subject: str = "",
     session: str = "",
@@ -694,7 +698,7 @@ class ConfigImport:
     skipped_series: set[int] = field(default_factory=set)
 
 
-def read_config_into_table(config: dict, series_list: list[SeriesInfo]) -> ConfigImport:
+def read_config_into_table(config: Config, series_list: list[SeriesInfo]) -> ConfigImport:
     """Parse a dcm2bids config back into per-series task / run / fieldmap values.
 
     The inverse of what the Conversion Plan table generates, as far as the table

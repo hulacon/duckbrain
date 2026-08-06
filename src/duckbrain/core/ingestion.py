@@ -6,6 +6,10 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 @dataclass
@@ -266,7 +270,7 @@ def _parse_session_folder(folder: Path) -> SessionInfo | None:
     )
 
 
-def build_dcm_source_path(config: dict) -> Path:
+def build_dcm_source_path(config: Config) -> Path:
     """Resolve the LCNI DICOM source directory from config.
 
     Prefers an explicit ``dcm_source.dir`` (the full path to the study's DICOM

@@ -61,10 +61,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .ingestion import sub_ses_relpath
 
 #: Config section this module owns, end to end.
+
+if TYPE_CHECKING:
+    from ..config import Config
 SECTION = "expected"
 
 
@@ -229,7 +233,7 @@ def _count_map(value: object) -> dict[str, int]:
 # ---- reading the declaration ------------------------------------------------
 
 
-def declared(config: dict) -> dict | None:
+def declared(config: Config) -> dict | None:
     """The raw ``[expected]`` section, or ``None`` when the project declares none.
 
     ``None`` and ``{}`` both mean "off". Callers should test this first and do
@@ -241,7 +245,7 @@ def declared(config: dict) -> dict | None:
     return section
 
 
-def expected_participants(config: dict) -> tuple[list[str], int]:
+def expected_participants(config: Config) -> tuple[list[str], int]:
     """The declared roster as ``(labels, count)``.
 
     A study may state either a list of subject labels or just how many it plans
@@ -260,7 +264,7 @@ def expected_participants(config: dict) -> tuple[list[str], int]:
     return [], 0
 
 
-def expected_for(config: dict, subject: str, session: str = "") -> SessionExpectation | None:
+def expected_for(config: Config, subject: str, session: str = "") -> SessionExpectation | None:
     """What *this* unit should contain, exceptions applied.
 
     ``None`` when the project declares no session expectation at all. An
@@ -373,7 +377,7 @@ def has_bids_unit(bids_dir: str | Path, subject: str, session: str = "") -> bool
 # ---- eliciting a draft ------------------------------------------------------
 
 
-def elicit(config: dict, subject: str, session: str = "") -> dict:
+def elicit(config: Config, subject: str, session: str = "") -> dict:
     """Propose an ``[expected.session]`` table from one confirmed-good session.
 
     Returns the config-ready mapping; the caller shows it and the user accepts

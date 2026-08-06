@@ -7,6 +7,7 @@ import warnings
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -14,6 +15,9 @@ import pandas as pd
 
 #: Used only when the config cannot be read. Kept in step with ``[qc]`` in
 #: ``config/base.toml``; that file is the place to change a threshold.
+
+if TYPE_CHECKING:
+    from ..config import Config
 DEFAULT_QC_SETTINGS: dict[str, float] = {
     "fd_threshold": 0.5,
     "investigate_threshold": 0.5,
@@ -467,14 +471,14 @@ DECISIONS_SUBDIR = "decisions"
 LEGACY_DECISION_DIRS = ("preprocessing_qc",)
 
 
-def decisions_dir(config: dict) -> Path:
+def decisions_dir(config: Config) -> Path:
     """Where a decision is written. One place, always the current one."""
     paths = config.get("paths", {})
     root = paths.get("duckbrain_dir") or (Path(paths["derivatives_dir"]) / "duckbrain")
     return Path(root) / QC_SUBDIR / DECISIONS_SUBDIR
 
 
-def decision_search_dirs(config: dict) -> list[Path]:
+def decision_search_dirs(config: Config) -> list[Path]:
     """Everywhere decisions may be read from, oldest location first.
 
     Order is the point rather than a detail: :func:`load_decisions` appends each

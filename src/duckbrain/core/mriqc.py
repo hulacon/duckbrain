@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .containers import isolation_flags
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 def build_mriqc_command(
@@ -111,7 +114,7 @@ def run_mriqc(
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def get_container_path(config: dict) -> Path:
+def get_container_path(config: Config) -> Path:
     """Get the path to the MRIQC Singularity image from config."""
     containers_dir = Path(config["paths"]["containers_dir"])
     version = config["containers"]["mriqc_version"]

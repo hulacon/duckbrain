@@ -25,6 +25,7 @@ import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -36,6 +37,24 @@ else:
     # it had to resolve at 3.10, where it does not exist.
     import tomli as tomllib
 
+
+#: The merged configuration mapping — what ``load_config`` returns and what the
+#: ``config`` parameter means everywhere in the package.
+#:
+#: ``Any`` is the honest value type, not a placeholder for a better one. This is
+#: four TOML files deep-merged (see the module docstring): a section holds
+#: strings, ints, bools, lists and further sections, chosen by the user, and no
+#: layer is required to supply any given key. A ``TypedDict`` would have to
+#: declare every key optional to stay true, which buys nothing a ``.get()``
+#: doesn't already say.
+#:
+#: It is a name rather than an inline spelling because ``config: Config`` says
+#: *which* mapping — 90-odd signatures take one, and a reader landing on
+#: ``core/mriqc.py`` has otherwise no way to tell duckbrain's layered config from
+#: a sidecar or a job-parameter dict, both of which are also ``dict[str, Any]``.
+#: Import it under ``TYPE_CHECKING``: it is transparent to mypy, so it costs a
+#: runtime import for nothing.
+Config = dict[str, Any]
 
 PROJECT_ENV = "DUCKBRAIN_PROJECT_DIR"
 USER_CONFIG_ENV = "DUCKBRAIN_USER_CONFIG"
@@ -120,7 +139,7 @@ def _load_toml(path: str | Path | None) -> dict:
     return {}
 
 
-def derive_paths(config: dict, project_dir: str | Path) -> dict:
+def derive_paths(config: Config, project_dir: str | Path) -> dict:
     """Fill unset [paths] entries from the project directory (mutates config).
 
     The project directory *is* the BIDS root; sourcedata/derivatives/code sit
@@ -165,7 +184,7 @@ def _scratch_owner() -> str:
         return "user"
 
 
-def unit_work_dir(config: dict, step: str, subject: str = "", session: str = "") -> str:
+def unit_work_dir(config: Config, step: str, subject: str = "", session: str = "") -> str:
     """Node-local scratch for one (project, step, unit), qualified so it collides with nothing.
 
     ``work_dir`` is node-local (``/tmp`` by default) and that is the right place
@@ -242,7 +261,7 @@ def load_config(
     return config
 
 
-def get_slurm_resources(config: dict, step: str) -> dict:
+def get_slurm_resources(config: Config, step: str) -> dict:
     """Get SLURM resource settings for a pipeline step.
 
     ``time``/``memory``/``cpus`` take the per-stage override when there is one:
@@ -303,7 +322,7 @@ def parse_mem_gb(memory: str | int | float) -> int:
     return int(mb // 1024)
 
 
-def tool_mem_gb(config: dict, step: str, alloc_gb: int | None = None) -> int:
+def tool_mem_gb(config: Config, step: str, alloc_gb: int | None = None) -> int:
     """Memory ceiling, in GB, to hand the nipype tool running in *step*'s container.
 
     **The SLURM allocation is authoritative; this is derived from it**, and no

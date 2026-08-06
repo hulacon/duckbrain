@@ -8,8 +8,12 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pydicom
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 def read_dicom_demographics(dicom_dir: str | Path) -> dict:
@@ -152,7 +156,7 @@ def _duckbrain_generated_by() -> dict:
     return {"Name": "duckbrain", "Version": duckbrain_version()}
 
 
-def converter_generated_by(config: dict) -> list[dict]:
+def converter_generated_by(config: Config) -> list[dict]:
     """``GeneratedBy`` for an ingested BIDS root: duckbrain **and** its converter.
 
     The raw BIDS root is duckbrain's own output too — it ran dcm2bids to make it —
@@ -268,7 +272,7 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def dataset_extra_fields(config: dict) -> dict:
+def dataset_extra_fields(config: Config) -> dict:
     """The ``dataset_description.json`` fields duckbrain elicits from project config.
 
     One helper rather than two call sites assembling it, because the Ingestion

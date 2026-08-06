@@ -24,7 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import pandas as pd
 
@@ -32,6 +32,9 @@ from ..slurm.monitor import JobInfo, job_history, list_jobs
 from ..slurm.submit import archived_script_path, export_script, submit_job
 from ..slurm.templates import build_context, render_sbatch
 from .surveyor import STAGES, Status, survey_project
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 class PipelineError(RuntimeError):
@@ -51,7 +54,7 @@ def tag_for(subject: str, session: str) -> str:
     return f"{subject}_{session}" if session else subject
 
 
-def _resolve_log_dir(config: dict) -> str:
+def _resolve_log_dir(config: Config) -> str:
     """Shared-FS dir for logs, submitted scripts, and filter files.
 
     Mirrors the pages' fallback: derived ``log_dir`` (``<project>/code/logs``), or
@@ -69,7 +72,7 @@ def _resolve_log_dir(config: dict) -> str:
 
 
 def _build_dcm2bids(
-    config: dict, subject: str, session: str, log_dir: str, params: dict
+    config: Config, subject: str, session: str, log_dir: str, params: dict
 ) -> tuple[str, dict]:
     from ..config import write_bidsignore
     from .bids_metadata import (
@@ -160,7 +163,7 @@ def _build_dcm2bids(
 
 
 def _build_fmriprep(
-    config: dict, subject: str, session: str, log_dir: str, params: dict
+    config: Config, subject: str, session: str, log_dir: str, params: dict
 ) -> tuple[str, dict]:
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .fmriprep import (
@@ -286,7 +289,7 @@ def _build_fmriprep(
 
 
 def _build_nordic(
-    config: dict, subject: str, session: str, log_dir: str, params: dict
+    config: Config, subject: str, session: str, log_dir: str, params: dict
 ) -> tuple[str, dict]:
     from .nordic import get_bold_runs
 
@@ -351,7 +354,7 @@ def _build_nordic(
 
 
 def _build_mriqc(
-    config: dict, subject: str, session: str, log_dir: str, params: dict
+    config: Config, subject: str, session: str, log_dir: str, params: dict
 ) -> tuple[str, dict]:
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .mriqc import get_container_path
@@ -406,12 +409,12 @@ STAGE_SPECS: dict[str, StageSpec] = {
 SLURM_STAGES = tuple(s for s, spec in STAGE_SPECS.items() if spec.is_slurm)
 
 
-def _use_nordic(config: dict) -> bool:
+def _use_nordic(config: Config) -> bool:
     """Whether this project routes fMRIPrep through NORDIC (TODO #5b Case 1)."""
     return bool(config.get("nordic", {}).get("use_nordic", False))
 
 
-def effective_depends_on(config: dict, stage: str) -> str | None:
+def effective_depends_on(config: Config, stage: str) -> str | None:
     """The dependency stage that must be COMPLETE before *stage* is runnable.
 
     Same as ``STAGE_SPECS[stage].depends_on`` except fMRIPrep depends on
@@ -446,7 +449,7 @@ def effective_depends_on(config: dict, stage: str) -> str | None:
 # ---- public API -------------------------------------------------------------
 
 
-def _fsaverage_preflight(config: dict, stage: str, params: dict) -> None:
+def _fsaverage_preflight(config: Config, stage: str, params: dict) -> None:
     """Install FreeSurfer's ``fsaverage*`` templates before any fMRIPrep job runs.
 
     Here rather than in ``_build_fmriprep`` because this is a **project-level**
@@ -488,7 +491,7 @@ def _fsaverage_preflight(config: dict, stage: str, params: dict) -> None:
 
 
 def advance_one(
-    config: dict,
+    config: Config,
     stage: str,
     subject: str,
     session: str = "",
@@ -617,7 +620,7 @@ _STAGE_TOOL = {
 }
 
 
-def matlab_module(config: dict) -> str:
+def matlab_module(config: Config) -> str:
     """MATLAB module NORDIC runs under, e.g. ``matlab/R2024a``.
 
     NORDIC's *runtime* — the second of its two version axes, independent of the
@@ -626,7 +629,7 @@ def matlab_module(config: dict) -> str:
     return str(config.get("nordic", {}).get("matlab_module", "") or "")
 
 
-def nordic_toolbox_dir(config: dict) -> str:
+def nordic_toolbox_dir(config: Config) -> str:
     """Configured NORDIC toolbox checkout, or ``""``.
 
     Each user holds their own clone (the licence forbids redistribution), so this
@@ -635,7 +638,7 @@ def nordic_toolbox_dir(config: dict) -> str:
     return str(config.get("paths", {}).get("nordic_toolbox_dir", "") or "")
 
 
-def resolve_container(config: dict, stage: str) -> Path | None:
+def resolve_container(config: Config, stage: str) -> Path | None:
     """The container file *stage* would run, via the stage's own resolution.
 
     Single source of truth for "which image does config point at", so provenance
@@ -653,7 +656,7 @@ def resolve_container(config: dict, stage: str) -> Path | None:
     return get_container_path(config)
 
 
-def run_provenance(config: dict, stage: str) -> dict:
+def run_provenance(config: Config, stage: str) -> dict:
     """Best-effort provenance for a launch: tool, version, runtime, code source,
     input variant.
 
@@ -721,7 +724,7 @@ def run_provenance(config: dict, stage: str) -> dict:
     }
 
 
-def _submission_log_path(config: dict) -> Path:
+def _submission_log_path(config: Config) -> Path:
     return Path(_resolve_log_dir(config)) / _SUBMISSION_LOG
 
 
@@ -782,7 +785,7 @@ def _migrate_log_header(path: Path) -> None:
 
 
 def record_submission(
-    config: dict,
+    config: Config,
     stage: str,
     subject: str,
     session: str,
@@ -828,7 +831,7 @@ def record_submission(
     return path
 
 
-def read_submissions(config: dict, limit: int | None = None) -> pd.DataFrame:
+def read_submissions(config: Config, limit: int | None = None) -> pd.DataFrame:
     """Read the durable submission log (empty frame if none). Oldest-first.
 
     Reindexed to the current column set so a legacy log written before the
@@ -899,6 +902,21 @@ def _attempt_order(job: JobInfo) -> tuple[str, int]:
     return (ts, int(base) if base.isdigit() else 0)
 
 
+class JobIndex(TypedDict):
+    """One squeue+sacct pull, indexed the three ways the cockpit reads it.
+
+    A ``TypedDict`` rather than a dataclass because it is already subscripted at
+    every call site and in the tests; the keys are all required, so the plain
+    class form says everything. What it buys over the bare ``dict`` it replaces:
+    ``jobs["by_id"]`` and ``jobs["active"]`` are a mapping and a list, and
+    nothing but ``dict[str, Any]`` could have described both at once.
+    """
+
+    by_id: dict[str, JobInfo]
+    active: list[JobInfo]
+    history: list[JobInfo]
+
+
 def _job_state_maps() -> tuple[dict[str, str], dict[str, JobInfo], list[JobInfo], list[JobInfo]]:
     """Build name→state lookups from squeue (active) and sacct (recent history).
 
@@ -938,7 +956,9 @@ def _job_state_maps() -> tuple[dict[str, str], dict[str, JobInfo], list[JobInfo]
     return active, latest, active_jobs, hist
 
 
-def survey_live(config: dict, with_jobs: bool = False) -> pd.DataFrame | tuple[pd.DataFrame, dict]:
+def survey_live(
+    config: Config, with_jobs: bool = False
+) -> pd.DataFrame | tuple[pd.DataFrame, JobIndex]:
     """:func:`~duckbrain.core.surveyor.survey_project` overlaid with SLURM state.
 
     For each surveyor stage that is SLURM-launchable (converted/fmriprep/mriqc),
@@ -986,7 +1006,7 @@ def survey_live(config: dict, with_jobs: bool = False) -> pd.DataFrame | tuple[p
     return matrix
 
 
-def stage_runnable(row: pd.Series, stage: str, config: dict | None = None) -> bool:
+def stage_runnable(row: pd.Series, stage: str, config: Config | None = None) -> bool:
     """Whether *stage* can be launched now for the unit in *row* (a survey_live row).
 
     True when the stage is SLURM-launchable, not already complete, has no active

@@ -89,6 +89,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .bids_metadata import duckbrain_version
 from .containers import container_build_tag
@@ -101,6 +102,9 @@ from .pipeline import (
 )
 from .surveyor import survey_project
 from .toolbox import describe
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 @dataclass(frozen=True)
@@ -189,7 +193,7 @@ class DerivativeProvenance:
         return str(self._container(tool).get("URI", ""))
 
 
-def read_derivative_provenance(config: dict, pipeline: str) -> DerivativeProvenance:
+def read_derivative_provenance(config: Config, pipeline: str) -> DerivativeProvenance:
     """Read ``<derivatives>/<pipeline>/dataset_description.json`` provenance.
 
     Absent/unreadable → ``exists=False`` with empty fields. Works for any
@@ -223,7 +227,7 @@ def _links_to_nordic(raw_link: str) -> bool:
     return r.endswith("nordic/bids_format") or "/nordic/" in r or r.endswith("/nordic")
 
 
-def _use_nordic(config: dict) -> bool:
+def _use_nordic(config: Config) -> bool:
     return bool(config.get("nordic", {}).get("use_nordic", False))
 
 
@@ -244,7 +248,7 @@ def _newest_mtime(root: Path, pattern: str) -> float | None:
 # ---- individual checks ------------------------------------------------------
 
 
-def _check_config_vs_provenance(config: dict) -> list[ConsistencyIssue]:
+def _check_config_vs_provenance(config: Config) -> list[ConsistencyIssue]:
     prov = read_derivative_provenance(config, "fmriprep")
     if not prov.exists or not prov.raw_link:
         return []
@@ -277,7 +281,7 @@ def _check_config_vs_provenance(config: dict) -> list[ConsistencyIssue]:
     return []
 
 
-def _configured_container(config: dict, stage: str) -> tuple[str, str]:
+def _configured_container(config: Config, stage: str) -> tuple[str, str]:
     """What config currently points at for *stage*: ``(filename, build_tag)``.
 
     Resolved via ``pipeline.resolve_container`` — the same resolution the builder
@@ -294,7 +298,7 @@ def _configured_container(config: dict, stage: str) -> tuple[str, str]:
         return "", ""
 
 
-def _recorded_container(config: dict, stage: str, tool: str) -> tuple[str, str]:
+def _recorded_container(config: Config, stage: str, tool: str) -> tuple[str, str]:
     """What produced the derivative: ``(filename, build_tag)``, "" where unknown.
 
     On-disk provenance is authoritative (``GeneratedBy[].Container`` — ``Tag`` is
@@ -327,7 +331,7 @@ def _uri_to_build_tag(uri: str) -> str:
     return uri.split("://", 1)[1] if "://" in uri else uri
 
 
-def _check_container_drift(config: dict) -> list[ConsistencyIssue]:
+def _check_container_drift(config: Config) -> list[ConsistencyIssue]:
     """Config now points at a different container than the one that produced the
     derivative — i.e. the pin was bumped without re-running.
 
@@ -376,7 +380,7 @@ def _check_container_drift(config: dict) -> list[ConsistencyIssue]:
     return issues
 
 
-def _subjects_with_output(config: dict, stage: str) -> set[str]:
+def _subjects_with_output(config: Config, stage: str) -> set[str]:
     """Subjects that actually have *stage* output on disk (complete or partial)."""
     matrix = survey_project(config)
     if matrix.empty or stage not in matrix.columns:
@@ -385,7 +389,7 @@ def _subjects_with_output(config: dict, stage: str) -> set[str]:
     return {str(s) for s in done["subject"]}
 
 
-def _check_toolbox_drift(config: dict) -> list[ConsistencyIssue]:
+def _check_toolbox_drift(config: Config) -> list[ConsistencyIssue]:
     """The NORDIC toolbox checkout has moved since it produced the derivative.
 
     NORDIC's analogue of ``container-drift``, kept separate because its artifact
@@ -457,7 +461,7 @@ _DUCKBRAIN_RECIPE_STAGES = {
 }
 
 
-def _check_duckbrain_drift(config: dict) -> list[ConsistencyIssue]:
+def _check_duckbrain_drift(config: Config) -> list[ConsistencyIssue]:
     """duckbrain's own release line has moved since it produced an output.
 
     Deliberately *not* held to the same standard as fMRIPrep/NORDIC drift, on two
@@ -505,7 +509,7 @@ def _check_duckbrain_drift(config: dict) -> list[ConsistencyIssue]:
     return issues
 
 
-def _check_matlab_drift(config: dict) -> list[ConsistencyIssue]:
+def _check_matlab_drift(config: Config) -> list[ConsistencyIssue]:
     """The MATLAB module changed since it produced the NORDIC derivative.
 
     NORDIC's *second* version axis. A container stage has only one — the image is
@@ -548,7 +552,7 @@ def _check_matlab_drift(config: dict) -> list[ConsistencyIssue]:
 # its latest-per-subject view would report the new toolbox for all of them.
 
 
-def read_nordic_sidecars(config: dict) -> list[dict]:
+def read_nordic_sidecars(config: Config) -> list[dict]:
     """Per-file provenance from every NORDIC output sidecar.
 
     Each entry is the sidecar's ``Duckbrain`` object plus a ``subject`` key.
@@ -570,7 +574,7 @@ def read_nordic_sidecars(config: dict) -> list[dict]:
     return found
 
 
-def _sidecar_groups(config: dict, field: str) -> dict[str, list[str]]:
+def _sidecar_groups(config: Config, field: str) -> dict[str, list[str]]:
     """Subjects grouped by their sidecars' *field* value, blanks ignored.
 
     A subject appears under two values when its own files disagree — which is
@@ -584,7 +588,7 @@ def _sidecar_groups(config: dict, field: str) -> dict[str, list[str]]:
     return {v: sorted(subs) for v, subs in groups.items()}
 
 
-def _sidecar_consensus(config: dict, field: str) -> str | None:
+def _sidecar_consensus(config: Config, field: str) -> str | None:
     """The one *field* value all NORDIC sidecars agree on.
 
     ``""`` when they disagree — mixing is ``_check_mixed_provenance``'s business,
@@ -597,7 +601,7 @@ def _sidecar_consensus(config: dict, field: str) -> str | None:
     return next(iter(groups)) if len(groups) == 1 else ""
 
 
-def _recorded_runtime(config: dict, stage: str) -> str:
+def _recorded_runtime(config: Config, stage: str) -> str:
     """Runtime recorded for *stage*'s derivative, or "" if unknown.
 
     Sidecars first — they are per-file, so the most specific truth we hold. Then
@@ -618,7 +622,7 @@ def _recorded_runtime(config: dict, stage: str) -> str:
     return ""
 
 
-def _recorded_toolbox(config: dict) -> str:
+def _recorded_toolbox(config: Config) -> str:
     """``git describe`` recorded for the NORDIC derivative, or "" if unknown.
 
     Sidecars first (per-file, so the most specific), then the dataset-level
@@ -632,7 +636,7 @@ def _recorded_toolbox(config: dict) -> str:
     return read_derivative_provenance(config, "nordic").tool_version("nordic")
 
 
-def _latest_per_subject(config: dict, stage: str) -> dict[str, dict]:
+def _latest_per_subject(config: Config, stage: str) -> dict[str, dict]:
     """Latest submission-log row per subject for *stage*, reconciled against disk.
 
     The log and the filesystem track two related but distinct things: the log
@@ -677,7 +681,7 @@ def _mixed_issue(
     ]
 
 
-def _check_mixed_provenance(config: dict) -> list[ConsistencyIssue]:
+def _check_mixed_provenance(config: Config) -> list[ConsistencyIssue]:
     """Subjects (or files) produced under different variants/versions/runtimes.
 
     ``dataset_description.json`` is dataset-level and overwritten by whichever run
@@ -747,7 +751,7 @@ def _describe_groups(groups: dict[str, list[str]]) -> str:
     return "; ".join(f"{v}: {', '.join(sorted(s))}" for v, s in sorted(groups.items()))
 
 
-def _check_staleness(config: dict) -> list[ConsistencyIssue]:
+def _check_staleness(config: Config) -> list[ConsistencyIssue]:
     """Heuristic: NORDIC re-run after fMRIPrep leaves fMRIPrep stale (mtime)."""
     if not _use_nordic(config):
         return []
@@ -769,7 +773,7 @@ def _check_staleness(config: dict) -> list[ConsistencyIssue]:
     return []
 
 
-def _check_presence(config: dict) -> list[ConsistencyIssue]:
+def _check_presence(config: Config) -> list[ConsistencyIssue]:
     """In a NORDIC project, fMRIPrep present but its NORDIC input missing."""
     if not _use_nordic(config):
         return []
@@ -804,7 +808,7 @@ def _check_presence(config: dict) -> list[ConsistencyIssue]:
 _DIR_ENTITY_RE = re.compile(r"_dir-([A-Za-z0-9]+)")
 
 
-def _check_pe_direction(config: dict) -> list[ConsistencyIssue]:
+def _check_pe_direction(config: Config) -> list[ConsistencyIssue]:
     """Flag files whose header PE direction disagrees with their ``dir-`` label.
 
     duckbrain used to *force* ``PhaseEncodingDirection`` to match the ``_ap``/
@@ -996,7 +1000,7 @@ def _check_fmap_intent_at(root: Path, where: str) -> list[ConsistencyIssue]:
     return issues
 
 
-def _check_fmap_intent(config: dict) -> list[ConsistencyIssue]:
+def _check_fmap_intent(config: Config) -> list[ConsistencyIssue]:
     """Flag fieldmap metadata no tool can act on — the TODO #14 detector.
 
     duckbrain shipped ``B0FieldIdentifier`` on BOLDs and ``B0FieldSource`` on
@@ -1101,7 +1105,7 @@ def _crash_stamp(name: str) -> datetime | None:
         return None
 
 
-def _last_launched(config: dict, stage: str) -> datetime | None:
+def _last_launched(config: Config, stage: str) -> datetime | None:
     """When duckbrain last submitted *stage* for this project, or None.
 
     Read from the raw submission log, **not** through ``_latest_per_subject``.
@@ -1144,7 +1148,7 @@ def _is_current_crash(path: Path, cutoff: datetime | None) -> bool:
     return stamped is None or stamped >= cutoff
 
 
-def _check_tool_crashes(config: dict) -> list[ConsistencyIssue]:
+def _check_tool_crashes(config: Config) -> list[ConsistencyIssue]:
     """A nipype tool recorded a crashed node while its job still exited 0.
 
     **The durable lesson, and why this is an error rather than a note: an exit
@@ -1222,7 +1226,7 @@ def _check_tool_crashes(config: dict) -> list[ConsistencyIssue]:
     return issues
 
 
-def check_consistency(config: dict) -> list[ConsistencyIssue]:
+def check_consistency(config: Config) -> list[ConsistencyIssue]:
     """Run all provenance-consistency checks; return the flagged issues.
 
     Empty list means nothing inconsistent was found. Ordering is stable (tool

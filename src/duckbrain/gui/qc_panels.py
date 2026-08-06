@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import streamlit as st
@@ -35,6 +35,9 @@ import streamlit as st
 from duckbrain.core import qc, qc_domains, qc_evidence, qc_guidance, qc_report
 from duckbrain.core.qc_domains import ReviewDomain
 from duckbrain.gui.components import flush_toasts, queue_toast
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 def _size_note(nbytes: int, n_files: int) -> str:
@@ -146,7 +149,7 @@ class Scope:
     the panels above it already rendered from.
     """
 
-    config: dict
+    config: Config
     modality: str
     iqm_cols: list[str]
     runs: list[dict]
@@ -251,7 +254,7 @@ def _fingerprint_of(root: Path, pattern: str) -> tuple:
     return (len(stats), max(stats, default=0.0))
 
 
-def scope_bar(config: dict, *, with_run: bool = True) -> Scope | None:
+def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
     """Render the shared selection controls and return what was selected.
 
     ``None`` means there is nothing to review and the reason has already been

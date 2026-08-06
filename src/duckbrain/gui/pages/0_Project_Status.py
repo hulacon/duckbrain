@@ -27,6 +27,8 @@ import streamlit as st
 if TYPE_CHECKING:
     from streamlit.delta_generator import DeltaGenerator
 
+    from duckbrain.config import Config
+    from duckbrain.core.pipeline import JobIndex
     from duckbrain.slurm.monitor import JobInfo
 
 st.set_page_config(page_title="Project Status — duckbrain", layout="wide")
@@ -112,7 +114,7 @@ def _emoji(icon: str) -> str:
     return icon.split(" ", 1)[0] if icon else "·"
 
 
-def _latest_jobs(config: dict) -> dict[tuple[str, str, str], str]:
+def _latest_jobs(config: Config) -> dict[tuple[str, str, str], str]:
     """Map (subject, session, stage) -> most-recent job id from the durable log.
 
     The submission log is written in chronological (append) order, so a later row
@@ -134,7 +136,7 @@ def _latest_jobs(config: dict) -> dict[tuple[str, str, str], str]:
 
 
 def _stage_params(
-    stage: str, config: dict, key_prefix: str, subject: str = "", session: str = ""
+    stage: str, config: Config, key_prefix: str, subject: str = "", session: str = ""
 ) -> dict[str, Any]:
     """Render (and return) the per-stage launch parameters. Same knobs the old
     single-launch control exposed, now scoped to one cell's popover via key_prefix.
@@ -211,7 +213,7 @@ def _launch(
     stage: str,
     sub: str,
     ses: str,
-    config: dict,
+    config: Config,
     params: dict[str, Any],
     *,
     verb: str = "Submitted",
@@ -225,7 +227,7 @@ def _launch(
         st.error(f"Could not launch: {e}")
 
 
-def _run_popover(row: pd.Series, stage: str, config: dict) -> None:
+def _run_popover(row: pd.Series, stage: str, config: Config) -> None:
     from duckbrain.core.surveyor import run_progress
 
     sub, ses = str(row["subject"]), str(row["session"])
@@ -247,7 +249,7 @@ def _run_popover(row: pd.Series, stage: str, config: dict) -> None:
 def _job_popover(
     row: pd.Series,
     stage: str,
-    config: dict,
+    config: Config,
     latest_jobs: dict[tuple[str, str, str], str],
     log_dir: str,
     jobs_by_id: dict[str, JobInfo],
@@ -333,7 +335,7 @@ def _job_popover(
                 st.error(f"Could not cancel: {e}")
 
 
-def _bulk_popover(stage: str, units: list[pd.Series], config: dict) -> None:
+def _bulk_popover(stage: str, units: list[pd.Series], config: Config) -> None:
     """Column-header bulk: run every currently-runnable unit for one stage (guarded)."""
     n = len(units)
     st.markdown(f"**Run all {stage}**")
@@ -364,7 +366,7 @@ def _render_cell(
     col: DeltaGenerator,
     row: pd.Series,
     stage: str,
-    config: dict,
+    config: Config,
     runnable_map: dict[tuple[str, str, str], bool],
     latest_jobs: dict[tuple[str, str, str], str],
     log_dir: str,
@@ -414,7 +416,7 @@ def _deep_links() -> None:
 _VALIDATION_STATE = "bids_validation"
 
 
-def _bids_validation_section(config: dict) -> None:
+def _bids_validation_section(config: Config) -> None:
     """Run the BIDS validator on demand and show what it found.
 
     Its own panel rather than a `core/checks.py` REGISTRY entry, for three
@@ -493,7 +495,7 @@ def _bids_validation_section(config: dict) -> None:
         )
 
 
-def _expectations_section(config: dict, matrix: pd.DataFrame) -> None:
+def _expectations_section(config: Config, matrix: pd.DataFrame) -> None:
     """Declare what a session of this study should contain — elicit, then freeze.
 
     The elicit-from-a-good-session flow is the whole usability argument for the
@@ -611,7 +613,7 @@ def _expectations_section(config: dict, matrix: pd.DataFrame) -> None:
                 st.rerun()
 
 
-def _submission_log(config: dict) -> None:
+def _submission_log(config: Config) -> None:
     with st.expander("Recent submissions (durable log)"):
         subs = read_submissions(config, limit=25)
         if subs.empty:
@@ -624,7 +626,7 @@ def _submission_log(config: dict) -> None:
             st.dataframe(subs.iloc[::-1], width="stretch", hide_index=True)  # newest first
 
 
-def _all_jobs_section(jobs: dict, config: dict) -> None:
+def _all_jobs_section(jobs: JobIndex, config: Config) -> None:
     """The folded-in Job Monitor: every SLURM job (active + 7-day history) — the
     catch-all the unit×stage board can't hold (orphan/manual/other-tool jobs) —
     plus an arbitrary-job-id log viewer. Fed from survey_live's single pull."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .containers import isolation_flags
 
@@ -14,6 +14,9 @@ from .containers import isolation_flags
 # anatomical is often acquired in a single session and shared, so filtering it
 # to a func session would leave fMRIPrep with no anatomical. (Matches mmmdata's
 # run_fmriprep.py.)
+
+if TYPE_CHECKING:
+    from ..config import Config
 _SESSION_FILTER_SUFFIXES = ("bold", "sbref", "fmap")
 
 
@@ -225,7 +228,7 @@ def run_fmriprep(
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def get_container_path(config: dict) -> Path:
+def get_container_path(config: Config) -> Path:
     """Get the path to the fMRIPrep Singularity image from config."""
     containers_dir = Path(config["paths"]["containers_dir"])
     version = config["containers"]["fmriprep_version"]
@@ -242,7 +245,7 @@ def get_container_path(config: dict) -> Path:
     return containers_dir / f"fmriprep-{version}.sif"
 
 
-def find_fs_license(config: dict) -> Path | None:
+def find_fs_license(config: Config) -> Path | None:
     """Auto-detect FreeSurfer license file.
 
     Checks (in order):
