@@ -225,20 +225,38 @@ known-first-party = ["duckbrain"]
 # so repo-wide is not distant — but it is a different job, because the Streamlit
 # pages are where the gaps concentrate (`0_Project_Status.py` alone holds 61 of
 # the 131) and they are what drags streamlit, plotly and nibabel into the
-# analysis. These three modules were chosen instead because they are the *clean*
-# 15%: every one of their 87 functions was already fully annotated when this
-# landed, and none of them imports a third-party library directly.
+# analysis. These modules were chosen instead because they are the *clean* 15%:
+# their functions were already fully annotated, and none of them imports a
+# third-party library directly.
 #
 # So this is a **ratchet**, exactly like the coverage floor — it holds a property
-# these files already have. Widen the list a file at a time; the honest next
-# candidates are `core/dicom_inspect.py` and `core/series_types.py`.
+# these files already have. Widen the list a file at a time, and *measure first*:
+# that is why every widening so far has landed green. The next candidate is
+# `core/pipeline.py`, and it is not cheap — 22 unannotated arguments, 6 missing
+# returns, and it is where pandas meets this analysis, so it wants the
+# `disallow_any_generics` question below settled first.
 #
-# It was not free, though, which was the point of measuring before setting the
-# knobs: it found five errors, and all five were one shape — a name bound to two
+# It has never been free, which is the point of measuring before setting the
+# knobs.
+#
+# The first three files found five errors, all one shape — a name bound to two
 # unrelated things in one long function (`expected` meaning both a
 # phase-encoding direction and a list of dropped series, 130 lines apart in
 # `plan_warnings`; `run` meaning both a BOLD's counted index and an SBRef's
 # possibly-absent one). Fixed by renaming, not by annotating around.
+#
+# `dicom_inspect` + `series_types` found three, and the one worth recording is
+# that `SeriesInfo.header` was declared `object | None`. Nothing enforced that,
+# so it read as a shrug rather than a claim — but callers believed it, and four
+# sites across three modules reached the field through
+# `getattr(s.header, "series_time", None)`, a spelling that cannot distinguish
+# "no header" from "this header has no such attribute" and would have gone on
+# quietly returning `None` if the attribute were ever renamed. It is
+# `SeriesHeader | None` now and those four are direct attribute access. The lie
+# was also the only thing the deferred `from .dicom_header import …` bought, so
+# that import is at module scope now (`dicom_header` imports nothing
+# first-party, and pydicom only inside its own functions — there was never a
+# cycle or a load cost to dodge).
 # The floor is what has to typecheck. But this is *not* independent of which
 # interpreter runs mypy, which is the trap it took a red build to find: it makes
 # mypy parse every third-party stub with 3.10 grammar too, and a package that
@@ -252,18 +270,20 @@ files = [
     "src/duckbrain/core/conversion_plan.py",
     "src/duckbrain/core/dcm2bids_config.py",
     "src/duckbrain/core/consistency.py",
+    "src/duckbrain/core/dicom_inspect.py",
+    "src/duckbrain/core/series_types.py",
 ]
 
-# The containment mechanism, and the reason the list above can stay short. The
-# three modules' transitive first-party closure is 23 modules (`pipeline`,
-# `surveyor`, `config`, `dicom_inspect`, …); `silent` reads their types while
-# reporting no errors *in* them, which is what makes typing `consistency.py`'s
-# calls into `pipeline` worth anything. Not `"skip"` — that types all 23 as
-# `Any` and throws the value away.
+# The containment mechanism, and the reason the list above can stay short.
+# `mypy --verbose` parses 20 first-party modules to check these five — the other
+# 15 (`pipeline`, `surveyor`, `dicom_header`, `nordic`, `slurm.submit`, …) are
+# followed silently: their types are read while no error is reported *in* them,
+# which is what makes typing `consistency.py`'s calls into `pipeline` worth
+# anything. Not `"skip"` — that types all 15 as `Any` and throws the value away.
 follow_imports = "silent"
 
-# Free today (87/87 functions annotated) and the whole point: without these, a
-# new untyped function in one of these three files typechecks fine and the file
+# Free today (122/122 functions annotated) and the whole point: without these, a
+# new untyped function in one of these files typechecks fine and the file
 # quietly stops being covered by the thing it is listed for.
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

@@ -586,7 +586,7 @@ def generate_config(
             fieldmaps,
             fmap_group_assignments,
             fmap_rule_lookup,
-            series_time=getattr(s.header, "series_time", None),
+            series_time=s.header.series_time if s.header is not None else None,
         )
         if fmap_group is not None:
             desc["sidecar_changes"]["B0FieldSource"] = _b0_identifier(fmap_group, sub_ses)
@@ -629,7 +629,7 @@ def generate_config(
             fieldmaps,
             fmap_group_assignments,
             fmap_rule_lookup,
-            series_time=getattr(s.header, "series_time", None),
+            series_time=s.header.series_time if s.header is not None else None,
         )
         if fmap_group is not None:
             desc["sidecar_changes"] = {"B0FieldSource": _b0_identifier(fmap_group, sub_ses)}

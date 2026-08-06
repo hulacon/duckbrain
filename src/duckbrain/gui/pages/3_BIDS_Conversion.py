@@ -357,7 +357,7 @@ fieldmaps = detect_fieldmaps(series_list)
 series_times = {
     s.series_number: s.header.series_time
     for s in series_list
-    if getattr(s.header, "series_time", None) is not None
+    if s.header is not None and s.header.series_time is not None
 }
 fmap_colors = fmap_swatches(fieldmaps.groups)
 

@@ -7,6 +7,8 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from .dicom_header import SeriesHeader, classify_from_header, read_series_header
+
 
 @dataclass
 class SeriesInfo:
@@ -20,7 +22,7 @@ class SeriesInfo:
     # Header evidence, when the DICOMs were readable. ``None`` means classify
     # from the name alone — which is all duckbrain ever did, and is still the
     # fallback for a site whose export the reader can't parse.
-    header: object | None = None
+    header: SeriesHeader | None = None
     # BIDS suffix the header pinned (``T1w``, ``epi``, ``phasediff``, …), or ""
     # when only the datatype is known.
     suffix_hint: str = ""
@@ -254,8 +256,6 @@ def list_series(dicom_session_dir: str | Path, read_headers: bool = True) -> lis
             file_count=file_count,
         )
         if read_headers:
-            from .dicom_header import read_series_header
-
             info.header = read_series_header(entry)
         series.append(info)
 
@@ -303,7 +303,6 @@ def classify_series(
 
     Modifies series in-place and returns the list.
     """
-    from .dicom_header import classify_from_header
     from .series_types import type_rule_lookup
 
     declared = type_rule_lookup(type_rules)
@@ -440,7 +439,7 @@ def _nd_twin_groups(series_list: list[SeriesInfo]) -> list[_NDGroup]:
         # Both halves are pinned in tests/test_series_classification.py, by
         # test_an_nd_named_series_the_header_contradicts_is_left_alone and
         # test_a_scanner_that_writes_no_reconstruction_token_still_twins.
-        image_type = tuple(getattr(s.header, "image_type", ()) or ())
+        image_type = s.header.image_type if s.header is not None else ()
         if _DIS_TOKENS.intersection(image_type):
             continue
         base = _ND_STRIP.sub("", s.description, count=1)
@@ -906,7 +905,7 @@ def detect_fieldmaps(series_list: list[SeriesInfo]) -> FieldmapDetection:
     time_by_series = {
         s.series_number: s.header.series_time
         for s in series_list
-        if getattr(s.header, "series_time", None) is not None
+        if s.header is not None and s.header.series_time is not None
     }
     group_times = {}
     for gname, members in groups.items():
@@ -1187,7 +1186,7 @@ def parse_task_run(
         if m:
             gd = m.groupdict()
             task = _sanitize_task_label(gd.get("task", "") or "")
-            run = int(gd["run"]) if gd.get("run") else None
+            run: int | None = int(gd["run"]) if gd.get("run") else None
             return task, run
 
     # A ReproIn name states both outright, and its run- is mid-string (entities
@@ -1201,7 +1200,7 @@ def parse_task_run(
         )
 
     core = description
-    run: int | None = None
+    run = None
     m = _RUN_SUFFIX.search(core)
     if m:
         run = int(m.group(1))
