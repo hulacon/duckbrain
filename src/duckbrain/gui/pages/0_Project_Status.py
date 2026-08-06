@@ -141,16 +141,23 @@ def _stage_params(stage, config, key_prefix, subject="", session=""):
             ),
             key=f"{key_prefix}_spaces",
         )
-        params["nprocs"] = st.number_input(
-            "nprocs", value=fp.get("nprocs", 8), min_value=1, key=f"{key_prefix}_nprocs"
-        )
-        # The allocation, not fMRIPrep's --mem-mb: that is derived from this one
-        # (config.tool_mem_gb), so raising it moves both numbers together.
+        # Both knobs name the SLURM allocation, not the fMRIPrep flags: --nprocs is
+        # the allocation's CPUs outright and --mem-mb is derived from its memory
+        # (config.tool_mem_gb), so raising either moves both of its numbers.
         from duckbrain.config import MEM_HEADROOM_GB, get_slurm_resources, parse_mem_gb
 
+        fp_slurm = get_slurm_resources(config, "fmriprep")
+        params["nprocs"] = st.number_input(
+            "CPUs",
+            value=int(fp_slurm["cpus"]),
+            min_value=1,
+            key=f"{key_prefix}_nprocs",
+            help="The SLURM allocation, and fMRIPrep's --nprocs — one number, since "
+            "fMRIPrep counts --nprocs across all its processes.",
+        )
         params["mem_gb"] = st.number_input(
             "Memory (GB)",
-            value=parse_mem_gb(get_slurm_resources(config, "fmriprep")["memory"]),
+            value=parse_mem_gb(fp_slurm["memory"]),
             min_value=1,
             key=f"{key_prefix}_mem",
             help="The SLURM allocation. fMRIPrep is told "

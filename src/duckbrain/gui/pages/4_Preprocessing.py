@@ -81,10 +81,13 @@ with tab_fmriprep:
         )
     with col2:
         fp_nprocs = st.number_input(
-            "nprocs",
-            value=config.get("fmriprep", {}).get("nprocs", 8),
+            "CPUs",
+            value=int(fp_slurm["cpus"]),
             min_value=1,
             key="fp_nprocs",
+            help="The SLURM allocation for each job, and fMRIPrep's --nprocs — one "
+            "number, since fMRIPrep counts --nprocs across all its processes. It "
+            "picks its own per-process thread cap from that.",
         )
         # min_value is 1, not the headroom+1 the allocation actually has to clear:
         # the default comes from config, and a widget whose value starts below its
@@ -127,7 +130,7 @@ with tab_fmriprep:
     # config file has it — the expander is what an operator checks before hitting
     # submit, so it has to describe the job about to be sent.
     with st.expander("SLURM Resources"):
-        st.json({**fp_slurm, "memory": f"{fp_mem}G"})
+        st.json({**fp_slurm, "cpus": str(fp_nprocs), "memory": f"{fp_mem}G"})
 
     col1, col2 = st.columns(2)
     with col1:

@@ -110,11 +110,10 @@ fmriprep_version = "24.1.1"
 mriqc_version = "24.0.2"
 
 [fmriprep]
-# No memory key here on purpose. fMRIPrep's --mem-mb is derived from the SLURM
-# allocation below (config.tool_mem_gb); a second, independently-set ceiling is
-# refused at submission rather than ignored.
+# No resource keys here on purpose. --nprocs is the SLURM allocation's cpus and
+# --mem-mb is derived from its memory (config.tool_mem_gb); a second,
+# independently-set copy of either is refused at submission rather than ignored.
 output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
-nprocs = 8
 
 [nordic]
 magnitude_only = true
@@ -173,6 +172,10 @@ time = "06:00:00"
 # --mem-gb 24 (alloc - 8 GB headroom) derived from it by config.tool_mem_gb, so
 # its synthstrip overshoot stays inside the cgroup limit.
 memory = "32G"
+# --nprocs comes straight from this. Unlike fMRIPrep, MRIQC does NOT derive its
+# per-process thread cap from nprocs — it reads OMP_NUM_THREADS, which the 24.0.2
+# image sets to 1 — so cpus is the whole of MRIQC's parallelism: N single-threaded
+# processes. Re-measure that before assuming it on a newer image.
 cpus = "4"
 
 [slurm.overrides.nordic]
@@ -184,6 +187,8 @@ cpus = "4"
 time = "48:00:00"
 # fMRIPrep is handed --mem-mb 40960 (alloc - 8 GB headroom) derived from this.
 memory = "48G"
+# ...and --nprocs 8 straight from this. fMRIPrep then sets its per-process thread
+# cap itself, to min(nprocs - 1, 8), so raising cpus is the only knob needed.
 cpus = "8"
 # The one long-running stage: takes [slurm] partition_long rather than partition.
 long = true

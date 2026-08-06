@@ -195,6 +195,24 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Changed
 
+- **A job's CPUs are now one number too.** fMRIPrep's `--nprocs` came from
+  `[fmriprep] nprocs` while `#SBATCH --cpus-per-task` came from the SLURM
+  override. They agreed at the shipped defaults by coincidence, so raising the
+  allocation got you a job that still ran eight processes wide.
+
+  `--nprocs` is now the allocation's CPUs outright — no headroom, unlike memory,
+  because fMRIPrep counts `--nprocs` across all its processes and that is exactly
+  what `--cpus-per-task` grants. **If your config sets `[fmriprep] nprocs`,
+  delete it**; like `mem_gb`, it is refused at submission rather than ignored.
+  Set `[slurm.overrides.fmriprep] cpus` instead. The GUI knob is now labelled
+  "CPUs" and moves both numbers.
+
+  `--omp-nthreads` is still not passed, deliberately: fMRIPrep sets it to
+  `min(nprocs - 1, 8)`, so it already follows from the allocation. MRIQC is
+  different and worth knowing if you tune it — its per-process thread count comes
+  from the container's `OMP_NUM_THREADS`, which the 24.0.2 image sets to 1, so
+  `cpus` buys you that many single-threaded processes.
+
 - **A job's memory is now one number, and fMRIPrep is told the truth about it.**
   Every generated fMRIPrep script carried two: `#SBATCH --mem=48G`, the limit
   SLURM actually enforces, and `--mem-mb 32768` from a separate `[fmriprep]

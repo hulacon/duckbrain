@@ -160,13 +160,15 @@ def test_an_allocation_with_no_room_for_the_headroom_raises(tmp_config_dir):
         tool_mem_gb(config, "fmriprep", alloc_gb=MEM_HEADROOM_GB)
 
 
-def test_no_stage_configures_a_memory_ceiling_of_its_own():
-    """The shipped config must state memory once per stage, in the allocation.
+@pytest.mark.parametrize("key", ["mem_gb", "nprocs"])
+def test_no_stage_configures_a_resource_of_its_own(key):
+    """The shipped config must state each resource once, in the SLURM allocation.
 
     Two independently-set numbers on one script is the defect this rule closes:
     ``[fmriprep] mem_gb = 32`` sat beside ``#SBATCH --mem=48G`` and nothing
     related them, so fMRIPrep scheduled against 32 GB while 16 GB it was never
-    told about went unused.
+    told about went unused. ``[fmriprep] nprocs`` was the same shape, agreeing
+    with ``--cpus-per-task`` only by coincidence.
 
     Read from ``config/base.toml`` itself rather than through ``load_config``,
     which would merge in whatever the developer's own user config says and make
@@ -176,7 +178,7 @@ def test_no_stage_configures_a_memory_ceiling_of_its_own():
 
     shipped = _load_toml(_find_config_dir() / "base.toml")
     for section in ("fmriprep", "mriqc", "nordic"):
-        assert "mem_gb" not in shipped.get(section, {})
+        assert key not in shipped.get(section, {})
 
 
 def test_missing_base_toml_raises(tmp_path):

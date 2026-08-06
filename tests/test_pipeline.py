@@ -334,8 +334,9 @@ def test_fmriprep_params_reach_context(monkeypatch, tmp_path):
     )
     assert cap["template"] == "fmriprep"
     ctx = cap["ctx"]
-    assert ctx["fmriprep"]["nprocs"] == 4
-    # mem_gb names the allocation; fMRIPrep's own ceiling is derived from it.
+    # Both resource knobs name the allocation. `--nprocs` is its cpus outright;
+    # fMRIPrep's memory ceiling is derived from its memory.
+    assert ctx["slurm"]["cpus"] == "4"
     assert ctx["slurm"]["memory"] == "99G"
     assert ctx["mem_gb"] == 99 - MEM_HEADROOM_GB
     # A string of spaces is split into a list; anat_only flows through.
@@ -344,7 +345,7 @@ def test_fmriprep_params_reach_context(monkeypatch, tmp_path):
     assert ctx["derivatives"] == ""  # use_derivatives defaulted False
 
 
-# ---- one memory ceiling per script ------------------------------------------
+# ---- one statement of each resource per script -------------------------------
 
 # What each nipype tool calls its scheduler's memory target, and the factor
 # between that flag's unit and GB.
@@ -412,15 +413,48 @@ def test_raising_the_memory_knob_moves_both_numbers(monkeypatch, tmp_path, stage
     assert _mem_numbers(script, stage) == (64, 64 - MEM_HEADROOM_GB)
 
 
-def test_a_config_that_still_pins_fmriprep_mem_gb_is_refused(monkeypatch, tmp_path):
-    """Not ignored — it reads as the ceiling in force, and would not be one.
+def _cpu_numbers(script):
+    """(allocated cpus, --nprocs) read back out of a rendered script."""
+    alloc = re.search(r"#SBATCH --cpus-per-task=(\d+)", script).group(1)
+    told = re.search(r"--nprocs (\d+)", script).group(1)
+    return int(alloc), int(told)
+
+
+@pytest.mark.parametrize("stage", ["fmriprep", "mriqc"])
+def test_a_script_states_its_cpus_once(monkeypatch, tmp_path, stage):
+    """``--nprocs`` *is* the allocation's CPUs — no headroom, unlike memory.
+
+    Both tools document ``--nprocs`` as a budget counted across all their
+    processes, which is the same quantity ``--cpus-per-task`` grants, so there is
+    nothing to hold back. fMRIPrep took it from a separate ``[fmriprep] nprocs``
+    that happened to agree with the allocation, which is not the same as being
+    derived from it.
+    """
+    alloc, told = _cpu_numbers(_real_script(monkeypatch, tmp_path, stage))
+    assert told == alloc
+
+
+@pytest.mark.parametrize("stage", ["fmriprep", "mriqc"])
+def test_raising_the_cpu_knob_moves_both_numbers(monkeypatch, tmp_path, stage):
+    """As with memory: an operator cannot raise one side and not the other.
+
+    Only fMRIPrep exposes the knob today. MRIQC honours the parameter anyway, and
+    is covered here for the same reason it accepts it: a stage that ignores what
+    its twin acts on is how the next knob gets wired up to nothing.
+    """
+    assert _cpu_numbers(_real_script(monkeypatch, tmp_path, stage, nprocs=16)) == (16, 16)
+
+
+@pytest.mark.parametrize("key", ["mem_gb", "nprocs"])
+def test_a_config_that_still_pins_an_fmriprep_resource_is_refused(monkeypatch, tmp_path, key):
+    """Not ignored — the key reads as the number in force, and would not be one.
 
     The same rule as every other option that cannot do what it says: raise, so
-    the operator fixes the config, rather than submit a job whose real ceiling
-    is a number they never wrote.
+    the operator fixes the config, rather than submit a job whose real resources
+    are numbers they never wrote.
     """
     cfg = _config(tmp_path)
-    cfg["fmriprep"] = {"mem_gb": 32}
+    cfg["fmriprep"] = {key: 32}
     with pytest.raises(PipelineError, match="no longer read"):
         advance_one(cfg, "fmriprep", "008", "")
 

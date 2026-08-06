@@ -17,10 +17,17 @@ echo "Node: $(hostname)"
    variables assigned here need their own quotes ("$WORK_DIR"), since the filter
    only protects the assignment, not every later use of it.
 
-   `mem_gb` is NOT a config value: it is derived from this job's `#SBATCH --mem`
-   above, by config.tool_mem_gb, which is where the reason lives. Nothing here
-   may spell a memory ceiling of its own — two independently-set numbers on one
-   script is the bug that rule exists to prevent.
+   Neither resource number below is a config value of its own. `--nprocs` reads
+   the same `slurm.cpus` as the `#SBATCH --cpus-per-task` directive above —
+   fMRIPrep documents it as the budget across all processes, which is what the
+   allocation is — and `mem_gb` is derived from `#SBATCH --mem` by
+   config.tool_mem_gb, which is where that reason lives. Nothing here may spell
+   a ceiling of its own: two independently-set numbers on one script is the bug
+   both rules exist to prevent.
+
+   `--omp-nthreads` is deliberately NOT passed. fMRIPrep sets it to
+   `min(nprocs - 1, 8)`, so it is already a function of the one input we have,
+   and pinning it here would freeze a number the tool derives correctly.
 
    `extra_flags` is the one deliberate exception: it is a shell fragment the
    operator supplies and it must word-split (`--use-syn-sdc --fd-spike-threshold
@@ -72,7 +79,7 @@ singularity run {{ container_flags }} \
 {% if filter_file %}  --bids-filter-file {{ filter_file | sh }} \
 {% endif %}  --output-spaces {{ output_spaces | map("string") | map("sh") | join(' ') }} \
   --fs-license-file {{ fs_license | sh }} \
-  --nprocs {{ fmriprep.nprocs }} \
+  --nprocs {{ slurm.cpus }} \
   --mem-mb {{ mem_gb * 1024 }} \
   -w "$WORK_DIR" \
 {% if anat_only %}  --anat-only \

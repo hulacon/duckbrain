@@ -241,27 +241,31 @@ def test_fmriprep_submit_passes_every_option_the_user_set(project, calls):
     }
 
 
-def test_the_memory_knob_defaults_to_the_slurm_allocation(project, calls):
-    """Not to a separate ``[fmriprep]`` ceiling — there is no longer one.
+def test_the_resource_knobs_default_to_the_slurm_allocation(project, calls):
+    """Not to separate ``[fmriprep]`` keys — there are no longer any.
 
-    The knob names the allocation so that raising it moves both the ``#SBATCH
-    --mem`` directive and the ``--mem-mb`` derived from it; defaulting it to
-    anything else would put the two back out of step the moment it is touched.
+    The knobs name the allocation so that raising one moves both the ``#SBATCH``
+    directive and the fMRIPrep flag taken from it; defaulting them to anything
+    else would put the two back out of step the moment either is touched.
     """
     from duckbrain.config import get_slurm_resources, load_config, parse_mem_gb
 
-    alloc = parse_mem_gb(get_slurm_resources(load_config(), "fmriprep")["memory"])
+    slurm = get_slurm_resources(load_config(), "fmriprep")
+    alloc, cpus = parse_mem_gb(slurm["memory"]), int(slurm["cpus"])
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()
-    assert at.number_input(key="fp_mem").value == alloc
+    assert (at.number_input(key="fp_mem").value, at.number_input(key="fp_nprocs").value) == (
+        alloc,
+        cpus,
+    )
     _pick(at, "fp_subjects", ["02"])
     _pick(at, "fp_sessions", ["02"])
     at.button(key="fp_submit").click().run()
-    assert calls[0][3]["mem_gb"] == alloc
+    assert (calls[0][3]["mem_gb"], calls[0][3]["nprocs"]) == (alloc, cpus)
 
 
 def test_the_slurm_panel_describes_the_job_about_to_be_sent(project, calls):
-    """Not the config file — the memory knob overrides what the panel reads from.
+    """Not the config file — the knobs override what the panel reads from.
 
     The panel is what an operator checks before hitting submit, so showing the
     configured allocation beside a knob that has changed it is the same two-numbers
@@ -270,8 +274,10 @@ def test_the_slurm_panel_describes_the_job_about_to_be_sent(project, calls):
     import json
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()
-    at.number_input(key="fp_mem").set_value(64).run()
-    assert json.loads(at.json[0].value)["memory"] == "64G"
+    at.number_input(key="fp_mem").set_value(64)
+    at.number_input(key="fp_nprocs").set_value(16).run()
+    shown = json.loads(at.json[0].value)
+    assert (shown["memory"], shown["cpus"]) == ("64G", "16")
 
 
 def test_export_sets_export_only_and_reports_a_path(project, calls):

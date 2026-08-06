@@ -169,16 +169,21 @@ def _build_fmriprep(config, subject, session, log_dir, params):
     derivatives_dir = paths["derivatives_dir"]
     fp_cfg = config.get("fmriprep", {})
 
-    # Checked before anything touches the filesystem: it is a config error, and
-    # reporting it behind a missing container or licence would bury it. A config
-    # that still carries the old independent ceiling is refused rather than
-    # ignored — it reads as the number in force, and quietly would not be.
-    if "mem_gb" in fp_cfg:
-        raise PipelineError(
-            "[fmriprep] mem_gb is no longer read — fMRIPrep's --mem-mb is derived "
-            "from the SLURM allocation. Delete it and set the allocation in "
-            "[slurm.overrides.fmriprep] memory instead."
-        )
+    # Checked before anything touches the filesystem: these are config errors, and
+    # reporting one behind a missing container or licence would bury it. A config
+    # that still names a resource fMRIPrep now takes from the SLURM allocation is
+    # refused rather than ignored — the key reads as the number in force, and
+    # quietly would not be.
+    for key, flag, slurm_key in (
+        ("mem_gb", "--mem-mb", "memory"),
+        ("nprocs", "--nprocs", "cpus"),
+    ):
+        if key in fp_cfg:
+            raise PipelineError(
+                f"[fmriprep] {key} is no longer read — fMRIPrep's {flag} comes from "
+                f"the SLURM allocation. Delete it and set "
+                f"[slurm.overrides.fmriprep] {slurm_key} instead."
+            )
 
     container = get_container_path(config)
     fs_license = find_fs_license(config)
@@ -241,12 +246,14 @@ def _build_fmriprep(config, subject, session, log_dir, params):
             "clear the reuse option."
         )
     extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", ""))).strip()
-    nprocs = int(params.get("nprocs", fp_cfg.get("nprocs", 8)))
-    # `mem_gb` names the SLURM allocation; fMRIPrep's --mem-mb is derived from it
-    # (config.tool_mem_gb says why the allocation is the authoritative side).
-    alloc_gb = int(
-        params.get("mem_gb", parse_mem_gb(get_slurm_resources(config, "fmriprep")["memory"]))
-    )
+    # Both resource knobs name the SLURM allocation. `nprocs` is the allocation's
+    # CPUs outright — fMRIPrep documents --nprocs as the budget across all its
+    # processes, which is the same quantity --cpus-per-task grants. `mem_gb` is
+    # the allocated memory, from which --mem-mb is derived (config.tool_mem_gb
+    # says why the allocation is the authoritative side of that one).
+    fp_slurm = get_slurm_resources(config, "fmriprep")
+    cpus = int(params.get("nprocs", fp_slurm["cpus"]))
+    alloc_gb = int(params.get("mem_gb", parse_mem_gb(fp_slurm["memory"])))
     mem_gb = tool_mem_gb(config, "fmriprep", alloc_gb=alloc_gb)
 
     ctx = build_context(
@@ -266,11 +273,10 @@ def _build_fmriprep(config, subject, session, log_dir, params):
         extra_flags=extra_flags,
         mem_gb=mem_gb,
     )
-    # The GUI's nprocs overrides the config default the template reads; its memory
-    # knob sets the allocation, so both the #SBATCH directive and the derived
-    # ceiling move together — that is the whole point of routing it through here.
-    ctx["fmriprep"] = {**ctx.get("fmriprep", {}), "nprocs": nprocs}
-    ctx["slurm"] = {**ctx["slurm"], "memory": f"{alloc_gb}G"}
+    # Both GUI knobs land on the allocation, and the template reads its `--nprocs`
+    # and `--mem-mb` from there — so a raised knob moves the #SBATCH directive and
+    # the tool flag together, which is the whole point of routing them through here.
+    ctx["slurm"] = {**ctx["slurm"], "cpus": str(cpus), "memory": f"{alloc_gb}G"}
     return "fmriprep", ctx
 
 
@@ -343,8 +349,11 @@ def _build_mriqc(config, subject, session, log_dir, params):
 
     container = get_container_path(config)
     mq_slurm = get_slurm_resources(config, "mriqc")
-    # Same rule as fMRIPrep: `mem_gb` names the allocation and MRIQC's --mem-gb is
-    # derived from it. config.tool_mem_gb carries the reason for both.
+    # Same rule as fMRIPrep, and both params mean the same thing here as there —
+    # the allocation. MRIQC has no GUI knob for either today, and they are honoured
+    # anyway rather than dropped: a stage that quietly ignores a parameter its twin
+    # acts on is how the next knob gets wired up to nothing.
+    cpus = int(params.get("nprocs", mq_slurm["cpus"]))
     alloc_gb = int(params.get("mem_gb", parse_mem_gb(mq_slurm.get("memory", "32G"))))
     ctx = build_context(
         config,
@@ -354,7 +363,7 @@ def _build_mriqc(config, subject, session, log_dir, params):
         container_path=str(container),
         mem_gb=tool_mem_gb(config, "mriqc", alloc_gb=alloc_gb),
     )
-    ctx["slurm"] = {**ctx["slurm"], "memory": f"{alloc_gb}G"}
+    ctx["slurm"] = {**ctx["slurm"], "cpus": str(cpus), "memory": f"{alloc_gb}G"}
     return "mriqc", ctx
 
 
