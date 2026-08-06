@@ -11,6 +11,13 @@ import jinja2
 if TYPE_CHECKING:
     from ..config import Config
 
+#: The variables an sbatch template renders from — Jinja's context, so its
+#: values are whatever the template interpolates (a resources mapping, a paths
+#: mapping, strings, bools, a rendered flag string). Named because it is what
+#: every ``_build_*`` in ``core.pipeline`` returns, and "the second half of the
+#: tuple" is a poor thing to have to look up.
+TemplateContext = dict[str, Any]
+
 
 def _get_templates_dir() -> Path:
     """Locate the templates/sbatch/ directory."""
@@ -25,7 +32,9 @@ def _get_templates_dir() -> Path:
     raise FileNotFoundError("Cannot find templates/sbatch/ directory")
 
 
-def render_sbatch(step_name: str, context: dict, templates_dir: str | Path | None = None) -> str:
+def render_sbatch(
+    step_name: str, context: TemplateContext, templates_dir: str | Path | None = None
+) -> str:
     """Render an sbatch template for the given pipeline step.
 
     Parameters
@@ -75,7 +84,7 @@ def render_sbatch(step_name: str, context: dict, templates_dir: str | Path | Non
     return template.render(**context)
 
 
-def build_context(config: Config, step: str, **extra: Any) -> dict:
+def build_context(config: Config, step: str, **extra: Any) -> TemplateContext:
     """Build a template context dict from config + extra variables.
 
     Merges the full config with per-step SLURM overrides and any

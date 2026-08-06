@@ -18,6 +18,7 @@ so the page can say which happened.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import streamlit as st
 
@@ -27,13 +28,23 @@ import streamlit as st
 from duckbrain.core import dcm2niix_probe
 from duckbrain.core.dcm2niix_probe import ProbeRuntime, SeriesProbe
 
+if TYPE_CHECKING:
+    from duckbrain.core.dicom_inspect import SeriesInfo
+
+#: What ``probe_fingerprint`` returns and ``_probe_cached`` keys on: the series
+#: names and file counts, plus the image's ``(path, mtime, size)``. Written out
+#: rather than left a bare ``tuple`` because Streamlit hashes it as the cache
+#: key — a shape that quietly changed here is a cache that quietly never
+#: invalidates, which is the failure `#29` was.
+ProbeFingerprint = tuple[tuple[tuple[str, int], ...], tuple[str, float, int]]
+
 # Anything slower than a second is already pathological for a single session,
 # and this runs inline in a page render. The module default (120 s) would stall
 # the GUI for two minutes on a hung apptainer with no way to say why.
 _TIMEOUT_S = 10
 
 
-def probe_fingerprint(series_list: list, container: Path | None) -> tuple:
+def probe_fingerprint(series_list: list[SeriesInfo], container: Path | None) -> ProbeFingerprint:
     """What has to change before the cached probe is stale.
 
     Deliberately *not* an rglob of the session directory: that stats ~2000 files
@@ -46,7 +57,7 @@ def probe_fingerprint(series_list: list, container: Path | None) -> tuple:
     dcm2niix, and must re-probe rather than serve the previous build's answer.
     """
     series = tuple(sorted((Path(s.path).name if s.path else "", s.file_count) for s in series_list))
-    image: tuple = ("", 0.0, 0)
+    image: tuple[str, float, int] = ("", 0.0, 0)
     if container:
         try:
             stat = Path(container).stat()
@@ -58,7 +69,7 @@ def probe_fingerprint(series_list: list, container: Path | None) -> tuple:
 
 @st.cache_data(show_spinner="Asking dcm2niix what these series are…")
 def _probe_cached(
-    series_dirs: list[str], container: str, fingerprint: tuple
+    series_dirs: list[str], container: str, fingerprint: ProbeFingerprint
 ) -> dict[int, SeriesProbe]:
     """Probe one session, keyed as ``plan_warnings`` wants it.
 
@@ -73,7 +84,7 @@ def _probe_cached(
     )
 
 
-def session_probes(series_list: list, runtime: ProbeRuntime) -> dict[int, SeriesProbe]:
+def session_probes(series_list: list[SeriesInfo], runtime: ProbeRuntime) -> dict[int, SeriesProbe]:
     """What dcm2niix says about this session, or ``{}`` when it couldn't be asked.
 
     An empty result is ambiguous by design — it is also what a timeout, an exec
@@ -92,7 +103,7 @@ def session_probes(series_list: list, runtime: ProbeRuntime) -> dict[int, Series
     )
 
 
-def probe_note(runtime: ProbeRuntime, probes: dict) -> str:
+def probe_note(runtime: ProbeRuntime, probes: dict[int, SeriesProbe]) -> str:
     """One line for the preflight panel, or ``""`` when there is nothing to add.
 
     Prefixed with the severity marker the caption should carry. Gating on

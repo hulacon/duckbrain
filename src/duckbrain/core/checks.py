@@ -65,7 +65,7 @@ class Check:
 
     slug: str
     cost: str
-    run: Callable[[dict], list[ConsistencyIssue]]
+    run: Callable[[Config], list[ConsistencyIssue]]
 
 
 def _shortfall(label: str, want: int, got: int) -> str:

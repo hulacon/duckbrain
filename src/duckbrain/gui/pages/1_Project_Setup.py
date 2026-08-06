@@ -8,6 +8,7 @@ licenses, container versions) live in the user config (~/.config/duckbrain/).
 
 import os
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
@@ -46,9 +47,9 @@ def _split_authors(text: str) -> list[str]:
     return seen
 
 
-def _clean_dict(d: dict) -> dict:
+def _clean_dict(d: dict[str, Any]) -> dict[str, Any]:
     """Drop empty strings and empty sub-dicts so saved TOML stays minimal."""
-    out = {}
+    out: dict[str, Any] = {}
     for k, v in d.items():
         if isinstance(v, dict):
             v = _clean_dict(v)

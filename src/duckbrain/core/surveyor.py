@@ -250,7 +250,7 @@ def _iter_sub_ses(root: str | Path) -> Iterator[tuple[str, str]]:
             yield subject, ""
 
 
-def discover_units(paths: dict) -> list[tuple[str, str]]:
+def discover_units(paths: dict[str, str]) -> list[tuple[str, str]]:
     """The row universe: every ``(subject, session)`` seen in sourcedata or BIDS.
 
     Union of ingested sessions and BIDS subjects, so a unit shows up whether it
@@ -288,7 +288,9 @@ def _ingested_status(config: Config, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _expected_conversion_counts(paths: dict, subject: str, session: str) -> dict[str, int] | None:
+def _expected_conversion_counts(
+    paths: dict[str, str], subject: str, session: str
+) -> dict[str, int] | None:
     """How many NIfTIs each datatype should hold, per the reviewed dcm2bids config.
 
     ``None`` when there is no config to read — see :func:`_converted_status`.
@@ -530,7 +532,7 @@ def run_progress(config: Config, stage: str, subject: str, session: str) -> tupl
     return len(expected & found), len(expected)
 
 
-def summarize(matrix: pd.DataFrame) -> dict:
+def summarize(matrix: pd.DataFrame) -> dict[str, dict[str, int]]:
     """Per-stage counts of each status across all units.
 
     Returns ``{stage: {status: count}}`` — the numbers behind a dashboard's

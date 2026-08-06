@@ -38,6 +38,7 @@ from duckbrain.gui.components import flush_toasts, queue_toast
 
 if TYPE_CHECKING:
     from ..config import Config
+    from ..core.qc_report import RunRow
 
 
 def _size_note(nbytes: int, n_files: int) -> str:
@@ -152,8 +153,8 @@ class Scope:
     config: Config
     modality: str
     iqm_cols: list[str]
-    runs: list[dict]
-    run: dict | None
+    runs: list[RunRow]
+    run: RunRow | None
     selected_key: str
     mriqc_dir: Path
     fmriprep_dir: Path
@@ -172,7 +173,7 @@ class Scope:
         """
         return self.selected_key or (self.run["run_key"] if self.run else "")
 
-    def values_for(self, measure: str) -> list:
+    def values_for(self, measure: str) -> list[float | None]:
         """Every run's value for *measure* — the cohort this run is judged against."""
         return [r["iqms"].get(measure, (r.get("motion") or {}).get(measure)) for r in self.runs]
 
@@ -224,7 +225,7 @@ def _pick(label: str, options: list[str], session_key: str, **kwargs: Any) -> st
 
 
 @st.cache_data(show_spinner="Reading MRIQC output…")
-def _load_metrics(mriqc_dir: str, modality: str, fingerprint: tuple) -> pd.DataFrame:
+def _load_metrics(mriqc_dir: str, modality: str, fingerprint: tuple[int, float]) -> pd.DataFrame:
     """Cached MRIQC load, keyed on the state of the derivative and not just its path.
 
     ``fingerprint`` carries no leading underscore, and that is the whole of it:
@@ -238,7 +239,7 @@ def _load_metrics(mriqc_dir: str, modality: str, fingerprint: tuple) -> pd.DataF
     return qc.load_mriqc_metrics(mriqc_dir, modality)
 
 
-def _fingerprint_of(root: Path, pattern: str) -> tuple:
+def _fingerprint_of(root: Path, pattern: str) -> tuple[int, float]:
     """(count, newest mtime) of matching files — enough to invalidate the cache.
 
     *pattern* is the loader's own glob, so this is taken over exactly the files
@@ -287,7 +288,7 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
     )
     iqm_cols = qc.BOLD_IQMS if modality == "bold" else qc.ANAT_IQMS
     iqr_multiplier = float(st.session_state.get("qc_iqr", settings["iqr_multiplier"]))
-    runs: list[dict] = []
+    runs: list[RunRow] = []
 
     if metrics_df.empty:
         # MRIQC has not run, but fMRIPrep may well have. Falling back to the run
@@ -361,7 +362,7 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
     )
 
 
-def load_config_or_stop() -> dict:
+def load_config_or_stop() -> Config:
     """The config every QC page needs, or a message and a stop."""
     from duckbrain.config import load_config
 
@@ -627,7 +628,7 @@ def _fmriprep_report_keys(run_key: str) -> list[str]:
 
 
 @st.cache_data(show_spinner=False)
-def _payload_bytes_cached(report_path: str, fingerprint: tuple) -> int:
+def _payload_bytes_cached(report_path: str, fingerprint: tuple[float, int]) -> int:
     """What embedding *report_path* would pull in, cached against *fingerprint*.
 
     The answer costs a read of the report plus a ``stat`` of every figure it

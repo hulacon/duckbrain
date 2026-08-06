@@ -368,13 +368,36 @@ strict_equality = true
 # The other two returned a group name typed `Any` out of `FieldmapDetection`'s
 # bare `groups: dict`; that dataclass's four fields are spelled out now.
 #
+# `disallow_any_generics` was the third, and the largest: 226 errors across 29
+# files once the list became the whole package (the 90 this comment carried was
+# measured against six). It is on, and the shape of the bill is the lesson —
+# 199 of the 226 were a bare `dict`, and 95 of *those* were one parameter,
+# `config`, repeated. So it was one decision plus a sweep, not 226 judgments.
+#
+# Two rules came out of doing it, both worth applying before reaching for a
+# `TypedDict`:
+#
+# - A payload **read off disk** stays `dict[str, Any]`. Sidecars, dataset
+#   descriptions, validator output, decision entries and hand-edited dcm2bids
+#   configs are all written by somebody else, in more than one schema, with
+#   every key absent from some real file — which is why each reader is a chain
+#   of `.get()` and `isinstance`. A TypedDict over keys that are all optional
+#   says nothing and reads as a guarantee.
+# - A payload **this code builds** gets one, because then the keys really are
+#   all set in one place: `qc.DecisionRecord`, `pipeline.JobIndex`, and
+#   `dcm2bids_config.Description` (a required base plus a `total=False`
+#   subclass — the pre-3.11 spelling of `NotRequired`, so the
+#   `typing_extensions` blocker this comment used to record was never real).
+#
+# The named aliases exist because `dict[str, Any]` is *also* what a sidecar, a
+# job-parameter dict and a Jinja context are, and three functions had already
+# collected duckbrain's `Config` and a `Dcm2BidsConfig` into one word.
+#
 # Still declined:
-#   disallow_any_generics — 90 errors, and the real ones are the dcm2bids
-#     description dicts, which need actual TypedDicts (with `NotRequired`, which
-#     the 3.10 floor can't have without `typing_extensions`). Filed in TODO #33.2.
-#   strict — turns that on along with these two.
+#   strict — turns on the remaining knobs along with these; not measured.
 disallow_untyped_calls = true
 warn_return_any = true
+disallow_any_generics = true
 
 [[tool.mypy.overrides]]
 # Stub gaps, named one at a time rather than blanketed. pandas and plotly are the

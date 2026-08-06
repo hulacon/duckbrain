@@ -35,6 +35,28 @@ from .surveyor import STAGES, Status, survey_project
 
 if TYPE_CHECKING:
     from ..config import Config
+    from ..slurm.templates import TemplateContext
+
+    #: What a stage's builder is. Spelling it out is the point of the alias: a
+    #: bare ``Callable`` on ``StageSpec.build`` accepted any function at all,
+    #: including the wrong arity, and the four builders it holds are the four
+    #: functions above.
+    #:
+    #: **Inside the guard, unlike the two aliases below**, and that placement is
+    #: load-bearing rather than tidy. ``from __future__ import annotations``
+    #: defers *annotations*; an alias is an ordinary assignment and is evaluated
+    #: when the module loads, so naming ``Config`` here at module scope raises
+    #: ``NameError`` on import — which mypy cannot see, because to mypy the guard
+    #: is always taken. Six test files failed to collect before this moved.
+    StageBuilder = Callable[[Config, str, str, str, "JobParams"], tuple[str, TemplateContext]]
+
+#: Per-launch options — what the caller chose for *this* run, as opposed to what
+#: the project is configured with. Reaches every builder as ``**params`` from a
+#: GUI widget or a cockpit default, so its keys differ per stage (``force``,
+#: ``reuse_anat``, ``output_spaces``, …) and its values are whatever that widget
+#: produced. Every read is a ``.get()`` with a config fallback, which is what
+#: makes ``dict[str, Any]`` the description rather than the shrug.
+JobParams = dict[str, Any]
 
 
 class PipelineError(RuntimeError):
@@ -72,8 +94,8 @@ def _resolve_log_dir(config: Config) -> str:
 
 
 def _build_dcm2bids(
-    config: Config, subject: str, session: str, log_dir: str, params: dict
-) -> tuple[str, dict]:
+    config: Config, subject: str, session: str, log_dir: str, params: JobParams
+) -> tuple[str, TemplateContext]:
     from ..config import write_bidsignore
     from .bids_metadata import (
         converter_generated_by,
@@ -163,8 +185,8 @@ def _build_dcm2bids(
 
 
 def _build_fmriprep(
-    config: Config, subject: str, session: str, log_dir: str, params: dict
-) -> tuple[str, dict]:
+    config: Config, subject: str, session: str, log_dir: str, params: JobParams
+) -> tuple[str, TemplateContext]:
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .fmriprep import (
         find_fs_license,
@@ -289,8 +311,8 @@ def _build_fmriprep(
 
 
 def _build_nordic(
-    config: Config, subject: str, session: str, log_dir: str, params: dict
-) -> tuple[str, dict]:
+    config: Config, subject: str, session: str, log_dir: str, params: JobParams
+) -> tuple[str, TemplateContext]:
     from .nordic import get_bold_runs
 
     paths = config["paths"]
@@ -354,8 +376,8 @@ def _build_nordic(
 
 
 def _build_mriqc(
-    config: Config, subject: str, session: str, log_dir: str, params: dict
-) -> tuple[str, dict]:
+    config: Config, subject: str, session: str, log_dir: str, params: JobParams
+) -> tuple[str, TemplateContext]:
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
     from .mriqc import get_container_path
 
@@ -393,7 +415,7 @@ class StageSpec:
     name: str
     job_prefix: str
     depends_on: str | None
-    build: Callable | None = None
+    build: StageBuilder | None = None
     is_slurm: bool = True
 
 
@@ -449,7 +471,7 @@ def effective_depends_on(config: Config, stage: str) -> str | None:
 # ---- public API -------------------------------------------------------------
 
 
-def _fsaverage_preflight(config: Config, stage: str, params: dict) -> None:
+def _fsaverage_preflight(config: Config, stage: str, params: JobParams) -> None:
     """Install FreeSurfer's ``fsaverage*`` templates before any fMRIPrep job runs.
 
     Here rather than in ``_build_fmriprep`` because this is a **project-level**
@@ -656,7 +678,7 @@ def resolve_container(config: Config, stage: str) -> Path | None:
     return get_container_path(config)
 
 
-def run_provenance(config: Config, stage: str) -> dict:
+def run_provenance(config: Config, stage: str) -> dict[str, str]:
     """Best-effort provenance for a launch: tool, version, runtime, code source,
     input variant.
 
@@ -728,7 +750,7 @@ def _submission_log_path(config: Config) -> Path:
     return Path(_resolve_log_dir(config)) / _SUBMISSION_LOG
 
 
-def _parse_log_rows(text: str) -> tuple[list[str], list[dict]]:
+def _parse_log_rows(text: str) -> tuple[list[str], list[dict[str, str]]]:
     """Parse the log's header and rows, mapping each row onto its header names.
 
     Tolerant by design: ragged rows (from a pre-migration append of a wider row

@@ -8,6 +8,7 @@ import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 #: Prefix for a half-written file in the staged tree. Never pruned, never
 #: mistaken for a desired output — see ``_materialize``.
@@ -353,7 +354,7 @@ def build_nordic_bids_input(
     return out_sub_ses
 
 
-def _derivative_sidecar(bold: Path, bids_dir: Path, provenance: dict) -> dict:
+def _derivative_sidecar(bold: Path, bids_dir: Path, provenance: dict[str, Any]) -> dict[str, Any]:
     """Sidecar contents for the NORDIC output derived from *bold*.
 
     Starts from the raw sidecar: BIDS derivatives do **not** inherit metadata from
@@ -366,7 +367,7 @@ def _derivative_sidecar(bold: Path, bids_dir: Path, provenance: dict) -> dict:
     ``raw`` entry in our ``DatasetLinks``) and a namespaced ``Duckbrain`` object.
     """
     raw_json = bold.parent / bold.name.replace(".nii.gz", ".json")
-    content: dict = {}
+    content: dict[str, Any] = {}
     if raw_json.is_file():
         try:
             with open(raw_json) as f:
@@ -391,7 +392,7 @@ def write_nordic_sidecars(
     subject: str,
     session: str = "",
     *,
-    provenance: dict,
+    provenance: dict[str, Any],
 ) -> list[Path]:
     """Write a BIDS-derivatives sidecar for each BOLD this run will denoise.
 

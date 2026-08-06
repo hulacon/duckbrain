@@ -61,7 +61,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .ingestion import sub_ses_relpath
 
@@ -138,9 +138,9 @@ class SessionExpectation:
         """True when nothing is declared — treat as "no expectation stated"."""
         return not self.anat and not self.task and self.fmap_pairs is None
 
-    def to_config_section(self) -> dict:
+    def to_config_section(self) -> dict[str, Any]:
         """The TOML-ready mapping, omitting anything not declared."""
-        out: dict = {}
+        out: dict[str, Any] = {}
         if self.fmap_pairs is not None:
             out["fmap_pairs"] = self.fmap_pairs
         if self.anat:
@@ -235,7 +235,7 @@ def _count_map(value: object) -> dict[str, int]:
 # ---- reading the declaration ------------------------------------------------
 
 
-def declared(config: Config) -> dict | None:
+def declared(config: Config) -> dict[str, Any] | None:
     """The raw ``[expected]`` section, or ``None`` when the project declares none.
 
     ``None`` and ``{}`` both mean "off". Callers should test this first and do
@@ -292,7 +292,7 @@ def expected_for(config: Config, subject: str, session: str = "") -> SessionExpe
 # ---- observing what is actually there ---------------------------------------
 
 
-def _read_json(path: Path) -> dict:
+def _read_json(path: Path) -> dict[str, Any]:
     try:
         with open(path) as f:
             data = json.load(f)
@@ -379,7 +379,7 @@ def has_bids_unit(bids_dir: str | Path, subject: str, session: str = "") -> bool
 # ---- eliciting a draft ------------------------------------------------------
 
 
-def elicit(config: Config, subject: str, session: str = "") -> dict:
+def elicit(config: Config, subject: str, session: str = "") -> dict[str, Any]:
     """Propose an ``[expected.session]`` table from one confirmed-good session.
 
     Returns the config-ready mapping; the caller shows it and the user accepts

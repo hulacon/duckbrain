@@ -6,7 +6,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -601,7 +601,7 @@ def auto_number_sessions(
     return mappings
 
 
-def list_ingested_sessions(sourcedata_dir: str | Path) -> list[dict]:
+def list_ingested_sessions(sourcedata_dir: str | Path) -> list[dict[str, Any]]:
     """List sessions already ingested into sourcedata.
 
     Returns
@@ -610,7 +610,7 @@ def list_ingested_sessions(sourcedata_dir: str | Path) -> list[dict]:
         Each dict has keys: subject, session, path, has_dicom.
     """
     sourcedata_dir = Path(sourcedata_dir)
-    sessions: list[dict] = []
+    sessions: list[dict[str, Any]] = []
     if not sourcedata_dir.is_dir():
         return sessions
 
