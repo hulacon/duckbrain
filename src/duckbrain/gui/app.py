@@ -134,7 +134,7 @@ def _project_bar() -> None:
                     st.rerun()
 
 
-def main():
+def main() -> None:
     st.set_page_config(
         page_title="duckbrain",
         page_icon="\U0001f9e0",

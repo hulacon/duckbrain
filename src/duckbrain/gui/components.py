@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 import streamlit as st
@@ -109,18 +110,18 @@ def directory_picker(
     if cwd_key not in st.session_state:
         st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
 
-    def _typed():
+    def _typed() -> None:
         st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
 
-    def _commit():
+    def _commit() -> None:
         # runs before widgets instantiate, so writing the text input's state is legal
         st.session_state[sel_key] = st.session_state[cwd_key]
 
-    def _goto(target):
+    def _goto(target: Path) -> None:
         st.session_state[cwd_key] = str(target)
         st.session_state[flt_key] = ""
 
-    def _create():
+    def _create() -> None:
         name = (st.session_state.get(new_key) or "").strip()
         if name:
             target = Path(st.session_state[cwd_key]) / name
@@ -139,7 +140,7 @@ def directory_picker(
     )
 
     @st.fragment
-    def _browser():
+    def _browser() -> None:
         cwd = Path(st.session_state[cwd_key])
 
         # breadcrumb — click any segment to jump straight there
@@ -201,7 +202,9 @@ def directory_picker(
     with st.expander("📂 Browse"):
         _browser()
 
-    sel = st.session_state[sel_key]
+    # Declared, not coerced: every write to this key above is a string, and the
+    # annotation is where that says so. `st.session_state` hands back `Any`.
+    sel: str = st.session_state[sel_key]
     if not sel:
         st.caption("No folder selected.")
     elif Path(sel).is_dir():
@@ -246,7 +249,7 @@ def fmap_label(group: str | None) -> str:
     return group if group else "(unnamed)"
 
 
-def fmap_swatches(groups) -> dict[str, tuple[str, str]]:
+def fmap_swatches(groups: Iterable[str]) -> dict[str, tuple[str, str]]:
     """Assign each group an ``(emoji, badge_colour)`` pair, stable by order.
 
     Order is the caller's iteration order over the detected groups, which is

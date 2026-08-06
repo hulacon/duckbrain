@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -200,19 +201,23 @@ def _publish_scope_to_url(**values: str) -> None:
             st.query_params[param] = value
 
 
-def _pick(label: str, options: list, session_key: str, **kwargs):
+def _pick(label: str, options: list[str], session_key: str, **kwargs: Any) -> str:
     """A selectbox that remembers across pages, defaulting to a stale-proof index.
 
     A remembered value that no longer exists — the modality changed, or the
     derivative did — falls back to the first option rather than raising.
+
+    Empty options give ``""``, not ``None``: every option here is a modality or
+    a run key, so the empty string cannot collide with a real selection, and
+    both callers already treated the no-selection case as the empty string.
     """
     if not options:
-        return None
+        return ""
     remembered = st.session_state.get(session_key)
     index = options.index(remembered) if remembered in options else 0
     chosen = st.selectbox(label, options, index=index, **kwargs)
     st.session_state[session_key] = chosen
-    return chosen
+    return str(chosen)
 
 
 @st.cache_data(show_spinner="Reading MRIQC output…")
@@ -328,7 +333,7 @@ def scope_bar(config: dict, *, with_run: bool = True) -> Scope | None:
                 format_func=lambda k: f"{k}  ⚠️" if k in flagged else k,
                 help="The run every section on this page describes.",
             )
-        run_key = chosen or ""
+        run_key = chosen
         run = next((r for r in runs if r["run_key"] == run_key), None)
         with cols[2]:
             st.metric("Runs", len(keys), f"{len(flagged)} flagged" if flagged else None)
@@ -568,7 +573,7 @@ DOMAIN_PAGES = {
 }
 
 
-def _page_link(path: str, label: str, **kwargs) -> None:
+def _page_link(path: str, label: str, **kwargs: Any) -> None:
     """A cross-page link that degrades instead of raising outside the app.
 
     ``st.page_link`` resolves a page path against the set registered by

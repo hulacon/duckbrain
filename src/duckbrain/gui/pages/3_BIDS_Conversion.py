@@ -1,12 +1,18 @@
 """Page 3: BIDS Conversion — DICOM inspection + dcm2bids config generation + submission."""
 
+from __future__ import annotations
+
 import dataclasses
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import streamlit as st
+
+if TYPE_CHECKING:
+    from duckbrain.core.dicom_inspect import SeriesInfo
 
 st.set_page_config(page_title="BIDS Conversion — duckbrain", layout="wide")
 st.title("BIDS Conversion")
@@ -37,7 +43,7 @@ if not ingested:
     st.stop()
 
 subjects = sorted(set(s["subject"] for s in ingested))
-sessions_by_sub = {}
+sessions_by_sub: dict[str, list[str]] = {}
 for s in ingested:
     sessions_by_sub.setdefault(s["subject"], []).append(s["session"])
 
@@ -239,7 +245,7 @@ IMPORT_KEY = f"conversion_import_{subject}_{session}"
 EDITS_KEY = f"conversion_edits_{subject}_{session}"
 
 
-def _accumulate_edits(delta_key, store_key):
+def _accumulate_edits(delta_key: str, store_key: str) -> dict[int, dict[str, Any]]:
     """Merge this run's editor delta into the durable per-session edit store.
 
     `st.data_editor`'s state does not belong to its `key`: the element id is
@@ -565,7 +571,7 @@ except ValueError as exc:
     seed_binding = resolve_fmap_assignments(seed_mapping, fieldmaps, None, series_times)
 
 
-def _seed_fieldmap(series):
+def _seed_fieldmap(series: SeriesInfo) -> str:
     """Seed value for the fieldmap cell of one series row."""
     if series.series_number in fmap_group_by_series:
         return _group_token[fmap_group_by_series[series.series_number]]
@@ -705,7 +711,7 @@ if _unknown_groups:
 seed_df = pd.DataFrame(seed_rows)
 
 
-def _apply_pending_edits(df, store):
+def _apply_pending_edits(df: pd.DataFrame, store: dict[int, dict[str, Any]]) -> pd.DataFrame:
     if not store:
         return df
     df = df.copy()
@@ -786,7 +792,7 @@ if _override_config is not None:
         )
 
 
-def _row_run(value):
+def _row_run(value: Any) -> int | None:
     return int(value) if pd.notna(value) else None
 
 

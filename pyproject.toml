@@ -257,7 +257,18 @@ known-first-party = ["duckbrain"]
 # place it cannot complain. The estimate had counted 28 annotation *gaps* and
 # read them as 28 units of risk; they were 9 functions and no risk at all.
 #
-# The remaining candidates are the Streamlit pages, and those are the real job.
+# The Streamlit pages were "the real job" here for two revisions of this comment,
+# on the theory that gating them meant taking on streamlit, plotly and nibabel
+# stubs. Measured, the whole `gui/` tree was 115 errors and **not one of them
+# named a third-party package**. The friction was entirely first-party and came
+# apart into a dataclass, two renames, five dead functions and a pile of
+# signatures. Every page is gated now; what is left out is `qc_panels.py` and
+# `conversion_panels.py`, for the seven errors in TODO #33.1 piece 4.
+#
+# A page's module name starts with a digit, which is not a legal Python
+# identifier — mypy takes the directory anyway and checks all eleven. Verified by
+# deleting one `-> None` and watching the gate go red, because a checker that
+# silently skips a file looks exactly like a checker that passes it.
 #
 # It has never been free, which is the point of measuring before setting the
 # knobs.
@@ -301,6 +312,10 @@ files = [
     "src/duckbrain/core/dicom_inspect.py",
     "src/duckbrain/core/series_types.py",
     "src/duckbrain/core/pipeline.py",
+    "src/duckbrain/gui/app.py",
+    "src/duckbrain/gui/components.py",
+    "src/duckbrain/gui/preproc_panels.py",
+    "src/duckbrain/gui/pages/",
 ]
 
 # The containment mechanism, and the reason the list above can stay short.

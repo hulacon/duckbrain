@@ -16,10 +16,18 @@ The former separate Job Monitor is folded in as the "All SLURM jobs" panel (the
 catch-all for jobs not tied to a board cell) fed from the same single SLURM pull.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import streamlit as st
+
+if TYPE_CHECKING:
+    from streamlit.delta_generator import DeltaGenerator
+
+    from duckbrain.slurm.monitor import JobInfo
 
 st.set_page_config(page_title="Project Status — duckbrain", layout="wide")
 st.title("Project Status")
@@ -90,21 +98,21 @@ _FS_ICON = {
 _JOB_ICON = {"running": "🔵 running", "queued": "⏳ queued", "failed": "🔴 failed"}
 
 
-def _cell(fs_val, job_val):
+def _cell(fs_val: str, job_val: str) -> str:
     """A live job overlay (running/queued/failed) wins the icon; else filesystem."""
     return _JOB_ICON.get(job_val) or _FS_ICON.get(fs_val, fs_val)
 
 
-def _unit_label(subject, session):
+def _unit_label(subject: str, session: str) -> str:
     return f"sub-{subject}" + (f" / ses-{session}" if session else "")
 
 
-def _emoji(icon):
+def _emoji(icon: str) -> str:
     """First token of a '<emoji> <word>' status label, for a compact cell trigger."""
     return icon.split(" ", 1)[0] if icon else "·"
 
 
-def _latest_jobs(config):
+def _latest_jobs(config: dict) -> dict[tuple[str, str, str], str]:
     """Map (subject, session, stage) -> most-recent job id from the durable log.
 
     The submission log is written in chronological (append) order, so a later row
@@ -112,7 +120,7 @@ def _latest_jobs(config):
     job id — it outlives sacct's window, and the log file it names is still on disk.
     """
     subs = read_submissions(config, limit=1_000_000)
-    out = {}
+    out: dict[tuple[str, str, str], str] = {}
     if subs.empty:
         return out
     for _, r in subs.iterrows():
@@ -125,13 +133,15 @@ def _latest_jobs(config):
     return out
 
 
-def _stage_params(stage, config, key_prefix, subject="", session=""):
+def _stage_params(
+    stage: str, config: dict, key_prefix: str, subject: str = "", session: str = ""
+) -> dict[str, Any]:
     """Render (and return) the per-stage launch parameters. Same knobs the old
     single-launch control exposed, now scoped to one cell's popover via key_prefix.
 
     subject/session gate options that only make sense given what is already on
     disk for that unit (currently anat reuse)."""
-    params = {}
+    params: dict[str, Any] = {}
     if stage == "fmriprep":
         fp = config.get("fmriprep", {})
         params["output_spaces"] = st.text_input(
@@ -197,7 +207,15 @@ def _stage_params(stage, config, key_prefix, subject="", session=""):
     return params
 
 
-def _launch(stage, sub, ses, config, params, *, verb="Submitted"):
+def _launch(
+    stage: str,
+    sub: str,
+    ses: str,
+    config: dict,
+    params: dict[str, Any],
+    *,
+    verb: str = "Submitted",
+) -> None:
     """Submit one stage for one unit, queue a confirmation, and rerun the fragment."""
     try:
         job_id = advance_one(config, stage, sub, ses, **params)
@@ -207,7 +225,7 @@ def _launch(stage, sub, ses, config, params, *, verb="Submitted"):
         st.error(f"Could not launch: {e}")
 
 
-def _run_popover(row, stage, config):
+def _run_popover(row: pd.Series, stage: str, config: dict) -> None:
     from duckbrain.core.surveyor import run_progress
 
     sub, ses = str(row["subject"]), str(row["session"])
@@ -226,7 +244,16 @@ def _run_popover(row, stage, config):
         _launch(stage, sub, ses, config, params)
 
 
-def _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable, job_state):
+def _job_popover(
+    row: pd.Series,
+    stage: str,
+    config: dict,
+    latest_jobs: dict[tuple[str, str, str], str],
+    log_dir: str,
+    jobs_by_id: dict[str, JobInfo],
+    runnable: bool,
+    job_state: str,
+) -> None:
     """A cell with a SLURM job (running / queued / failed) — a reference to the
     exact job: its id + live squeue/sacct detail (state, node, elapsed, reason,
     exit) + the log tail, and a re-run for a failed stage. Running/queued show the
@@ -306,7 +333,7 @@ def _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable,
                 st.error(f"Could not cancel: {e}")
 
 
-def _bulk_popover(stage, units, config):
+def _bulk_popover(stage: str, units: list[pd.Series], config: dict) -> None:
     """Column-header bulk: run every currently-runnable unit for one stage (guarded)."""
     n = len(units)
     st.markdown(f"**Run all {stage}**")
@@ -333,7 +360,16 @@ def _bulk_popover(stage, units, config):
             st.rerun()
 
 
-def _render_cell(col, row, stage, config, runnable_map, latest_jobs, log_dir, jobs_by_id):
+def _render_cell(
+    col: DeltaGenerator,
+    row: pd.Series,
+    stage: str,
+    config: dict,
+    runnable_map: dict[tuple[str, str, str], bool],
+    latest_jobs: dict[tuple[str, str, str], str],
+    log_dir: str,
+    jobs_by_id: dict[str, JobInfo],
+) -> None:
     """One matrix cell: status icon, upgraded to a popover when there's an action.
 
     - running / queued / failed -> job-reference popover (id + live detail + log;
@@ -360,7 +396,7 @@ def _render_cell(col, row, stage, config, runnable_map, latest_jobs, log_dir, jo
         col.markdown(icon)
 
 
-def _deep_links():
+def _deep_links() -> None:
     st.caption("Need advanced params or per-session review? Open the full pages:")
     for path, label, icon in [
         ("pages/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
@@ -378,7 +414,7 @@ def _deep_links():
 _VALIDATION_STATE = "bids_validation"
 
 
-def _bids_validation_section(config):
+def _bids_validation_section(config: dict) -> None:
     """Run the BIDS validator on demand and show what it found.
 
     Its own panel rather than a `core/checks.py` REGISTRY entry, for three
@@ -457,7 +493,7 @@ def _bids_validation_section(config):
         )
 
 
-def _expectations_section(config, matrix):
+def _expectations_section(config: dict, matrix: pd.DataFrame) -> None:
     """Declare what a session of this study should contain — elicit, then freeze.
 
     The elicit-from-a-good-session flow is the whole usability argument for the
@@ -575,7 +611,7 @@ def _expectations_section(config, matrix):
                 st.rerun()
 
 
-def _submission_log(config):
+def _submission_log(config: dict) -> None:
     with st.expander("Recent submissions (durable log)"):
         subs = read_submissions(config, limit=25)
         if subs.empty:
@@ -588,7 +624,7 @@ def _submission_log(config):
             st.dataframe(subs.iloc[::-1], width="stretch", hide_index=True)  # newest first
 
 
-def _all_jobs_section(jobs, config):
+def _all_jobs_section(jobs: dict, config: dict) -> None:
     """The folded-in Job Monitor: every SLURM job (active + 7-day history) — the
     catch-all the unit×stage board can't hold (orphan/manual/other-tool jobs) —
     plus an arbitrary-job-id log viewer. Fed from survey_live's single pull."""
@@ -666,7 +702,7 @@ def _all_jobs_section(jobs, config):
 
 
 @st.fragment(run_every="30s" if auto else None)
-def dashboard():
+def dashboard() -> None:
     with st.spinner("Surveying project & querying SLURM…"):
         matrix, jobs = survey_live(config, with_jobs=True)
 
@@ -763,7 +799,8 @@ def dashboard():
     # Runnable (unit, stage) universe — computed over the FULL matrix so column
     # bulk is correct, indexed for O(1) per-cell lookup. stage_runnable enforces
     # deps + no-double-submit, so a running/queued/complete cell is never offered.
-    runnable_map, runnable_by_stage = {}, defaultdict(list)
+    runnable_map: dict[tuple[str, str, str], bool] = {}
+    runnable_by_stage: defaultdict[str, list[pd.Series]] = defaultdict(list)
     for _, row in matrix.iterrows():
         for stage in SLURM_STAGES:
             if stage in matrix.columns and stage_runnable(row, stage, config):

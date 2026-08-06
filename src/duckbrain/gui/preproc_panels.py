@@ -15,6 +15,7 @@ only real logic in the file — testable with a directory and no Streamlit at al
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -81,7 +82,7 @@ def run_batch(
     *,
     submit: bool,
     export: bool,
-    **params,
+    **params: Any,
 ) -> None:
     """Validate the selection, launch every selected unit, and show the outcome.
 
