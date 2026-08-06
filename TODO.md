@@ -22,6 +22,8 @@ oracle it lacked) ·
 [`#20`](#20) conda environment ·
 [`#33`](#33) widen the type-checked surface (`gui/` done; `#33.2` needs a
 `typing_extensions` decision, `#33.4` is `core/`) ·
+[`#36`](#36) the memory headroom is flat but the overshoot scales with `--nprocs`
+(measured on a beta user's OOMs; needs a measurement before a fix) ·
 [`#2`](#2) onboarding · [`#9`](#9) launch surface ·
 [`#5`](#5) config edges · [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -1029,6 +1031,53 @@ The work, then:
   in the commit.
 - Update `README.md`, `QUICKSTART.md` and `CLAUDE.md` together; five places
   currently instruct `python -m venv .venv`.
+
+---
+
+<a id="36"></a>
+## #36 — The memory headroom is a constant; the overshoot it covers scales with `--nprocs`
+
+`config.tool_mem_gb` holds back a flat `MEM_HEADROOM_GB = 8` so a node that
+overshoots its target dies inside the allocation rather than being OOM-killed.
+That constant was measured against **one** overshooting node. It is not one: the
+overshoot is per *concurrently running* node, and `--nprocs` is what sets how
+many there are.
+
+**The evidence, from a beta user's real runs on `/projects/hulacon/shared/mmmduck`
+(2026-08-04 and again 2026-08-06, unchanged in between).** Fourteen MRIQC jobs at
+the shipped defaults — `#SBATCH --mem=32G`, `--mem-gb 24`, `--nprocs 4` — of which
+nine were `OUT_OF_MEMORY` and two more finished within a gigabyte of the wall.
+Every failure is synthstrip, MRIQC's torch brain extraction, and `slurmstepd`
+reports **two `oom_kill` events in a single step** on `mriqc_06_01`: nodes
+`synthstrip.a0` and `synthstrip.a1` were resident together and the cgroup took
+both. `sacct` `MaxRSS` across the fourteen runs is 17.7–31.5 GB against a 32 GB
+allocation, and `MaxRSS` is polled, so the true peaks are higher than that.
+
+Both the anatomical and the functional workflow do it — `anatMRIQC.synthstrip_wf`
+on `mriqc_06_01`, `funcMRIQC.synthstrip_wf` on `mriqc_07_02` — so the docstring's
+"MRIQC's functional synthstrip" is narrower than the behaviour.
+
+**What is not yet known, and has to be measured before anything is changed.**
+Whether nipype's scheduler is even the right lever: `MultiProc` admits a node when
+both a process slot and its *declared* `mem_gb` estimate fit, and if synthstrip's
+declaration is the 0.2 GB default then the memory budget never binds and
+`--nprocs` is the only real cap. If that is so, raising the allocation cannot
+increase concurrency (the process cap is unmoved) and is a safe remedy, while
+raising `cpus` is a memory decision wearing a throughput label — which is worth
+saying on the widget, and is currently said on neither.
+
+**Do not just raise the constant.** 8 GB is right for one overshooting node, and
+a bigger constant is wrong for a different `nprocs` in the same way. The shapes
+worth weighing: derive the headroom from `cpus`; declare a real `mem_gb` on the
+synthstrip node so the scheduler serialises them itself; or leave the number
+alone and have the GUI refuse — or warn about — a `cpus`/`memory` pair that
+cannot hold that many synthstrips, which is the option consistent with *a
+silently-degrading option is worse than one that fails*.
+
+The immediate remedy shipped 2026-08-06 and is not this item: both numbers are
+now editable from the MRIQC tab, so the user can raise the allocation without
+hand-editing TOML. This is about the default being wrong for a four-process job
+in the first place.
 
 ---
 
