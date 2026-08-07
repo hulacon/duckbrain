@@ -42,8 +42,8 @@ LCNI DICOMs ──► Ingest ──► BIDS Conversion ──► Preprocessing �
 ### Installation
 
 ```bash
-# Clone the repo
-git clone git@github.com:hulacon/duckbrain.git
+# Clone the repo (HTTPS needs no GitHub account; SSH works if you have a key)
+git clone https://github.com/hulacon/duckbrain.git
 cd duckbrain
 
 # On Talapas (recommended): build the conda environment. This pins the
@@ -113,15 +113,16 @@ ssh -L 8501:<compute-node>:8501 youruser@talapas-login.uoregon.edu
 
 The GUI will walk you through project setup on first launch.
 
-> **How to launch is not yet a settled, one-click story for new users.** The
-> OnDemand app under `ondemand/` is currently registered as one user's *personal
-> sandbox*, so a new user today needs either their own OnDemand sandbox or the
-> `scripts/launch.sh` + SSH-tunnel path shown above. **Registering a sandbox is
-> not self-service** — on current OnDemand an administrator must enable app
-> development for your account before the **Develop** menu appears, so plan on
-> asking RACS. That cost-per-user is itself an argument for the shared,
-> RACS-published OnDemand app, which is the intended long-term answer but does
-> not exist yet. The
+> **Two launch routes are in real use today** — the interactive-session +
+> `scripts/launch.sh` path above (what current beta testers use; also works
+> from a terminal inside an OnDemand Interactive Desktop, where the desktop's
+> own browser reaches `localhost:8501` with no tunnel), and a personal OnDemand
+> sandbox app registered from `ondemand/` (what the maintainer uses).
+> **Registering a sandbox is not self-service** — on current OnDemand an
+> administrator must enable app development for your account before the
+> **Develop** menu appears, so plan on asking RACS. That cost-per-user is
+> itself an argument for the shared, RACS-published OnDemand app, which is the
+> intended long-term answer but does not exist yet. The
 > [Quickstart](QUICKSTART.md#the-distribution-question) lays out the options.
 
 ## Project Structure
@@ -151,7 +152,7 @@ duckbrain/
 │   └── gui/
 │       ├── app.py                  # Streamlit main entrypoint
 │       ├── components.py           # Shared widgets
-│       └── pages/                  # 6 GUI pages (see below)
+│       └── pages/                  # GUI pages (see below)
 ├── templates/sbatch/               # Jinja2 sbatch templates
 ├── scripts/
 │   ├── launch.sh                   # Start Streamlit on a compute node
@@ -169,6 +170,8 @@ duckbrain/
 | **3. BIDS Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export a conversion job — or bulk-convert all unconverted sessions at once. |
 | **4. Preprocessing** | Tabbed interface for fMRIPrep, NORDIC, and MRIQC — select subjects/sessions, configure options, submit SLURM jobs or export scripts. |
 | **5. QC Dashboard** | MRIQC metrics table with IQR outlier highlighting, Plotly distribution plots, motion summary, per-run keep/exclude/investigate decisions. |
+| **6. Guide** | Orientation — what each page is for and where to start. |
+| **7. New to Talapas?** | Hand-holding for first-time cluster users: the concepts (nodes, SLURM, PIRGs) in plain words, links to canonical tutorials (command line, Git/GitHub, conda, BIDS, fMRIPrep, MRIQC), and the list of setup decisions to check with your PI before building anything. |
 
 *(Live job tracking is no longer a separate page — squeue/sacct tables and the log
 viewer are folded into Project Status as its "All SLURM jobs" panel, and jobs are

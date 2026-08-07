@@ -38,6 +38,7 @@ _PAGES = [
     ("3_BIDS_Conversion.py", "Conversion"),
     ("4_Preprocessing.py", "Preprocessing"),
     ("6_Guide.py", "Guide"),
+    ("7_New_to_Talapas.py", "New to Talapas?"),
 ]
 
 # QC is six pages, so it is a *group*: passing st.navigation a dict makes each

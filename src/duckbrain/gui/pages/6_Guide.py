@@ -39,5 +39,10 @@ st.markdown(
 
     `QUICKSTART.md` in the repo covers install, container builds, and the layered
     config in more detail.
+
+    **New to clusters, the command line, or GitHub altogether?** The **New to
+    Talapas?** page (last in the nav) is for you: the concepts in plain words,
+    links to the canonical tutorials, and the list of things to check with
+    your PI before setting anything up.
     """
 )

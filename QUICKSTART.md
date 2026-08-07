@@ -13,6 +13,45 @@ path; the [README](README.md) has the fuller reference.
 
 ---
 
+## Completely new to Talapas, the command line, or GitHub?
+
+That is expected, not a problem — but this guide will read better after an hour
+with the basics. The canonical starting points (the GUI's **New to Talapas?**
+page carries the same list, plus the concepts in plain words; if you edit these
+links, edit them there too):
+
+- **The command line:** [The Unix Shell (Software Carpentry)](https://swcarpentry.github.io/shell-novice/)
+  — the standard half-day introduction, and the highest-value hour on this list.
+- **Talapas itself:** [RACS](https://hpcf.uoregon.edu/) runs the cluster; their
+  site links the current Talapas knowledge base (accounts, connecting, storage)
+  and is where help tickets go.
+- **Git/GitHub:** you need just enough to `git clone` and `git pull` —
+  [GitHub's getting-started guide](https://docs.github.com/en/get-started/start-your-journey)
+  or [Version Control with Git (Software Carpentry)](https://swcarpentry.github.io/git-novice/).
+  No GitHub account or SSH key is needed to get duckbrain; the HTTPS clone URL
+  below works anonymously.
+- **Conda:** `scripts/setup_env.sh` does the work; day to day you only
+  `conda activate`. Concepts at
+  [Getting started with conda](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html).
+- **SLURM** (optional): duckbrain writes and submits your jobs for you, so this
+  is background, not prerequisite —
+  [SLURM quick-start guide](https://slurm.schedmd.com/quickstart.html).
+- **BIDS:** [bids.neuroimaging.io](https://bids.neuroimaging.io/) and the
+  [BIDS Starter Kit](https://bids-standard.github.io/bids-starter-kit/) — the
+  data layout duckbrain converts into, and the reason the pipeline can be
+  automatic.
+- **fMRIPrep / MRIQC:** [fmriprep.org](https://fmriprep.org/) and
+  [mriqc.readthedocs.io](https://mriqc.readthedocs.io/) — the tools duckbrain
+  runs for you; worth skimming what they do.
+
+> **⚠️ Several steps below encode a *lab* decision, not a personal one** —
+> which PIRG to charge, where the shared conda environment and containers
+> live, which tool versions and options your study uses, whether you denoise
+> with NORDIC, where projects go. Your PI (or lab manager) owns those answers;
+> the steps below flag them with **"ask your PI"** where they bite. When in
+> doubt, ask before building — most of this is shareable, and the wrong move
+> is each lab member building a private copy of everything.
+
 ## What you need before you start
 
 1. **A Talapas account and a PIRG.** You submit and charge jobs against a PIRG
@@ -23,13 +62,16 @@ path; the [README](README.md) has the fuller reference.
    `/projects/lcni/dcm/<group>/<PI>/<study>`. You need read access to yours.
 3. **Somewhere to put a BIDS project** — a directory you can write to, typically
    under your PIRG's project space (e.g. `/projects/<pirg>/$USER/<study>`).
+   **Ask your PI** where projects go — labs usually have a convention, and a
+   quota.
 4. **The external tools**, which duckbrain runs but does **not** ship — see
    [Acquire the containers and NORDIC](#2-acquire-the-containers-and-nordic).
    Budget **~8.6 GB** of space and a chunk of time for the container builds; this
    is the slowest part of setting up, so start it early.
-5. **A way to launch the GUI.** Both routes have a prerequisite that is not
-   yours to grant — see [Launch the GUI](#4-launch-the-gui). If you intend to use
-   the Open OnDemand app, **ask RACS about sandbox app development before you
+5. **A way to launch the GUI** — see [Launch the GUI](#4-launch-the-gui). The
+   interactive-session route (Option A) needs nothing beyond your Talapas
+   account and is what current beta testers use. If you intend to use the Open
+   OnDemand app instead, **ask RACS about sandbox app development before you
    plan around it**: on current OnDemand an administrator has to enable it for
    your account.
 
@@ -41,13 +83,16 @@ the repository is public.
 ## 1. Install duckbrain
 
 ```bash
-git clone git@github.com:hulacon/duckbrain.git
+git clone https://github.com/hulacon/duckbrain.git   # no GitHub account needed
 cd duckbrain
 ./scripts/setup_env.sh                     # build the conda environment
 module load miniconda3/20260319
 conda activate "$(cat .conda-prefix)"
 python -m pytest tests/ -q                 # sanity check the install
 ```
+
+(The HTTPS URL clones anonymously. `git clone git@github.com:hulacon/duckbrain.git`
+works too, if you already have an SSH key on GitHub.)
 
 `scripts/setup_env.sh` is the supported path on Talapas, and it is a script
 rather than a `conda env create` one-liner for a reason: if you ever ran FSL's
@@ -63,6 +108,12 @@ instead of each user growing a ~1.2 G private copy under `~/.conda`, a model
 other PIRGs can copy with
 `./scripts/setup_env.sh --prefix /projects/<your-pirg>/shared/envs/duckbrain`.
 Use `--personal` for `~/.conda/envs/duckbrain`.
+
+> **Ask your PI before building:** that default prefix is one lab's. If you are
+> not in `hulacon`, you cannot write (or likely even see) it — and the right
+> question is not "what prefix do I use" but "does our lab already have this
+> environment". One build serves the whole lab; if yours exists, skip the build
+> and just record it: `echo /projects/<your-pirg>/shared/envs/duckbrain > .conda-prefix`.
 
 The script records the environment's location in `.conda-prefix` (gitignored),
 which is how the OnDemand app and `scripts/launch.sh` find it at launch. A
@@ -103,9 +154,10 @@ singularity build $CONTAINERS_DIR/mriqc-24.0.2.sif    docker://nipreps/mriqc:24.
 > account: the exact module name and any build-node requirements aren't
 > confirmed here.
 
-> **Put them where your lab can actually reach them.** Containers are the one
-> expensive, *shareable* prerequisite — nothing about them is per-user, so a lab
-> should build once, not once per person. A home directory is the wrong place:
+> **Ask your PI whether the lab already has these before building.** Containers
+> are the one expensive, *shareable* prerequisite — nothing about them is
+> per-user, so a lab should build once, not once per person. And **put them
+> where your lab can actually reach them**. A home directory is the wrong place:
 > if `~` is mode `0700` (the default on Talapas) nobody can traverse into it, so
 > `~/containers` is unreachable **even if that directory is itself
 > world-readable**. Prefer group-readable PIRG space, e.g.
@@ -121,6 +173,12 @@ MRIQC — free from <https://surfer.nmr.mgh.harvard.edu/registration.html>. Save
 the file somewhere readable and point config at it.
 
 ### NORDIC (only if you denoise)
+
+Whether a study denoises with NORDIC is a **pipeline decision — ask your PI**
+before assuming either way; it changes what fMRIPrep preprocesses and belongs
+in the methods section. The same goes for the container versions above and for
+fMRIPrep options like output spaces: use what your lab has standardized on, and
+don't change versions mid-study.
 
 **NORDIC is not redistributable and duckbrain ships none of it.** It is
 © Regents of the University of Minnesota, covered by US patent 10,768,260, and
@@ -200,24 +258,35 @@ account = "<pirg>"
 
 ## 4. Launch the GUI
 
-> **`UNVALIDATED` — the whole launch story for a new user.** duckbrain's GUI is
-> served two ways today, and **neither is yet a documented, RACS-blessed happy
-> path** for someone other than the maintainer. This section lays out the
-> options; it does not (yet) pick one. See
-> [The distribution question](#the-distribution-question).
+duckbrain's GUI is served two ways, and **both are in real use** (as of
+2026-08-07): current beta testers use **Option A** (an interactive session +
+`scripts/launch.sh`), and the maintainer uses **Option B** (a personal
+OnDemand sandbox app). Option A needs nothing enabled for your account, so it
+is the one to start with; Option B is a nicer daily driver once its
+prerequisite is sorted. Neither is yet the one-click, RACS-published app that
+is the long-term goal — see
+[The distribution question](#the-distribution-question).
 
-### Option A — `scripts/launch.sh` + SSH tunnel
+### Option A — `scripts/launch.sh` in an interactive session
 
-Works from any checkout with a recorded conda env (`.conda-prefix`) or a
-`.venv`. Start Streamlit on a compute node:
+**The route the current beta testers use.** Works from any checkout with a
+recorded conda env (`.conda-prefix`) or a `.venv`. Start Streamlit on a
+compute node:
 
 ```bash
 srun --account=<pirg> --partition=interactive --time=04:00:00 \
      --mem=4G --cpus-per-task=2 --pty bash scripts/launch.sh
 ```
 
-The script prints the exact `ssh -L …` tunnel command for the node it landed
-on. Run that from your laptop, then open <http://localhost:8501>.
+Then reach it one of two ways:
+
+- **SSH tunnel from your laptop.** The script prints the exact `ssh -L …`
+  command for the node it landed on. Run that in a second terminal on your
+  own machine, then open <http://localhost:8501>.
+- **Inside an OnDemand Interactive Desktop.** If you are already working in a
+  Talapas desktop session (OnDemand's Interactive Desktop app), run
+  `bash scripts/launch.sh` in a terminal there and open
+  <http://localhost:8501> in the desktop's own browser — no tunnel needed.
 
 > `UNVALIDATED`: the `srun` flags above (partition name, whether `--account` is
 > required for `interactive`) are the shape the repo already documents but have
@@ -225,11 +294,11 @@ on. Run that from your laptop, then open <http://localhost:8501>.
 
 ### Option B — Open OnDemand app
 
-The `ondemand/` directory is a complete OnDemand Batch Connect app. **Today it
-is registered as one user's personal sandbox** (a symlink from
-`~/ondemand/dev/duckbrain` into that user's checkout), so it is not yet
-something a new user can simply click. To use it now you would register your own
-sandbox app pointing at your own checkout:
+**The route the maintainer uses daily.** The `ondemand/` directory is a
+complete OnDemand Batch Connect app. **Today it is registered as one user's
+personal sandbox** (a symlink from `~/ondemand/dev/duckbrain` into that user's
+checkout), so it is not yet something a new user can simply click. To use it
+now you would register your own sandbox app pointing at your own checkout:
 
 ```bash
 mkdir -p ~/ondemand/dev

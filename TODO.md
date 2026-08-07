@@ -860,6 +860,34 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 **The writing is done; the dogfooding and the distribution story are open. Do not
 tick this off.** `QUICKSTART.md` and `README.md` are written and current.
 
+**2026-08-07 — Ben's three directions for this item, all landed the same day:**
+
+1. **Both launch routes are documented as real, current paths** — the
+   interactive-session + `scripts/launch.sh` route is what the beta testers
+   actually use (over an SSH tunnel, or tunnel-free from a browser inside an
+   OnDemand Interactive Desktop), and the personal OnDemand sandbox is the
+   maintainer's route. The docs previously framed launch as "unresolved,
+   neither blessed", which understated reality. The *distribution* question
+   (RACS-published shared app) stays open below — routes being real is not the
+   same as routes being one-click.
+2. **A hand-holding page for users new to cluster computing entirely** —
+   `7_New_to_Talapas.py`, "First time using Talapas?". Plain-words concepts
+   (nodes, SLURM, PIRGs), canonical tutorial links (shell, RACS, Git/GitHub,
+   conda, SLURM, BIDS, fMRIPrep, MRIQC), and the PI-check list below.
+   `QUICKSTART.md` opens with the same link list for people reading the repo
+   before they can launch anything; `tests/test_guide_pages.py` holds the two
+   copies to one canonical set. Audience context that shaped it: the current
+   beta testers are tech-savvy, but users new to clusters, the command line,
+   and GitHub are coming — and the docs now clone over HTTPS for exactly that
+   reason (no GitHub account or SSH key needed).
+3. **Lab decisions are flagged as "ask your PI", in the docs and on the page** —
+   because these newcomers' PI will *not* be duckbrain's maintainer. The
+   flagged set: PIRG/SLURM account, whether the lab already has the shared
+   conda env (and at what prefix — `setup_env.sh`'s default is hulacon's) and
+   the containers, tool versions and options (output spaces, NORDIC yes/no —
+   consistency across a study is a methods-section matter), and where projects
+   live.
+
 - **`UNVALIDATED` — the new-user path on a clean account.** Flagged inline in the
   docs too. The path to walk is the **conda** one, since 2026-08-07 that is what
   new users are told to do (that reordering is the whole reason this item waited
@@ -1275,6 +1303,12 @@ plus the `ssh -L` line it prints.
    shows this checkout's `git describe` (which proves the PYTHONPATH half —
    the shared env has a checkout editable-installed, and serving *that* one
    would look identical except for the stamp).
+9. **The top nav with seven entries plus the QC group.** Added 2026-08-07 with
+   `#2`'s "New to Talapas?" page. `st.navigation(position="top")` gets no
+   width modelling from AppTest, and the new title is the longest in the bar
+   (and carries a `?`). Confirm the bar neither wraps nor collapses entries
+   into an overflow menu at laptop width — same 1280px sitting as the
+   narrow-widths entry above.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that

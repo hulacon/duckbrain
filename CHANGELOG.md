@@ -12,6 +12,30 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **A "New to Talapas?" page**, for users new to cluster computing, the
+  command line, or GitHub altogether. The rest of the GUI assumes you know
+  what a compute node is and why jobs charge to a PIRG; this page doesn't —
+  it gives the concepts in plain words, links the canonical tutorials
+  (Software Carpentry's shell and git lessons, RACS, conda, SLURM, BIDS,
+  fMRIPrep, MRIQC), and ends with the list that matters most for a newcomer
+  whose PI is not duckbrain's maintainer: **which setup steps encode a lab
+  decision** — PIRG and SLURM account, the shared conda environment, the
+  containers directory, tool versions and options, NORDIC — and so should be
+  checked with your PI rather than defaulted. `QUICKSTART.md` opens with the
+  same resource list for people reading the repo before they can launch the
+  GUI, and a test holds the two copies to the same link set.
+
+### Changed
+
+- **Both GUI launch routes are now documented as real, current paths** rather
+  than an unresolved question: an interactive session + `scripts/launch.sh`
+  (what current beta testers use — via an SSH tunnel, or with no tunnel at
+  all from a browser inside an OnDemand Interactive Desktop) and the personal
+  OnDemand sandbox app (what the maintainer uses; still gated on RACS
+  enabling app development per account). The long-term RACS-published shared
+  app remains the goal and remains open. The documented clone URL is now
+  HTTPS, which needs no GitHub account or SSH key.
+
 - **A conda environment, and it is now the documented install path.**
   `./scripts/setup_env.sh` builds it from the new `environment.yml` — Python
   pinned at 3.11, runtime dependencies from conda-forge only, duckbrain and the
