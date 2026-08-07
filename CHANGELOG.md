@@ -12,18 +12,22 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
-- **A "New to Talapas?" page**, for users new to cluster computing, the
-  command line, or GitHub altogether. The rest of the GUI assumes you know
-  what a compute node is and why jobs charge to a PIRG; this page doesn't —
-  it gives the concepts in plain words, links the canonical tutorials
-  (Software Carpentry's shell and git lessons, RACS, conda, SLURM, BIDS,
-  fMRIPrep, MRIQC), and ends with the list that matters most for a newcomer
-  whose PI is not duckbrain's maintainer: **which setup steps encode a lab
-  decision** — PIRG and SLURM account, the shared conda environment, the
-  containers directory, tool versions and options, NORDIC — and so should be
-  checked with your PI rather than defaulted. `QUICKSTART.md` opens with the
-  same resource list for people reading the repo before they can launch the
-  GUI, and a test holds the two copies to the same link set.
+- **A newcomer guide, `docs/new-to-talapas.md`**, for users new to cluster
+  computing, the command line, or GitHub altogether. The rest of the docs and
+  GUI assume you know what a compute node is and why jobs charge to a PIRG;
+  this guide doesn't — it gives the concepts in plain words, links the
+  canonical tutorials (Software Carpentry's shell and git lessons, RACS,
+  conda, SLURM, BIDS, fMRIPrep, MRIQC), and ends with the list that matters
+  most for a newcomer whose PI is not duckbrain's maintainer: **which setup
+  steps encode a lab decision** — PIRG and SLURM account, the shared conda
+  environment, the containers directory, tool versions and options, NORDIC —
+  and so should be checked with your PI rather than defaulted. It lives in
+  the repository rather than the GUI so it is readable on GitHub *during*
+  setup — the people who need it most are exactly the people who can't
+  launch the GUI yet. (It began as an in-app page and moved the same day.)
+  The GUI's **New to Talapas?** page and `QUICKSTART.md`'s opening section
+  are signposts to it, so there is one canonical copy instead of twin lists
+  held in sync by a test.
 
 ### Changed
 

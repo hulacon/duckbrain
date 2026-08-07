@@ -16,33 +16,12 @@ path; the [README](README.md) has the fuller reference.
 ## Completely new to Talapas, the command line, or GitHub?
 
 That is expected, not a problem — but this guide will read better after an hour
-with the basics. The canonical starting points (the GUI's **New to Talapas?**
-page carries the same list, plus the concepts in plain words; if you edit these
-links, edit them there too):
-
-- **The command line:** [The Unix Shell (Software Carpentry)](https://swcarpentry.github.io/shell-novice/)
-  — the standard half-day introduction, and the highest-value hour on this list.
-- **Talapas itself:** [RACS](https://hpcf.uoregon.edu/) runs the cluster; their
-  site links the current Talapas knowledge base (accounts, connecting, storage)
-  and is where help tickets go.
-- **Git/GitHub:** you need just enough to `git clone` and `git pull` —
-  [GitHub's getting-started guide](https://docs.github.com/en/get-started/start-your-journey)
-  or [Version Control with Git (Software Carpentry)](https://swcarpentry.github.io/git-novice/).
-  No GitHub account or SSH key is needed to get duckbrain; the HTTPS clone URL
-  below works anonymously.
-- **Conda:** `scripts/setup_env.sh` does the work; day to day you only
-  `conda activate`. Concepts at
-  [Getting started with conda](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html).
-- **SLURM** (optional): duckbrain writes and submits your jobs for you, so this
-  is background, not prerequisite —
-  [SLURM quick-start guide](https://slurm.schedmd.com/quickstart.html).
-- **BIDS:** [bids.neuroimaging.io](https://bids.neuroimaging.io/) and the
-  [BIDS Starter Kit](https://bids-standard.github.io/bids-starter-kit/) — the
-  data layout duckbrain converts into, and the reason the pipeline can be
-  automatic.
-- **fMRIPrep / MRIQC:** [fmriprep.org](https://fmriprep.org/) and
-  [mriqc.readthedocs.io](https://mriqc.readthedocs.io/) — the tools duckbrain
-  runs for you; worth skimming what they do.
+with the basics. **[New to Talapas?](docs/new-to-talapas.md)** is written for
+exactly this: the concepts (compute nodes, SLURM, PIRGs) in plain words, the
+canonical tutorials to start from (the Unix shell, Talapas/RACS, Git/GitHub,
+conda, SLURM, BIDS, fMRIPrep, MRIQC), and the list of setup decisions to check
+with your PI before building anything. Read it first, then come back here. (The
+GUI's **New to Talapas?** page points at the same document.)
 
 > **⚠️ Several steps below encode a *lab* decision, not a personal one** —
 > which PIRG to charge, where the shared conda environment and containers

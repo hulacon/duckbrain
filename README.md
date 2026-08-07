@@ -7,7 +7,10 @@ Use outside of this environment is NOT supported at this time.
 **duckbrain** lets any scanner user go from raw DICOMs to QC'd, preprocessed data without writing pipeline scripts. It provides a web-based interface for every step of the pipeline and handles SLURM job submission, dependency chaining, and monitoring behind the scenes.
 
 **New here?** Start with the [Quickstart](QUICKSTART.md) — access, containers,
-config, launch, and your first project, in order.
+config, launch, and your first project, in order. **New to cluster computing,
+the command line, or GitHub altogether?** Start one step earlier with
+[New to Talapas?](docs/new-to-talapas.md) — the concepts in plain words, the
+canonical tutorials, and the setup decisions to check with your PI first.
 
 ## Pipeline Overview
 
@@ -171,7 +174,7 @@ duckbrain/
 | **4. Preprocessing** | Tabbed interface for fMRIPrep, NORDIC, and MRIQC — select subjects/sessions, configure options, submit SLURM jobs or export scripts. |
 | **5. QC Dashboard** | MRIQC metrics table with IQR outlier highlighting, Plotly distribution plots, motion summary, per-run keep/exclude/investigate decisions. |
 | **6. Guide** | Orientation — what each page is for and where to start. |
-| **7. New to Talapas?** | Hand-holding for first-time cluster users: the concepts (nodes, SLURM, PIRGs) in plain words, links to canonical tutorials (command line, Git/GitHub, conda, BIDS, fMRIPrep, MRIQC), and the list of setup decisions to check with your PI before building anything. |
+| **7. New to Talapas?** | Signpost for first-time cluster users, pointing at the newcomer guide ([docs/new-to-talapas.md](docs/new-to-talapas.md)). The guide itself lives in the repo — not in the GUI — so it is readable *before* any setup, by exactly the people who can't launch the GUI yet. |
 
 *(Live job tracking is no longer a separate page — squeue/sacct tables and the log
 viewer are folded into Project Status as its "All SLURM jobs" panel, and jobs are

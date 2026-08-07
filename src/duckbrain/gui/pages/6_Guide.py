@@ -41,8 +41,9 @@ st.markdown(
     config in more detail.
 
     **New to clusters, the command line, or GitHub altogether?** The **New to
-    Talapas?** page (last in the nav) is for you: the concepts in plain words,
-    links to the canonical tutorials, and the list of things to check with
-    your PI before setting anything up.
+    Talapas?** page (last in the nav) points you at the newcomer guide
+    (`docs/new-to-talapas.md` in the repo): the concepts in plain words, links
+    to the canonical tutorials, and the list of things to check with your PI
+    before setting anything up.
     """
 )

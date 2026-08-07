@@ -870,13 +870,16 @@ tick this off.** `QUICKSTART.md` and `README.md` are written and current.
    neither blessed", which understated reality. The *distribution* question
    (RACS-published shared app) stays open below — routes being real is not the
    same as routes being one-click.
-2. **A hand-holding page for users new to cluster computing entirely** —
-   `7_New_to_Talapas.py`, "First time using Talapas?". Plain-words concepts
+2. **A hand-holding guide for users new to cluster computing entirely** —
+   `docs/new-to-talapas.md` (it landed as an in-app page,
+   `7_New_to_Talapas.py`, and moved to the repo the same day so it is
+   readable on GitHub *during* setup — the people who need it most are
+   exactly the people who can't launch the GUI yet). Plain-words concepts
    (nodes, SLURM, PIRGs), canonical tutorial links (shell, RACS, Git/GitHub,
-   conda, SLURM, BIDS, fMRIPrep, MRIQC), and the PI-check list below.
-   `QUICKSTART.md` opens with the same link list for people reading the repo
-   before they can launch anything; `tests/test_guide_pages.py` holds the two
-   copies to one canonical set. Audience context that shaped it: the current
+   conda, SLURM, BIDS, fMRIPrep, MRIQC), and the PI-check list below. The
+   GUI page and `QUICKSTART.md`'s opening section are now signposts to the
+   one canonical copy; `tests/test_guide_pages.py` pins the doc's link set
+   and both signposts. Audience context that shaped it: the current
    beta testers are tech-savvy, but users new to clusters, the command line,
    and GitHub are coming — and the docs now clone over HTTPS for exactly that
    reason (no GitHub account or SSH key needed).
