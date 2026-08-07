@@ -10,6 +10,31 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **A conda environment, and it is now the documented install path.**
+  `./scripts/setup_env.sh` builds it from the new `environment.yml` — Python
+  pinned at 3.11, runtime dependencies from conda-forge only, duckbrain and the
+  dev tools pip-installed at `pyproject.toml`'s pins — and verifies rather than
+  assumes: it fails unless every conda package resolved from conda-forge, no
+  runtime package was shadowed by a pip wheel, and every import actually
+  resolves from inside the environment. On Talapas the script is the *only*
+  safe route: if you ever ran FSL's `fslinstaller`, your `~/.condarc` pins
+  FSL's channel with markers `conda env create` cannot override. By default
+  the env is built at a shared prefix (`/projects/hulacon/shared/envs/duckbrain`
+  — one build serves the PIRG; `--personal` and `--prefix <path>` for
+  everything else), and its exact solve is committed as
+  `conda/lock-linux-64.txt`. A `.venv` still works and is still honoured.
+
+- **The launchers find the environment themselves.** `setup_env.sh` records
+  the env's location in a gitignored `.conda-prefix`; both
+  `scripts/launch.sh` and the OnDemand app prefer it over `.venv`, and run
+  with `PYTHONNOUSERSITE=1` so stale `pip install --user` packages under
+  `~/.local` can never shadow the environment's — the same leak that once put
+  a host NumPy inside every container, on the host side this time, and it was
+  caught live during the first build of this env. The environment also sets
+  that guard itself on `conda activate`.
+
 ## [0.4.0] — 2026-08-06
 
 ### Added

@@ -1,0 +1,61 @@
+# duckbrain's conda environment.
+#
+# On Talapas, create it with scripts/setup_env.sh — do NOT use
+# `conda env create -f environment.yml` there. fslinstaller writes ~/.condarc
+# with `channels: #!final` (FSL's channel first), `conda env create` accepts no
+# channel flags and merges this file's channels with the condarc's, and neither
+# $CONDARC nor CONDA_CHANNELS can override a #!final. Any account that ever ran
+# fslinstaller has that file, which on an fMRI cluster is most of them. The
+# script reads the package list out of this file and passes it to a plain
+# `conda create --override-channels -c conda-forge`, which is the one spelling
+# that works. Off-cluster, with no hostile condarc, `conda env create` against
+# this file behaves as written.
+#
+# Only the interpreter and the runtime dependencies are named here. Version
+# bounds — and the dev tools (pytest, ruff, mypy) — live in pyproject.toml,
+# which the pip section reads via `-e .[dev]`. One source for every pin: the
+# ruff/mypy bounds are CI gates, and duplicating them here would let the two
+# drift (conda-forge shipped ruff 0.16 weeks after PyPI did; a bound satisfied
+# on one index and not the other splits this env from what CI runs).
+#
+# conda-forge only, deliberately. A second channel reintroduces the resolution
+# ambiguity the setup script exists to remove.
+name: duckbrain
+
+channels:
+  - conda-forge
+
+dependencies:
+  # Pinned to a minor on purpose — pinning the interpreter is half the point of
+  # shipping this file: with `pip install -e ".[dev]"` alone, a new user's
+  # Python is whatever `python3` happened to be. 3.11 is what the maintainer's
+  # environment runs and what the full runtime set was verified to solve
+  # against (dry-run, 2026-08-07: streamlit 1.61.1, pandas 3.0.5, nibabel
+  # 5.4.2, plotly 6.9.0, pydicom 3.0.2, jinja2 3.1.6, tomli-w 1.2.0, numpy
+  # 2.4.6 — at or a patch ahead of the versions the working .venv validated).
+  # It also makes pyproject.toml's `tomli; python_version < '3.11'` marker moot
+  # here: 3.11 has tomllib in the standard library.
+  - python=3.11
+
+  # The runtime dependency list from pyproject.toml, unpinned — the floors
+  # there are all satisfied by any current solve, and real bounds belong in
+  # pyproject.toml, not duplicated here.
+  - streamlit
+  - jinja2
+  - pandas
+  - nibabel
+  - plotly
+  - pydicom
+  - tomli-w
+
+  # pip itself, so the section below runs inside the env.
+  - pip
+
+  - pip:
+      # duckbrain (editable, from this checkout) plus the dev extra: pytest,
+      # pytest-cov, and the pinned ruff/mypy gates. The runtime floors above
+      # are already satisfied by the conda builds, so pip installs only the
+      # dev tools and duckbrain itself — setup_env.sh verifies afterwards that
+      # no runtime package got shadowed by a pip wheel, which is the classic
+      # way a conda+pip environment goes subtly wrong.
+      - -e .[dev]

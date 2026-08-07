@@ -15,8 +15,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#20`](#20) **next** — conda environment ·
-[`#2`](#2) onboarding (after `#20`, not before — see the [Roadmap](#roadmap)) ·
+[`#2`](#2) **next** — onboarding (the conda env it waited on shipped 2026-08-07;
+see the [Roadmap](#roadmap)) ·
 [`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
 [Licensing](#licensing-follow-ups) ·
@@ -77,10 +77,12 @@ LR/RL, and the BIDS root files are written at the conversion choke point.
 
 ### `v0.5.0` — accessibility: `#20` then `#2`
 
-**Take these next, and in that order.** `#20` already says why the order is not
-arbitrary: it makes conda the documented path, and `#2`'s `UNVALIDATED` new-user
-walk is only worth doing once, on whichever path new users are actually told to
-take. Walking it before the conda env exists means walking it twice.
+**`#20` shipped 2026-08-07 (see the ledger); `#2` is what remains of this
+release.** The order was not arbitrary: `#20` made conda the documented path,
+and `#2`'s `UNVALIDATED` new-user walk is only worth doing once, on whichever
+path new users are actually told to take — which is now the conda one
+(`scripts/setup_env.sh`, shared prefix, `.conda-prefix` discovery). Walking it
+before the conda env existed would have meant walking it twice.
 
 Why these two make a good release rather than a good pair of chores:
 
@@ -852,144 +854,6 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 
 ---
 
-<a id="20"></a>
-## #20 — Ship a conda environment, not a `.venv`
-
-**Asked for by RACS and LCNI** (relayed 2026-07-24). It is the same institutional
-argument as `#2`'s distribution question: conda is what neuroimaging users on
-Talapas already have and what RACS supports, `module load miniconda3` needs no
-build node, and `environment.yml` pins the *interpreter* as well as the packages
-— which `pip install -e ".[dev]"` cannot, so today a new user's Python version is
-whatever `python3` happened to be.
-
-**Checked on-cluster 2026-07-24, before designing anything.** Four findings, two
-of which change the shape of the work:
-
-- 🔴 **`~/.condarc` is FSL's, and it is hostile.** The `fslinstaller` wrote it and
-  says in the file that it *rewrites it without warning*. It pins
-  `channel_priority: strict` with the FSL channel `#!top` and conda-forge
-  `#!bottom`, and pins `pkgs_dirs` to the read-only `/packages/fsl/.../pkgs` — all
-  marked `#!final`, so a lower-priority condarc cannot override them. This is not
-  a local quirk: **any user who ran `fslinstaller` has it**, which on an fMRI
-  cluster is most of them. So the env file must carry
-  `--override-channels -c conda-forge` semantics explicitly, and setup docs must
-  set `CONDA_PKGS_DIRS`. The first `conda env create` on a stock account will
-  otherwise resolve against FSL's channel and fail to write its package cache.
-  Also note `conda` on a bare `$PATH` here is *FSL's* conda, not a module's.
-- 🔴 **`ruff>=0.16,<0.17` does not exist on conda-forge** — it tops out at
-  0.15.22. That pin is a deliberate gate (see the comment on it in
-  `pyproject.toml`: unpinned, CI re-resolves the formatter and the same commit
-  goes red with nothing changed). So the dev extra **must** stay pip-installed
-  inside the conda env; conda cannot own the whole dependency set. Don't
-  "simplify" this away by relaxing the pin — that re-opens the bug the pin closed.
-- ✅ **Every runtime dependency solves cleanly from conda-forge on Python 3.11**,
-  verified by dry-run solve, and at essentially the versions the working `.venv`
-  already has: streamlit 1.60.0 (venv 1.59.1), pandas 3.0.3 (same), nibabel 5.4.2
-  (same), pydicom 3.0.2 (same), plotly 6.9.0 (venv 6.8.0), jinja2 3.1.6, tomli-w
-  1.2.0. So there is **no version-jump risk** — this is a packaging change, not a
-  dependency upgrade, and it should be kept that way.
-- ✅ Modules available: `miniconda3/20260319` and `miniconda3/20240410` (the
-  module's own `conda` is 23.11.0). `mamba`/`micromamba` are **not** on `$PATH`.
-
-**`neuroconda3` is not reusable — build a fresh one.** The existing env
-(`~/.conda/envs/neuroconda3`, Python 3.10.15, 359 packages, 2.2 GB) was created
-2024-10-08 for the mmmdata era and is missing four of duckbrain's eight runtime
-deps (streamlit, plotly, tomli-w — plus ruff). It carries a lot duckbrain never
-uses (gtk3, graphviz, nipype, h5py, dcm2niix), the `conda env create` source file
-it was built from (`~/tmp/neuroconda-20241006.yml`) **is gone**, so it is not
-reproducible except by `conda env export`, which would pin 2024 builds. And it
-lives under `~/.conda` — personal, un-shareable, which defeats the point.
-Its one useful property: it still imports fine, so it is a working fallback while
-this is built, not something to delete in a hurry.
-
-The work, then:
-
-- Add `environment.yml` (name `duckbrain`, conda-forge only, `python=3.11`, the
-  runtime deps) with a `pip:` section for `-e ".[dev]"` — which is what pulls the
-  pinned ruff and duckbrain itself. One file, and `pyproject.toml` stays the
-  single source of the dependency list as far as possible.
-- Decide **coexist or replace**. Coexisting is the cheap, honest answer:
-  `scripts/launch.sh` and `ondemand/template/script.sh.erb` already probe for
-  `.venv` and fall through, so they gain a conda branch ahead of it and nobody's
-  working checkout breaks. `#2`'s `UNVALIDATED` new-user walk should then be
-  walked on the **conda** path, since that becomes the documented one.
-- ✅ **Where the env lives — answered, with a precedent to copy.**
-  `~/.conda/envs` is per-user and invisible to others (`/home/bhutch` is
-  `drwx------` — the same wall `#2` hit with the containers), so a shared
-  `--prefix` it is: **`/projects/hulacon/shared/envs/<name>`**. That parent is
-  `drwxrwsr-x` and setgid, so one build serves the PIRG. It was empty until
-  2026-08-04, when **braintwill** built the first one there and wrote the recipe
-  up in `docs/talapas-conda.md` (repo: `…/shared/mmmdata/code/braintwill`).
-  Its `scripts/setup_env.sh` transfers, and so does the channel handling — but
-  take the **working** version, because the first attempt there was wrong and
-  this item currently plans the same mistake.
-
-  🔴 **`conda env create -f environment.yml` cannot be made safe on Talapas.**
-  Checked 2026-08-04. It accepts no channel flags at all and merges the file's
-  `channels:` with the condarc ones, so it resolves against FSL's channel *and*
-  `defaults`. Two plausible workarounds also fail: pointing `$CONDARC` at a clean
-  file **adds** to conda's search path rather than replacing `~/.condarc`, so
-  FSL's `#!final` channels still apply; and `CONDA_CHANNELS` is outranked by
-  `#!final` too. What works is `--override-channels -c conda-forge` on a plain
-  `conda create`/`conda install`, so braintwill's script reads the package list
-  out of `environment.yml` itself and never calls `conda env`. Verify with
-  `conda config --show channels`. Note the giveaway, which is the reusable
-  lesson: the check that "confirmed" the `$CONDARC` trick had
-  `--override-channels` on its command line, so the flag did the work while the
-  mechanism under test did nothing.
-
-  That script ends by asserting nothing resolved off conda-forge and *failing* if
-  anything did — worth copying, since that assertion is the only thing between
-  this landmine and a silently contaminated env. One caveat if duckbrain keeps a
-  `pip:` section: the script refuses to run against an `environment.yml`
-  containing one rather than installing a subset and reporting success, so a pip
-  step has to be added deliberately.
-
-  Two more findings from actually building it, both of which apply to any
-  pip→conda migration and neither of which the channel work would have caught:
-
-  - 🔴 **A resolved dependency is not a verified one — conda-forge has name
-    collisions that solve cleanly.** braintwill asked conda-forge for `himalaya`
-    and got version 1.2.0, which installs a single binary and no Python package
-    at all, from unrelated software. `import himalaya` failed at runtime behind a
-    clean solve, a green channel-purity check, and a plausible `conda list` row;
-    the real library is PyPI-only at 0.4.11. The tell was the version *lineage*
-    (1.2.0 vs 0.4.x is not one project's history). Since `#20` moves eight
-    packages off pip, **check each resolved version against what pip currently
-    gives**, and end the setup script by importing every one of them — that
-    import is what caught this, nothing earlier did.
-  - 🟡 **An incremental solve is not a fresh one.** Re-running the setup against
-    an existing prefix moved nilearn 0.14.0 → 0.13.1 while scikit-learn went the
-    other way; deleting the prefix and rebuilding restored both. Fine in a
-    working env, not fine in a committed lockfile, which is supposed to describe
-    what a new user gets. If `#20` ships a lockfile, generate it from a clean
-    build.
-
-  Still a distribution decision in the `#2` sense — who else gets told about
-  it — but the location question is closed.
-
-  Two corrections to the findings above, from that build. **`pkgs_dirs` is not
-  pinned solely to the read-only FSL path** — `~/.conda/pkgs` is listed first, so
-  the cache problem is milder than stated, though naming `CONDA_PKGS_DIRS`
-  explicitly is still right. And **conda-forge now has ruff 0.16.1**, so the
-  `ruff>=0.16,<0.17` pin may be satisfiable there after all; recheck before
-  assuming the dev extra must stay on pip.
-
-  Note braintwill deliberately runs **Python 3.12 / pandas 3.0.5 / numpy 2.5.1**,
-  not duckbrain's 3.11. That is not a divergence to reconcile: the two repos
-  share no imports, and one env across the ecosystem was considered and rejected
-  — mmmdata sits on pandas 2.3.3 and merging would force a side. See the
-  "cross-repo conventions" section of that doc.
-- CI (`.github/workflows/ci.yml`) is a separate call: GitHub runners have no FSL
-  condarc and pip works fine there, so switching CI to conda buys little and
-  costs solve time on every push. Leaving CI on pip while users get conda means
-  the gate no longer tests the path users take — say which trade-off was taken,
-  in the commit.
-- Update `README.md`, `QUICKSTART.md` and `CLAUDE.md` together; five places
-  currently instruct `python -m venv .venv`.
-
----
-
 <a id="2"></a>
 ## #2 — Onboarding for external users
 
@@ -997,8 +861,14 @@ The work, then:
 tick this off.** `QUICKSTART.md` and `README.md` are written and current.
 
 - **`UNVALIDATED` — the new-user path on a clean account.** Flagged inline in the
-  docs too. Nobody has walked: fresh `git clone` → venv → `pip install -e ".[dev]"`
-  → tests pass; the three `singularity build` commands actually building on Talapas
+  docs too. The path to walk is the **conda** one, since 2026-08-07 that is what
+  new users are told to do (that reordering is the whole reason this item waited
+  for the environment work). Nobody has walked: fresh `git clone` →
+  `./scripts/setup_env.sh` → activate → tests pass — and on an account that is
+  not the maintainer's, which matters twice here: the shared prefix already
+  exists (their run takes the *update* path, never exercised clean) and the FSL
+  condarc landmine fires per-account. Then the three `singularity build`
+  commands actually building on Talapas
   (and whether it's `apptainer` or `singularity` under current module policy); the
   exact config key set the Setup page emits matching the hand-written shapes in the
   docs; `scripts/launch.sh` srun flags under current partition/account policy; and
@@ -1394,6 +1264,17 @@ plus the `ssh -L` line it prints.
    untested, which matters because OnDemand users are usually on laptops. The
    Conversion Plan table and the cockpit grid are the two that will break first.
    Worth doing at 1280px wide before anything else on this list.
+8. **[OOD] The OnDemand launch through the conda branch.** Added 2026-08-07
+   with the conda environment: `script.sh.erb` now prefers the env recorded in
+   `.conda-prefix` over `.venv`, prepends its `bin/`, and sets
+   `PYTHONPATH=<checkout>/src` + `PYTHONNOUSERSITE=1`. `scripts/launch.sh`'s
+   twin of that branch was smoke-tested headlessly (HTTP 200 from the served
+   app), but the OnDemand leg runs a different script through the
+   `/node/<host>/<port>/` proxy and only a real session can settle it: the
+   session starts, the gateway link connects, and the sidebar's version stamp
+   shows this checkout's `git describe` (which proves the PYTHONPATH half —
+   the shared env has a checkout editable-installed, and serving *that* one
+   would look identical except for the stamp).
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
@@ -1543,6 +1424,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-07 | `#20` | **conda is the documented environment: `environment.yml` + `scripts/setup_env.sh`, built and verified at the shared prefix `/projects/hulacon/shared/envs/duckbrain`.** braintwill's recipe taken working rather than re-derived, exactly as the item instructed: the script reads the package list out of `environment.yml` and passes it to a plain `conda create --override-channels -c conda-forge` (`conda env create` cannot be made safe against FSL's `#!final` condarc — re-verified nothing here), then **fails** unless every conda package resolved from conda-forge. The ownership split is the design decision: conda pins the interpreter (3.11) and the runtime deps, unpinned; the dev extra stays on pip via `-e .[dev]` **even though the blocker died** — conda-forge now carries ruff 0.16.x, rechecked as the item asked — because `pyproject.toml` must stay the single source of the gate pins, and a pin duplicated into `environment.yml` re-opens the drift the pins exist to close. One clean solve is committed as `conda/lock-linux-64.txt` (172 packages; regenerate only from a deleted prefix — an incremental solve is not a fresh one). Launch discovery is a gitignored `.conda-prefix` the script writes into the checkout: both launchers now prefer it over `.venv`, prepend the env's `bin/` (no conda shell hook needed), and set `PYTHONPATH=<checkout>/src` so the launched checkout is always the code that serves — the shared env has one checkout editable-installed, and without that line a user launching their own clone would silently run someone else's code. **The import check earned itself twice on day one, both times against the script itself.** First: `~/.local` site-packages shadow a conda env's own — the host-side twin of the `#34` container leak, a venv being immune is why nobody had met it — observed live as the env solving streamlit 1.61.1/nibabel 5.4.2 and importing this account's stale `pip install --user` 1.56.0/5.3.3 behind two green channel checks. Fixed with `PYTHONNOUSERSITE=1` in the script, in both launchers' conda branches, and as an `activate.d` hook in the env so the documented `conda activate` path is protected without knowing about it. Second: `conda run` does not forward stdin, so a heredoc check under it runs **empty and exits 0** — a vacuous pass caught only because the expected output went missing; the check now invokes the env's python directly, asserts `sys.executable` is the prefix's, and fails when any runtime module resolves from outside it. Verified end to end: full local gate green **in the env** — ruff, `format --check`, mypy, 1495 tests, coverage 89.81% over the 89 floor — which is also the first confirmation the suite passes against streamlit 1.61.x resolved fresh; and `scripts/launch.sh` served the app HTTP 200 through the conda branch (the OnDemand leg is `#30`'s new entry). CI deliberately stays on pip: GitHub runners have no FSL condarc, conda would cost solve time on every push, and the runners' pip path is the one GitHub users take — the accepted cost is that CI no longer tests the path Talapas users take, and the local gate run inside the env is the compensating check. The shared prefix is the model for other PIRGs to copy (`/projects/<pirg>/shared/envs/<name>`, setgid, one build per PIRG instead of ~1.2 G per user under an unreadable `~/.conda`); `--personal` and `--prefix` cover everyone else. |
 | 2026-08-06 | `#33` | **`disallow_any_generics` is on, which closes `#33.2` and with it the whole item — the type-checked surface is now the whole package under every knob this project has measured.** The knob was **226 errors**, not the 90 the mypy comment carried; that figure predated `#33.4`, and the item had already said the cost is a function of the gated surface. So the ninth and last of this item's estimates was wrong in the same direction as the other eight, and the item's own prediction that it would be — "the last such number" — is the one that held. But the count was never the shape of the work: **199 of the 226 were a bare `dict`, and 95 of those were one parameter, `config`, repeated across 20 modules**. One decision, then a sweep. `dict[str, Any]` is the end of that decision and not a placeholder — four TOML layers deep-merged, every key optional — spelled as a named alias `Config` because 90-odd signatures take one and `dict[str, Any]` is equally what a sidecar, a job-parameter dict and a Jinja context are. **Naming it immediately caught three functions taking the wrong one**: `plan_conversion`, `read_config_into_table` and `config_to_json` take a *dcm2bids* config, which the mechanical sweep had annotated `Config` and which is now `Dcm2BidsConfig`. That is the entire argument for a transparent alias, since mypy sees straight through both. **The `typing_extensions` blocker this item recorded was never real, and the item had already established why**: a required base plus a `total=False` subclass is the pre-3.11 spelling of `NotRequired`. `dcm2bids_config.Description` is written that way. Two rules came out of doing it, and they are in `pyproject.toml` because they decide the next one: a payload **read off disk** stays `dict[str, Any]` (sidecars, dataset descriptions, decision entries and hand-edited configs arrive in more than one schema with every key absent from some real file, which is why each reader is a chain of `.get()` and `isinstance` — a TypedDict over all-optional keys says nothing and reads as a guarantee); a payload **this code builds** gets one, because then the keys really are set in one place. Three qualified: `pipeline.JobIndex` (three keys, two different types, so no `dict[K, V]` describes it — which is how it came to be bare), `qc.DecisionRecord`/`DomainRecord` (and `DecisionRecord` *subclasses* `DomainRecord`, because `_domains_of`'s docstring already claimed a domain record is the run-level one minus the breakdown, and inheritance is that sentence in a form that stays true), and `Description`. **Four defects, all found by writing a type down rather than by looking for them.** `generate_config` bound `desc` to three different descriptions 60 lines apart — the `#18` shape a sixth and seventh time, fixed by renaming. `containers._inspect_labels_cached` returns a tuple of `(key, value)` **pairs** as its own docstring says, and the wrong `tuple[str, ...]` I first wrote was rejected at both the `tuple(labels)` that builds it and the `dict(...)` that consumes it. `qc.parse_entities` really does return `dict[str, str]`, which exposed `summarize_motion` stuffing four floats into the shared helper's result. And `survey_live`'s second return value was the bare dict `JobIndex` replaced. **The one that matters most is a hole in the checker, not in the code.** Naming `StageBuilder` broke the package on import and mypy stayed green: `from __future__ import annotations` defers *annotations*, but a type alias is an ordinary assignment evaluated at module load, so `Callable[[Config, …]]` at module scope needs a `TYPE_CHECKING`-only name at runtime. Six test files stopped collecting. To mypy the guard branch is always taken, so this is permanent blindness rather than a bug to file — hence `tests/test_runtime_type_aliases.py`, which imports every module in the package, and which was verified by putting the bad alias back (mypy clean, three tests red). It also guards itself: an empty `walk_packages` would pass vacuously. Gate verified to *block* rather than pass over — deleting one type argument from `discover_units` turns it red. Coverage measured before and after at 89.80% and 89.81%, so the floor is untouched: this added and removed no reachable code. What is left of widening is `strict`, which is not measured. |
 | 2026-08-06 | `#33.4` | **mypy checks the whole package now — `core/`'s 36 errors, then the 11 nobody had scoped, and the file list is one directory.** `core/` first, as the item asked. Its headline — a third-party *decision* for `plotly` — was right about the shape and wrong about the size: 4 of 36. `plotly-stubs` 0.1.3 exists and makes `qc_report.py` clean with **no code change at all**, which is the measurement that settles it rather than a guess either way; declined anyway, because ten calls into a chart library in one module do not justify a single-maintainer 0.1.x package as a hard dependency of a *blocking* gate, and a stale stub is a false error or a false pass with nothing naming the cause. Two of the 36 were defects. `SessionExpectation` served the declared prescription and the observed count at once, so `fmap_pairs=None` — meaningful on one, impossible on the other — made `checks.py:174` an `int | None < int` that held only by what the caller passed; split into `SessionCounts` with `as_declaration()` the single crossing, and a test on the zero it carries across, since a measured zero read as silence is exactly the fallback this module exists to prevent. `SortResult.errors` was `list[str] | None` repaired in `__post_init__`, so every `.append` was against a declared `None`. Also four JSON/config boundaries returning `Any` under a concrete annotation, two of which now shape-check: a template listing from a script run inside somebody else's container is not a mapping just because it parsed, and an empty manifest reads downstream as "nothing to repair". **Then the remainder, which no note had ever estimated: `config.py` + `slurm/` at 11 errors** — six signatures, `find_job_logs` declaring `log_dir: str` and rebinding it to a `Path` on the next line, and a `try: import tomllib` that could only run below 3.11, where tomllib does not exist. That branch is also why `tomli` needs an override: the analysis target is pinned at 3.10 while the interpreter is whatever the developer has, so without it the gate is green in CI and red on a 3.11 box. Gate verified to *cover* the new files rather than pass over them — deleting two annotations turns it red at 20. `[tool.mypy]`'s comment rewritten, not appended to: it opened by explaining which files were chosen and why the rest was a different job, and none of that is true any more |
 | 2026-08-06 | `#36` | **The headroom was never the lever — synthstrip is admitted against a memory estimate nobody set, so `--mem-gb` could not have restrained it at any value.** The item asked for a measurement before a fix and the measurement changed the fix. MRIQC's scheduler (its own `engine/plugin.py`, admission logic identical to nipype's `MultiProc`) starts a node when a process slot *and* its **declared** `mem_gb` both fit; `workflows/shared.py` builds the synthstrip node with `num_threads` and **no `mem_gb`**, so it carries nipype's `0.2` default and 24 GB of budget admits 120 of them. Scaling `MEM_HEADROOM_GB` with `cpus` — the item's leading candidate — would have grown a number that is never consulted for this node. What *is* honoured is the thread count, and `--omp-nthreads` was sitting unpassed: `#35` had left it alone six days earlier on the correct reasoning that fMRIPrep derives it from `--nprocs` itself, and recorded that MRIQC instead reads the image's `OMP_NUM_THREADS=1` — which is the whole bug, one observation short. Single-threaded nodes each claim one slot, so `--nprocs` of them ran side by side. Now `--omp-nthreads` equals `--nprocs`, one multi-threaded node fills the allocation, and the flat 8 GB constant is correct again for the reason it always claimed: it covers **one** overshooting node, and something now keeps it to one. **Measured rather than reasoned** — one real T1w on n0135: synthstrip peaks at **12.25 GB at 1 thread and 12.24 GB at 4**, so threading is free memory-wise and 2.4× faster (77 s → 32 s), and serialising costs no wall clock. Four concurrent wanted 49 GB of a 32 GB allocation; `sacct MaxRSS` is the cgroup total, not a per-process maximum, which is why the beta user's failures read 28–31 GB with exactly two synthstrips resident. **The shipped 32 GB default was therefore right all along and needed no raise** — the concurrency was wrong, not the allocation. Confirmed live by re-running the two sessions that OOM-killed, at the unchanged 32G/4-CPU default: `sub-06/ses-01` went `OUT_OF_MEMORY` at 7 min / 18.6 GB → **COMPLETED, 48 min, 11.7 GB**, and `sub-07/ses-02` `OUT_OF_MEMORY` at 54 min / 28.3 GB → **COMPLETED, 69 min, 9.1 GB**. Both wrote their full report set with no `crash-*`, and 48 min sits inside the 44–58 min the batch's *surviving* jobs already took, so serialising cost no measurable wall clock there either. One thing the change nearly shipped broken: the explaining comment was written *inside* the command's `\` continuations, where Jinja renders it as a blank line that silently ends the command — MRIQC would have run with no `--mem-gb`, no `-w` and no `--no-sub`. `test_no_comment_breaks_a_line_continuation` caught it, which is `#31`'s sweep earning itself; the comment now sits above `singularity run` and says why |

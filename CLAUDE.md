@@ -232,11 +232,21 @@ release roadmap as of 2026-08-06 — and `docs/releasing.md` to cut the next one
 
 ## Environment / setup
 
-- Python **3.10+**. A virtualenv lives at `.venv/` (gitignored).
-- Set up / repair it with:
-  ```bash
-  python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
-  ```
+- **The documented environment is conda** (since 2026-08-07): build or
+  repair it with `./scripts/setup_env.sh`, which creates/updates the shared
+  prefix `/projects/hulacon/shared/envs/duckbrain` and records it in the
+  gitignored `.conda-prefix` (how both launchers find it). The script exists
+  because `conda env create` cannot be made safe on this cluster — FSL's
+  `~/.condarc` pins its channel with `#!final` markers nothing overrides
+  except `--override-channels` on a plain `conda create`. Read the script's
+  header before "simplifying" it. Intent lives in `environment.yml` (Python
+  pinned at 3.11, runtime deps unpinned, conda-forge only); one clean solve is
+  recorded in `conda/lock-linux-64.txt`; **the version bounds stay in
+  `pyproject.toml`**, which the pip step (`-e .[dev]`) reads — never duplicate
+  a pin into `environment.yml`.
+- A legacy `.venv` still works and is still probed (after conda) by both
+  launchers: `python -m venv .venv && source .venv/bin/activate &&
+  pip install -e ".[dev]"`. Python **3.10+** either way.
 - Dependencies: streamlit, jinja2, pandas, nibabel, plotly, pydicom (+ pytest for dev).
 
 ## Running it
@@ -283,7 +293,8 @@ release roadmap as of 2026-08-06 — and `docs/releasing.md` to cut the next one
   imports every module so the next one fails a test rather than a launch.
 - **GUI locally (SSH-tunnel workflow):** `bash scripts/launch.sh` — starts
   Streamlit on port 8501; the script prints the exact `ssh -L` tunnel command.
-  Activates `.venv` automatically if present and sets `DUCKBRAIN_CONFIG_DIR`.
+  Uses the `.conda-prefix` env if recorded (falling back to `.venv`) and sets
+  `DUCKBRAIN_CONFIG_DIR`.
 - **Config (project-dir-first, layered):** deep-merged in order —
   1. `config/base.toml` (shipped defaults; located via `DUCKBRAIN_CONFIG_DIR`)
   2. **user config** `~/.config/duckbrain/config.toml` (or `$DUCKBRAIN_USER_CONFIG`) —
@@ -328,10 +339,14 @@ Key behaviors to know when editing the app:
   `/gpfs/home/$USER/code/duckbrain`** — i.e. this checkout. If the canonical
   location ever moves, update BOTH the symlink target and this form default in
   `ondemand/form.yml`.
-- `ondemand/template/script.sh.erb` activates `${DUCKBRAIN_DIR}/.venv` if it
-  exists, otherwise falls back to `module load python3` + `pip install -e` on the
-  compute node (fragile — depends on module Python + network). **Keeping `.venv`
-  present is what makes launches reliable.**
+- `ondemand/template/script.sh.erb` uses, in order: the conda env recorded in
+  `${DUCKBRAIN_DIR}/.conda-prefix`, then `${DUCKBRAIN_DIR}/.venv`, then a bare
+  `module load python3` + `pip install -e` on the compute node (fragile —
+  depends on module Python + network). **Keeping a recorded env (or `.venv`)
+  present is what makes launches reliable.** The conda branch also sets
+  `PYTHONPATH=${DUCKBRAIN_DIR}/src`, so the launched checkout is always the
+  code that serves even though the shared env has one checkout
+  editable-installed — don't remove that line as redundant.
 - Because the OnDemand app runs THIS checkout's code, changes made elsewhere only
   take effect here after commit/push/pull into `~/code/duckbrain`.
 

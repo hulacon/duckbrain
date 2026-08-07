@@ -11,6 +11,9 @@ build/
 .venv/
 venv/
 env/
+# Written by scripts/setup_env.sh: the conda prefix this checkout launches
+# with. Per-checkout state, like .venv — the committed record is the lockfile.
+.conda-prefix
 
 # IDE
 .vscode/

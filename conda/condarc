@@ -1,0 +1,33 @@
+# Minimal condarc used by scripts/setup_env.sh via $CONDARC.
+#
+# IMPORTANT — this file does NOT control which channels are used. Checked on
+# Talapas 2026-08-04 (braintwill, docs/talapas-conda.md in that repo) and the
+# finding transfers unchanged: **$CONDARC adds a file to conda's search path;
+# it does not replace ~/.condarc.** fslinstaller's ~/.condarc
+# (`channels: #!final`, FSL #!top) and the miniconda module's own condarc
+# (`defaults`) both still apply, so with only this file in play
+# `conda config --show channels` returns FSL, defaults, conda-forge.
+# `CONDA_CHANNELS` does not override it either — #!final outranks the env var.
+#
+# The channel guarantee comes from `--override-channels -c conda-forge` on the
+# `conda create`/`conda install` command line, which is why setup_env.sh does
+# not use `conda env create` (it accepts no channel flags at all).
+#
+# What this file still buys is small but real: channel_priority stated
+# explicitly rather than inherited from a file FSL rewrites without warning,
+# and no silent fall-back to defaults. Keep it; just do not rely on it alone.
+#
+# Do not add channels here. A second channel reintroduces exactly the
+# ambiguity the --override-channels flag exists to remove.
+
+channels:
+  - conda-forge
+
+channel_priority: strict
+
+# Never silently fall back to defaults/anaconda.org main.
+default_channels: []
+
+# Keep solver output reproducible and quiet enough to read in a log.
+always_yes: false
+report_errors: false

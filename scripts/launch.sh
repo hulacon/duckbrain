@@ -13,8 +13,30 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Activate venv if it exists
-if [ -f "$PROJECT_DIR/.venv/bin/activate" ]; then
+# Environment, in precedence order:
+#   1. the conda env scripts/setup_env.sh recorded in .conda-prefix
+#      ($DUCKBRAIN_CONDA_PREFIX overrides the file);
+#   2. the legacy .venv, if present.
+# The conda branch prepends bin/ rather than `conda activate`: activation
+# needs conda's shell hook, which this non-login shell may not have, and
+# nothing in this env's activate scripts is load-bearing for Streamlit.
+# PYTHONPATH then makes THIS checkout the code that serves, even if the
+# (possibly shared) env has a different checkout editable-installed —
+# otherwise a user launching their own clone would silently run someone
+# else's code, and provenance (git describe of the imported package's repo)
+# would follow it.
+if [ -z "${DUCKBRAIN_CONDA_PREFIX:-}" ] && [ -f "$PROJECT_DIR/.conda-prefix" ]; then
+    DUCKBRAIN_CONDA_PREFIX="$(cat "$PROJECT_DIR/.conda-prefix")"
+fi
+if [ -n "${DUCKBRAIN_CONDA_PREFIX:-}" ] && [ -x "$DUCKBRAIN_CONDA_PREFIX/bin/streamlit" ]; then
+    export PATH="$DUCKBRAIN_CONDA_PREFIX/bin:$PATH"
+    export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+    # ~/.local site-packages shadow a conda env's own (a venv is immune; a
+    # conda env is not) — the host-side twin of the container leak. Without
+    # this, a stale `pip install --user` streamlit silently serves instead of
+    # the env's.
+    export PYTHONNOUSERSITE=1
+elif [ -f "$PROJECT_DIR/.venv/bin/activate" ]; then
     source "$PROJECT_DIR/.venv/bin/activate"
 fi
 

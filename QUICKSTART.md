@@ -43,18 +43,34 @@ the repository is public.
 ```bash
 git clone git@github.com:hulacon/duckbrain.git
 cd duckbrain
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-python -m pytest tests/ -q      # sanity check the install
+./scripts/setup_env.sh                     # build the conda environment
+module load miniconda3/20260319
+conda activate "$(cat .conda-prefix)"
+python -m pytest tests/ -q                 # sanity check the install
 ```
+
+`scripts/setup_env.sh` is the supported path on Talapas, and it is a script
+rather than a `conda env create` one-liner for a reason: if you ever ran FSL's
+`fslinstaller`, your `~/.condarc` pins FSL's channel with markers conda cannot
+override, and `conda env create` silently resolves against it. The script
+works around that, verifies nothing resolved off conda-forge, and pins the
+interpreter (Python 3.11) as well as the packages — with a `venv`, your Python
+is whatever `python3` happened to be.
+
+By default the environment is built at a **shared prefix**,
+`/projects/hulacon/shared/envs/duckbrain` — one build serves the whole PIRG
+instead of each user growing a ~1.2 G private copy under `~/.conda`, a model
+other PIRGs can copy with
+`./scripts/setup_env.sh --prefix /projects/<your-pirg>/shared/envs/duckbrain`.
+Use `--personal` for `~/.conda/envs/duckbrain`.
+
+The script records the environment's location in `.conda-prefix` (gitignored),
+which is how the OnDemand app and `scripts/launch.sh` find it at launch. A
+legacy `.venv` (`python -m venv .venv && pip install -e ".[dev]"`) still works
+— both launchers fall back to it when no conda env is recorded.
 
 The test suite runs entirely offline (no cluster, no containers) and should
 pass on any machine with Python 3.10+.
-
-Keeping the `.venv` present matters for launching on the cluster: the OnDemand
-app and `scripts/launch.sh` both activate it if it exists, and fall back to a
-fragile module-load path if it doesn't.
 
 ---
 
@@ -192,7 +208,8 @@ account = "<pirg>"
 
 ### Option A — `scripts/launch.sh` + SSH tunnel
 
-Works from any checkout with a `.venv`. Start Streamlit on a compute node:
+Works from any checkout with a recorded conda env (`.conda-prefix`) or a
+`.venv`. Start Streamlit on a compute node:
 
 ```bash
 srun --account=<pirg> --partition=interactive --time=04:00:00 \

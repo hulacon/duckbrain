@@ -46,13 +46,21 @@ LCNI DICOMs ──► Ingest ──► BIDS Conversion ──► Preprocessing �
 git clone git@github.com:hulacon/duckbrain.git
 cd duckbrain
 
-# Create a virtual environment (recommended)
-python -m venv .venv
-source .venv/bin/activate
+# On Talapas (recommended): build the conda environment. This pins the
+# interpreter as well as the packages, and handles the cluster's hostile
+# FSL condarc — do NOT use `conda env create` there (see environment.yml).
+./scripts/setup_env.sh
 
-# Install
-pip install -e ".[dev]"
+# Anywhere else: conda from the same file...
+conda env create -f environment.yml
+# ...or a plain virtualenv (Python 3.10+)
+python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
 ```
+
+The setup script defaults to a shared prefix
+(`/projects/<pirg>/shared/envs/duckbrain`) so one build serves your whole
+PIRG rather than each user growing a private copy; `--personal` and
+`--prefix` override it.
 
 ### Container Setup
 

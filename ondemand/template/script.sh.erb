@@ -17,12 +17,27 @@ echo "Node: $(hostname)"
 echo "Port: ${port}"
 echo "duckbrain dir: ${DUCKBRAIN_DIR}"
 
-# Activate the venv if it exists
-if [ -f "${DUCKBRAIN_DIR}/.venv/bin/activate" ]; then
+# Environment, in precedence order: the conda env scripts/setup_env.sh
+# recorded in .conda-prefix, then a .venv, then a bare python module (fragile
+# — depends on module Python + network for the pip install below).
+# The conda branch prepends bin/ rather than `conda activate` (no shell hook
+# needed), and sets PYTHONPATH so THIS checkout is the code that serves even
+# if the shared env has a different checkout editable-installed — without it,
+# a user launching their own clone would silently run someone else's code.
+if [ -z "${DUCKBRAIN_CONDA_PREFIX:-}" ] && [ -f "${DUCKBRAIN_DIR}/.conda-prefix" ]; then
+    DUCKBRAIN_CONDA_PREFIX="$(cat "${DUCKBRAIN_DIR}/.conda-prefix")"
+fi
+if [ -n "${DUCKBRAIN_CONDA_PREFIX:-}" ] && [ -x "${DUCKBRAIN_CONDA_PREFIX}/bin/streamlit" ]; then
+    export PATH="${DUCKBRAIN_CONDA_PREFIX}/bin:${PATH}"
+    export PYTHONPATH="${DUCKBRAIN_DIR}/src${PYTHONPATH:+:$PYTHONPATH}"
+    # ~/.local site-packages shadow a conda env's own (a venv is immune; a
+    # conda env is not) — the host-side twin of the container user-site leak.
+    export PYTHONNOUSERSITE=1
+elif [ -f "${DUCKBRAIN_DIR}/.venv/bin/activate" ]; then
     source "${DUCKBRAIN_DIR}/.venv/bin/activate"
 else
-    # Fall back to loading a conda/python module
     module load python3 2>/dev/null || module load miniconda3 2>/dev/null || true
+    export PYTHONNOUSERSITE=1
 fi
 
 # Set config directory (shipped base.toml defaults)
