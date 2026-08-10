@@ -47,6 +47,42 @@ def _size_note(nbytes: int, n_files: int) -> str:
     return f"{n_files} {plural} · {nbytes / 1e6:.1f} MB, loaded only when shown"
 
 
+#: Inside a figure iframe: fill the frame's width and let the SVG keep the
+#: aspect ratio its ``viewBox`` declares; ``st.iframe``'s default
+#: ``height="content"`` then measures the result.
+_SVG_FIGURE_STYLE = "<style>body{margin:0}svg{display:block;width:100%;height:auto}</style>"
+
+
+def _show_figure(path: Path, label: str) -> None:
+    """Render one figure the way its own stylesheet demands.
+
+    fMRIPrep's before/after reportlets — SDC, BOLD-to-T1w and fieldmap
+    coregistration, spatial normalization — ship with their flicker *paused*:
+    the embedded CSS declares ``animation … paused`` and flips
+    ``animation-play-state`` to ``running`` on ``:hover``. An SVG inside an
+    ``<img>`` is rendered as a static image that can never be hovered, so behind
+    ``st.image`` those figures sat frozen on the "before" frame and read as "no
+    correction applied" — the exact misreading their ``look_for`` warns about.
+    This is the same fact ``core.report_embed``'s docstring records about why
+    fMRIPrep itself embeds these as ``<object>``, not ``<img>``.
+
+    So a figure whose own CSS asks for ``:hover`` goes into an iframe, where it
+    is a real document and the browser delivers the hover. Everything else stays
+    ``st.image``, whose data URI has no URL for OnDemand's proxy to get wrong.
+    Both halves are pinned by ``tests/test_qc_panels.py``
+    (``test_a_hover_gated_figure_is_shipped_as_a_document`` and
+    ``test_a_static_figure_stays_a_self_contained_image``).
+    """
+    if path.suffix.lower() == ".svg":
+        svg = path.read_text(encoding="utf-8", errors="replace")
+        if ":hover" in svg:
+            st.iframe(_SVG_FIGURE_STYLE + svg)
+            if label:
+                st.caption(label)
+            return
+    st.image(str(path), caption=label or None, width="stretch")
+
+
 def evidence_viewer(
     fmriprep_dir: Path | str,
     domain: ReviewDomain,
@@ -89,14 +125,8 @@ def evidence_viewer(
 
         st.markdown(f"*Look for:* {fig.look_for}")
         for path in hit.paths:
-            # Streamlit inlines a local SVG as a data URI inside an <img>, which
-            # keeps the file's own <style> — and so the before/after flicker that
-            # makes a distortion-correction figure readable. It also sidesteps
-            # the OnDemand base-path problem entirely, since a data URI has no
-            # URL to get wrong.
-            label = hit.label_for(path)
             try:
-                st.image(str(path), caption=label or None, width="stretch")
+                _show_figure(path, hit.label_for(path))
             except Exception as exc:
                 st.warning(f"Could not render `{path.name}` — {exc}")
     return shown

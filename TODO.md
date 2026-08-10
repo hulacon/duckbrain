@@ -1312,6 +1312,17 @@ plus the `ssh -L` line it prints.
    (and carries a `?`). Confirm the bar neither wraps nor collapses entries
    into an overflow menu at laptop width — same 1280px sitting as the
    narrow-widths entry above.
+10. **The before/after flicker in the QC evidence viewer.** Added 2026-08-10
+    with the fix for the frozen reportlets: fMRIPrep's before/after SVGs pause
+    their flicker until `:hover`, which an SVG inside an `<img>` never
+    receives, so `gui/qc_panels._show_figure` now ships any `:hover`-carrying
+    figure as an `st.iframe` document instead. AppTest confirms the srcdoc and
+    its styles; what only a browser can settle is (a) hovering the SDC or
+    coregistration figure actually starts the alternation, and (b) the frame's
+    `height="content"` sizing gives the figure a sane height — the SVG is
+    styled `width:100%; height:auto` off its `viewBox`, and whether Streamlit's
+    sizing observer re-measures on window resize is unknown. Not **[OOD]** —
+    a srcdoc iframe has no URL for the proxy to rewrite.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
@@ -1324,7 +1335,10 @@ say so. `#13`'s Conversion Plan pass closed 2026-07-30 on `fmap_eyeball`
 (`f1bde41`) — the colour join holds on three pairs. The QC evidence viewer's
 figures were confirmed reaching a browser as self-contained data URIs, which is
 why they are **not** entry 1: a data URI has no URL for the proxy to get wrong,
-and that is by construction rather than by luck.
+and that is by construction rather than by luck. (That eyeball judged *presence*,
+not motion — the same figures sat frozen on their "before" frame until
+2026-08-10, which is entry 10. The hover-gated ones now travel as srcdoc
+iframes; still URL-free, so still not entry 1's problem.)
 
 ---
 

@@ -12,7 +12,10 @@ reviewer looking at alignment actually wants. Serving figures individually is a
 The SDC animation survives the move — each SVG carries its own ``<style>`` with
 ``@keyframes``, so the before/after flicker does not depend on the enclosing
 report. That is pinned by a test, because a plausible future size optimisation
-is to strip SVG styles, and it would kill the flicker silently.
+is to strip SVG styles, and it would kill the flicker silently. It *does*
+depend on the enclosing element: the flicker is paused until ``:hover``, and an
+SVG inside an ``<img>`` can never be hovered — that half is
+``gui.qc_panels._show_figure``'s problem, and it is pinned there.
 
 **Matching is by entity, not by string prefix.** Joining the run key to a
 pattern looks simpler and does not survive real data: fMRIPrep writes entities

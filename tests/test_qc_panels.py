@@ -21,13 +21,28 @@ FIGURE_SVG = (
     '<rect class="f" width="10" height="10"/></svg>'
 )
 
+#: Shaped like what niworkflows really writes: the flicker ships *paused* and
+#: only ``:hover`` sets it running. Copied structurally from a real
+#: ``desc-sdc_bold.svg`` — the always-running ``FIGURE_SVG`` above models an
+#: older reportlet style, and testing only that shape is exactly how the frozen
+#: before/after figures shipped (an ``<img>`` runs an already-running animation
+#: but can never deliver the hover that starts a paused one).
+HOVER_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+    "<style>@keyframes flicker { 0% {opacity:1} 100% {opacity:0} }"
+    ".foreground-svg { animation: 1s ease-in-out 0s alternate none infinite paused flicker;}"
+    ".foreground-svg:hover { animation-play-state: running;}</style>"
+    '<g class="background-svg"><rect width="10" height="10"/></g>'
+    '<g class="foreground-svg"><rect width="10" height="10" fill="red"/></g></svg>'
+)
+
 
 @pytest.fixture
 def fmriprep(tmp_path):
     figures = tmp_path / "fmriprep" / "sub-010" / "figures"
     figures.mkdir(parents=True)
+    (figures / "sub-010_task-rest_run-1_desc-sdc_bold.svg").write_text(HOVER_SVG)
     for name in (
-        "sub-010_task-rest_run-1_desc-sdc_bold.svg",
         "sub-010_task-rest_run-1_desc-coreg_bold.svg",
         "sub-010_dseg.svg",
     ):
@@ -47,6 +62,17 @@ def _viewer(root: str, run_key: str = "sub-010_task-rest_run-1_bold"):
     return AppTest.from_function(
         _script, kwargs={"root": root, "run_key": run_key}, default_timeout=30
     ).run()
+
+
+def _images(at: AppTest):
+    """Every ``st.image`` element, whatever this AppTest build calls it.
+
+    AppTest has no first-class image element, so ``st.image`` surfaces as an
+    ``UnknownElement`` whose type is derived differently across Streamlit
+    versions — ``"imgs"`` under 1.56 (the shared env), ``"image"`` under the
+    newer builds CI resolves. Both carry the same ``ImageList`` proto.
+    """
+    return [e for e in at._tree if e.type in ("image", "imgs")]
 
 
 class TestEvidenceViewer:
@@ -84,30 +110,51 @@ class TestEvidenceViewer:
         captions = " ".join(c.value for c in at.caption)
         assert captions.count("not on disk") == len(declared)
 
-    def test_the_animation_reaches_the_browser_intact(self, fmriprep):
+    def test_a_hover_gated_figure_is_shipped_as_a_document(self, fmriprep):
         """The claim the whole per-figure viewer rests on, checked at the exit.
 
-        Serving one figure instead of the 80 MB report is only worth doing if the
-        before/after flicker survives, and the flicker is CSS *inside* the SVG.
-        Streamlit inlines a local SVG as a base64 data URI, so this decodes what
-        would actually be sent and looks for the animation in it — the earlier
-        tests check the file on disk, which would still pass if the render path
-        started stripping styles.
+        The real reportlets pause their flicker until ``:hover``, and an SVG
+        inside an ``<img>`` can never be hovered — so the SDC figure must reach
+        the browser as an iframe *document*, styles intact. This is the fix for
+        the frozen before/after figures: an earlier version of this test decoded
+        ``st.image``'s data URI, found ``@keyframes`` in it, and passed while
+        every hover-gated figure sat still on its "before" frame.
+        """
+        at = _viewer(str(fmriprep))
+        assert "distortion" in at.toggle[0].label, "toggle[0] is no longer the SDC figure"
+        at.toggle[0].set_value(True).run()
+        assert not at.exception
+
+        (frame,) = at.get("iframe")
+        assert ":hover" in frame.proto.srcdoc and "@keyframes" in frame.proto.srcdoc
+        assert not _images(at), (
+            "the hover-gated figure also went out as an <img>, which is the "
+            "form that cannot animate"
+        )
+
+    def test_a_static_figure_stays_a_self_contained_image(self, fmriprep):
+        """A figure with no hover gate keeps the data-URI ``<img>`` path.
+
+        Self-containment is what it buys: a data URI has no URL to resolve, and
+        under OnDemand's /node/<host>/<port>/ prefix a URL is a bug waiting.
+        The decode also guards the file's own styles — an always-running
+        animation does run inside an ``<img>``, but only if nothing on the way
+        stripped it.
         """
         import base64
 
         at = _viewer(str(fmriprep))
-        at.toggle[0].set_value(True).run()
+        assert "coregistration" in at.toggle[1].label.lower(), (
+            "toggle[1] is no longer the coregistration figure"
+        )
+        at.toggle[1].set_value(True).run()
         assert not at.exception
+        assert not at.get("iframe"), "a static figure has no need of a document"
 
-        images = [e for e in at._tree if e.type == "image"]
+        images = _images(at)
         assert images, "the figure was toggled on but no image was emitted"
         url = images[0].proto.imgs[0].url
-        assert url.startswith("data:image/svg+xml"), (
-            "the figure is no longer self-contained — a URL has to resolve, and "
-            "under OnDemand's /node/<host>/<port>/ prefix that is the bug this "
-            "avoided by construction"
-        )
+        assert url.startswith("data:image/svg+xml")
         payload = base64.b64decode(url.split(",", 1)[1]).decode("utf-8", "replace")
         assert "@keyframes" in payload and "animation:" in payload
 
