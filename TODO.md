@@ -15,11 +15,12 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#2`](#2) **next** — onboarding (the conda env it waited on shipped 2026-08-07;
-see the [Roadmap](#roadmap)) ·
-[`#16`](#16) sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
+[`#16`](#16) **next** — sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
 [Licensing](#licensing-follow-ups) ·
+[`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
+walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
+sub-items as the blockers clear ·
 [`#19`](#19) conversion coverage — **not scheduled**, mostly data-blocked; take
 sub-items as fixtures appear ·
 [`#9`](#9) launch surface ·
@@ -35,7 +36,9 @@ stages · [`#8`](#8) branding + dark theme ·
 
 **How the open items bundle into releases: [Roadmap](#roadmap)** — decided
 2026-08-06, and it is what reordered the queue above: `#20`/`#2` moved ahead of
-`#16`, which had been marked **next** since 2026-07-22.
+`#16`, which had been marked **next** since 2026-07-22. On 2026-08-11 `#2`
+moved back out of **next**: `v0.5.0` shipped its writing, and everything left
+in it is externally blocked (see the entry), so `#16` leads again.
 
 ---
 
@@ -75,31 +78,31 @@ Minor rather than patch because the recipe genuinely moved — diffusion convert
 the diffusion SBRef stopped being emitted as half a fieldmap, `dir-` widened to
 LR/RL, and the BIDS root files are written at the conversion choke point.
 
-### `v0.5.0` — accessibility: `#20` then `#2`
+### `v0.5.0` — accessibility: `#20` + `#2`'s writing — cut 2026-08-11 ✅
 
-**`#20` shipped 2026-08-07 (see the ledger); `#2` is what remains of this
-release.** The order was not arbitrary: `#20` made conda the documented path,
-and `#2`'s `UNVALIDATED` new-user walk is only worth doing once, on whichever
-path new users are actually told to take — which is now the conda one
-(`scripts/setup_env.sh`, shared prefix, `.conda-prefix` discovery). Walking it
-before the conda env existed would have meant walking it twice.
+Shipped `#20`'s conda environment and `#2`'s writing (`QUICKSTART.md`,
+`README.md`, `docs/new-to-talapas.md` + its GUI signpost page, both launch
+routes documented as real). The order was not arbitrary: `#20` made conda the
+documented path, and `#2`'s `UNVALIDATED` new-user walk is only worth doing
+once, on whichever path new users are actually told to take — which is now the
+conda one. Invisible to `duckbrain-drift` by design: not a byte duckbrain emits
+changed, so no existing derivative gets flagged.
 
-Why these two make a good release rather than a good pair of chores:
+**Decided with Ben 2026-08-11: the release did *not* wait for the rest of
+`#2`.** The plan above had been "`#20` then `#2`", but everything left in `#2`
+fails this roadmap's own second sorting question — schedulability. The
+clean-account walk needs a non-maintainer account, the in-GUI guidance is gated
+on that walk, and distribution is gated on a RACS answer; none is under Ben's
+control on any timeline, and holding finished, zero-risk accessibility work
+behind them is exactly the hostage-taking the roadmap exists to prevent.
+`core/updates.py` compares against published Releases, so unreleased docs were
+invisible to the beta testers who wanted them. `#2` stays open, below `#16` in
+the queue, and its remainder rides in whatever release is current when the
+blockers clear.
 
-- **Lowest design risk in the queue.** `#20`'s unknowns were retired on-cluster
-  (the FSL condarc, the `conda env create` landmine, the shared prefix, the
-  himalaya name-collision lesson from braintwill's build). What is left is
-  writing a file and a setup script against a recipe someone has already run.
-  `#2` is dogfooding and prose, not architecture.
-- **Invisible to `duckbrain-drift`, and that is a feature.** Neither changes a
-  single byte duckbrain emits, so no existing derivative gets flagged. Nothing has
-  to be weighed; the release is free of that cost entirely.
-- **It is the release the beta testers are actually waiting on.** `#2`'s own
-  measurement is that containers, not code, are the blocker for a second user.
-
-Batch `#30`'s browser-eyeball queue into this one if the tunnel is already open —
-it is explicitly a batch-it item, and a walkthrough for `#2` puts you in front of
-the GUI anyway.
+The cut also surfaced that **`v0.4.0`'s tag was pushed but its GitHub Release
+was never published** — the exact failure `docs/releasing.md` warns about, and
+why the GUI told nobody about `v0.4.0` for five days.
 
 ### `v0.6.0` — the expectation layer: `#16.1`, `#16.2`, then `#13.1`
 
@@ -857,8 +860,14 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 <a id="2"></a>
 ## #2 — Onboarding for external users
 
-**The writing is done; the dogfooding and the distribution story are open. Do not
-tick this off.** `QUICKSTART.md` and `README.md` are written and current.
+**The writing shipped in `v0.5.0` (2026-08-11); the dogfooding and the
+distribution story are open — and, decided with Ben the same day, they no
+longer gate a release.** Every remaining sub-item below is blocked on someone
+other than the maintainer: the `UNVALIDATED` walk needs a non-maintainer
+account (a beta tester's time), the in-GUI guidance needs the walk to have
+happened, and distribution needs RACS. Take them as the blockers clear, and
+batch `#30`'s browser-eyeball queue into the walkthrough — it puts you in front
+of the GUI anyway. `QUICKSTART.md` and `README.md` are written and current.
 
 **2026-08-07 — Ben's three directions for this item, all landed the same day:**
 
