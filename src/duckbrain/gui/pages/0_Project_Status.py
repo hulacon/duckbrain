@@ -238,7 +238,9 @@ def _run_popover(row: pd.Series, stage: str, config: Config) -> None:
         progress = run_progress(config, stage, sub, ses)
         if progress:
             done, total = progress
-            st.warning(f"{done} of {total} runs present — {total - done} still missing.")
+            st.warning(
+                f"{done} of {total} expected outputs present — {total - done} still missing."
+            )
     params = _stage_params(
         stage, config, key_prefix=f"run_{stage}_{sub}_{ses}", subject=sub, session=ses
     )

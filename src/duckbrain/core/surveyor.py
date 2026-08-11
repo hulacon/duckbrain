@@ -390,6 +390,84 @@ def _fmriprep_status(config: Config, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
+#: Image suffixes MRIQC rates — it writes one IQM json per input image carrying
+#: one of these. Deliberately without ``dwi``: only MRIQC >= 23.1 rates
+#: diffusion, so expecting a dwi json would pin any dwi-holding project run with
+#: an older container at PARTIAL for work its MRIQC never did. The cost is the
+#: usual bounded one (see `_fmriprep_func_keys`): a missing dwi json is never
+#: flagged, a present one is ignored rather than miscounted.
+_MRIQC_RATED_SUFFIXES = ("T1w", "T2w", "bold")
+
+
+def _mriqc_key(name: str) -> str | None:
+    """``<acquisition key>:<suffix>`` for an image MRIQC rates, else ``None``.
+
+    The suffix is part of the identity here, unlike :func:`_entity_key` alone: a
+    T1w and a T2w share every entity except the suffix (``sub-01_run-1_T1w`` /
+    ``sub-01_run-1_T2w``), so an entity-only key would collapse them and one
+    modality's json could stand in for the other's. ``None`` filters out both
+    unrated images (MP2RAGE, sbref) and MRIQC's non-IQM jsons (``_timeseries``).
+    """
+    suffix = name.split(".")[0].rsplit("_", 1)[-1]
+    if suffix not in _MRIQC_RATED_SUFFIXES:
+        return None
+    return f"{_entity_key(name)}:{suffix}"
+
+
+def _mriqc_flat_prefix(subject: str, session: str) -> str:
+    """Filename prefix of this unit's files in MRIQC's flat layout.
+
+    Session-scoped when there is a session: the flat layout puts every session's
+    files side by side at the derivative root, so a subject-scoped glob credits a
+    sibling session's output to this one.
+    """
+    return f"sub-{subject}_ses-{session}" if session else f"sub-{subject}"
+
+
+def _mriqc_expected_found(config: Config, subject: str, session: str) -> tuple[set[str], set[str]]:
+    """Every image MRIQC owes this unit, and every IQM json it has written.
+
+    The expectation is derived from the session's *own* BIDS images — its BOLDs
+    plus whatever rated anat it actually holds — not from a fixed "anat + func"
+    template. In a longitudinal study the anatomical is acquired once, so every
+    other session holds func only and owes no anat json; requiring one anyway
+    pinned all of mmmduck's func-only sessions at PARTIAL forever, right beside
+    a run counter saying 9/9 (2026-08-11). This is `_fmriprep_status`'s
+    session-scoping problem with the opposite resolution, deliberately: fMRIPrep
+    merges N T1w into one subject-level output, so its anat check widens to the
+    subject; MRIQC rates each image where it lies, so the *expectation* narrows
+    to what the session holds.
+
+    Both of MRIQC's layouts are read: nested (``sub-XX/ses-YY/…``) and flat
+    filenames at the derivative root, the latter through the session-scoped
+    prefix so a sibling session's json can't satisfy — or partial-ify — this one.
+
+    Shared by :func:`_mriqc_status` and :func:`run_progress` so the grade and
+    the count beside it cannot disagree.
+    """
+    paths = config["paths"]
+    bids_root = Path(paths["bids_dir"])
+    root = Path(paths["derivatives_dir"]) / "mriqc"
+
+    expected = {f"{k}:bold" for k in _expected_bold_keys(bids_root, subject, session)}
+    found: set[str] = set()
+    try:
+        for p in bids_root.glob(_fmt("{ss}/**/anat/*.nii*", subject, session)):
+            if p.is_file() and p.stat().st_size > 0 and (key := _mriqc_key(p.name)):
+                expected.add(key)
+        json_patterns = (
+            _fmt("{ss}/**/*.json", subject, session),
+            f"{_mriqc_flat_prefix(subject, session)}_*.json",
+        )
+        for pattern in json_patterns:
+            for p in root.glob(pattern):
+                if p.is_file() and p.stat().st_size > 0 and (key := _mriqc_key(p.name)):
+                    found.add(key)
+    except (OSError, ValueError):
+        pass
+    return expected, found
+
+
 def _mriqc_status(config: Config, subject: str, session: str) -> Status:
     paths = config["paths"]
     root = Path(paths["derivatives_dir"]) / "mriqc"
@@ -398,30 +476,15 @@ def _mriqc_status(config: Config, subject: str, session: str) -> Status:
     # MRIQC writes one IQM JSON per BIDS image. Grading complete on the anat json
     # alone hid a real failure: the func synthstrip node OOM-killed after the anat
     # json had landed, so the whole func QC was missing yet the cell read green
-    # (all 9 divatten_gui_beta subjects, 2026-07-10). Requiring *any* func json
-    # fixed that at the anat/func granularity and left the same bug one level
-    # down — an OOM one run later still read green. Count the runs.
-    #
-    # Both of MRIQC's layouts have to be checked: nested (sub-XX/**/…) and flat
-    # filenames at the derivative root.
-    has_anat = any(
-        _has_match(root, p)
-        for p in (_fmt("{ss}/**/*_T1w.json", subject, session), f"sub-{subject}*_T1w.json")
-    )
-
-    expected = _expected_bold_keys(paths["bids_dir"], subject, session)
-    found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | _found_keys(
-        root, f"sub-{subject}*_bold.json"
-    )
+    # (all 9 divatten_gui_beta subjects, 2026-07-10) — and counting only at the
+    # anat/func granularity left the same bug one level down, an OOM one run
+    # later. So count every rated image, and expect only what the session's own
+    # BIDS tree holds — see `_mriqc_expected_found` for both halves.
+    expected, found = _mriqc_expected_found(config, subject, session)
     subtree_exists = _has_match(root, _fmt("{ss}", subject, session)) or _has_match(
-        root, f"sub-{subject}*"
+        root, f"{_mriqc_flat_prefix(subject, session)}_*"
     )
-
-    if has_anat and (not expected or expected <= found):
-        return Status.COMPLETE
-    if has_anat or found or subtree_exists:
-        return Status.PARTIAL
-    return Status.MISSING
+    return _grade(expected, found, subtree_exists)
 
 
 def _nordic_status(config: Config, subject: str, session: str) -> Status:
@@ -503,12 +566,15 @@ def run_progress(config: Config, stage: str, subject: str, session: str) -> tupl
     A PARTIAL cell with no number is its own silent degrade — it says "not
     finished" and leaves the operator to go count files. Returns None for stages
     that aren't one-output-per-run (ingested, converted) and whenever the unit
-    has no BOLD runs to count.
+    expects no outputs at all.
 
     Shares :func:`_expected_bold_keys` and :func:`_found_keys` with the trackers
     so the number shown and the status shown cannot disagree — fMRIPrep through
     :func:`_fmriprep_func_keys`, which is what keeps a cell from reading ``4/4``
-    beside PARTIAL when the confounds are missing.
+    beside PARTIAL when the confounds are missing, and MRIQC through
+    :func:`_mriqc_expected_found`, whose count spans every rated image (anat
+    included) for the same reason: bold-only counting put ``9/9`` beside a
+    PARTIAL cell, the mmmduck contradiction.
     """
     paths = config["paths"]
     if stage == "nordic":
@@ -521,11 +587,7 @@ def run_progress(config: Config, stage: str, subject: str, session: str) -> tupl
         expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
         found = _fmriprep_func_keys(Path(paths["derivatives_dir"]) / "fmriprep", subject, session)
     elif stage == "mriqc":
-        expected = _expected_bold_keys(paths["bids_dir"], subject, session)
-        root = Path(paths["derivatives_dir"]) / "mriqc"
-        found = _found_keys(root, _fmt("{ss}/**/*_bold.json", subject, session)) | _found_keys(
-            root, f"sub-{subject}*_bold.json"
-        )
+        expected, found = _mriqc_expected_found(config, subject, session)
     else:
         return None
 

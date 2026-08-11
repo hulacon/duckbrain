@@ -577,6 +577,113 @@ def test_mriqc_complete_in_the_nested_layout(tmp_path):
     assert df.loc[0, "mriqc"] == Status.COMPLETE
 
 
+# ---- mriqc, longitudinal: the expectation is the session's own images --------
+#
+# The mmmduck beta report (2026-08-11): anat acquired once in ses-01, every
+# later session func-only. The tracker required a session-scoped T1w json
+# unconditionally, so each fully-QC'd func session sat at PARTIAL forever —
+# beside a run counter reading 9/9, because the counter only counted BOLDs.
+# MRIQC rates each image where it lies (no cross-session anat merge as in
+# fMRIPrep), so the fix is to expect only what the session's BIDS tree holds.
+
+
+def test_mriqc_key_keeps_the_suffix_and_rejects_unrated_files():
+    """A T1w and a T2w differ only in suffix, so the suffix must be part of the
+    key — and MRIQC's non-IQM jsons (``_timeseries``) must not count as found."""
+    from duckbrain.core.surveyor import _mriqc_key
+
+    assert _mriqc_key("sub-01_run-1_T1w.json") == "sub-01_run-1:T1w"
+    assert _mriqc_key("sub-01_run-1_T2w.json") == "sub-01_run-1:T2w"
+    assert _mriqc_key("sub-01_task-rest_bold.nii.gz") == "sub-01_task-rest:bold"
+    assert _mriqc_key("sub-01_task-rest_timeseries.json") is None
+    assert _mriqc_key("sub-01_inv-1_MP2RAGE.nii.gz") is None
+
+
+def test_mriqc_complete_when_anat_lives_in_another_session(tmp_path):
+    """The headline mmmduck case: a func-only session with every bold json
+    present owes no anat json and grades COMPLETE."""
+    _seed_bold_runs(tmp_path, "sub-01/ses-01", 1)
+    _touch(tmp_path / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_bold.nii.gz")
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_T1w.json")
+    _touch(mq / "sub-01" / "ses-01" / "func" / "sub-01_ses-01_task-rest_run-1_bold.json")
+    _touch(mq / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_bold.json")
+
+    df = survey_project(_config(tmp_path))
+    assert df[df.session == "02"].iloc[0]["mriqc"] == Status.COMPLETE
+
+
+def test_mriqc_missing_when_only_a_sibling_session_has_output(tmp_path):
+    """The other half of the mmmduck report: a subject-scoped flat glob made a
+    never-ran session read PARTIAL once its subject had any output at all, so
+    'never ran' and 'mis-graded' were the same colour and the rollup could
+    explain neither."""
+    _seed_bold_runs(tmp_path, "sub-01/ses-01", 1)
+    _touch(tmp_path / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_bold.nii.gz")
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_T1w.json")
+    _touch(mq / "sub-01" / "ses-01" / "func" / "sub-01_ses-01_task-rest_run-1_bold.json")
+
+    df = survey_project(_config(tmp_path))
+    assert df[df.session == "02"].iloc[0]["mriqc"] == Status.MISSING
+
+
+def test_mriqc_flat_layout_does_not_credit_a_sibling_sessions_jsons(tmp_path):
+    """Same property in the flat layout, where only the filename prefix scopes a
+    json to its session."""
+    _seed_bold_runs(tmp_path, "sub-01/ses-01", 1)
+    _touch(tmp_path / "sub-01" / "ses-02" / "func" / "sub-01_ses-02_task-rest_bold.nii.gz")
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01_ses-01_T1w.json")
+    _touch(mq / "sub-01_ses-01_task-rest_run-1_bold.json")
+
+    df = survey_project(_config(tmp_path))
+    assert df[df.session == "01"].iloc[0]["mriqc"] == Status.COMPLETE
+    assert df[df.session == "02"].iloc[0]["mriqc"] == Status.MISSING
+
+
+def test_mriqc_partial_when_anat_iqm_missing_in_an_anat_bearing_session(tmp_path):
+    """The narrowed expectation must not un-catch the real failure the old anat
+    requirement existed for: a session that *does* hold a T1w still owes its
+    json, however finished its BOLDs look."""
+    _seed_bold_runs(tmp_path, "sub-01", 1)
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01" / "func" / "sub-01_task-rest_run-1_bold.json")
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "mriqc"] == Status.PARTIAL
+
+
+def test_mriqc_partial_when_a_t2w_iqm_is_missing(tmp_path):
+    """MRIQC rates T2w as well, per image: a T1w json must not stand in for the
+    T2w sharing its entities."""
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T2w.nii.gz")
+    mq = tmp_path / "derivatives" / "mriqc"
+    _touch(mq / "sub-01" / "anat" / "sub-01_T1w.json")
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "mriqc"] == Status.PARTIAL
+
+    _touch(mq / "sub-01" / "anat" / "sub-01_T2w.json")
+    assert survey_project(_config(tmp_path)).loc[0, "mriqc"] == Status.COMPLETE
+
+
+def test_mriqc_run_progress_counts_every_rated_image(tmp_path):
+    """The number beside the cell comes from the same comparison as its colour —
+    bold-only counting is how 9/9 ended up beside PARTIAL."""
+    from duckbrain.core.surveyor import run_progress
+
+    _seed_bold_runs(tmp_path, "sub-01", 2)  # 2 BOLDs + the seeded T1w = 3 images
+    mq = tmp_path / "derivatives" / "mriqc"
+    for i in (1, 2):
+        _touch(mq / "sub-01" / "func" / f"sub-01_task-rest_run-{i}_bold.json")
+
+    config = _config(tmp_path)
+    assert survey_project(config).loc[0, "mriqc"] == Status.PARTIAL
+    assert run_progress(config, "mriqc", "01", "") == (2, 3)
+
+
 def _write_dcm2bids_config(root, ss, n_bold, n_anat=1):
     import json
 

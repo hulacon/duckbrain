@@ -10,6 +10,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **MRIQC status in longitudinal projects** — the pipeline board required a
+  session-scoped T1w IQM json from every session, but a longitudinal study
+  acquires its anatomical once, so each fully-QC'd func-only session sat at
+  *partial* forever beside a run counter reading 9/9 (reported by a beta tester
+  on the mmmduck project, 2026-08-11). The MRIQC expectation is now derived
+  from the session's own BIDS images — its BOLDs plus whatever rated anat
+  (T1w/T2w) it actually holds, judged per image — and the partial-cell count
+  spans those same images, so the colour and the number can no longer disagree.
+  Flat-layout globs are session-scoped too: a session MRIQC never touched now
+  reads *missing* instead of inheriting *partial* from a sibling session's
+  output.
+
 ### Added
 
 - **Every SLURM launch now writes a request record** —
