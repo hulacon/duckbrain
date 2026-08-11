@@ -2,9 +2,19 @@
 
 Distinct from :mod:`duckbrain.core.consistency`, which is about **provenance
 agreement**: whether the records of a run contradict each other. This module asks
-a different question — whether the pipeline delivered what the study *declared*
-it would — and it needs a declaration to do it (see
-:mod:`duckbrain.core.expectations`).
+a different question — whether the pipeline delivered what was *declared* — and
+it needs a declaration to do it. Two exist, with different authors:
+
+- the experimenter's ``[expected]`` section (L1 — roster and per-session
+  contents; :mod:`duckbrain.core.expectations`), and
+- duckbrain's own request record, written at launch (L2 —
+  ``pipeline.record_request``), which is the only statement anywhere of what a
+  job was asked to produce.
+
+Each check gates on *its* declaration being present — absent means off, per
+source, the same stance ``consistency.py`` takes toward absent provenance. A
+project that declares nothing and has no recorded launches gets an empty answer
+in silence.
 
 The two share :class:`~duckbrain.core.consistency.ConsistencyIssue` and the
 cockpit panel that renders it, deliberately. A user does not care which module
@@ -34,9 +44,11 @@ CLAUDE.md — a check that stops you working is a check people learn to disable.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from .consistency import ConsistencyIssue
 from .expectations import (
@@ -48,7 +60,9 @@ from .expectations import (
     has_bids_unit,
     observe,
 )
-from .surveyor import discover_units
+from .ingestion import sub_ses_relpath
+from .pipeline import read_submissions
+from .surveyor import Status, _fmriprep_status, discover_units
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -239,24 +253,154 @@ def _check_session_contents(config: Config) -> list[ConsistencyIssue]:
     return issues
 
 
+#: Requested space names that write **no** ``space-`` entity: fMRIPrep's
+#: native-space aliases. The surveyor already requires the native preproc BOLD
+#: (``_fmriprep_func_keys``), so there is nothing left for this check to say
+#: about them.
+_NATIVE_SPACES = frozenset({"func", "run", "boldref", "sbref"})
+
+
+def _space_tokens(space: str) -> list[str] | None:
+    """Filename tokens that evidence one requested ``--output-spaces`` entry.
+
+    ``MNI152NLin2009cAsym:res-2`` → ``["space-MNI152NLin2009cAsym", "res-2"]``:
+    the name becomes the ``space-`` entity and each colon modifier is already a
+    ``key-value`` filename token, so all must appear in one filename. ``None``
+    for the native aliases (nothing to look for) — and ``anat`` is the one alias
+    that *does* write an entity, as ``space-T1w``.
+    """
+    parts = [p for p in str(space).split(":") if p]
+    if not parts or parts[0] in _NATIVE_SPACES:
+        return None
+    name = "T1w" if parts[0] == "anat" else parts[0]
+    return [f"space-{name}", *parts[1:]]
+
+
+def _read_request(path: str) -> dict[str, Any]:
+    """One ``requests/<job_id>.json``, or ``{}`` — an unreadable file is not a
+    finding, the same contract every reader in ``consistency.py`` holds."""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _func_token_sets(fmriprep_root: Path, subject: str, session: str) -> list[set[str]]:
+    """The ``_``-separated tokens of every non-empty func file the unit's
+    fMRIPrep output holds — what a requested space is checked against."""
+    unit = fmriprep_root / sub_ses_relpath(subject, session)
+    try:
+        return [
+            set(p.name.split(".")[0].split("_"))
+            for p in unit.glob("func/*")
+            if p.is_file() and p.stat().st_size > 0
+        ]
+    except (OSError, ValueError):
+        return []
+
+
+def _check_requested_spaces(config: Config) -> list[ConsistencyIssue]:
+    """Requested fMRIPrep ``--output-spaces`` versus the spaces actually written.
+
+    The one comparison nowhere else can make (``docs/sanity-checks.md``, Slice
+    B): the surveyor strips
+    ``space-``/``res-``/``den-`` when grading — deliberately, so an fMRIPrep
+    upgrade renaming a representation can't invent a shortfall — which means a
+    unit is COMPLETE as soon as every BOLD is preprocessed in *some* space. A
+    run that quietly dropped ``fsaverage6`` reads done everywhere. Only the
+    request record states the ask, so this check reads it back.
+
+    Two silences are deliberate, both borrowed from lessons already paid for:
+
+    - **Only the newest attempt per unit is judged**, and only when that attempt
+      carries a request record. An older record describes a superseded run —
+      the same staleness that made a naive crash-file check cry wolf
+      (``consistency._check_tool_crashes``) — and a newer launch *without* a
+      record (a duckbrain from before records existed, a hand-run sbatch) leaves nothing current to
+      judge against.
+    - **Only a COMPLETE unit is judged.** A PARTIAL unit's shortfall already
+      shows on the board, and a running job would read as missing every space
+      it hadn't written yet. This check exists for the run that *looks* done.
+
+    More spaces on disk than requested is never flagged — a leftover from a
+    previous config is the surveyor's asymmetry, held here too.
+    """
+    derivatives = (config.get("paths") or {}).get("derivatives_dir") or ""
+    if not derivatives:
+        return []
+    subs = read_submissions(config)
+    fp = subs[subs["stage"] == "fmriprep"]
+    if fp.empty:
+        return []
+    root = Path(derivatives) / "fmriprep"
+
+    issues: list[ConsistencyIssue] = []
+    for _, row in fp.drop_duplicates(subset=["subject", "session"], keep="last").iterrows():
+        request_path = str(row.get("request_path", "") or "")
+        if not request_path:
+            continue
+        record = _read_request(request_path)
+        spaces = (record.get("request") or {}).get("output_spaces")
+        if isinstance(spaces, str):
+            spaces = spaces.split()
+        if not isinstance(spaces, list) or not spaces:
+            continue
+        subject, session = str(row["subject"]), str(row["session"])
+        if _fmriprep_status(config, subject, session) is not Status.COMPLETE:
+            continue
+        found = _func_token_sets(root, subject, session)
+        missing = [
+            str(space)
+            for space in spaces
+            if (tokens := _space_tokens(str(space))) is not None
+            and not any(set(tokens) <= file_tokens for file_tokens in found)
+        ]
+        if not missing:
+            continue
+        where = f"sub-{subject}" + (f"/ses-{session}" if session else "")
+        issues.append(
+            ConsistencyIssue(
+                check="requested-spaces",
+                subject=subject,
+                stage="fmriprep",
+                severity="warning",
+                message=(
+                    f"{where}: fMRIPrep reads complete, but the requested output "
+                    f"space(s) {', '.join(f'`{m}`' for m in missing)} appear nowhere in "
+                    f"its func output. The board can't see this — a run is graded on "
+                    f"acquisitions, not representations, so *some* space being present "
+                    f"is enough to read done. What was asked is recorded in "
+                    f"`requests/{row['job_id']}.json` (output_spaces = {spaces}). "
+                    "Re-run fMRIPrep if the space is still wanted; if the ask changed, "
+                    "the next run's record will say so."
+                ),
+            )
+        )
+    return issues
+
+
 #: Ordered so the cockpit renders deterministically — project-level first, then
 #: per-unit, matching how someone reads the board.
 REGISTRY: tuple[Check, ...] = (
     Check("expected-roster", CHEAP, _check_roster),
     Check("expected-contents", CHEAP, _check_session_contents),
+    Check("requested-spaces", CHEAP, _check_requested_spaces),
 )
 
 
 def run_checks(config: Config, *, include_expensive: bool = False) -> list[ConsistencyIssue]:
     """Run the registered checks; return the flagged issues.
 
-    Empty list means either nothing was found or — far more often — the project
-    declares no expectations, which is the supported default. Each check is
+    Empty list means either nothing was found or — far more often — nothing was
+    declared, which is the supported default. There is no gate here: each check
+    gates on its *own* declaration (the ``[expected]`` checks on that section,
+    the request-record check on a recorded launch), so a project with no
+    ``[expected]`` still gets the L2 checks and vice versa. Each check is
     isolated: one blowing up must not sink the whole panel, the same contract
     :func:`~duckbrain.core.consistency.check_consistency` holds.
     """
-    if declared(config) is None:
-        return []
     issues: list[ConsistencyIssue] = []
     for check in REGISTRY:
         if check.cost == EXPENSIVE and not include_expensive:

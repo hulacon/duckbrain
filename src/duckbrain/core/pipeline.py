@@ -18,6 +18,7 @@ callers can reason about dependencies.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import Callable
@@ -576,8 +577,14 @@ def advance_one(
     job_id = submit_job(script, job_name, scripts_dir=log_dir)
     # Durable record of what we launched — survives past sacct's ~7-day window
     # and is independent of the ephemeral Job Monitor. Never let logging failure
-    # sink an otherwise-successful submission.
+    # sink an otherwise-successful submission. The request record gets its own
+    # guard inside the outer one: a failure there must not also cost the TSV row.
     try:
+        request_path = ""
+        try:
+            request_path = str(record_request(config, stage, subject, session, job_id, ctx))
+        except Exception:
+            request_path = ""
         record_submission(
             config,
             stage,
@@ -585,6 +592,7 @@ def advance_one(
             session,
             job_id,
             script_path=str(archived_script_path(log_dir, job_name, job_id)),
+            request_path=request_path,
             **run_provenance(config, stage),
         )
     except Exception:
@@ -610,6 +618,10 @@ _SUBMISSION_LOG = "submissions.tsv"
 # asked of it — and the on-disk script was overwritten by the next retry, so
 # after a re-run with different resources or flags the exact command line of the
 # failed attempt was unrecoverable even though its log and its row both survived.
+# ``request_path`` is the machine-readable half of the same fact: the script
+# makes the ask *recoverable* by re-parsing bash, the request record makes it
+# *recorded* — which is what a check comparing requested output spaces against
+# written ones reads. Design record: ``docs/sanity-checks.md``, Slice B.
 _SUBMISSION_COLUMNS = [
     "timestamp",
     "subject",
@@ -622,6 +634,7 @@ _SUBMISSION_COLUMNS = [
     "input_variant",
     "job_id",
     "script_path",
+    "request_path",
 ]
 
 # Columns renamed since logs were first written. The migration maps rows by *name*,
@@ -806,6 +819,77 @@ def _migrate_log_header(path: Path) -> None:
         tmp.unlink(missing_ok=True)  # leave the original untouched
 
 
+# ---- per-launch request record (the L2 slice of #16; sanity-checks.md) ------
+
+#: Subdirectory of ``log_dir`` holding one JSON per submitted job, named
+#: ``<job_id>.json`` — the same immutable per-attempt identity
+#: ``archived_script_path`` uses, and it lives on shared FS for the same reason
+#: the scripts do.
+_REQUESTS_DIR = "requests"
+
+#: Context keys ``build_context`` injects from the project config wholesale —
+#: study-wide state every launch shares, not what *this* launch asked for.
+#: Everything else in a builder's context is the resolved request: the per-launch
+#: values after ``params``-over-config fallback, exactly what the sbatch rendered
+#: from. Recording that remainder rather than a curated per-stage field list is
+#: deliberate — a knob added to a builder later lands in the record automatically
+#: instead of drifting out of it, which is how ``submissions.tsv`` came to carry
+#: tool identity and nothing else.
+_CONTEXT_CONFIG_KEYS = frozenset(
+    {"paths", "containers", "fmriprep", "nordic", "container_flags", "bids_validate"}
+)
+
+
+def request_path_for(config: Config, job_id: str) -> Path:
+    """Where one job's request record lives: ``<log_dir>/requests/<job_id>.json``."""
+    return Path(_resolve_log_dir(config)) / _REQUESTS_DIR / f"{job_id}.json"
+
+
+def record_request(
+    config: Config,
+    stage: str,
+    subject: str,
+    session: str,
+    job_id: str,
+    ctx: TemplateContext,
+) -> Path:
+    """Write the machine-readable record of what this launch asked for.
+
+    ``script_path`` already archives *how* the ask was rendered; this is the ask
+    itself, before it became bash — resolved ``output_spaces``, ``anat_only``,
+    the generated filter file, extra flags, the SLURM allocation. Keys are
+    sorted so two records diff cleanly, because "config drift between runs" is
+    one of the two questions this record exists to answer (the other, requested
+    versus written output spaces, is ``checks._check_requested_spaces``).
+
+    The top level carries identity and provenance; the launch's own choices sit
+    under ``"request"``. ``default=str`` because context values only need to be
+    renderable, not JSON-native — a ``Path`` must degrade to its string, never
+    take the record down.
+    """
+    from .bids_metadata import duckbrain_version
+
+    request = {
+        k: v
+        for k, v in ctx.items()
+        if k not in _CONTEXT_CONFIG_KEYS and k not in ("subject", "session")
+    }
+    record = {
+        "duckbrain": duckbrain_version(),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "stage": stage,
+        "subject": subject,
+        "session": session,
+        "job_id": str(job_id),
+        "request": request,
+    }
+    path = request_path_for(config, job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(record, f, indent=2, sort_keys=True, default=str)
+    return path
+
+
 def record_submission(
     config: Config,
     stage: str,
@@ -819,14 +903,15 @@ def record_submission(
     code_source: str = "",
     input_variant: str = "",
     script_path: str = "",
+    request_path: str = "",
 ) -> Path:
     """Append one launched job to ``<log_dir>/submissions.tsv`` (tab-separated).
 
     Provenance fields (``tool``/``tool_version``/``runtime``/``code_source``/
-    ``input_variant``/``script_path``) are keyword-only with empty defaults, so
-    older/hand callers still work; the cockpit passes them via
-    :func:`run_provenance`. Idempotent header: writes the column row only when
-    creating the file.
+    ``input_variant``/``script_path``/``request_path``) are keyword-only with
+    empty defaults, so older/hand callers still work; the cockpit passes them via
+    :func:`run_provenance` and :func:`record_request`. Idempotent header: writes
+    the column row only when creating the file.
     """
     path = _submission_log_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -845,6 +930,7 @@ def record_submission(
         input_variant,
         str(job_id),
         script_path,
+        request_path,
     ]
     with open(path, "a") as f:
         if write_header:

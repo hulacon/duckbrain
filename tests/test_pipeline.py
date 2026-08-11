@@ -911,6 +911,84 @@ def test_advance_one_records_submission(monkeypatch, tmp_path):
     assert (r["tool"], r["runtime"]) == ("dcm2bids", "cont.simg")
 
 
+# ---- the request record (docs/sanity-checks.md, Slice B) --------------------
+
+
+def test_advance_one_writes_a_request_record(monkeypatch, tmp_path):
+    """`script_path` makes the ask recoverable by re-parsing bash; the request
+    record is the ask itself, machine-readable, one file per job id."""
+    import json
+
+    _patch_dcm2bids(monkeypatch, tmp_path, {})
+    cfg = _config(tmp_path)
+    advance_one(cfg, "converted", "008", "01")
+
+    path = Path(read_submissions(cfg).iloc[0]["request_path"])
+    assert path == tmp_path / "code" / "logs" / "requests" / "JOB123.json"
+    record = json.loads(path.read_text())
+    assert (record["stage"], record["subject"], record["session"], record["job_id"]) == (
+        "converted",
+        "008",
+        "01",
+        "JOB123",
+    )
+    assert record["duckbrain"]  # provenance: git describe of the checkout
+    # The launch's own choices are recorded...
+    assert record["request"]["force"] is False
+    assert "slurm" in record["request"]
+    # ...study-wide config state is not — it is every launch's, not this one's.
+    assert "paths" not in record["request"]
+    assert "containers" not in record["request"]
+
+
+def test_fmriprep_request_records_the_resolved_ask(monkeypatch, tmp_path):
+    """The record holds the values after params-over-config fallback — resolved
+    `output_spaces` as a list, the allocation, the flags — because 'requested vs
+    written spaces' has to read the ask exactly as the sbatch got it."""
+    import json
+
+    import duckbrain.core.fmriprep as F
+
+    (tmp_path / "fs").mkdir()
+    lic = tmp_path / "fs" / "license.txt"
+    lic.write_text("x")
+    monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
+    monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
+    monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: "s")
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J77")
+
+    advance_one(
+        _config(tmp_path),
+        "fmriprep",
+        "008",
+        "",
+        output_spaces="MNI152NLin2009cAsym:res-2 fsaverage6",
+        anat_only=True,
+    )
+    record = json.loads((tmp_path / "code" / "logs" / "requests" / "J77.json").read_text())
+    assert record["request"]["output_spaces"] == ["MNI152NLin2009cAsym:res-2", "fsaverage6"]
+    assert record["request"]["anat_only"] is True
+    assert record["request"]["extra_flags"] == ""
+    assert record["request"]["slurm"]["cpus"]  # the SLURM ask rides along
+
+
+def test_a_request_record_failure_does_not_sink_the_submission(monkeypatch, tmp_path):
+    """Same contract as the TSV row: recording must never cost a launch — and a
+    failure in the JSON half must not take the TSV row down with it."""
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    cap = {}
+    _patch_dcm2bids(monkeypatch, tmp_path, cap)
+    monkeypatch.setattr(P, "record_request", boom)
+    cfg = _config(tmp_path)
+    assert advance_one(cfg, "converted", "008", "") == "JOB123"
+    r = read_submissions(cfg).iloc[0]
+    assert r["job_id"] == "JOB123"
+    assert r["request_path"] == ""
+
+
 # ---- run provenance ---------------------------------------------------------
 
 
@@ -1376,7 +1454,7 @@ def test_submission_record_points_at_the_archived_script(tmp_path):
     )
 
 
-def test_an_older_log_gains_the_script_path_column(tmp_path):
+def test_an_older_log_gains_the_script_and_request_columns(tmp_path):
     """Appending a wider row under a narrower header makes a ragged file that
     pandas refuses, taking the Job Monitor down with it."""
     log = tmp_path / "code" / "logs" / "submissions.tsv"
@@ -1387,10 +1465,12 @@ def test_an_older_log_gains_the_script_path_column(tmp_path):
         "2026-07-01T10:00:00\t04\t\tfmriprep\tfmriprep\t24.1.1\timg\tsrc\traw\t900\n"
     )
     config = {"paths": {"log_dir": str(log.parent)}}
-    record_submission(config, "mriqc", "05", "", "1001", script_path="/s.sbatch")
+    record_submission(
+        config, "mriqc", "05", "", "1001", script_path="/s.sbatch", request_path="/r.json"
+    )
 
     lines = log.read_text().strip().splitlines()
-    assert lines[0].split("\t")[-1] == "script_path"
+    assert lines[0].split("\t")[-2:] == ["script_path", "request_path"]
     assert lines[1].split("\t")[9] == "900"  # the old row kept its job id
-    assert lines[1].split("\t")[-1] == ""  # ...and fills the new field empty
-    assert lines[2].split("\t")[-1] == "/s.sbatch"
+    assert lines[1].split("\t")[-2:] == ["", ""]  # ...and fills the new fields empty
+    assert lines[2].split("\t")[-2:] == ["/s.sbatch", "/r.json"]

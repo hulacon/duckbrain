@@ -10,6 +10,26 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **Every SLURM launch now writes a request record** —
+  `<project>/code/logs/requests/<job_id>.json`, holding the resolved ask
+  (fMRIPrep `output_spaces`, `anat_only`, extra flags, the generated BIDS
+  filter file, the SLURM allocation, …) alongside the archived sbatch, with a
+  `request_path` column in `submissions.tsv` pointing at it. The sbatch made
+  those choices *recoverable* by re-parsing bash; the record makes them
+  *recorded*, machine-readable, and diffable across runs (keys are sorted so
+  two records `diff` cleanly). Existing submission logs gain the column
+  automatically. (`#16.1`)
+- **A `requested-spaces` check** — the record's first consumer, in the
+  cockpit's consistency panel. The pipeline board deliberately grades fMRIPrep
+  on acquisitions, not representations, so a run that quietly dropped a
+  requested output space (say `fsaverage6`) reads complete everywhere. This
+  check compares the recorded `--output-spaces` against the `space-` entities
+  actually present in the unit's func output — only for the newest attempt per
+  unit, and only once the unit reads complete. It needs no `[expected]`
+  section: the request record is duckbrain's own declaration. (`#16.1`)
+
 ## [0.5.0] — 2026-08-11
 
 ### Added

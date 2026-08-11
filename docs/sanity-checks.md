@@ -49,7 +49,7 @@ first draft's mistake.
 | | Declares | Stated by | Status |
 |---|---|---|---|
 | **L1 — roster + protocol** | "37 subjects; each session has 1×T1w, 1 fieldmap pair, 4 runs of `task-div`" | the experimenter | **Slice A — shipped** |
-| **L2 — request** | "fMRIPrep for sub-015 with these `output_spaces`, `use_nordic`, no anat reuse" | duckbrain, at launch | Slice B — open |
+| **L2 — request** | "fMRIPrep for sub-015 with these `output_spaces`, `use_nordic`, no anat reuse" | duckbrain, at launch | **Slice B — shipped 2026-08-11** |
 | **L3 — outcome** | "fMRIPrep actually applied SDC / actually wrote `space-fsaverage6`" | only the tool knows | Slice C — open |
 
 L3 checks are only expressible against L2, and acquisition-level omissions only
@@ -188,6 +188,53 @@ separate because it is a plan-time surface on a different page.
 docstring commits it to provenance agreement and its source-of-truth ordering is
 specific to that question. Same issue type, same pattern, different question.
 
+## Slice B — the request record (shipped 2026-08-11)
+
+`pipeline.record_request` writes `<log_dir>/requests/<job_id>.json` at every
+SLURM submission, and `submissions.tsv` gained a `request_path` column pointing
+at it (`_migrate_log_header` widens existing logs, the solved shape). The
+decisions, so they are not re-litigated:
+
+- **The record is the builder's resolved template context minus the config-wide
+  keys `build_context` injects** (`pipeline._CONTEXT_CONFIG_KEYS`), not a
+  curated per-stage field list. The context *is* the ask — the values after
+  params-over-config fallback, exactly what the sbatch rendered from — so a
+  knob added to a builder later lands in the record automatically instead of
+  drifting out of it, which is how `submissions.tsv` came to carry tool
+  identity and nothing else.
+- **Keys are sorted** so two records `diff` cleanly: "config drift between
+  runs" is one of the two questions the record exists to answer.
+- **Recording never blocks a launch** — same contract as the TSV row, and the
+  JSON half fails independently of it.
+- **Nothing is written for `export_only`**: an exported script is launched
+  outside duckbrain, so the script itself is the only honest record.
+
+Its first consumer is `checks._check_requested_spaces` — requested
+`--output-spaces` versus the `space-` entities actually in the unit's func
+output, the comparison `surveyor._entity_key` deliberately cannot make. Two
+silences are deliberate and carry the layer's hardest-won lessons: only the
+**newest attempt** per unit is judged, and only when that attempt carries a
+record (an older record describes a superseded run — the crash-file staleness
+shape; a newer launch without one leaves nothing current to judge); and only a
+**COMPLETE unit** is judged (a PARTIAL unit's shortfall already shows on the
+board, and a running job would read as missing every space it hadn't written
+yet). Native-space aliases (`func`, `run`, `boldref`, `sbref`) write no
+`space-` entity and are skipped — the surveyor's own grade already requires the
+native preproc BOLD. More spaces than requested is never flagged.
+
+**The gate moved with it.** `run_checks` no longer returns `[]` wholesale when
+`[expected]` is absent: the registry now judges against two declarations with
+different authors — the experimenter's `[expected]` and duckbrain's own request
+record — and each check gates on *its* declaration being present. Absent still
+means off, per source. `test_the_check_needs_no_expected_declaration` pins the
+restructure; `test_no_declaration_means_no_issues` still holds for a project
+with neither declaration.
+
+**The NORDIC "free half" was noted and deliberately not built here**: grading
+NORDIC by "every launch-written sidecar has a matching NIfTI" needs no request
+record (`nordic.write_nordic_sidecars` already writes one per intended run) and
+belongs with Slice C's outcome family when that lands.
+
 ## The cost field, and what it is holding open
 
 `Check.cost` is `CHEAP` or `EXPENSIVE`, and **nothing expensive is registered**.
@@ -206,12 +253,13 @@ cockpit panel instead. Cost is the least of it — with `--ignoreSymlinks` a ful
 run is under four seconds even on a project with 147 GB of derivatives. Three
 reasons, and the first is decisive:
 
-1. **`run_checks` returns `[]` when a project declares no `[expected]`.** That
-   gate is right for this registry — every check in it judges against a
-   declaration, and a project that declares nothing is not thereby wrong.
-   Registering the validator here would make BIDS validation silently conditional
-   on an opt-in that has nothing to do with it. The BIDS spec is not a project's
-   statement of intent; it is everyone's.
+1. **Every check in this registry gates on a declaration** — the experimenter's
+   `[expected]` for the L1 checks, duckbrain's own request record for the L2 one
+   (the gate is per-check since Slice B; it was a single `run_checks` gate on
+   `[expected]` before). A project that declares nothing is not thereby wrong,
+   and it gets silence. Registering the validator here would make BIDS
+   validation silently conditional on a declaration that has nothing to do with
+   it. The BIDS spec is not a project's statement of intent; it is everyone's.
 2. **`ConsistencyIssue` carries no file list**, and it is frozen and shared with
    `consistency.py`. A validator finding is *about* files — flattening forty
    paths into a message string destroys what makes it actionable, and widening a
@@ -229,13 +277,6 @@ that the fieldmap-intent bug passed it.
 
 ## What is deliberately still open
 
-- **Slice B — the request record.** `submissions.tsv` carries tool identity only:
-  no `output_spaces`, `nprocs`, `anat_only`, `use_derivatives`, `extra_flags`,
-  BIDS filter path, or `use_nordic`. `script_path` makes them *recoverable* by
-  re-parsing an sbatch, which is not the same as recorded. A
-  `<log_dir>/requests/<job_id>.json` plus a `request_path` column would mirror
-  `script_path` exactly, and is what "requested vs written `output_spaces`" needs
-  — impossible today because `surveyor._entity_key` strips `space-`.
 - **Slice C — the outcome checks and their cache.** Parsing the fMRIPrep report
   for SDC-applied is the one that motivated `#16`. Note it is *complementary* to
   `fmap-intent`, which catches the cause from the sidecars before hours of

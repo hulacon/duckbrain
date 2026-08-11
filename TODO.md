@@ -15,7 +15,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#16`](#16) **next** — sanity checks (Slice A done; `#16.1`–`#16.3` open) ·
+[`#16`](#16) **next** — sanity checks (Slices A + B done; `#16.2`–`#16.3` open) ·
 [`#13`](#13) conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
 [Licensing](#licensing-follow-ups) ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
@@ -104,21 +104,20 @@ The cut also surfaced that **`v0.4.0`'s tag was pushed but its GitHub Release
 was never published** — the exact failure `docs/releasing.md` warns about, and
 why the GUI told nobody about `v0.4.0` for five days.
 
-### `v0.6.0` — the expectation layer: `#16.1`, `#16.2`, then `#13.1`
+### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2`, then `#13.1`
 
 This is the one with genuine design risk in it, which is exactly why it must not
 be bundled with the release above. `#16.2` needs duckbrain's *first cache* — a
-decision `surveyor.py`'s docstring currently advertises the absence of as a virtue
-— and `#16.1` has had its scope narrowed twice already (2026-08-04 left it with
-`output_spaces` and cross-run config drift as its only surviving motivating
-cases). Neither is a bad bet; both are the kind of thing that takes longer than
-planned and should not be able to hold finished work hostage.
+decision `surveyor.py`'s docstring currently advertises the absence of as a virtue.
+It is the kind of thing that takes longer than planned and should not be able to
+hold finished work hostage.
 
-`#13.1` comes **last within this release, not alongside it**, and may never be
-built as its own feature: it is parked behind `#16.1` precisely because "which
-series this study converts" may turn out to be a statement of intent belonging in
-`[expected]`, in which case its separate section never gets written. Deciding that
-is part of `#16.1`, not a thing to do in parallel with it.
+**`#16.1` shipped 2026-08-11** (see the ledger; decisions in
+`docs/sanity-checks.md`, Slice B). It also discharged the question it owned:
+"which series this study converts" does **not** fold into `[expected]` — the
+reasoning is recorded at `#13.1`, which therefore gets built as its own
+description-keyed section. It still comes **last within this release, not
+alongside `#16.2`**.
 
 ### `#19` — deliberately not in the version plan
 
@@ -169,54 +168,17 @@ that changes nothing here: it checks structure and naming, not semantic intent.
 actually bitten us.** The cockpit's validation panel says so in its own caption,
 because whoever reads a clean result is exactly who needs to know.
 
+**Slice B (`#16.1`, the request record) shipped 2026-08-11** — every launch
+writes `requests/<job_id>.json`, `submissions.tsv` gained `request_path`, and
+`checks._check_requested_spaces` is the first consumer (see the ledger; the
+design decisions, including the per-check gate restructure and the DB-002
+"persisted manifest" framing this also closes, are recorded in
+`docs/sanity-checks.md` under Slice B). The `#13.1` question it owned is
+answered at `#13.1`; NORDIC's sidecar-vs-NIfTI "free half" was deliberately
+left for `#16.2`'s outcome family.
+
 What remains, in the order it should be built. Each is a slice because each has
 its own commitment to weigh.
-
-### `#16.1` — The request record (L2)
-
-`submissions.tsv` carries tool *identity* only. Absent: `output_spaces`,
-`nprocs`, `mem_gb`, `anat_only`, `use_derivatives`, `extra_flags`, the generated
-BIDS filter path, `use_nordic`, SLURM resources. `script_path` makes them
-*recoverable* by re-parsing an sbatch, which is not the same as recorded.
-
-- Write `<log_dir>/requests/<job_id>.json` at launch and add a `request_path`
-  column — mirroring `script_path` exactly, so this is a solved shape
-  (`pipeline._migrate_log_header` already handles the column addition).
-- Its first consumer: **requested `output_spaces` vs the spaces actually
-  written** — impossible today because `surveyor._entity_key` strips `space-` and
-  nothing else records the ask. **That is now the item's *only* surviving
-  motivating case** (2026-08-04): the run this record was expected to explain
-  turned out to need none of it, because the archived sbatch was byte-identical
-  to the successful re-run's and `script_path` reached it in one `diff`. Two
-  further things that case settled about the boundary here — the *confounds* half
-  of "did we get what we asked for" needed no record at all (fMRIPrep writes one
-  per BOLD run at its default level, so the raw BOLD list already says how many
-  there should be, and `surveyor._fmriprep_func_keys` now requires them); and the
-  *outcome* half can sometimes be read straight off the tool, which is what
-  `consistency._check_tool_crashes` does. So this layer is narrower than it
-  looked, and what is left in it is genuinely the ask nobody else records — the
-  spaces, and drift between runs.
-- Not a JSON blob column (keeps the TSV greppable), and not a stamp in the
-  derivative tree (fMRIPrep/MRIQC overwrite their own `dataset_description.json`,
-  which is why `consistency.py`'s source rule routes tool-produced derivatives to
-  the log).
-- **This is also DB-002's "persisted expected-output manifest"** (external review,
-  2026-07-22), arrived at from the other direction — one feature, so build it
-  once. What that framing adds is a trigger and a free half. The trigger:
-  counting expected-vs-found already covers the failure DB-002 reported and needs
-  no state store, so the manifest earns its keep only for the two things counting
-  can't see — a missing output *space* (the bullet above) and config drift between
-  runs — which means **revisit when per-launch `output_spaces` overrides become
-  common**. The free half: `nordic.write_nordic_sidecars` writes one sidecar per
-  intended run at launch already, so NORDIC could be graded by "every sidecar has
-  a matching NIfTI" without inventing anything.
-- **`#13.1` is waiting on this layer to settle** (Ben, 2026-07-30). A study that
-  converts only part of what it acquired — five of the LCNI corpus's fifteen
-  curate `anat/T1w` alone — currently has to say so as a per-session skip. That
-  may be a *statement of intent* rather than a config toggle, and `[expected]` is
-  the only statement of intent duckbrain has. Whoever shapes this should decide
-  whether "which series this study converts" belongs in it; if it does, `#13.1`'s
-  separate section never gets built.
 
 ### `#16.2` — Outcome checks, and duckbrain's first cache
 
@@ -348,6 +310,27 @@ eyeball pass produced. Full design in **`docs/conversion-legibility.md`**.
 **The editable `Type` shipped 2026-07-30** — see the ledger and
 `docs/conversion-legibility.md` phase 8 for the design and the refusals it rests
 on. What that work left open is one bullet of the original item.
+
+**The `[expected]` question is decided (2026-08-11, owed by `#16.1`): the skip
+does *not* fold into `[expected]` — build this as its own description-keyed
+section.** Two reasons, and the REV study below supplies the decisive one:
+
+- **A count cannot say *which*.** `[expected]` speaks in counts over BIDS
+  entities (`fmap_pairs = 1`, task labels, anat suffixes); the curator's intent
+  in REV is *keep `fieldmap2`, drop `fieldmap1`* — description-specific, and no
+  count expresses it. The skip's natural key is `SeriesDescription`, the same
+  key `[task_mapping]` and `[series_types]` already use, and that vocabulary
+  only exists before conversion — exactly where `[expected]` doesn't look.
+- **`[expected]` reports; a skip controls.** The expectations layer's standing
+  contract is reports-never-repairs ("Nothing here writes to a dataset"), and
+  its opt-out gate turns *checks* off. A skip must change what
+  `generate_session_config` emits. Routing conversion behavior through the
+  check layer's declaration would make deleting `[expected]` silently change
+  what gets converted — the exact silently-degrading coupling the rules forbid.
+
+The two statements stay complementary: an anat-only study *should also* declare
+an anat-only `[expected.session]`, and then the plan, the tree and the checks
+all agree — but they remain two declarations with two jobs.
 
 **Measured twice on 2026-07-30, and the second measurement is the one to
 trust — the item is justified, but not by either example it used to cite.**
@@ -1484,6 +1467,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-11 | `#16.1` | **The request record (L2, `#16` Slice B):** every SLURM launch writes `<log_dir>/requests/<job_id>.json` — the builder's resolved context minus config-wide keys, sorted for diffing — with a `request_path` column in `submissions.tsv`; first consumer `checks._check_requested_spaces` compares recorded `output_spaces` to written `space-` entities (newest attempt only, COMPLETE units only), and the `run_checks` gate became per-check so L2 needs no `[expected]`. Design record: `docs/sanity-checks.md` Slice B. The `[expected]`-vs-skip question it owed is answered at `#13.1`. |
 | 2026-08-07 | `#20` | **conda is the documented environment: `environment.yml` + `scripts/setup_env.sh`, built and verified at the shared prefix `/projects/hulacon/shared/envs/duckbrain`.** braintwill's recipe taken working rather than re-derived, exactly as the item instructed: the script reads the package list out of `environment.yml` and passes it to a plain `conda create --override-channels -c conda-forge` (`conda env create` cannot be made safe against FSL's `#!final` condarc — re-verified nothing here), then **fails** unless every conda package resolved from conda-forge. The ownership split is the design decision: conda pins the interpreter (3.11) and the runtime deps, unpinned; the dev extra stays on pip via `-e .[dev]` **even though the blocker died** — conda-forge now carries ruff 0.16.x, rechecked as the item asked — because `pyproject.toml` must stay the single source of the gate pins, and a pin duplicated into `environment.yml` re-opens the drift the pins exist to close. One clean solve is committed as `conda/lock-linux-64.txt` (172 packages; regenerate only from a deleted prefix — an incremental solve is not a fresh one). Launch discovery is a gitignored `.conda-prefix` the script writes into the checkout: both launchers now prefer it over `.venv`, prepend the env's `bin/` (no conda shell hook needed), and set `PYTHONPATH=<checkout>/src` so the launched checkout is always the code that serves — the shared env has one checkout editable-installed, and without that line a user launching their own clone would silently run someone else's code. **The import check earned itself twice on day one, both times against the script itself.** First: `~/.local` site-packages shadow a conda env's own — the host-side twin of the `#34` container leak, a venv being immune is why nobody had met it — observed live as the env solving streamlit 1.61.1/nibabel 5.4.2 and importing this account's stale `pip install --user` 1.56.0/5.3.3 behind two green channel checks. Fixed with `PYTHONNOUSERSITE=1` in the script, in both launchers' conda branches, and as an `activate.d` hook in the env so the documented `conda activate` path is protected without knowing about it. Second: `conda run` does not forward stdin, so a heredoc check under it runs **empty and exits 0** — a vacuous pass caught only because the expected output went missing; the check now invokes the env's python directly, asserts `sys.executable` is the prefix's, and fails when any runtime module resolves from outside it. Verified end to end: full local gate green **in the env** — ruff, `format --check`, mypy, 1495 tests, coverage 89.81% over the 89 floor — which is also the first confirmation the suite passes against streamlit 1.61.x resolved fresh; and `scripts/launch.sh` served the app HTTP 200 through the conda branch (the OnDemand leg is `#30`'s new entry). CI deliberately stays on pip: GitHub runners have no FSL condarc, conda would cost solve time on every push, and the runners' pip path is the one GitHub users take — the accepted cost is that CI no longer tests the path Talapas users take, and the local gate run inside the env is the compensating check. The shared prefix is the model for other PIRGs to copy (`/projects/<pirg>/shared/envs/<name>`, setgid, one build per PIRG instead of ~1.2 G per user under an unreadable `~/.conda`); `--personal` and `--prefix` cover everyone else. |
 | 2026-08-06 | `#33` | **`disallow_any_generics` is on, which closes `#33.2` and with it the whole item — the type-checked surface is now the whole package under every knob this project has measured.** The knob was **226 errors**, not the 90 the mypy comment carried; that figure predated `#33.4`, and the item had already said the cost is a function of the gated surface. So the ninth and last of this item's estimates was wrong in the same direction as the other eight, and the item's own prediction that it would be — "the last such number" — is the one that held. But the count was never the shape of the work: **199 of the 226 were a bare `dict`, and 95 of those were one parameter, `config`, repeated across 20 modules**. One decision, then a sweep. `dict[str, Any]` is the end of that decision and not a placeholder — four TOML layers deep-merged, every key optional — spelled as a named alias `Config` because 90-odd signatures take one and `dict[str, Any]` is equally what a sidecar, a job-parameter dict and a Jinja context are. **Naming it immediately caught three functions taking the wrong one**: `plan_conversion`, `read_config_into_table` and `config_to_json` take a *dcm2bids* config, which the mechanical sweep had annotated `Config` and which is now `Dcm2BidsConfig`. That is the entire argument for a transparent alias, since mypy sees straight through both. **The `typing_extensions` blocker this item recorded was never real, and the item had already established why**: a required base plus a `total=False` subclass is the pre-3.11 spelling of `NotRequired`. `dcm2bids_config.Description` is written that way. Two rules came out of doing it, and they are in `pyproject.toml` because they decide the next one: a payload **read off disk** stays `dict[str, Any]` (sidecars, dataset descriptions, decision entries and hand-edited configs arrive in more than one schema with every key absent from some real file, which is why each reader is a chain of `.get()` and `isinstance` — a TypedDict over all-optional keys says nothing and reads as a guarantee); a payload **this code builds** gets one, because then the keys really are set in one place. Three qualified: `pipeline.JobIndex` (three keys, two different types, so no `dict[K, V]` describes it — which is how it came to be bare), `qc.DecisionRecord`/`DomainRecord` (and `DecisionRecord` *subclasses* `DomainRecord`, because `_domains_of`'s docstring already claimed a domain record is the run-level one minus the breakdown, and inheritance is that sentence in a form that stays true), and `Description`. **Four defects, all found by writing a type down rather than by looking for them.** `generate_config` bound `desc` to three different descriptions 60 lines apart — the `#18` shape a sixth and seventh time, fixed by renaming. `containers._inspect_labels_cached` returns a tuple of `(key, value)` **pairs** as its own docstring says, and the wrong `tuple[str, ...]` I first wrote was rejected at both the `tuple(labels)` that builds it and the `dict(...)` that consumes it. `qc.parse_entities` really does return `dict[str, str]`, which exposed `summarize_motion` stuffing four floats into the shared helper's result. And `survey_live`'s second return value was the bare dict `JobIndex` replaced. **The one that matters most is a hole in the checker, not in the code.** Naming `StageBuilder` broke the package on import and mypy stayed green: `from __future__ import annotations` defers *annotations*, but a type alias is an ordinary assignment evaluated at module load, so `Callable[[Config, …]]` at module scope needs a `TYPE_CHECKING`-only name at runtime. Six test files stopped collecting. To mypy the guard branch is always taken, so this is permanent blindness rather than a bug to file — hence `tests/test_runtime_type_aliases.py`, which imports every module in the package, and which was verified by putting the bad alias back (mypy clean, three tests red). It also guards itself: an empty `walk_packages` would pass vacuously. Gate verified to *block* rather than pass over — deleting one type argument from `discover_units` turns it red. Coverage measured before and after at 89.80% and 89.81%, so the floor is untouched: this added and removed no reachable code. What is left of widening is `strict`, which is not measured. |
 | 2026-08-06 | `#33.4` | **mypy checks the whole package now — `core/`'s 36 errors, then the 11 nobody had scoped, and the file list is one directory.** `core/` first, as the item asked. Its headline — a third-party *decision* for `plotly` — was right about the shape and wrong about the size: 4 of 36. `plotly-stubs` 0.1.3 exists and makes `qc_report.py` clean with **no code change at all**, which is the measurement that settles it rather than a guess either way; declined anyway, because ten calls into a chart library in one module do not justify a single-maintainer 0.1.x package as a hard dependency of a *blocking* gate, and a stale stub is a false error or a false pass with nothing naming the cause. Two of the 36 were defects. `SessionExpectation` served the declared prescription and the observed count at once, so `fmap_pairs=None` — meaningful on one, impossible on the other — made `checks.py:174` an `int | None < int` that held only by what the caller passed; split into `SessionCounts` with `as_declaration()` the single crossing, and a test on the zero it carries across, since a measured zero read as silence is exactly the fallback this module exists to prevent. `SortResult.errors` was `list[str] | None` repaired in `__post_init__`, so every `.append` was against a declared `None`. Also four JSON/config boundaries returning `Any` under a concrete annotation, two of which now shape-check: a template listing from a script run inside somebody else's container is not a mapping just because it parsed, and an empty manifest reads downstream as "nothing to repair". **Then the remainder, which no note had ever estimated: `config.py` + `slurm/` at 11 errors** — six signatures, `find_job_logs` declaring `log_dir: str` and rebinding it to a `Path` on the next line, and a `try: import tomllib` that could only run below 3.11, where tomllib does not exist. That branch is also why `tomli` needs an override: the analysis target is pinned at 3.10 while the interpreter is whatever the developer has, so without it the gate is green in CI and red on a 3.11 box. Gate verified to *cover* the new files rather than pass over them — deleting two annotations turns it red at 20. `[tool.mypy]`'s comment rewritten, not appended to: it opened by explaining which files were chosen and why the rest was a different job, and none of that is true any more |

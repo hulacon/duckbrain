@@ -208,11 +208,13 @@ def _fmriprep_func_keys(root: Path, subject: str, session: str) -> set[str]:
 
     **The false positive this knowingly accepts.** ``--level minimal`` and
     ``--level resampling`` write no confounds, and either can reach fMRIPrep
-    through the Preprocessing page's free-text flags box. duckbrain does not
-    record what it requested, so it cannot tell that run from a broken one, and
-    re-parsing the submitted sbatch on the cockpit's render path would be
-    treating "recoverable" as "recorded". Guessing was refused; the cost of not
-    guessing is bounded, which is what makes accepting it reasonable — no
+    through the Preprocessing page's free-text flags box. The request record
+    (``pipeline.record_request``) captures those flags now, but the grade
+    deliberately does not read it: an externally-run fMRIPrep has no record, so
+    a record-dependent grade would make identical trees read differently in two
+    projects — the surveyor judges the tree against the tree, on purpose.
+    Guessing was refused; the cost of not guessing is bounded, which is what
+    makes accepting it reasonable — no
     ``STAGE_SPECS`` entry depends on ``fmriprep``, so a stricter grade blocks no
     downstream stage. It colours a cell PARTIAL, offers a re-run where a green
     cell offered nothing, and stops ``pipeline.survey_live`` suppressing a real
