@@ -1295,7 +1295,14 @@ plus the `ssh -L` line it prints.
    session starts, the gateway link connects, and the sidebar's version stamp
    shows this checkout's `git describe` (which proves the PYTHONPATH half —
    the shared env has a checkout editable-installed, and serving *that* one
-   would look identical except for the stamp).
+   would look identical except for the stamp). **Widened 2026-08-16 by the
+   canonical-location repoint:** the sandbox symlink and the form default now
+   name the shared checkout
+   (`/gpfs/projects/hulacon/shared/mmmdata/code/duckbrain`), but OnDemand
+   remembers per-user form values, so the cached `duckbrain_dir` may still say
+   `~/code/duckbrain` — check the field before launching, and confirm the
+   served app is the shared checkout (until `~/code` pulls, the presence of
+   the `#16.2` Outcome checks panel is a discriminator the stamp also settles).
 9. **The top nav with seven entries plus the QC group.** Added 2026-08-07 with
    `#2`'s "New to Talapas?" page. `st.navigation(position="top")` gets no
    width modelling from AppTest, and the new title is the longest in the bar

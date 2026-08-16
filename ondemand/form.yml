@@ -45,8 +45,8 @@ attributes:
   duckbrain_dir:
     widget: "text_field"
     label: "duckbrain install directory"
-    value: "/gpfs/home/$USER/code/duckbrain"
-    help: "Path to the duckbrain repository (must contain src/duckbrain/gui/app.py). $USER, ${USER}, and ~ are expanded on the compute node."
+    value: "/gpfs/projects/hulacon/shared/mmmdata/code/duckbrain"
+    help: "Path to the duckbrain repository (must contain src/duckbrain/gui/app.py). Point it at your own clone if this default isn't yours — OnDemand remembers your last value. $USER, ${USER}, and ~ are expanded on the compute node."
     required: true
 
   project_dir:

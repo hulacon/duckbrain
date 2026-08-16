@@ -303,9 +303,10 @@ Apps** (Interactive Apps → Neuroimaging).
 > in the OnDemand docs.
 
 > `UNVALIDATED`: the steps above are the shape the maintainer's working setup
-> takes, but have not been walked through on a *fresh* account. The form defaults
-> the install directory to `/gpfs/home/$USER/code/duckbrain` — i.e. it assumes
-> you cloned there.
+> takes, but have not been walked through on a *fresh* account. The form
+> defaults the install directory to the maintainer's shared checkout
+> (`/gpfs/projects/hulacon/shared/mmmdata/code/duckbrain`) — point the field at
+> your own clone on first launch; OnDemand remembers your value after that.
 
 ---
 

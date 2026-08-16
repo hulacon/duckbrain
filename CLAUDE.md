@@ -13,13 +13,17 @@ monitoring behind the scenes. It generalizes the `mmmdata` pipeline (see
 
 ## Canonical location
 
-**This checkout — `~/code/duckbrain` (= `/gpfs/home/$USER/code/duckbrain`) — is
-the canonical one.** A duplicate previously existed at
-`/gpfs/projects/hulacon/bhutch/duckbrain`; it was a byte-identical clone and is
-being removed. All local dev, the venv, and the OnDemand app point here.
-Distribution to other users is via `git clone` from
-`git@github.com:hulacon/duckbrain.git`, so this directory is just the personal
-dev/working copy.
+**The canonical checkout is
+`/gpfs/projects/hulacon/shared/mmmdata/code/duckbrain`
+(= `/projects/hulacon/shared/mmmdata/code/duckbrain`)** — since 2026-08-16;
+it was `~/code/duckbrain` before that. Canonical means dev happens here *and*
+the OnDemand app serves from here: the two were split across checkouts, and
+every session ended with a pull into the serving copy that was easy to forget,
+so the GUI kept announcing work it didn't have (Ben asked for the repoint after
+`#16.2` shipped with exactly that caveat). `~/code/duckbrain` still exists as a
+secondary personal copy — treat it as *behind* until pulled, and never dev in
+both at once. Distribution to other users is unchanged: `git clone` from
+`git@github.com:hulacon/duckbrain.git`.
 
 ## Working convention: stay on `main`
 
@@ -327,7 +331,7 @@ The `ondemand/` directory is a complete OnDemand Batch Connect interactive app
 
 **It is registered as a personal sandbox app via a symlink:**
 ```
-~/ondemand/dev/duckbrain  ->  ~/code/duckbrain/ondemand
+~/ondemand/dev/duckbrain  ->  /gpfs/projects/hulacon/shared/mmmdata/code/duckbrain/ondemand
 ```
 So it appears in the Talapas OnDemand dashboard under **Develop → My Sandbox
 Apps** (Interactive Apps → Neuroimaging). Launch it there; once the SLURM
@@ -336,9 +340,14 @@ Streamlit GUI.
 
 Key behaviors to know when editing the app:
 - The launch form's `duckbrain_dir` field **defaults to
-  `/gpfs/home/$USER/code/duckbrain`** — i.e. this checkout. If the canonical
-  location ever moves, update BOTH the symlink target and this form default in
-  `ondemand/form.yml`.
+  `/gpfs/projects/hulacon/shared/mmmdata/code/duckbrain`** — i.e. this
+  checkout. If the canonical location ever moves, update BOTH the symlink
+  target and this form default in `ondemand/form.yml`. The default is now a
+  path only hulacon members can read — an accepted cost of serving from the
+  shared checkout; anyone else edits the field once at their own clone, and
+  OnDemand remembers per-user values from then on. That memory cuts both ways:
+  **Ben's cached value may still say `~/code/duckbrain`**, so the first launch
+  after the repoint needs the field checked, not trusted.
 - `ondemand/template/script.sh.erb` uses, in order: the conda env recorded in
   `${DUCKBRAIN_DIR}/.conda-prefix`, then `${DUCKBRAIN_DIR}/.venv`, then a bare
   `module load python3` + `pip install -e` on the compute node (fragile —
@@ -347,8 +356,13 @@ Key behaviors to know when editing the app:
   `PYTHONPATH=${DUCKBRAIN_DIR}/src`, so the launched checkout is always the
   code that serves even though the shared env has one checkout
   editable-installed — don't remove that line as redundant.
-- Because the OnDemand app runs THIS checkout's code, changes made elsewhere only
-  take effect here after commit/push/pull into `~/code/duckbrain`.
+- Because the OnDemand app serves THIS checkout, work landing here is live on
+  the next launch — the pull step that used to sit between dev and the GUI is
+  gone, which was the point of the repoint. The flip side: this working copy
+  *is* the served copy, so an uncommitted half-edit can reach a running GUI.
+  Commit small and keep the tree clean (the stay-on-`main` convention above is
+  what makes that workable), and remember an already-running session keeps the
+  code it launched with.
 
 ## Start here next session
 
