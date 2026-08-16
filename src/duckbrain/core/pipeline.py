@@ -150,6 +150,7 @@ def _build_dcm2bids(
     if not cfg_path.exists():
         from .dcm2bids_config import fmap_rules_from_config, task_rules_from_config
         from .dicom_inspect import nd_policy_from_config
+        from .series_skip import skip_descriptions_from_config
         from .series_types import type_rules_from_config
 
         rules = task_rules_from_config(config)
@@ -163,6 +164,7 @@ def _build_dcm2bids(
                 fmap_rules=fmap_rules,
                 nd_duplicates=nd_policy_from_config(config),
                 type_rules=type_rules_from_config(config),
+                skip_descriptions=skip_descriptions_from_config(config),
                 # The same image this session will convert through, so the
                 # preflight's phase-encoding check reads the build that will do
                 # the work. Without it this path checks less than the reviewed

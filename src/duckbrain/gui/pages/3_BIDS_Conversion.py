@@ -301,6 +301,23 @@ from duckbrain.core.series_types import (
 
 project_type_rules = type_rules_from_config(config)
 
+# The project's standing "never convert this" list — [series_skip], the tier
+# above the per-session `convert` checkbox in exactly the way [series_types] is
+# the tier above the header and the name. Read here, applied at the `convert`
+# seed below: a skipped series arrives unticked and a re-tick wins for this
+# session only (the saved JSON is the record), because the per-session case is
+# real — identical descriptions where only one run is the aborted one.
+from duckbrain.core.series_skip import (
+    SKIP_REASON as PROJECT_SKIP_REASON,
+)
+from duckbrain.core.series_skip import (
+    skip_descriptions_from_config,
+    skip_lookup,
+)
+
+project_skip = skip_descriptions_from_config(config)
+_project_skip_keys = skip_lookup(project_skip)
+
 session_type_rules = []
 _unusable_types = {}
 for _idx, _changes in list(row_edits.items()):
@@ -485,6 +502,7 @@ if _saved_config_path.exists():
             rules=task_rules_from_config(config),
             fmap_rules=fmap_rules_from_config(config),
             type_rules=project_type_rules,
+            skip_descriptions=project_skip,
             series_list=[dataclasses.replace(series) for series in series_list],
             nd_duplicates=_project_nd_policy,
         )
@@ -536,11 +554,12 @@ template = st.text_input(
 
 project_rules = task_rules_from_config(config)
 project_fmap_rules = fmap_rules_from_config(config)
-if project_rules or project_fmap_rules or project_type_rules:
+if project_rules or project_fmap_rules or project_type_rules or project_skip:
     st.caption(
         f"↪ {len(project_type_rules)} project-wide type declaration(s), "
-        f"{len(project_rules)} task rule(s) and "
-        f"{len(project_fmap_rules)} fieldmap binding(s) applied as defaults. "
+        f"{len(project_rules)} task rule(s), "
+        f"{len(project_fmap_rules)} fieldmap binding(s) and "
+        f"{len(project_skip)} skipped description(s) applied as defaults. "
         "Edit any row to override them for this session only."
     )
 
@@ -674,8 +693,15 @@ for series in series_list:
             fieldmap = _NO_FMAP_TOKEN if fieldmaps.groups else ""
     # Ticked for anything duckbrain has an emission path for, so the box agrees
     # with `becomes` on first render rather than promising a file for a scout.
-    convert = series.classification in EMITTED_CLASSIFICATIONS
-    if imported is not None and convert:
+    # A [series_skip] description seeds unticked on top of that — the project's
+    # standing decision, overridable per session by re-ticking the box.
+    _emittable = series.classification in EMITTED_CLASSIFICATIONS
+    convert = _emittable and series.description.strip().lower() not in _project_skip_keys
+    if imported is not None and _emittable:
+        # The one-shot import is an explicit review, so it wins over the project
+        # seed in *both* directions — a JSON that converts a project-skipped
+        # series re-ticks it. Guarded on emittability, not on the current tick,
+        # or the import could never say so; a scout stays unticked either way.
         convert = series.series_number not in imported.skipped_series
     seed_rows.append(
         {
@@ -754,7 +780,13 @@ if _override_config is not None:
     _override_unknown: dict[str, list[int]] = {}
     for _i, _num in enumerate(effective_df["Series #"]):
         _num = int(_num)
-        if effective_df.iat[_i, effective_df.columns.get_loc("convert")]:
+        # Guarded on the row being emittable, not on its current tick: the JSON
+        # is the source of truth here, so it must be able to *re-tick* a row the
+        # project skip (or an earlier edit) seeded unticked, while a scout —
+        # which no JSON can convert — stays as it is.
+        if token_datatype(effective_df.iat[_i, effective_df.columns.get_loc("Type")]) in (
+            EMITTED_CLASSIFICATIONS
+        ):
             effective_df.iat[_i, effective_df.columns.get_loc("convert")] = (
                 _num not in _from_json.skipped_series
             )
@@ -816,9 +848,16 @@ _SKIP_REASON = "you unticked `convert` for it on this page"
 # is no state for one to survive in. `series_list` is rebuilt by `list_series`
 # at the top of every rerun and nothing caches it, so a re-ticked series arrives
 # as a fresh `SeriesInfo` with `drop_reason` already empty.
+#
+# A [series_skip] row carries the project's reason instead, so a study-wide
+# decision doesn't read as something this session's reviewer did.
 for _s in series_list:
     if _s.series_number in skipped_series:
-        _s.drop_reason = _SKIP_REASON
+        _s.drop_reason = (
+            PROJECT_SKIP_REASON
+            if _s.description.strip().lower() in _project_skip_keys
+            else _SKIP_REASON
+        )
 
 edited_mapping = [
     TaskRunEntry(
@@ -1108,7 +1147,9 @@ st.data_editor(
             "one half of a fieldmap pair removes the whole pair, since a field is "
             "estimated from both halves or not at all. Rows duckbrain has no way "
             "to convert (scouts, physio logs, the scanner's derived maps) start "
-            "unticked and ticking them changes nothing.",
+            "unticked and ticking them changes nothing. A description the "
+            "project config's `[series_skip]` names also starts unticked in "
+            "every session; re-ticking it converts it for this session only.",
             width="small",
         ),
         "run": st.column_config.NumberColumn("run", min_value=1, step=1, format="%d"),
@@ -1180,7 +1221,29 @@ from duckbrain.core.series_types import type_rule_lookup
 
 _effective_type_rules = list(type_rule_lookup([*project_type_rules, *session_type_rules]).values())
 
-_save_type_col, _save_task_col, _save_fmap_col = st.columns(3)
+# What a skip save would write: the project list with this session's tick state
+# layered on, same last-wins layering as the type rules. A description promotes
+# only when *every* row carrying it is unticked — identical descriptions where
+# one run is the aborted one are the case a description key cannot express, so
+# a mixed description stays per-session and the save says so rather than
+# silently dropping the ticked copy. A fully re-ticked description comes *off*
+# the project list, which is how a skip is undone from the same table that
+# created it. Descriptions this session doesn't contain are preserved: other
+# sessions' protocols are not this session's to unsay.
+_desc_ticks: dict[str, list[bool]] = {}
+_desc_spelling: dict[str, str] = {}
+for _, _row in effective_df.iterrows():
+    if token_datatype(_row["Type"]) not in EMITTED_CLASSIFICATIONS:
+        continue
+    _key = str(_row["Description"]).strip().lower()
+    _desc_spelling.setdefault(_key, str(_row["Description"]).strip())
+    _desc_ticks.setdefault(_key, []).append(bool(_row["convert"]))
+_mixed_skip_descs = [_desc_spelling[k] for k, t in _desc_ticks.items() if any(t) and not all(t)]
+_effective_skip = [d for d in project_skip if d.strip().lower() not in _desc_ticks] + [
+    _desc_spelling[k] for k, t in _desc_ticks.items() if not any(t)
+]
+
+_save_type_col, _save_task_col, _save_fmap_col, _save_skip_col = st.columns(4)
 
 with _save_type_col:
     if st.button(
@@ -1251,6 +1314,40 @@ with _save_fmap_col:
                 + " A group named here must exist in every session — one that's "
                 "missing it fails loudly rather than silently using a different "
                 "pair."
+            )
+
+with _save_skip_col:
+    if st.button(
+        "⭑ Save skipped series as project default",
+        key="save_project_series_skip",
+        width="stretch",
+        disabled=skip_lookup(_effective_skip) == _project_skip_keys,
+        help="Writes the unticked descriptions to the project config's "
+        "[series_skip], so every session — including bulk convert and the "
+        "cockpit — leaves them out. Only descriptions with *no* ticked row are "
+        "saved: where two runs share a description and you kept one, that stays "
+        "a per-session decision. Re-ticking every row of a saved description "
+        "and saving again removes it.",
+    ):
+        from duckbrain.config import resolve_project_dir, save_project_series_skip
+
+        project_dir = resolve_project_dir() or paths.get("bids_dir", "")
+        if not project_dir:
+            st.error("No project directory resolved — can't save the default.")
+        else:
+            save_project_series_skip(project_dir, _effective_skip)
+            st.success(
+                f"Saved {len(_effective_skip)} skipped description(s) to "
+                f"`{project_dir}/code/duckbrain.toml`. Sessions already converted "
+                "keep what they were converted with — re-run them to change it."
+                + (
+                    " Not saved, because at least one of their rows is still "
+                    "ticked: " + ", ".join(f"`{d}`" for d in _mixed_skip_descs) + " — "
+                    "a description-keyed skip cannot drop one copy and keep the "
+                    "other, so those stay per-session."
+                    if _mixed_skip_descs
+                    else ""
+                )
             )
 
 # ---- The relation, read the other way round: pair -> the runs it corrects ----

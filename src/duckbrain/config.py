@@ -620,6 +620,26 @@ def save_project_series_types(project_dir: str | Path, rules: list[TypeRule]) ->
     return _dump_toml(path, data)
 
 
+def save_project_series_skip(project_dir: str | Path, descriptions: list[str]) -> Path:
+    """Persist the project-wide series skip list into the project config.
+
+    Read-modify-write so it only touches the ``[series_skip]`` section and
+    preserves every other project setting — same contract as
+    :func:`save_project_task_map`. An empty list removes the section entirely,
+    which is how a project goes back to converting everything its classifier
+    can emit. See :mod:`duckbrain.core.series_skip` for what the section means.
+    """
+    from .core.series_skip import SECTION, skip_to_config_section
+
+    path = project_config_path(project_dir)
+    data = _load_toml(path)
+    if descriptions:
+        data[SECTION] = skip_to_config_section(descriptions)
+    else:
+        data.pop(SECTION, None)
+    return _dump_toml(path, data)
+
+
 def save_project_fmap_map(project_dir: str | Path, rules: list[FmapRule]) -> Path:
     """Persist project-wide ``task -> fieldmap group`` bindings into the project config.
 

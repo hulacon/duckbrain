@@ -1146,3 +1146,147 @@ def test_a_project_declaration_seeds_the_table(project):
     assert _by_series(plan, "Type")[1] == "anat/T2w"
     assert _by_series(plan, "Type from")[1] == "project"
     assert _by_series(plan, "becomes")[1] == "sub-001_ses-01_T2w.nii.gz"
+
+
+# ---- [series_skip]: the project-level skip (#13.1) ---------------------------
+# The per-session `convert` checkbox above stays the control for "this session";
+# the project section is for the study that acquires a series and never uses it
+# (five of the LCNI corpus's fifteen studies curate anat only). These pin the
+# two-tier behaviour: the section seeds every session, one session can override
+# it, and the save button promotes only what a description key can express.
+
+BOLD_DESC = "cmrr_mbep2d_bold_task-perFace_run-1"
+
+
+def test_a_project_skip_seeds_the_row_unticked(project):
+    """One declaration instead of ~336 unticks — and it reads as the project's
+    decision, not as something this session's reviewer did."""
+    from duckbrain.config import save_project_series_skip
+
+    save_project_series_skip(str(project), [BOLD_DESC])
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    plan = _plan_table(at)
+    assert not _by_series(plan, "convert")[9]
+    assert _by_series(plan, "becomes")[9] == "— not converted"
+    # The note names the section, not the page's own "you unticked" reason, and
+    # the row must not trip the 'matches no description' warning, which means a bug.
+    assert any("series_skip" in c.value for c in at.caption)
+    assert not [w for w in at.warning if "matches no description" in w.value]
+
+
+def test_a_project_skip_is_overridable_for_one_session(project):
+    """The aborted-run case is why re-ticking must win here: a description key
+    is a study-wide statement, and the row in front of you is not."""
+    from duckbrain.config import save_project_series_skip
+
+    save_project_series_skip(str(project), [BOLD_DESC])
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"convert": True}},  # series 9, the skipped bold
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    assert _by_series(_plan_table(at), "becomes")[9].endswith("_bold.nii.gz")
+
+
+def test_saving_skips_as_the_project_default_and_back_off_again(project):
+    """The whole loop from one table: untick → promote, re-tick → demote. An
+    empty save removes the section, so there is a way back that isn't TOML."""
+    from duckbrain.config import load_config
+    from duckbrain.core.series_skip import skip_descriptions_from_config
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert next(b for b in at.button if b.key == "save_project_series_skip").disabled
+
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"convert": False}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    next(b for b in at.button if b.key == "save_project_series_skip").click().run()
+    assert not at.exception
+    assert any("skipped description" in s.value for s in at.success)
+    saved = skip_descriptions_from_config(load_config(project_dir=str(project)))
+    assert saved == [BOLD_DESC]
+
+    # A fresh session now seeds it unticked; re-ticking and saving removes it.
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not _by_series(_plan_table(at), "convert")[9]
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {4: {"convert": True}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    next(b for b in at.button if b.key == "save_project_series_skip").click().run()
+    assert not at.exception
+    assert skip_descriptions_from_config(load_config(project_dir=str(project))) == []
+
+
+@pytest.fixture
+def repeated_description_project(tmp_path):
+    """Two bolds under one console name — the aborted-and-reacquired shape."""
+    proj = tmp_path / "proj"
+    scaffold_project(str(proj))
+    dicom = proj / "sourcedata" / "sub-001" / "ses-01" / "dicom"
+    for num, desc in [
+        ("02", "t1w_mprage"),
+        ("09", "cmrr_mbep2d_bold_recall_run2"),
+        ("10", "cmrr_mbep2d_bold_recall_run2"),
+    ]:
+        d = dicom / f"Series_{num}_{desc}"
+        d.mkdir(parents=True)
+        (d / "0001.dcm").touch()
+    save_project_config(str(proj), {"project": {"name": "test", "use_sessions": "auto"}})
+    os.environ["DUCKBRAIN_PROJECT_DIR"] = str(proj)
+    os.environ["DUCKBRAIN_USER_CONFIG"] = str(tmp_path / "no-such-user-config.toml")
+    _probe_cached.clear()
+    yield proj
+    os.environ.pop("DUCKBRAIN_PROJECT_DIR", None)
+    os.environ.pop("DUCKBRAIN_USER_CONFIG", None)
+
+
+def test_a_mixed_description_stays_per_session(repeated_description_project):
+    """Unticking the aborted copy must not offer to skip the description for the
+    whole study — that would drop the complete copy in every session. With
+    nothing else changed the save has nothing to write, so it stays disabled."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    at.session_state[EDITOR_KEY] = {
+        "edited_rows": {1: {"convert": False}},  # series 9, one of the two copies
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    at.run()
+    assert not at.exception
+    becomes = _by_series(_plan_table(at), "becomes")
+    assert becomes[9] == "— not converted"
+    assert becomes[10].endswith("_bold.nii.gz")
+    assert next(b for b in at.button if b.key == "save_project_series_skip").disabled
+
+
+def test_the_one_shot_import_overrides_the_project_skip(project):
+    """The import is an explicit review, so it wins in *both* directions — a
+    JSON that converts a project-skipped series re-ticks its row."""
+    from duckbrain.config import save_project_series_skip
+
+    # A saved config that converts everything, written before the skip existed.
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    next(b for b in at.button if b.label == "Save Config JSON").click().run()
+    saved_path = project / "sourcedata/sub-001/ses-01/dcm2bids_config.json"
+    assert saved_path.exists()
+
+    save_project_series_skip(str(project), [BOLD_DESC])
+    fresh = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not _by_series(_plan_table(fresh), "convert")[9]  # the seed
+
+    fresh.session_state["_pending_json_import"] = saved_path.read_text()
+    fresh.run()
+    assert not fresh.exception
+    plan = _plan_table(fresh)
+    assert _by_series(plan, "convert")[9]
+    assert _by_series(plan, "becomes")[9].endswith("_bold.nii.gz")

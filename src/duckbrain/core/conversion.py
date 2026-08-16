@@ -199,6 +199,7 @@ def generate_session_config(
     nd_duplicates: str = "corrected",
     skip: Collection[int] | None = None,
     type_rules: list[TypeRule] | None = None,
+    skip_descriptions: list[str] | None = None,
     container: str | Path | None = None,
 ) -> Dcm2BidsConfig:
     """Inspect a session's DICOMs and build a default dcm2bids config.
@@ -238,6 +239,15 @@ def generate_session_config(
     convert: ``pipeline._build_converted`` reuses that file rather than calling
     this, and a skipped series is simply absent from it.
 
+    ``skip_descriptions`` is the project-level statement of the same thing —
+    the ``[series_skip]`` list of SeriesDescriptions this study never converts
+    (:mod:`duckbrain.core.series_skip`). It is a separate parameter rather than
+    folded into ``skip`` because a description resolves to series numbers only
+    once the session is listed, so it is resolved *here*, after classification,
+    and merged into the same skip set — which is what keeps the whole-pair rule
+    working for it (a skipped fieldmap half takes its pair; see
+    :func:`~duckbrain.core.dcm2bids_config._without_skipped_groups`).
+
     ``container`` is the dcm2bids image to probe with dcm2niix, and it is also
     the switch: ``None`` means don't probe, so a caller with no config never pays
     for a subprocess it didn't ask for. It reaches here for the same reason
@@ -274,6 +284,14 @@ def generate_session_config(
     if not series_list:
         raise ValueError(f"No series directories found in {dicom_dir}")
     classify_series(series_list, nd_duplicates=nd_duplicates, type_rules=type_rules)
+    # After classify_series — resolution reads the classification (only series
+    # that would otherwise emit resolve) — and before generate_config, merged
+    # into the per-session skip so both ride one mechanism.
+    skipped = set(skip or ())
+    if skip_descriptions:
+        from .series_skip import apply_project_skip
+
+        skipped |= apply_project_skip(series_list, skip_descriptions)
     fieldmaps = detect_fieldmaps(series_list)
     mapping = build_task_run_mapping(series_list, template=template or None, rules=rules)
     config = generate_config(
@@ -283,7 +301,7 @@ def generate_session_config(
         session=session,
         mapping=mapping,
         fmap_rules=fmap_rules,
-        skip=skip,
+        skip=skipped,
     )
 
     probes: dict[int, SeriesProbe] = {}

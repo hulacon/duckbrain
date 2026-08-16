@@ -231,6 +231,39 @@ version:
   fix at the source; the declaration is for what no rule can reach. See
   `memory/header-based-classification`.
 
+## Phase 9 — the project-level skip (`#13.1`'s remainder, shipped 2026-08-16)
+
+`[series_skip]` — a list of SeriesDescriptions the study never converts,
+honoured by this page, bulk convert and the cockpit alike. The design record
+(what the section is, why it is its own section rather than a `[series_types]`
+value or an `[expected]` entry, why a coarser "anat only" control was declined)
+is `core/series_types.py`'s sibling module `core/series_skip.py` — read its
+docstring first. What belongs *here* is how it lands on this page:
+
+- **It is a seed, not a new column.** A skipped description arrives with
+  `convert` unticked, and re-ticking wins for that session — the per-session
+  case is real (`fmap_eyeball`'s aborted `cued_recall_encoding_run2`, identical
+  descriptions), so the checkbox and the section are two tiers of one control,
+  exactly as a session's `Type` edit sits above `[series_types]`.
+- **The one-shot JSON import and the hand-edited override outrank the seed in
+  both directions.** Both used to re-derive `convert` only for rows currently
+  ticked; they now key on the row being *emittable*, so an explicit review can
+  re-tick what a seed unticked. A scout stays unticked either way.
+- **The drop note names the section** (`[series_skip]`), not the page's own
+  "you unticked `convert`" — a study-wide decision must not read as something
+  this session's reviewer did.
+- **The fourth save button promotes only descriptions with *no* ticked row.**
+  A mixed description stays per-session and the save says so rather than
+  silently dropping the ticked copy; re-ticking every row of a saved
+  description and saving removes it (the same last-wins layering as the types
+  button); descriptions this session doesn't contain are preserved, because
+  other sessions' protocols are not this session's to unsay.
+- **The non-GUI path resolves inside `generate_session_config`**, next to
+  `type_rules` — a description becomes series numbers only once the session is
+  listed — and merges into the same `skip` set the checkbox feeds, which is
+  what carries the whole-pair rule and the saved-config round trip over
+  unchanged.
+
 ## Validated in the browser — 2026-07-30
 
 Phases 1–8 were carried by unit and AppTest tests only; the colour tokens in

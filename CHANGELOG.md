@@ -26,6 +26,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **A project-level series skip** (`#13.1`). A new `[series_skip]` section in
+  the project config lists the SeriesDescriptions a study acquires and never
+  converts — the anat-only curation case, or a protocol's always-discarded
+  first fieldmap — instead of unticking `convert` per session. Skipped series
+  arrive unticked on the Conversion page (re-ticking wins for that session
+  only), bulk convert and the cockpit honour the same list, and skipping one
+  half of a fieldmap pair still takes the whole pair. A fourth "save as
+  project default" button on the Conversion page writes the section from the
+  table: only descriptions with *no* ticked row are promoted — where two runs
+  share a description and you kept one, that stays a per-session decision —
+  and re-ticking every row of a saved description and saving again removes
+  it. The plan's drop note says the skip came from the project config, so a
+  study-wide decision doesn't read as this session's edit. A malformed
+  section refuses to load rather than quietly converting what the study
+  excluded.
 - **Outcome checks — what the tools actually did, on demand** (`#16.2`). A new
   "Outcome checks" panel on the Project Status page runs two checks that read
   the tools' own output: fMRIPrep's per-run *susceptibility distortion

@@ -15,7 +15,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#13`](#13) **next** — conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
+[`#13`](#13) **next** — conversion legibility (`#13.2` plan-time filename checks; `#13.1` shipped 2026-08-16, so `v0.6.0` is ready to cut) ·
 [`#16`](#16) sanity checks (Slices A–C done; `#16.3` open) ·
 [Licensing](#licensing-follow-ups) ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
@@ -40,7 +40,9 @@ stages · [`#8`](#8) branding + dark theme ·
 moved back out of **next**: `v0.5.0` shipped its writing, and everything left
 in it is externally blocked (see the entry), so `#16` leads again. On
 2026-08-16 `#16.2` shipped, which hands the lead to `#13.1` — the last item in
-`v0.6.0`'s plan.
+`v0.6.0`'s plan. Later the same day `#13.1` shipped too (the `[series_skip]`
+section; see the ledger), so the next act is cutting `v0.6.0` per
+`docs/releasing.md`, and `#13`'s remainder is `#13.2`.
 
 ---
 
@@ -106,7 +108,7 @@ The cut also surfaced that **`v0.4.0`'s tag was pushed but its GitHub Release
 was never published** — the exact failure `docs/releasing.md` warns about, and
 why the GUI told nobody about `v0.4.0` for five days.
 
-### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2` ✅, then `#13.1`
+### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2` ✅, `#13.1` ✅ — ready to cut
 
 This is the one with genuine design risk in it, which is exactly why it must not
 be bundled with the release above. That risk is now retired: `#16.2` needed
@@ -122,7 +124,12 @@ description-keyed section.
 
 **`#16.2` shipped 2026-08-16** (see the ledger; decisions — including the one
 deviation from the plan recorded here, no job id in the cache key — in
-`docs/sanity-checks.md`, Slice C). `#13.1` is what remains of this release.
+`docs/sanity-checks.md`, Slice C).
+
+**`#13.1` shipped 2026-08-16** (see the ledger; the design record is
+`core/series_skip.py`'s module docstring, the page mechanics are
+`docs/conversion-legibility.md` phase 9). Nothing remains in this release —
+cut it per `docs/releasing.md`.
 
 ### `#19` — deliberately not in the version plan
 
@@ -252,9 +259,11 @@ data-migration problem, not just a fix. duckbrain's shipped default partition wa
 <a id="13"></a>
 ## #13 — Conversion legibility: what the eyeball pass left
 
-**Phases 1–8 shipped, granularity is settled, and the browser validation is
-done** (see the ledger). What is left is `#13.1` below plus three notes the
-eyeball pass produced. Full design in **`docs/conversion-legibility.md`**.
+**Phases 1–9 shipped, granularity is settled, and the browser validation is
+done** (see the ledger; phase 9 — `#13.1`'s project-level skip — shipped
+2026-08-16, its design record in `core/series_skip.py`'s module docstring).
+What is left is `#13.2` below plus three notes the eyeball pass produced. Full
+design in **`docs/conversion-legibility.md`**.
 
 - **The eyeball pass is done, 2026-07-30, on
   `/projects/hulacon/bhutch/fmap_eyeball`** (`sub-01` two fieldmap pairs,
@@ -302,135 +311,6 @@ eyeball pass produced. Full design in **`docs/conversion-legibility.md`**.
   `sidecar_changes`, custom ids, dcm2bids options), so a continuous round trip
   would drop them silently. The import is explicit, one-shot, and reports what it
   couldn't represent.
-
-### `#13.1` — A project-level skip, keyed on description
-
-**The editable `Type` shipped 2026-07-30** — see the ledger and
-`docs/conversion-legibility.md` phase 8 for the design and the refusals it rests
-on. What that work left open is one bullet of the original item.
-
-**The `[expected]` question is decided (2026-08-11, owed by `#16.1`): the skip
-does *not* fold into `[expected]` — build this as its own description-keyed
-section.** Two reasons, and the REV study below supplies the decisive one:
-
-- **A count cannot say *which*.** `[expected]` speaks in counts over BIDS
-  entities (`fmap_pairs = 1`, task labels, anat suffixes); the curator's intent
-  in REV is *keep `fieldmap2`, drop `fieldmap1`* — description-specific, and no
-  count expresses it. The skip's natural key is `SeriesDescription`, the same
-  key `[task_mapping]` and `[series_types]` already use, and that vocabulary
-  only exists before conversion — exactly where `[expected]` doesn't look.
-- **`[expected]` reports; a skip controls.** The expectations layer's standing
-  contract is reports-never-repairs ("Nothing here writes to a dataset"), and
-  its opt-out gate turns *checks* off. A skip must change what
-  `generate_session_config` emits. Routing conversion behavior through the
-  check layer's declaration would make deleting `[expected]` silently change
-  what gets converted — the exact silently-degrading coupling the rules forbid.
-
-The two statements stay complementary: an anat-only study *should also* declare
-an anat-only `[expected.session]`, and then the plan, the tree and the checks
-all agree — but they remain two declarations with two jobs.
-
-**Measured twice on 2026-07-30, and the second measurement is the one to
-trust — the item is justified, but not by either example it used to cite.**
-
-*First pass, on `mmmsourcedata/sub-03/ses-01`:* 14 of 53 series arrived ticked
-and 12 looked like junk. **Both causes closed 2026-07-30** (see the ledger), and
-the pass no longer supports the item at all — it also **overcounted**. Four of
-the 12 were diffusion SBRefs classified `fmap`, and four were `_ND` copies of a
-twin pair `nd_twin_bases` could not see; the other four rows it called junk are
-the *corrected* copies, which are genuine anatomicals. The session now ticks **6
-rows and none of them is junk** — two acquisitions of `ABCD_T1w_MPR_vNav` (a real
-repeat, so `run-1`/`run-2` is right), the two T2 anatomicals, and the resting run
-with its reference. So this measurement is spent; the second pass below is the
-whole case.
-
-*Second pass, on the LCNI repository, prompted by Ben pointing out that
-`mmmsourcedata` was pruned on its way out of `lcni/dcm` and that most studies
-discard some series anyway.* Study-level, since a project-level skip is itself a
-study-level statement: for each of the 15 studies, every SeriesDescription
-duckbrain converts that the curator's canonical BIDS never contains. It found the
-class, and it is neither of the ones above:
-
-- **Five studies of fifteen curate anat only.** WMS, pMAP, Round_Robin, NAGL and
-  DEV have canonical trees containing *nothing but* `anat/T1w` — verified by
-  listing them, not inferred. duckbrain correctly converts their BOLD, SBRef and
-  fieldmap series, and the curator wanted none of it. On WMS that is 6
-  descriptions across **56 sessions**, so ~336 unticks for one study. This is
-  LCNI's own workflow, which makes it the strongest case the corpus can offer.
-- **REV keeps one of two fieldmaps, every time.** Its canonical tree is otherwise
-  complete (18 fmap, 42 bold, 6 anat), so this is not a curation-scope artifact:
-  the protocol shoots `fieldmap1` and `fieldmap2`, the curator kept `fieldmap2`
-  in 6 of 6 sessions, and duckbrain converts both. A recurring, description-keyed
-  "we acquire this and never use it".
-- **The control holds.** Where the curator converted everything — GAME,
-  Dissonance, Crave_control, HOYA, JABBA — duckbrain shows *no* systematic
-  disagreement at all. So there is no hidden class of junk duckbrain wrongly
-  emits beyond the twin and SBRef defects above, both closed 2026-07-30.
-- **Scouts, which prompted the question, already cost nothing.** `scout` is not in
-  `EMITTED_CLASSIFICATIONS`, so a scout is never ticked; nor are the MPR
-  reformats, vNav setters, ADC/FA/TENSOR maps, PhysioLogs or PhoenixZIPReport,
-  which all classify `derived`/`physio`. On the ABCD session above that is 39 of
-  53 series already free.
-
-So build it, and motivate it by the anat-only curation rather than by junk
-removal — which is now the *only* thing motivating it, the first pass having
-gone to zero. Notes for whoever does:
-
-- **Key it on *description*,** the same key `[task_mapping]` and `[series_types]`
-  use, in its own section rather than as a `[series_types]` value — a datatype is
-  a claim about what a series *is*, a skip is a decision about what to do with
-  it, and collapsing them would make relabelling a series the only way to drop
-  it. The read-modify-write shape is `save_project_series_types`; copy it.
-- **Reaching the non-GUI path is the part with a decision in it.**
-  `generate_session_config` takes `skip` as series numbers and its docstring
-  says, correctly for today, that "nothing here reads it from the project
-  config". A description-keyed skip resolves to series numbers only once the
-  session is listed, so it has to be applied *inside* that function, next to
-  where `type_rules` is applied — not passed in as `skip`.
-- **Consider whether the anat-only case wants a coarser control.** Naming six
-  descriptions to exclude is how a skip expresses "T1w only", and an
-  include-by-datatype would express it in one line — but it is a different
-  feature with its own failure mode (a study that adds a sequence gets it
-  silently), so decide rather than drift into it.
-
-**Folding the skip into the `Type` column as an `IGNORE` value was explored
-2026-07-30 and rejected** — recorded here because it is the obvious
-simplification and will otherwise be re-proposed. It would replace this whole
-item with one `[series_types]` rule, and it does not work as a *classification*:
-
-- **It would not reliably drop a fieldmap.** `detect_fieldmaps` selects on
-  `classification == "fmap"` **or** `_is_fieldmap(description)`, and
-  `generate_config` emits fieldmaps by walking `fieldmaps.groups` without
-  consulting `classification` at all. What actually implements a skip is
-  `generate_config(skip=…)` plus `_without_skipped_groups`, both keyed on series
-  numbers — so `IGNORE` would bypass the mechanism it is meant to drive.
-- **It cannot express the per-session case, which is real.** `fmap_eyeball`'s
-  `sub-01` holds `cued_recall_encoding_run2` twice — aborted at 14 volumes and
-  complete at 210, **identical descriptions**. Dropping the aborted one is a
-  fact about that session; a description-keyed `IGNORE` drops both. The key that
-  makes a rule generalize is exactly what makes this inexpressible, and an
-  aborted run is common enough that the collision check exists for it.
-- **It erases what the row is**, and the preflight needs both facts: that a
-  dropped series was a *functional run* rather than a scout, that an SBRef was
-  stranded by dropping only its BOLD, that unticking one fieldmap half took the
-  whole pair. All read `classification` alongside the skip.
-
-**The version that does work** keeps `convert` per-session and makes `ignore` a
-project-level *skip flag* rather than a classification — leaving the inferred
-datatype intact, so detection, the checks and the series-number `skip` set all
-keep working. Which reduces the question to spelling: `[series_types]` with
-`type = "ignore"`, or its own `[series_skip]` section. Own section is the
-current lean, because every value in `[series_types]` is today a
-datatype-and-suffix that something emits, and the one member that isn't reads
-later as a bug.
-
-**Deferred until `#16`'s expectations/manifest layer takes shape** (Ben,
-2026-07-30), and the reason is worth keeping: "which series this study converts"
-may not be a config toggle at all but a *statement of intent*, which is what
-`[expected]` already is and the only such statement duckbrain has
-(`core/expectations.py`, `docs/sanity-checks.md`). If the skip belongs there, the
-spelling question above answers itself and the separate section never gets built.
-Decide that before writing either one.
 
 ### `#13.2` — Check a planned filename against the schema, before submitting
 
@@ -1320,6 +1200,13 @@ plus the `ssh -L` line it prints.
     styled `width:100%; height:auto` off its `viewBox`, and whether Streamlit's
     sizing observer re-measures on window resize is unknown. Not **[OOD]** —
     a srcdoc iframe has no URL for the proxy to rewrite.
+11. **The Conversion page's save-buttons row at four columns.** Added
+    2026-08-16 with `#13.1`: the "save as project default" row went from three
+    `st.columns` to four to take the skip button, and AppTest models neither
+    column widths nor label wrapping. Confirm the four buttons read at laptop
+    width (the same 1280px sitting as the narrow-widths entry above) — the new
+    label ("Save skipped series as project default") is no longer than its
+    neighbours, but a quarter-width column is a new narrowest case.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
@@ -1472,6 +1359,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-16 | `#13.1` | **The project-level skip — `[series_skip]`, a list of SeriesDescriptions the study never converts, honoured by the page, bulk convert and the cockpit alike.** Closes the item; the standing design record is `core/series_skip.py`'s module docstring, the page mechanics are `docs/conversion-legibility.md` phase 9. Motivated by curation scope, not junk (the item's own second measurement): five of the LCNI corpus's fifteen studies curate **anat only** — on WMS that is 6 descriptions × 56 sessions, ~336 unticks — and REV's curator dropped `fieldmap1` in 6 of 6 sessions. Every decision the item queued got its answer. **Own section**, not a `[series_types]` `ignore` value (the 2026-07-30 rejection holds: an ignore *classification* bypasses the actual skip mechanism — `generate_config(skip=…)` + `_without_skipped_groups`, keyed on series numbers — cannot express the per-session aborted-run case, and erases the classification the preflight reads) and **not `[expected]`** (the 2026-08-11 decision: a count cannot say *which*, and reports-never-repairs must stay true). The **coarser include-by-datatype control was declined**: "anat only" in one line inverts the failure mode — a study that adds a sequence loses it silently, where under a skip the new series converts visibly. Applied **inside `generate_session_config`, next to `type_rules`**, exactly as the item's note demanded: a description resolves to series numbers only once the session is listed, and the resolved set merges into the existing per-session `skip`, so the whole-pair rule and the saved-JSON round trip carry over with no new state. Only emitted classifications resolve — a scout matching a skipped description earns no "deliberate drop" note for a conversion that was never going to happen — and a **malformed section raises** (the fallback is converting the series the study excluded, the silently-degrading shape). On the page: the seed unticks, a re-tick wins for that session, the drop note names the section rather than "you unticked `convert`", and a fourth save button promotes **only descriptions with no ticked row** — a mixed description (the `fmap_eyeball` aborted-run case, identical names) stays per-session and the save says so — while re-ticking every row of a saved description and saving removes it, the same last-wins layering as `[series_types]`. A project binding to a pair the project's own skip removes **fails loudly** through the existing missing-group path. One neighbouring guard corrected on the way: the one-shot JSON import and the hand-edited override used to re-derive `convert` only for rows currently ticked, so an explicit review could never re-tick a row a seed had unticked; both now key on the row being *emittable*, and the import wins in both directions. Pinned by `tests/test_series_skip.py` (section, resolution, the non-GUI path) and the `[series_skip]` block of `tests/test_conversion_page.py`; the four-column save row is a `#30` eyeball entry. |
 | 2026-08-16 | `#16.2` | **Outcome checks and duckbrain's first cache (L3, `#16` Slice C):** `outcome-sdc` reads fMRIPrep's own SDC verdict from the per-run summary reportlets (filename entities map each verdict to its BOLD; gated on sidecar `B0FieldSource`, COMPLETE units only) and `outcome-nordic` flags NORDIC output numerically identical to its raw input (volume 0, scaled values). Both `EXPENSIVE`: run only via `run_expensive_checks`, persisted to `<log_dir>/checks.json` with a per-check `count:mtime` fingerprint, rendered in a cockpit panel that confesses staleness. One deviation from the in-principle plan (no job id in the key) and two family members closed without code — design record: `docs/sanity-checks.md` Slice C. Anat-reuse re-homed to the unhomed candidates. Slice A's tripwire test flipped into the admission condition. Validated live on `divatten_beta_v2`: 65/65 runs judged through the NORDIC staged tree, clean, 8.4 s to measure and 0.07 s to fingerprint. |
 | 2026-08-11 | `#16.1` | **The request record (L2, `#16` Slice B):** every SLURM launch writes `<log_dir>/requests/<job_id>.json` — the builder's resolved context minus config-wide keys, sorted for diffing — with a `request_path` column in `submissions.tsv`; first consumer `checks._check_requested_spaces` compares recorded `output_spaces` to written `space-` entities (newest attempt only, COMPLETE units only), and the `run_checks` gate became per-check so L2 needs no `[expected]`. Design record: `docs/sanity-checks.md` Slice B. The `[expected]`-vs-skip question it owed is answered at `#13.1`. |
 | 2026-08-07 | `#20` | **conda is the documented environment: `environment.yml` + `scripts/setup_env.sh`, built and verified at the shared prefix `/projects/hulacon/shared/envs/duckbrain`.** braintwill's recipe taken working rather than re-derived, exactly as the item instructed: the script reads the package list out of `environment.yml` and passes it to a plain `conda create --override-channels -c conda-forge` (`conda env create` cannot be made safe against FSL's `#!final` condarc — re-verified nothing here), then **fails** unless every conda package resolved from conda-forge. The ownership split is the design decision: conda pins the interpreter (3.11) and the runtime deps, unpinned; the dev extra stays on pip via `-e .[dev]` **even though the blocker died** — conda-forge now carries ruff 0.16.x, rechecked as the item asked — because `pyproject.toml` must stay the single source of the gate pins, and a pin duplicated into `environment.yml` re-opens the drift the pins exist to close. One clean solve is committed as `conda/lock-linux-64.txt` (172 packages; regenerate only from a deleted prefix — an incremental solve is not a fresh one). Launch discovery is a gitignored `.conda-prefix` the script writes into the checkout: both launchers now prefer it over `.venv`, prepend the env's `bin/` (no conda shell hook needed), and set `PYTHONPATH=<checkout>/src` so the launched checkout is always the code that serves — the shared env has one checkout editable-installed, and without that line a user launching their own clone would silently run someone else's code. **The import check earned itself twice on day one, both times against the script itself.** First: `~/.local` site-packages shadow a conda env's own — the host-side twin of the `#34` container leak, a venv being immune is why nobody had met it — observed live as the env solving streamlit 1.61.1/nibabel 5.4.2 and importing this account's stale `pip install --user` 1.56.0/5.3.3 behind two green channel checks. Fixed with `PYTHONNOUSERSITE=1` in the script, in both launchers' conda branches, and as an `activate.d` hook in the env so the documented `conda activate` path is protected without knowing about it. Second: `conda run` does not forward stdin, so a heredoc check under it runs **empty and exits 0** — a vacuous pass caught only because the expected output went missing; the check now invokes the env's python directly, asserts `sys.executable` is the prefix's, and fails when any runtime module resolves from outside it. Verified end to end: full local gate green **in the env** — ruff, `format --check`, mypy, 1495 tests, coverage 89.81% over the 89 floor — which is also the first confirmation the suite passes against streamlit 1.61.x resolved fresh; and `scripts/launch.sh` served the app HTTP 200 through the conda branch (the OnDemand leg is `#30`'s new entry). CI deliberately stays on pip: GitHub runners have no FSL condarc, conda would cost solve time on every push, and the runners' pip path is the one GitHub users take — the accepted cost is that CI no longer tests the path Talapas users take, and the local gate run inside the env is the compensating check. The shared prefix is the model for other PIRGs to copy (`/projects/<pirg>/shared/envs/<name>`, setgid, one build per PIRG instead of ~1.2 G per user under an unreadable `~/.conda`); `--personal` and `--prefix` cover everyone else. |
