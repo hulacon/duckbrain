@@ -10,6 +10,8 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-16
+
 ### Fixed
 
 - **MRIQC status in longitudinal projects** — the pipeline board required a
@@ -1496,7 +1498,8 @@ Notable bugs caught by live validation rather than unit tests:
 - Released under **GPL-3.0-or-later**. Supersedes an unbacked `license = "MIT"`
   claim in `pyproject.toml` (no `LICENSE` file had ever existed).
 
-[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/hulacon/duckbrain/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hulacon/duckbrain/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hulacon/duckbrain/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hulacon/duckbrain/compare/v0.2.0...v0.3.0

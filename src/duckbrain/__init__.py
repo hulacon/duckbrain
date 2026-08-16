@@ -30,4 +30,4 @@ This literal is the **single source** of the version: ``pyproject.toml`` declare
 see ``docs/releasing.md``.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
