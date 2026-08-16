@@ -497,6 +497,67 @@ def _bids_validation_section(config: Config) -> None:
         )
 
 
+def _outcome_checks_section(config: Config) -> None:
+    """The cached outcome checks (L3, `docs/sanity-checks.md` Slice C).
+
+    These open tool reports and image data, so they never run on the render
+    path — this body reads one small JSON (`code/logs/checks.json`) and a
+    fingerprint of stats, and the measurement itself runs only inside the
+    button. What makes rendering a *cached* verdict honest is the staleness
+    marker: the snapshot carries a fingerprint of the inputs it measured, and
+    a changed fingerprint is shown rather than silently serving an old "clean"
+    as current — the exact failure the validation panel refused a cache over.
+    """
+    from duckbrain.core.checks import (
+        read_checks_snapshot,
+        run_expensive_checks,
+        snapshot_is_stale,
+    )
+
+    snapshot = read_checks_snapshot(config)
+    stale = snapshot is not None and snapshot_is_stale(config, snapshot)
+    if snapshot is None:
+        state = "not measured yet"
+    else:
+        n = len(snapshot.issues)
+        state = ("clean" if not n else f"{n} issue(s)") + f", measured {snapshot.ran_at}"
+        if stale:
+            state += " — ⚠ inputs changed since"
+
+    with st.expander(f"🔬 Outcome checks — {state}"):
+        st.caption(
+            "What the tools actually **did**, read from their own output: fMRIPrep's "
+            "susceptibility-distortion verdict against the fieldmap intent in the "
+            "sidecars it was given, and NORDIC output compared against its raw input. "
+            "The board grades what exists; these catch the run that looks done and "
+            "quietly isn't. They open reports and image data, so they run only when "
+            "asked and the result is kept until the inputs change."
+        )
+        if st.button("▶ Run outcome checks now", key="outcome_checks_btn", width="stretch"):
+            with st.spinner("Reading tool reports and image data…"):
+                run_expensive_checks(config)
+            st.rerun()
+
+        if snapshot is None:
+            return
+        if stale:
+            st.warning(
+                "Inputs have changed since this was measured — a new run, a fixed "
+                "sidecar, or deleted files. The findings below describe the state at "
+                "measurement time; re-run to refresh."
+            )
+        for issue in snapshot.issues:
+            text = f"**{issue.check}** — {issue.message}"
+            if issue.severity == "note":
+                st.info(text)
+            elif issue.severity == "error":
+                st.error(text)
+            else:
+                st.warning(text)
+        if not snapshot.issues:
+            st.success("Nothing flagged.")
+
+
 def _expectations_section(config: Config, matrix: pd.DataFrame) -> None:
     """Declare what a session of this study should contain — elicit, then freeze.
 
@@ -785,6 +846,11 @@ def dashboard() -> None:
     # question, but the answer comes from a third-party tool, costs a subprocess,
     # and only exists once someone asks for it.
     _bids_validation_section(config)
+
+    # Same adjacency for the same reason: on-demand and cached, not re-derived —
+    # but these findings are duckbrain's own, so they wear the panel's severity
+    # vocabulary rather than a third party's.
+    _outcome_checks_section(config)
 
     _expectations_section(config, matrix)
 

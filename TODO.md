@@ -15,8 +15,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#16`](#16) **next** — sanity checks (Slices A + B done; `#16.2`–`#16.3` open) ·
-[`#13`](#13) conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
+[`#13`](#13) **next** — conversion legibility (`#13.1`, and `#13.2` plan-time filename checks) ·
+[`#16`](#16) sanity checks (Slices A–C done; `#16.3` open) ·
 [Licensing](#licensing-follow-ups) ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
 walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
@@ -38,7 +38,9 @@ stages · [`#8`](#8) branding + dark theme ·
 2026-08-06, and it is what reordered the queue above: `#20`/`#2` moved ahead of
 `#16`, which had been marked **next** since 2026-07-22. On 2026-08-11 `#2`
 moved back out of **next**: `v0.5.0` shipped its writing, and everything left
-in it is externally blocked (see the entry), so `#16` leads again.
+in it is externally blocked (see the entry), so `#16` leads again. On
+2026-08-16 `#16.2` shipped, which hands the lead to `#13.1` — the last item in
+`v0.6.0`'s plan.
 
 ---
 
@@ -104,20 +106,23 @@ The cut also surfaced that **`v0.4.0`'s tag was pushed but its GitHub Release
 was never published** — the exact failure `docs/releasing.md` warns about, and
 why the GUI told nobody about `v0.4.0` for five days.
 
-### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2`, then `#13.1`
+### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2` ✅, then `#13.1`
 
 This is the one with genuine design risk in it, which is exactly why it must not
-be bundled with the release above. `#16.2` needs duckbrain's *first cache* — a
-decision `surveyor.py`'s docstring currently advertises the absence of as a virtue.
-It is the kind of thing that takes longer than planned and should not be able to
-hold finished work hostage.
+be bundled with the release above. That risk is now retired: `#16.2` needed
+duckbrain's *first cache*, and it shipped — `surveyor.py`'s docstring now names
+`checks.json` as the one deliberate exception to "no state store" rather than
+advertising the absence as a virtue.
 
 **`#16.1` shipped 2026-08-11** (see the ledger; decisions in
 `docs/sanity-checks.md`, Slice B). It also discharged the question it owned:
 "which series this study converts" does **not** fold into `[expected]` — the
 reasoning is recorded at `#13.1`, which therefore gets built as its own
-description-keyed section. It still comes **last within this release, not
-alongside `#16.2`**.
+description-keyed section.
+
+**`#16.2` shipped 2026-08-16** (see the ledger; decisions — including the one
+deviation from the plan recorded here, no job id in the cache key — in
+`docs/sanity-checks.md`, Slice C). `#13.1` is what remains of this release.
 
 ### `#19` — deliberately not in the version plan
 
@@ -177,27 +182,15 @@ design decisions, including the per-check gate restructure and the DB-002
 answered at `#13.1`; NORDIC's sidecar-vs-NIfTI "free half" was deliberately
 left for `#16.2`'s outcome family.
 
-What remains, in the order it should be built. Each is a slice because each has
-its own commitment to weigh.
+**Slice C (`#16.2`, the outcome checks and the first cache) shipped
+2026-08-16** — `outcome-sdc` and `outcome-nordic`, `EXPENSIVE` in the registry,
+persisted to `<log_dir>/checks.json` with a fingerprint and rendered in the
+cockpit's outcome panel with a staleness confession (see the ledger; the
+decisions, including the one deviation from the in-principle plan and the two
+family members that needed no code, are in `docs/sanity-checks.md` under
+Slice C). The anat-reuse family member moved to the unhomed candidates below.
 
-### `#16.2` — Outcome checks, and duckbrain's first cache
-
-- Parse the fMRIPrep report for **SDC actually applied**. Complementary to
-  `fmap-intent`, not redundant: that catches the *cause* from the sidecars before
-  hours of compute; this catches fMRIPrep declining metadata that *is* correct.
-- Others in the family: "reuse anat derivatives" actually reusing (the silent
-  no-op closed 2026-07-20); NORDIC output actually differing from its input;
-  MRIQC IQMs present for every func the surveyor counts complete.
-- 🔴 **The commitment to weigh, and why this is its own item.** These need
-  `Check.cost = EXPENSIVE`, which needs a cached, fingerprinted result — and
-  duckbrain has *zero* caching today, with `surveyor.py`'s docstring advertising
-  "no state store" as a virtue. Decided in principle (cache to
-  `<log_dir>/checks.json` keyed on job id + newest input mtime, rendered with a
-  staleness marker, recomputed by an explicit action; **not** a post-job hook,
-  since jobs die, get cancelled, and run outside duckbrain). Decide it again with
-  the code in front of you.
-- The registry already carries the `cost` field so adding one is not a reshape;
-  `test_no_expensive_check_is_registered_yet` is the tripwire.
+What remains:
 
 ### `#16.3` — An opt-in audit stage (mrQA, later CuBIDS)
 
@@ -226,6 +219,11 @@ occasional and deliberate — versus a per-unit **contract** check on the board.
 
 ### Still-unhomed candidates
 
+- **"Reuse anat derivatives" actually reusing** — the `#16.2` family member
+  that shipped without code, for want of an honest outcome signal: fMRIPrep's
+  report does not state reuse legibly, and the dangerous direction (nothing to
+  reuse) already raises at build time (closed 2026-07-20). Needs a signal
+  before it needs a check.
 - **Cross-artifact agreement**, the family `fmap-pe-direction` (2026-07-21)
   started: TR / volume counts consistent across runs of one task.
 - **Quality norms** — overlaps `#7.4` (MRIQC norms dashboard); fold them together
@@ -1467,6 +1465,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-16 | `#16.2` | **Outcome checks and duckbrain's first cache (L3, `#16` Slice C):** `outcome-sdc` reads fMRIPrep's own SDC verdict from the per-run summary reportlets (filename entities map each verdict to its BOLD; gated on sidecar `B0FieldSource`, COMPLETE units only) and `outcome-nordic` flags NORDIC output numerically identical to its raw input (volume 0, scaled values). Both `EXPENSIVE`: run only via `run_expensive_checks`, persisted to `<log_dir>/checks.json` with a per-check `count:mtime` fingerprint, rendered in a cockpit panel that confesses staleness. One deviation from the in-principle plan (no job id in the key) and two family members closed without code — design record: `docs/sanity-checks.md` Slice C. Anat-reuse re-homed to the unhomed candidates. Slice A's tripwire test flipped into the admission condition. Validated live on `divatten_beta_v2`: 65/65 runs judged through the NORDIC staged tree, clean, 8.4 s to measure and 0.07 s to fingerprint. |
 | 2026-08-11 | `#16.1` | **The request record (L2, `#16` Slice B):** every SLURM launch writes `<log_dir>/requests/<job_id>.json` — the builder's resolved context minus config-wide keys, sorted for diffing — with a `request_path` column in `submissions.tsv`; first consumer `checks._check_requested_spaces` compares recorded `output_spaces` to written `space-` entities (newest attempt only, COMPLETE units only), and the `run_checks` gate became per-check so L2 needs no `[expected]`. Design record: `docs/sanity-checks.md` Slice B. The `[expected]`-vs-skip question it owed is answered at `#13.1`. |
 | 2026-08-07 | `#20` | **conda is the documented environment: `environment.yml` + `scripts/setup_env.sh`, built and verified at the shared prefix `/projects/hulacon/shared/envs/duckbrain`.** braintwill's recipe taken working rather than re-derived, exactly as the item instructed: the script reads the package list out of `environment.yml` and passes it to a plain `conda create --override-channels -c conda-forge` (`conda env create` cannot be made safe against FSL's `#!final` condarc — re-verified nothing here), then **fails** unless every conda package resolved from conda-forge. The ownership split is the design decision: conda pins the interpreter (3.11) and the runtime deps, unpinned; the dev extra stays on pip via `-e .[dev]` **even though the blocker died** — conda-forge now carries ruff 0.16.x, rechecked as the item asked — because `pyproject.toml` must stay the single source of the gate pins, and a pin duplicated into `environment.yml` re-opens the drift the pins exist to close. One clean solve is committed as `conda/lock-linux-64.txt` (172 packages; regenerate only from a deleted prefix — an incremental solve is not a fresh one). Launch discovery is a gitignored `.conda-prefix` the script writes into the checkout: both launchers now prefer it over `.venv`, prepend the env's `bin/` (no conda shell hook needed), and set `PYTHONPATH=<checkout>/src` so the launched checkout is always the code that serves — the shared env has one checkout editable-installed, and without that line a user launching their own clone would silently run someone else's code. **The import check earned itself twice on day one, both times against the script itself.** First: `~/.local` site-packages shadow a conda env's own — the host-side twin of the `#34` container leak, a venv being immune is why nobody had met it — observed live as the env solving streamlit 1.61.1/nibabel 5.4.2 and importing this account's stale `pip install --user` 1.56.0/5.3.3 behind two green channel checks. Fixed with `PYTHONNOUSERSITE=1` in the script, in both launchers' conda branches, and as an `activate.d` hook in the env so the documented `conda activate` path is protected without knowing about it. Second: `conda run` does not forward stdin, so a heredoc check under it runs **empty and exits 0** — a vacuous pass caught only because the expected output went missing; the check now invokes the env's python directly, asserts `sys.executable` is the prefix's, and fails when any runtime module resolves from outside it. Verified end to end: full local gate green **in the env** — ruff, `format --check`, mypy, 1495 tests, coverage 89.81% over the 89 floor — which is also the first confirmation the suite passes against streamlit 1.61.x resolved fresh; and `scripts/launch.sh` served the app HTTP 200 through the conda branch (the OnDemand leg is `#30`'s new entry). CI deliberately stays on pip: GitHub runners have no FSL condarc, conda would cost solve time on every push, and the runners' pip path is the one GitHub users take — the accepted cost is that CI no longer tests the path Talapas users take, and the local gate run inside the env is the compensating check. The shared prefix is the model for other PIRGs to copy (`/projects/<pirg>/shared/envs/<name>`, setgid, one build per PIRG instead of ~1.2 G per user under an unreadable `~/.conda`); `--personal` and `--prefix` cover everyone else. |
 | 2026-08-06 | `#33` | **`disallow_any_generics` is on, which closes `#33.2` and with it the whole item — the type-checked surface is now the whole package under every knob this project has measured.** The knob was **226 errors**, not the 90 the mypy comment carried; that figure predated `#33.4`, and the item had already said the cost is a function of the gated surface. So the ninth and last of this item's estimates was wrong in the same direction as the other eight, and the item's own prediction that it would be — "the last such number" — is the one that held. But the count was never the shape of the work: **199 of the 226 were a bare `dict`, and 95 of those were one parameter, `config`, repeated across 20 modules**. One decision, then a sweep. `dict[str, Any]` is the end of that decision and not a placeholder — four TOML layers deep-merged, every key optional — spelled as a named alias `Config` because 90-odd signatures take one and `dict[str, Any]` is equally what a sidecar, a job-parameter dict and a Jinja context are. **Naming it immediately caught three functions taking the wrong one**: `plan_conversion`, `read_config_into_table` and `config_to_json` take a *dcm2bids* config, which the mechanical sweep had annotated `Config` and which is now `Dcm2BidsConfig`. That is the entire argument for a transparent alias, since mypy sees straight through both. **The `typing_extensions` blocker this item recorded was never real, and the item had already established why**: a required base plus a `total=False` subclass is the pre-3.11 spelling of `NotRequired`. `dcm2bids_config.Description` is written that way. Two rules came out of doing it, and they are in `pyproject.toml` because they decide the next one: a payload **read off disk** stays `dict[str, Any]` (sidecars, dataset descriptions, decision entries and hand-edited configs arrive in more than one schema with every key absent from some real file, which is why each reader is a chain of `.get()` and `isinstance` — a TypedDict over all-optional keys says nothing and reads as a guarantee); a payload **this code builds** gets one, because then the keys really are set in one place. Three qualified: `pipeline.JobIndex` (three keys, two different types, so no `dict[K, V]` describes it — which is how it came to be bare), `qc.DecisionRecord`/`DomainRecord` (and `DecisionRecord` *subclasses* `DomainRecord`, because `_domains_of`'s docstring already claimed a domain record is the run-level one minus the breakdown, and inheritance is that sentence in a form that stays true), and `Description`. **Four defects, all found by writing a type down rather than by looking for them.** `generate_config` bound `desc` to three different descriptions 60 lines apart — the `#18` shape a sixth and seventh time, fixed by renaming. `containers._inspect_labels_cached` returns a tuple of `(key, value)` **pairs** as its own docstring says, and the wrong `tuple[str, ...]` I first wrote was rejected at both the `tuple(labels)` that builds it and the `dict(...)` that consumes it. `qc.parse_entities` really does return `dict[str, str]`, which exposed `summarize_motion` stuffing four floats into the shared helper's result. And `survey_live`'s second return value was the bare dict `JobIndex` replaced. **The one that matters most is a hole in the checker, not in the code.** Naming `StageBuilder` broke the package on import and mypy stayed green: `from __future__ import annotations` defers *annotations*, but a type alias is an ordinary assignment evaluated at module load, so `Callable[[Config, …]]` at module scope needs a `TYPE_CHECKING`-only name at runtime. Six test files stopped collecting. To mypy the guard branch is always taken, so this is permanent blindness rather than a bug to file — hence `tests/test_runtime_type_aliases.py`, which imports every module in the package, and which was verified by putting the bad alias back (mypy clean, three tests red). It also guards itself: an empty `walk_packages` would pass vacuously. Gate verified to *block* rather than pass over — deleting one type argument from `discover_units` turns it red. Coverage measured before and after at 89.80% and 89.81%, so the floor is untouched: this added and removed no reachable code. What is left of widening is `strict`, which is not measured. |

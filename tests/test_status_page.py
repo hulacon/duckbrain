@@ -407,6 +407,63 @@ def test_the_validation_panel_runs_nothing_until_the_button_is_pressed(
     assert "--ignoreSymlinks" in calls[0]
 
 
+def test_the_outcome_panel_measures_nothing_until_the_button_is_pressed(project, monkeypatch):
+    """Same constraint as the validator panel, for the checks that open image
+    data and parse reports: the fragment re-runs every 30 s, and a render may
+    only read the snapshot and a fingerprint of stats."""
+    import duckbrain.core.checks as C
+
+    calls = []
+
+    def fake(config):
+        calls.append("ran")
+        return C.CheckSnapshot(ran_at="2026-08-16T00:00:00", fingerprint={}, issues=())
+
+    monkeypatch.setattr(C, "run_expensive_checks", fake)
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert calls == [], "the outcome checks ran on a plain render"
+
+    at.run()  # a second render, standing in for an auto-refresh tick
+    assert calls == [], "the outcome checks ran on a re-render"
+
+    assert "outcome_checks_btn" in _btn_keys(at)
+    at.button(key="outcome_checks_btn").click().run()
+    assert not at.exception
+    assert calls == ["ran"]
+
+
+def test_a_persisted_snapshot_renders_with_its_staleness_confessed(project):
+    """The snapshot is duckbrain's only state store, and this is the term of its
+    admission: a cached verdict whose inputs moved must say so on screen, never
+    pass as current."""
+    import json as J
+
+    snap = {
+        "ran_at": "2026-08-16T10:00:00",
+        "fingerprint": {"outcome-sdc": "9:9", "outcome-nordic": "9:9"},  # matches nothing
+        "issues": [
+            {
+                "check": "outcome-sdc",
+                "message": "sub-01: preprocessed uncorrected",
+                "severity": "warning",
+                "subject": "01",
+                "stage": "fmriprep",
+            }
+        ],
+    }
+    path = project / "code" / "logs" / "checks.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(J.dumps(snap))
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    warnings = [w.value for w in at.warning]
+    assert any("preprocessed uncorrected" in w for w in warnings)
+    assert any("Inputs have changed since" in w for w in warnings)
+
+
 def test_the_panel_reports_when_the_validator_could_not_run(project, monkeypatch):
     """A missing container must read as "could not run", never as a clean dataset.
 

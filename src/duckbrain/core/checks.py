@@ -32,9 +32,16 @@ already exists.
 re-derives everything on every render — and every 30 s under auto-refresh — so a
 check that opens a NIfTI or parses an fMRIPrep HTML report cannot join that path
 naively. ``CHEAP`` checks read JSON, filenames and config and run inline;
-``EXPENSIVE`` ones are excluded by default and will need a cached, fingerprinted
-result before any are registered. None are yet — the field exists so adding one
-does not mean reshaping the registry.
+``EXPENSIVE`` ones (the L3 outcome family — Slice C in ``docs/sanity-checks.md``)
+never run on the render path. They run only through :func:`run_expensive_checks`
+— an explicit user action, never a post-job hook, because jobs die, get cancelled
+and run outside duckbrain — which persists a :class:`CheckSnapshot` to
+``<log_dir>/checks.json``. That file is deliberately duckbrain's first and only
+state store: everything else re-derives live (``surveyor.py`` says why), and a
+cached *verdict* earns the exception because it carries its own falsifiability —
+a fingerprint of the inputs it was measured from, so the cockpit can render it
+with a staleness marker instead of serving a stale "clean" as current, which is
+the exact failure the validation panel refused a cache over.
 
 **Reports, never blocks.** ``pipeline.stage_runnable`` is untouched: a failed
 check surfaces, it does not gate. Where a condition is genuinely dangerous the
@@ -45,12 +52,14 @@ CLAUDE.md — a check that stops you working is a check people learn to disable.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from dataclasses import dataclass
+import re
+from collections.abc import Callable, Iterable
+from dataclasses import asdict, dataclass, fields
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .consistency import ConsistencyIssue
+from .consistency import ConsistencyIssue, _b0_values, _examples, _read_json
 from .expectations import (
     SessionCounts,
     SessionExpectation,
@@ -61,8 +70,9 @@ from .expectations import (
     observe,
 )
 from .ingestion import sub_ses_relpath
-from .pipeline import read_submissions
-from .surveyor import Status, _fmriprep_status, discover_units
+from .nordic import get_bold_runs, nordic_output_dir
+from .pipeline import _resolve_log_dir, read_submissions
+from .surveyor import Status, _entity_key, _fmriprep_input_dir, _fmriprep_status, discover_units
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -75,11 +85,18 @@ EXPENSIVE = "expensive"
 
 @dataclass(frozen=True)
 class Check:
-    """One registered check: a slug, its cost, and the function that runs it."""
+    """One registered check: a slug, its cost, and the function that runs it.
+
+    An ``EXPENSIVE`` check must also declare ``fingerprint`` — a *cheap* function
+    (stats and globs, never file contents) identifying the inputs the check
+    reads, so the cockpit can mark its cached result stale without paying for a
+    re-measure. ``CHEAP`` checks re-run every render and need none.
+    """
 
     slug: str
     cost: str
     run: Callable[[Config], list[ConsistencyIssue]]
+    fingerprint: Callable[[Config], str] | None = None
 
 
 def _shortfall(label: str, want: int, got: int) -> str:
@@ -381,12 +398,244 @@ def _check_requested_spaces(config: Config) -> list[ConsistencyIssue]:
     return issues
 
 
+# ---- the outcome family (L3, Slice C) — expensive, cached, run on demand ----
+
+
+#: The exact value fMRIPrep's per-run summary reportlet carries when no
+#: susceptibility distortion correction was applied — the one line the
+#: fieldmap-intent bug left behind, in a report nobody read (CLAUDE.md).
+_SDC_LINE = re.compile(r"Susceptibility distortion correction:\s*([^<\n]*)")
+
+
+def _sdc_verdicts(fmriprep_root: Path, subject: str) -> dict[str, str]:
+    """Acquisition key → the SDC value fMRIPrep's summary reportlet states.
+
+    Read from the per-run reportlets under ``figures/``, not the monolithic
+    ``sub-XX.html``: they are a few hundred bytes each, and the *filename*
+    carries the run's entities — so the mapping back to a BOLD needs no HTML
+    section parsing, just :func:`surveyor._entity_key` on the name. The figures
+    directory sits at subject level even in longitudinal trees; the ``ses-``
+    entity in the filename is what scopes a verdict to its session.
+    """
+    verdicts: dict[str, str] = {}
+    try:
+        for p in fmriprep_root.glob(f"sub-{subject}/**/figures/*_desc-summary_bold.html"):
+            try:
+                match = _SDC_LINE.search(p.read_text())
+            except (OSError, ValueError):
+                continue
+            if match:
+                verdicts[_entity_key(p.name)] = match.group(1).strip()
+    except OSError:
+        pass
+    return verdicts
+
+
+def _check_sdc_applied(config: Config) -> list[ConsistencyIssue]:
+    """fMRIPrep's own SDC verdict versus the fieldmap intent in the sidecars.
+
+    Complementary to ``consistency``'s ``fmap-intent``, not redundant: that
+    check catches *malformed* intent from the sidecars before hours of compute;
+    this one reads what fMRIPrep says it actually **did** — which also catches
+    the run that happened before the metadata was fixed, and fMRIPrep declining
+    intent that is correct. The declaration gating it is the ``B0FieldSource``
+    duckbrain writes into each BOLD sidecar; a dataset stating no intent
+    expects no correction and gets silence, per source.
+
+    Judged only for COMPLETE units — the same silence ``requested-spaces``
+    holds: a PARTIAL unit's shortfall already shows on the board, and this
+    check exists for the run that *looks* done. A run without a summary
+    reportlet is skipped: the tool left no testimony either way.
+    """
+    paths = config.get("paths") or {}
+    derivatives = paths.get("derivatives_dir") or ""
+    if not derivatives:
+        return []
+    root = Path(derivatives) / "fmriprep"
+    if not root.is_dir():
+        return []
+    input_root = Path(_fmriprep_input_dir(config))
+
+    issues: list[ConsistencyIssue] = []
+    verdict_cache: dict[str, dict[str, str]] = {}
+    for subject, session in discover_units(config["paths"]):
+        declaring = [
+            bold
+            for bold in get_bold_runs(input_root, subject, session)
+            if _b0_values(
+                _read_json(bold.parent / bold.name.replace(".nii.gz", ".json")),
+                "B0FieldSource",
+            )
+        ]
+        if not declaring:
+            continue
+        if _fmriprep_status(config, subject, session) is not Status.COMPLETE:
+            continue
+        if subject not in verdict_cache:
+            verdict_cache[subject] = _sdc_verdicts(root, subject)
+        skipped = sorted(
+            bold.name
+            for bold in declaring
+            if verdict_cache[subject].get(_entity_key(bold.name)) == "None"
+        )
+        if not skipped:
+            continue
+        where = f"sub-{subject}" + (f"/ses-{session}" if session else "")
+        issues.append(
+            ConsistencyIssue(
+                check="outcome-sdc",
+                subject=subject,
+                stage="fmriprep",
+                severity="warning",
+                message=(
+                    f"{where}: fMRIPrep reports `Susceptibility distortion correction: "
+                    f"None` for {len(skipped)} run(s) whose sidecar declares a fieldmap "
+                    f"(`B0FieldSource`): {_examples(skipped)}. The BOLD was preprocessed "
+                    "uncorrected — either the run predates the current metadata, or "
+                    "fMRIPrep declined intent that looks correct (check the fieldmap's "
+                    "own files). The report is the tool's record of what it did, so "
+                    "only re-running fMRIPrep changes this."
+                ),
+            )
+        )
+    return issues
+
+
+def _first_volumes_match(raw: Path, denoised: Path) -> bool:
+    """True when the two NIfTIs hold numerically identical first volumes.
+
+    One volume, not the series: NORDIC changes essentially every voxel of every
+    volume, so a single matching volume already convicts, and reading volume 0
+    keeps the gzip decompression to the head of each stream. Compared as scaled
+    values (``dataobj`` slicing) rather than raw bytes, because a silent no-op
+    through MATLAB's writer re-encodes the file — byte comparison would acquit
+    it. An unreadable file is not a finding, the module-wide contract.
+    """
+    import nibabel as nib
+    import numpy as np
+
+    try:
+        # ``Any`` because nibabel types loads as the bare ``FileBasedImage``,
+        # which declares neither ``shape`` nor ``dataobj``; the except clause
+        # is already the contract for a file that doesn't duck-type as one.
+        a: Any = nib.load(str(raw))
+        b: Any = nib.load(str(denoised))
+        if a.shape != b.shape:
+            return False
+        va = np.asanyarray(a.dataobj[..., 0] if len(a.shape) == 4 else a.dataobj)
+        vb = np.asanyarray(b.dataobj[..., 0] if len(b.shape) == 4 else b.dataobj)
+        return bool(np.allclose(va, vb, rtol=1e-6, atol=0.0))
+    except Exception:
+        return False
+
+
+def _check_nordic_denoised(config: Config) -> list[ConsistencyIssue]:
+    """NORDIC output that is numerically identical to its raw input.
+
+    The denoise's whole product is a *difference*; an output equal to its input
+    is a run that silently did nothing, and every consumer downstream (the
+    staged fMRIPrep tree first) would treat it as denoised. The sbatch has no
+    copy path — MATLAB always writes the output — so identical data is never
+    legitimate. Presence/counts are the surveyor's job (``_nordic_status``);
+    this only compares content where both files exist, so a running array
+    can't be false-flagged for outputs it hasn't written yet.
+    """
+    paths = config.get("paths") or {}
+    derivatives = paths.get("derivatives_dir") or ""
+    bids_dir = paths.get("bids_dir") or ""
+    if not derivatives or not bids_dir or not (Path(derivatives) / "nordic").is_dir():
+        return []
+
+    issues: list[ConsistencyIssue] = []
+    for subject, session in discover_units(config["paths"]):
+        raw_dir = Path(bids_dir) / sub_ses_relpath(subject, session) / "func"
+        try:
+            outs = sorted(nordic_output_dir(derivatives, subject, session).glob("*_bold.nii.gz"))
+        except OSError:
+            continue
+        unchanged = [
+            out.name
+            for out in outs
+            if (raw := raw_dir / out.name).is_file() and _first_volumes_match(raw, out)
+        ]
+        if not unchanged:
+            continue
+        where = f"sub-{subject}" + (f"/ses-{session}" if session else "")
+        issues.append(
+            ConsistencyIssue(
+                check="outcome-nordic",
+                subject=subject,
+                stage="nordic",
+                severity="warning",
+                message=(
+                    f"{where}: {len(unchanged)} NORDIC output(s) are numerically "
+                    f"identical to their raw input: {_examples(unchanged)}. Denoising "
+                    "changes every volume, so an identical output means the run "
+                    "silently did nothing — and fMRIPrep would read it as denoised. "
+                    "Delete the file(s) and re-run NORDIC; the job skips outputs that "
+                    "already exist, so it will not overwrite them on its own."
+                ),
+            )
+        )
+    return issues
+
+
+def _files_fingerprint(globs: Iterable[tuple[Path, str]]) -> str:
+    """``<file count>:<newest mtime ns>`` over everything the globs match.
+
+    The cheap identity of a check's inputs: stats only, never contents. The
+    count is load-bearing alongside the mtime — deleting a file changes what a
+    check would say but can never *raise* the newest mtime.
+    """
+    count, newest = 0, 0
+    for root, pattern in globs:
+        try:
+            for p in root.glob(pattern):
+                if p.is_file():
+                    count += 1
+                    newest = max(newest, p.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return f"{count}:{newest}"
+
+
+def _sdc_fingerprint(config: Config) -> str:
+    """The SDC check's inputs: the summary reportlets, and the BOLD sidecars
+    whose intent gates it — so fixing a sidecar after a run marks the verdict
+    stale even though no report changed."""
+    paths = config.get("paths") or {}
+    if not paths.get("derivatives_dir") or not paths.get("bids_dir"):
+        return "0:0"
+    reportlets = "sub-*/**/figures/*_desc-summary_bold.html"
+    return _files_fingerprint(
+        [
+            (Path(paths["derivatives_dir"]) / "fmriprep", reportlets),
+            (Path(_fmriprep_input_dir(config)), "sub-*/**/func/*_bold.json"),
+        ]
+    )
+
+
+def _nordic_fingerprint(config: Config) -> str:
+    """The NORDIC check's inputs: both sides of every comparison it makes."""
+    paths = config.get("paths") or {}
+    if not paths.get("derivatives_dir") or not paths.get("bids_dir"):
+        return "0:0"
+    return _files_fingerprint(
+        [
+            (Path(paths["derivatives_dir"]) / "nordic", "sub-*/**/func/*_bold.nii.gz"),
+            (Path(paths["bids_dir"]), "sub-*/**/func/*_bold.nii.gz"),
+        ]
+    )
+
+
 #: Ordered so the cockpit renders deterministically — project-level first, then
 #: per-unit, matching how someone reads the board.
 REGISTRY: tuple[Check, ...] = (
     Check("expected-roster", CHEAP, _check_roster),
     Check("expected-contents", CHEAP, _check_session_contents),
     Check("requested-spaces", CHEAP, _check_requested_spaces),
+    Check("outcome-sdc", EXPENSIVE, _check_sdc_applied, _sdc_fingerprint),
+    Check("outcome-nordic", EXPENSIVE, _check_nordic_denoised, _nordic_fingerprint),
 )
 
 
@@ -400,6 +649,11 @@ def run_checks(config: Config, *, include_expensive: bool = False) -> list[Consi
     ``[expected]`` still gets the L2 checks and vice versa. Each check is
     isolated: one blowing up must not sink the whole panel, the same contract
     :func:`~duckbrain.core.consistency.check_consistency` holds.
+
+    ``EXPENSIVE`` checks are excluded by default — the render path reads their
+    persisted result via :func:`read_checks_snapshot` instead; only
+    :func:`run_expensive_checks` (or an explicit ``include_expensive=True``)
+    pays for a fresh measurement.
     """
     issues: list[ConsistencyIssue] = []
     for check in REGISTRY:
@@ -410,3 +664,119 @@ def run_checks(config: Config, *, include_expensive: bool = False) -> list[Consi
         except Exception:
             continue
     return issues
+
+
+# ---- the snapshot — duckbrain's first (and only) state store ----------------
+
+
+@dataclass(frozen=True)
+class CheckSnapshot:
+    """One persisted run of the expensive checks: when, against what, and what
+    it found. ``fingerprint`` is per-check (slug → :func:`_files_fingerprint`
+    string) — the inputs the verdict was measured from, which is what makes a
+    cached verdict honest to render later."""
+
+    ran_at: str
+    fingerprint: dict[str, str]
+    issues: tuple[ConsistencyIssue, ...]
+
+
+def checks_snapshot_path(config: Config) -> Path:
+    """Where the snapshot lives: ``<log_dir>/checks.json`` — shared FS, beside
+    the submission log, for the same reason the logs are there."""
+    return Path(_resolve_log_dir(config)) / "checks.json"
+
+
+def expensive_fingerprint(config: Config) -> dict[str, str]:
+    """Cheap identity of every expensive check's current inputs.
+
+    Safe on the render path — stats and globs only. Comparing this against a
+    snapshot's stored fingerprint is the staleness marker.
+    """
+    out: dict[str, str] = {}
+    for check in REGISTRY:
+        if check.cost != EXPENSIVE or check.fingerprint is None:
+            continue
+        try:
+            out[check.slug] = check.fingerprint(config)
+        except Exception:
+            out[check.slug] = ""
+    return out
+
+
+def snapshot_is_stale(config: Config, snapshot: CheckSnapshot) -> bool:
+    """True when any expensive check's inputs changed since *snapshot* ran."""
+    return snapshot.fingerprint != expensive_fingerprint(config)
+
+
+def run_expensive_checks(config: Config) -> CheckSnapshot:
+    """Run the EXPENSIVE checks and persist the result to ``checks.json``.
+
+    An explicit action, never a post-job hook — jobs die, get cancelled, and
+    run outside duckbrain, so a hook would leave exactly the runs most worth
+    checking unmeasured. The fingerprint is taken *before* the checks run:
+    inputs changing mid-measurement then leave the snapshot marked stale
+    rather than passing as current.
+
+    Each check stays isolated (one blowing up cannot sink the rest), but the
+    *write* is allowed to raise — this runs behind a button, and a snapshot
+    that silently failed to persist would render as "not measured yet" while
+    the user believes it was.
+    """
+    fingerprint = expensive_fingerprint(config)
+    issues: list[ConsistencyIssue] = []
+    for check in REGISTRY:
+        if check.cost != EXPENSIVE:
+            continue
+        try:
+            issues.extend(check.run(config))
+        except Exception:
+            continue
+    snapshot = CheckSnapshot(
+        ran_at=datetime.now().isoformat(timespec="seconds"),
+        fingerprint=fingerprint,
+        issues=tuple(issues),
+    )
+    path = checks_snapshot_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(
+            {
+                "ran_at": snapshot.ran_at,
+                "fingerprint": snapshot.fingerprint,
+                "issues": [asdict(i) for i in snapshot.issues],
+            },
+            f,
+            indent=2,
+        )
+    return snapshot
+
+
+def read_checks_snapshot(config: Config) -> CheckSnapshot | None:
+    """The persisted snapshot, or ``None`` — absent or unreadable means "not
+    measured yet", never a finding, the contract every reader here holds."""
+    try:
+        with open(checks_snapshot_path(config)) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    fingerprint = data.get("fingerprint")
+    raw_issues = data.get("issues")
+    if not isinstance(fingerprint, dict) or not isinstance(raw_issues, list):
+        return None
+    known = {f.name for f in fields(ConsistencyIssue)}
+    issues = []
+    for entry in raw_issues:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            issues.append(ConsistencyIssue(**{k: str(v) for k, v in entry.items() if k in known}))
+        except TypeError:
+            continue
+    return CheckSnapshot(
+        ran_at=str(data.get("ran_at", "")),
+        fingerprint={str(k): str(v) for k, v in fingerprint.items()},
+        issues=tuple(issues),
+    )

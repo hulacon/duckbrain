@@ -18,7 +18,7 @@ import json
 
 import pytest
 
-from duckbrain.core.checks import CHEAP, EXPENSIVE, REGISTRY, run_checks
+from duckbrain.core.checks import CHEAP, run_checks
 from duckbrain.core.expectations import (
     SessionExpectation,
     declared,
@@ -323,13 +323,11 @@ def test_a_participant_count_short_of_the_roster_is_reported(tmp_path):
 # ---- the registry -----------------------------------------------------------
 
 
-def test_no_expensive_check_is_registered_yet(tmp_path):
-    """Slice A ships cheap checks only. The `cost` field exists so adding an
-    expensive one doesn't mean reshaping the registry — but until there is a
-    cached, fingerprinted result to render, nothing expensive may join the
-    cockpit's per-render path."""
-    assert {c.cost for c in REGISTRY} == {CHEAP}
-    assert EXPENSIVE not in {c.cost for c in REGISTRY}
+# Slice A's tripwire (`test_no_expensive_check_is_registered_yet`) was
+# deliberately flipped when Slice C landed the cache it was holding out for —
+# its replacement lives in `test_outcome_checks.py` and pins the admission
+# condition instead: every expensive check declares a fingerprint, and none
+# runs on the render path.
 
 
 def test_one_broken_check_cannot_sink_the_panel(tmp_path, monkeypatch):

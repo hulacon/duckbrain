@@ -26,6 +26,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **Outcome checks — what the tools actually did, on demand** (`#16.2`). A new
+  "Outcome checks" panel on the Project Status page runs two checks that read
+  the tools' own output: fMRIPrep's per-run *susceptibility distortion
+  correction* verdict compared against the fieldmap intent in the sidecars it
+  was given (the check the fieldmap-intent bug showed was missing — a run can
+  grade complete everywhere while its report says correction was `None`), and
+  each NORDIC output compared against its raw input, flagging a denoise that
+  silently changed nothing. These open reports and image data, so they never
+  run on the auto-refreshing board: they run when you press the button, and
+  the result is kept in `code/logs/checks.json` together with a fingerprint of
+  the inputs it measured — the panel shows *when* it was measured and warns
+  when a new run, a fixed sidecar, or deleted files have made it stale, rather
+  than presenting an old "clean" as current.
+
 - **Every SLURM launch now writes a request record** —
   `<project>/code/logs/requests/<job_id>.json`, holding the resolved ask
   (fMRIPrep `output_spaces`, `anat_only`, extra flags, the generated BIDS

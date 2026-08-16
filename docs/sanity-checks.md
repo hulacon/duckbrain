@@ -50,7 +50,7 @@ first draft's mistake.
 |---|---|---|---|
 | **L1 — roster + protocol** | "37 subjects; each session has 1×T1w, 1 fieldmap pair, 4 runs of `task-div`" | the experimenter | **Slice A — shipped** |
 | **L2 — request** | "fMRIPrep for sub-015 with these `output_spaces`, `use_nordic`, no anat reuse" | duckbrain, at launch | **Slice B — shipped 2026-08-11** |
-| **L3 — outcome** | "fMRIPrep actually applied SDC / actually wrote `space-fsaverage6`" | only the tool knows | Slice C — open |
+| **L3 — outcome** | "fMRIPrep actually applied SDC / actually wrote `space-fsaverage6`" | only the tool knows | **Slice C — shipped 2026-08-16** |
 
 L3 checks are only expressible against L2, and acquisition-level omissions only
 against L1. Record intent first, check second — which is why Slice A is the
@@ -235,15 +235,92 @@ NORDIC by "every launch-written sidecar has a matching NIfTI" needs no request
 record (`nordic.write_nordic_sidecars` already writes one per intended run) and
 belongs with Slice C's outcome family when that lands.
 
-## The cost field, and what it is holding open
+## Slice C — the outcome checks and their cache (shipped 2026-08-16)
 
-`Check.cost` is `CHEAP` or `EXPENSIVE`, and **nothing expensive is registered**.
-The cockpit re-derives everything on every render — every 30 s under
-auto-refresh — so a check that opens a NIfTI or parses an fMRIPrep HTML report
-cannot join that path naively. The field exists so that adding one later does not
-mean reshaping the registry; the missing piece is a cached, fingerprinted result,
-which is Slice C and gets its own decision because it would be duckbrain's first
-state store. `test_no_expensive_check_is_registered_yet` pins that.
+Two `EXPENSIVE` checks and the store that makes them admissible. The
+in-principle decision (`TODO.md` `#16.2`) survived contact with the code in all
+but one detail, recorded below.
+
+**`outcome-sdc`** reads fMRIPrep's own verdict back out of its report — the
+`Susceptibility distortion correction: None` line that was the fieldmap-intent
+bug's only trace. Not the monolithic `sub-XX.html`: the per-run summary
+reportlets under `figures/` are a few hundred bytes each and carry the run's
+entities in their *filename*, so mapping a verdict to its BOLD is
+`surveyor._entity_key` on the name rather than HTML section parsing (they sit
+at subject level even in longitudinal trees; the `ses-` entity in the name is
+what scopes a verdict to its session). The gating declaration is the
+`B0FieldSource` duckbrain writes into each BOLD sidecar — absent means off, per
+source. Complementary to `fmap-intent`, which catches malformed intent from the
+sidecars before hours of compute; this reads what fMRIPrep actually **did**,
+which also catches the run that predates a metadata fix, and fMRIPrep declining
+intent that is correct. Only COMPLETE units are judged (the requested-spaces
+silence, for the same reasons), and a run with no reportlet is skipped — the
+tool left no testimony either way.
+
+**`outcome-nordic`** compares each NORDIC output against its raw input and
+flags numerically identical data. The denoise's whole product is a difference,
+and the sbatch has no copy path — MATLAB always writes the output — so
+identical data is never legitimate. One volume, not the series (denoising
+changes essentially every voxel, and volume 0 keeps the gzip decompression to
+the head of each stream); *scaled values*, not bytes (a silent no-op through
+MATLAB's writer re-encodes the file, so a byte comparison would acquit it).
+Content only: presence and counts stay the surveyor's
+(`_nordic_status`/`run_progress`), which is also what keeps a running array
+from being false-flagged for outputs it hasn't written yet.
+
+**The cache — duckbrain's first and only state store.** `run_expensive_checks`
+persists a `CheckSnapshot` to `<log_dir>/checks.json`; the cockpit's outcome
+panel renders the snapshot, paying one small JSON read plus a fingerprint of
+stats per render. Re-measurement is an explicit button, never a post-job hook —
+jobs die, get cancelled, and run outside duckbrain, so a hook would leave
+exactly the runs most worth checking unmeasured. What makes rendering a cached
+verdict honest is the fingerprint it carries: `<file count>:<newest mtime ns>`
+per check over the inputs it read (the count is load-bearing — deleting a file
+changes the answer but can never raise a max mtime), taken *before* the checks
+run so inputs changing mid-measurement leave the snapshot stale rather than
+current. The panel confesses staleness instead of serving an old "clean" as
+current — the exact failure the validation panel refused a cache over.
+
+**The one deviation from the in-principle decision: no job id in the key.**
+`TODO.md` had settled "keyed on job id + newest input mtime". With the code in
+front: neither check reads the request record or the submission log — the tools
+testify against themselves — so a job id would be borrowed identity nothing
+uses, and it does not exist for the externally-run fMRIPrep the checks still
+cover. The input mtimes supersede it: any re-run moves them.
+
+**Family members that needed no code, and one still open:**
+
+- *MRIQC IQMs present for every func the surveyor counts complete* — already
+  discharged before this slice: `surveyor._mriqc_expected_found` (2026-08-11)
+  grades per rated image, so a missing IQM json is a PARTIAL cell on the board,
+  not an outcome check.
+- *The NORDIC sidecar "free half"* (Slice B's note) — deliberately **not**
+  built as a separate cheap check. `_nordic_status` already compares raw BOLDs
+  to outputs wherever NORDIC applies, and the sidecars are written at *launch*,
+  so a sidecar-vs-NIfTI presence check would false-flag every running array.
+  The content comparison above is what the sidecar idea was actually worth.
+- *"Reuse anat derivatives" actually reusing* — still open, for want of an
+  honest outcome signal: the report does not state reuse legibly, and the
+  dangerous direction (nothing to reuse) already raises at build time. Parked
+  under `TODO.md` `#16`'s unhomed candidates.
+
+Validated live on `divatten_beta_v2` (2026-08-16): all 65 BOLD runs declare
+intent through the NORDIC staged tree, all five units COMPLETE, all 65 verdicts
+matched by entity key and read `PEB/PEPOLAR`; 65 NORDIC pairs compared, none
+identical. 8.4 s for the full measurement, 0.07 s for the fingerprint — the
+render path's whole cost.
+
+## The cost field
+
+`Check.cost` is `CHEAP` or `EXPENSIVE`. The cockpit re-derives everything on
+every render — every 30 s under auto-refresh — so a check that opens a NIfTI or
+parses an fMRIPrep report may never join that path: `run_checks` excludes
+`EXPENSIVE` entries, which run only through `run_expensive_checks` and render
+from the snapshot above. Slice A's tripwire
+(`test_no_expensive_check_is_registered_yet`) held exactly this open until the
+cache existed; it is flipped now into the admission condition — every expensive
+check declares a fingerprint, and none runs on a plain `run_checks`
+(`tests/test_outcome_checks.py`).
 
 ### The BIDS validator is not one of them, and the reason is not cost
 
@@ -277,10 +354,6 @@ that the fieldmap-intent bug passed it.
 
 ## What is deliberately still open
 
-- **Slice C — the outcome checks and their cache.** Parsing the fMRIPrep report
-  for SDC-applied is the one that motivated `#16`. Note it is *complementary* to
-  `fmap-intent`, which catches the cause from the sidecars before hours of
-  compute; what it cannot see is fMRIPrep declining metadata that is correct.
 - **Slice D — an opt-in audit stage** shelling out to mrQA (and later CuBIDS) as
   a SLURM stage, reusing `StageSpec`/`advance_one`/the log viewers. Distinct from
   this layer: heterogeneity *discovery* over the whole dataset, occasional and

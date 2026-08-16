@@ -3,7 +3,10 @@
 The rest of duckbrain keeps no state store: every page re-derives "what exists"
 live from the filesystem. That is nicely tool-agnostic but conflates *presence*
 with *completion* — a crashed fMRIPrep leaves a ``derivatives/fmriprep/sub-XX``
-dir that looks identical to a finished one (see TODO #6).
+dir that looks identical to a finished one (see TODO #6). (One deliberate
+exception exists: ``checks.json``, the expensive-checks snapshot in
+``core/checks.py``, which earns it by carrying a fingerprint of the inputs it
+was measured from — a cached verdict that can say when it has gone stale.)
 
 The surveyor closes that gap by borrowing Nipoppy's tracker approach: a stage is
 judged **by the presence of its expected output files** (globs), not by folder
