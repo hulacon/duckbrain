@@ -41,17 +41,13 @@ _PAGES = [
     ("7_New_to_Talapas.py", "New to Talapas?"),
 ]
 
-# QC is six pages, so it is a *group*: passing st.navigation a dict makes each
-# grouping one collapsible item at position="top", which keeps the top bar the
-# length it was. The empty-string key is what puts the pipeline pages before the
-# groups rather than inside one.
+# QC is its own *group*: passing st.navigation a dict makes each grouping one
+# collapsible item at position="top", which keeps the top bar the length it
+# was. The empty-string key is what puts the pipeline pages before the groups
+# rather than inside one.
 _QC_PAGES = [
     ("5_QC_Overview.py", "Overview"),
     ("5a_QC_Inspect.py", "Inspect a run"),
-    ("5a_QC_Signal.py", "Signal & contrast"),
-    ("5b_QC_Temporal.py", "Temporal stability"),
-    ("5c_QC_Alignment.py", "Alignment & distortion"),
-    ("5d_QC_Artifacts.py", "Artifacts"),
 ]
 
 

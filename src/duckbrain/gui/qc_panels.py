@@ -6,10 +6,10 @@ reason ``core/qc.py`` was once the only untested module in ``core/``. A module
 can be driven by ``AppTest.from_function``, exactly as
 ``tests/test_gui_components.py`` drives ``directory_picker``.
 
-The QC pages are therefore *declarations*, not scripts: each one says which
-domain it is and calls :func:`render_domain_page`. Splitting one page into five
-would otherwise have multiplied untested statements fivefold, against a coverage
-gate that is a ratchet.
+The QC pages are therefore *declarations*, not scripts: the Overview calls
+:func:`render_overview`, the Inspect page :func:`render_inspection_page`.
+Anything more in a page file is untested statements, against a coverage gate
+that is a ratchet.
 
 What is here is the *rendering* of an already-decided thing. Which measures and
 figures a domain covers is ``core.qc_domains``; where the figures are on disk is
@@ -20,7 +20,7 @@ only how they are put on screen.
 channel** — not the reverse. Treating the URL as the live store makes a widget
 write back what it just read, and the app oscillates. So the URL seeds the
 session once on arrival, session state is the truth thereafter, and the URL is
-rewritten to match so a link to one run's alignment review can be sent to someone.
+rewritten to match so a link to one run's inspection can be sent to someone.
 """
 
 from __future__ import annotations
@@ -134,19 +134,6 @@ def evidence_viewer(
             except Exception as exc:
                 st.warning(f"Could not render `{path.name}` — {exc}")
     return shown
-
-
-def domain_intro(domain: ReviewDomain, modality: str, *, n_measures: int) -> None:
-    """The domain's question, and — when it has no numbers here — why not.
-
-    A section that renders blank is indistinguishable from one that failed to
-    load, so the empty case gets a sentence rather than nothing.
-    """
-    st.markdown(f"**{domain.question}**")
-    if not n_measures:
-        st.info(domain.explain_absence(modality))
-    if domain.caveat:
-        st.caption(domain.caveat)
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +395,7 @@ def load_config_or_stop() -> Config:
 
 
 # ---------------------------------------------------------------------------
-# A domain, for one run
+# The numbers, for one run
 # ---------------------------------------------------------------------------
 
 
@@ -460,141 +447,6 @@ def measure_table(scope: Scope, measures: list[str]) -> None:
             "Value": st.column_config.NumberColumn(format="%.4f"),
             "Cohort median": st.column_config.NumberColumn(format="%.4f"),
         },
-    )
-
-
-def guidance_expanders(measures: list[str]) -> None:
-    """Each measure's guidance, next to the number rather than in a glossary.
-
-    This is the "tethered, not floating" half of the redesign: the reason a
-    measure earns a column used to live in one glossary at the bottom of a long
-    report, which is far enough away that nobody read it.
-    """
-    for g in qc_guidance.guidance_for_keys(measures):
-        with st.expander(f"{g.label} — {g.direction_label}"):
-            if g.units:
-                st.caption(f"Units: {g.units}")
-            st.markdown(f"**Why it is here.** {g.why}")
-            st.markdown(f"**Look for.** {g.look_for}")
-            st.markdown(f"**Flagged when.** {g.auto_flag}")
-            if g.literature_threshold:
-                st.markdown(f"**A priori thresholds.** {g.literature_threshold}")
-            if g.caveats:
-                st.markdown(f"**Caveats.** {g.caveats}")
-            for ref in g.references:
-                st.caption(f"[{ref.label}]({ref.url}) — {ref.detail}. {ref.note}")
-
-
-def render_domain_page(domain_key: str) -> None:
-    """The whole body of one domain page.
-
-    The pages are five near-identical declarations of which domain they are, so
-    that everything here is exercised by ``AppTest.from_function`` instead of
-    living five times over in scripts no test imports.
-    """
-    # A sign-off recorded on the previous run confirms itself here; see
-    # `components.queue_toast` for why it cannot confirm itself at the call site.
-    flush_toasts()
-    domain = qc_domains.get_domain(domain_key)
-    st.title(domain.label)
-
-    config = load_config_or_stop()
-    scope = scope_bar(config)
-    if scope is None:
-        return
-
-    measures = domain.measures_for(scope.modality)
-    domain_intro(domain, scope.modality, n_measures=len(measures))
-
-    if not scope.run_key:
-        st.info("Pick a run above to review it.")
-        return
-
-    # The guidance stands on its own even with no numbers to attach it to, and
-    # the figures do not need MRIQC at all — so neither is gated on ``scope.run``,
-    # which is absent whenever MRIQC has not run.
-    if measures and scope.run:
-        measure_table(scope, measures)
-    if measures:
-        guidance_expanders(measures)
-
-    if domain.evidence_for(scope.modality):
-        st.subheader("Evidence")
-        evidence_viewer(scope.fmriprep_dir, domain, scope.run_key, modality=scope.modality)
-
-    st.divider()
-    domain_signoff(scope, domain)
-    _page_link(
-        "pages/5_QC_Overview.py",
-        "Record a keep/exclude verdict for this run on the Overview",
-        icon="⬅️",
-    )
-
-
-def domain_signoff(scope: Scope, domain: ReviewDomain) -> None:
-    """Record that this aspect of this run was reviewed.
-
-    Optional, and it gates nothing. Four domains across sixty-five runs is a lot
-    of clicking if it were required, and the run's verdict is a separate act that
-    must stay reachable without touring four pages first — a reviewer looking at a
-    wrecked run should be able to exclude it immediately.
-
-    The note is carried into whichever state is clicked rather than saved on its
-    own, for the reason the run-level panel does the same: a typed note that
-    records itself becomes a judgement nobody made.
-    """
-    import getpass
-
-    run_key = scope.run_key
-    if not run_key:
-        return
-
-    record = qc.load_decisions(scope.decisions_read_dirs).get(run_key)
-    current = (record.get("domains") or {}).get(domain.key) if record else None
-    latest = (current.get("latest") or {}) if current else {}
-
-    st.subheader("Review this aspect")
-    if current and current.get("signed_off"):
-        st.caption(
-            f"**{latest.get('decision')}** — {latest.get('reviewer')} "
-            f"{('· ' + latest['reason']) if latest.get('reason') else ''}"
-            f" ({latest.get('timestamp', '')[:10]})"
-        )
-    else:
-        st.caption("Not yet reviewed.")
-
-    reviewer = getpass.getuser()
-    note_key = f"note_{domain.key}_{run_key}"
-    st.text_input(
-        "Note",
-        key=note_key,
-        value=latest.get("reason", ""),
-        help="Saved with whichever state you pick — a note on its own is not a review.",
-    )
-
-    def _record(state: str) -> None:
-        qc.save_decision(
-            scope.decisions_dir,
-            run_key,
-            state,
-            reason=st.session_state.get(note_key, ""),
-            reviewer=reviewer,
-            domain=domain.key,
-        )
-        queue_toast(f"{run_key} · {domain.label}: {state}")
-
-    left, right = st.columns(2)
-    with left:
-        if st.button("Reviewed — no concerns", key=f"rev_{domain.key}_{run_key}", width="stretch"):
-            _record("reviewed")
-            st.rerun()
-    with right:
-        if st.button("Reviewed — concerns", key=f"con_{domain.key}_{run_key}", width="stretch"):
-            _record("concerns")
-            st.rerun()
-    st.caption(
-        f"Recorded as **{reviewer}**, against this aspect only. It does not give "
-        f"the run a keep/exclude verdict — that stays a separate call on the Overview."
     )
 
 
@@ -716,6 +568,11 @@ def render_inspection_page() -> None:
         for domain in qc_domains.DOMAINS:
             if domain.caveat and domain.measures_for(scope.modality):
                 st.caption(f"**{domain.label}:** {domain.caveat}")
+    # A domain with neither numbers nor figures for this modality still says
+    # why — a silently absent section reads as a section that failed to load.
+    for domain in qc_domains.DOMAINS:
+        if not domain.measures_for(scope.modality) and not domain.evidence_for(scope.modality):
+            st.caption(f"**{domain.label}:** {domain.explain_absence(scope.modality)}")
     else:
         st.caption(
             "The measures need MRIQC — run it from **Preprocessing**. The figures below do not."
@@ -757,14 +614,6 @@ def render_inspection_page() -> None:
 # ---------------------------------------------------------------------------
 # The overview: the cohort, and where the verdict is recorded
 # ---------------------------------------------------------------------------
-
-#: Where each domain's own page lives, for deep links out of the worklist.
-DOMAIN_PAGES = {
-    "signal": "pages/5a_QC_Signal.py",
-    "temporal": "pages/5b_QC_Temporal.py",
-    "alignment": "pages/5c_QC_Alignment.py",
-    "artifact": "pages/5d_QC_Artifacts.py",
-}
 
 
 def _page_link(path: str, label: str, **kwargs: Any) -> None:
@@ -822,23 +671,6 @@ def clicked_run_key(runs: list[RunRow], rows: list[int]) -> str:
     if 0 <= index < len(runs):
         return str(runs[index]["run_key"])
     return ""
-
-
-def domain_links(run_key: str, modality: str) -> None:
-    """One link per domain, carrying the selection into that domain's page.
-
-    ``st.page_link`` takes query parameters directly, so this needs no
-    ``switch_page`` dance and no pre-navigation session write — and the
-    resulting URL is one a reviewer can send to someone else.
-    """
-    cols = st.columns(len(qc_domains.DOMAINS))
-    for col, domain in zip(cols, qc_domains.DOMAINS, strict=True):
-        with col:
-            _page_link(
-                DOMAIN_PAGES[domain.key],
-                domain.label,
-                query_params={"run": run_key, "modality": modality},
-            )
 
 
 def _fmriprep_report_keys(run_key: str) -> list[str]:

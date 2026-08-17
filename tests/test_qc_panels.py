@@ -344,43 +344,6 @@ class TestFmriprepReportKeys:
         assert qc_panels._fmriprep_report_keys("bold") == []
 
 
-class TestDomainIntro:
-    def test_it_states_the_review_question(self):
-        def script():
-            from duckbrain.core.qc_domains import get_domain
-            from duckbrain.gui import qc_panels
-
-            qc_panels.domain_intro(get_domain("temporal"), "bold", n_measures=3)
-
-        at = AppTest.from_function(script, default_timeout=30).run()
-        assert not at.exception
-        assert any("hold still" in m.value for m in at.markdown)
-
-    def test_an_empty_domain_explains_itself_rather_than_going_blank(self):
-        """The silent-degradation rule, at the panel boundary this time."""
-
-        def script():
-            from duckbrain.core.qc_domains import get_domain
-            from duckbrain.gui import qc_panels
-
-            qc_panels.domain_intro(get_domain("temporal"), "T1w", n_measures=0)
-
-        at = AppTest.from_function(script, default_timeout=30).run()
-        assert not at.exception
-        assert any("single volume" in i.value for i in at.info)
-
-    def test_a_domain_caveat_is_shown(self):
-        def script():
-            from duckbrain.core.qc_domains import get_domain
-            from duckbrain.gui import qc_panels
-
-            qc_panels.domain_intro(get_domain("alignment"), "bold", n_measures=0)
-
-        at = AppTest.from_function(script, default_timeout=30).run()
-        assert not at.exception
-        assert any("MRIQC's own" in c.value for c in at.caption)
-
-
 class TestSizeNote:
     @pytest.mark.parametrize("n,expected", [(1, "1 figure"), (2, "2 figures")])
     def test_it_agrees_with_itself_about_number(self, n, expected):

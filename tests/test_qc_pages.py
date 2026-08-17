@@ -1,4 +1,4 @@
-"""Interaction tests for the five QC pages.
+"""Interaction tests for the two QC pages: the Overview and the Inspect page.
 
 The load-bearing case is :func:`test_evidence_survives_a_project_with_no_mriqc`,
 carried forward from when QC was one page. fMRIPrep's figures must stay reachable
@@ -34,11 +34,7 @@ from conftest import page_path
 
 OVERVIEW = page_path("src/duckbrain/gui/pages/5_QC_Overview.py")
 INSPECT = page_path("src/duckbrain/gui/pages/5a_QC_Inspect.py")
-SIGNAL = page_path("src/duckbrain/gui/pages/5a_QC_Signal.py")
-TEMPORAL = page_path("src/duckbrain/gui/pages/5b_QC_Temporal.py")
-ALIGNMENT = page_path("src/duckbrain/gui/pages/5c_QC_Alignment.py")
-ARTIFACTS = page_path("src/duckbrain/gui/pages/5d_QC_Artifacts.py")
-ALL_PAGES = [OVERVIEW, INSPECT, SIGNAL, TEMPORAL, ALIGNMENT, ARTIFACTS]
+ALL_PAGES = [OVERVIEW, INSPECT]
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mriqc"
 
@@ -193,7 +189,7 @@ class TestSurvivesAMissingTool:
         that ordering.
         """
         _write_fmriprep(project / "derivatives")
-        at = _run(ALIGNMENT)
+        at = _run(INSPECT)
         assert not at.exception
         assert any("No MRIQC metrics found" in w.value for w in at.warning), (
             "expected the page to notice MRIQC is missing — otherwise this test "
@@ -205,124 +201,26 @@ class TestSurvivesAMissingTool:
             "sub-010_task-rest_run-1_bold",
             "sub-011_task-rest_run-1_bold",
         ]
-        assert any(t.label == "Show Tissue segmentation on the T1w" for t in at.toggle)
+        seg = [t for t in at.toggle if t.label == "Show Tissue segmentation on the T1w"]
+        assert seg and seg[0].value
 
     def test_the_fallback_says_where_the_runs_came_from(self, project):
         _write_fmriprep(project / "derivatives")
-        at = _run(ALIGNMENT)
+        at = _run(INSPECT)
         assert any("read from fMRIPrep's own figures" in c for c in _captions(at))
 
     def test_a_project_with_neither_derivative_points_at_preprocessing(self, project):
-        at = _run(ALIGNMENT)
+        at = _run(INSPECT)
         assert not at.exception
         assert any("Run MRIQC first" in i.value for i in at.info)
 
     def test_measures_survive_a_project_with_no_fmriprep(self, project):
         """MRIQC ran, fMRIPrep did not — the numbers must still be reviewable."""
         _write_mriqc(project / "derivatives")
-        at = _run(SIGNAL)
+        at = _run(INSPECT)
         assert not at.exception
         assert _selectbox(at, "Run") is not None
         assert at.dataframe, "no measure table rendered"
-
-
-# ---------------------------------------------------------------------------
-# Domains: the right measures, in the right place, with their guidance
-# ---------------------------------------------------------------------------
-
-
-class TestDomainPages:
-    def test_a_domain_page_shows_only_its_own_measures(self, full):
-        """Signal shows tSNR; motion belongs to Temporal and must not appear."""
-        rendered = _run(SIGNAL).dataframe[0].value["Measure"].tolist()
-        assert TSNR in rendered
-        assert FD_MEAN not in rendered
-
-    def test_the_temporal_page_shows_motion(self, full):
-        rendered = _run(TEMPORAL).dataframe[0].value["Measure"].tolist()
-        assert FD_MEAN in rendered
-        assert TSNR not in rendered
-
-    def test_guidance_sits_with_the_measure_not_in_a_glossary(self, full):
-        """The whole point of the regrouping: the reason is beside the number."""
-        labels = [e.label for e in _run(SIGNAL).expander]
-        assert any(TSNR in label for label in labels)
-
-    def test_the_review_question_is_stated(self, full):
-        assert any("distortion corrected" in m.value for m in _run(ALIGNMENT).markdown)
-
-    def test_a_domain_with_no_measures_here_explains_itself(self, full):
-        """Alignment has no MRIQC number for bold — and says why, not nothing."""
-        assert any("no registration measure" in i.value for i in _run(ALIGNMENT).info)
-
-    def test_a_run_is_placed_within_its_cohort(self, full):
-        """A bare IQM cannot be read; where it sits among these runs can."""
-        assert "Position in cohort" in _run(SIGNAL).dataframe[0].value.columns
-
-    def test_alignment_carries_figures_and_signal_does_not(self, full):
-        assert [t for t in _run(ALIGNMENT).toggle if t.label.startswith("Show ")]
-        assert not [t for t in _run(SIGNAL).toggle if t.label.startswith("Show ")]
-
-
-class TestDomainSignOff:
-    """Reviewing one aspect is recorded, and is not a verdict on the run."""
-
-    def _decisions(self, project):
-        return _decisions_dir(project)
-
-    def test_each_domain_page_offers_a_sign_off(self, full):
-        labels = [b.label for b in _run(SIGNAL).button]
-        assert "Reviewed — no concerns" in labels
-        assert "Reviewed — concerns" in labels
-
-    def test_signing_off_records_it_against_that_domain(self, full):
-        at = _run(SIGNAL)
-        [b for b in at.button if b.label == "Reviewed — no concerns"][0].click().run()
-        assert not at.exception
-        written = list(self._decisions(full).glob("*_decision.json"))
-        record = json.loads(written[0].read_text())["decisions"][-1]
-        assert record["decision"] == "reviewed"
-        assert record["domain"] == "signal"
-        assert record["reviewer"]
-
-    def test_signing_off_a_domain_gives_the_run_no_verdict(self, full):
-        """The property the whole schema change exists to guarantee."""
-        from duckbrain.core import qc
-
-        at = _run(ALIGNMENT)
-        [b for b in at.button if b.label == "Reviewed — concerns"][0].click().run()
-        assert not at.exception
-        loaded = qc.load_decisions(self._decisions(full))["sub-010_task-rest_run-1_bold"]
-        assert loaded["latest"] == {}
-        assert loaded["signed_off"] is False
-        assert loaded["domains"]["alignment"]["latest"]["decision"] == "concerns"
-
-    def test_a_note_alone_is_not_a_review(self, full):
-        """#17.10 again, at the domain level this time."""
-        at = _run(SIGNAL)
-        [i for i in at.text_input if i.label == "Note"][0].set_value("looks odd").run()
-        assert not at.exception
-        assert not list(self._decisions(full).glob("*_decision.json"))
-
-    def test_an_existing_review_is_shown_back(self, full):
-        from duckbrain.core import qc
-
-        qc.save_decision(
-            self._decisions(full),
-            "sub-010_task-rest_run-1_bold",
-            "concerns",
-            reason="ringing",
-            reviewer="ben",
-            domain="artifact",
-        )
-        at = _run(ARTIFACTS, run="sub-010_task-rest_run-1_bold")
-        assert any("ringing" in c and "ben" in c for c in _captions(at))
-
-    def test_the_verdict_is_not_gated_behind_reviewing_every_domain(self, full):
-        """A reviewer seeing a wrecked run must be able to exclude it at once."""
-        at = _run(INSPECT)
-        exclude = [b for b in at.button if b.label == "Exclude"]
-        assert exclude and not exclude[0].disabled
 
 
 # ---------------------------------------------------------------------------
@@ -332,23 +230,23 @@ class TestDomainSignOff:
 
 class TestScopeTravel:
     def test_a_url_selects_the_run_it_names(self, full):
-        """Deep links from the overview are query parameters, so this is the hinge."""
-        at = _run(ALIGNMENT, run="sub-011_task-rest_run-1_bold")
+        """A sent inspection link is query parameters, so this is the hinge."""
+        at = _run(INSPECT, run="sub-011_task-rest_run-1_bold")
         assert not at.exception
         assert _selectbox(at, "Run").value == "sub-011_task-rest_run-1_bold"
 
     def test_a_url_selects_the_modality_it_names(self, full):
-        assert _selectbox(_run(SIGNAL, modality="T1w"), "Modality").value == "T1w"
+        assert _selectbox(_run(INSPECT, modality="T1w"), "Modality").value == "T1w"
 
     def test_a_stale_url_falls_back_rather_than_raising(self, full):
         """A link to a run that has since been deleted must not break the page."""
-        at = _run(ALIGNMENT, run="sub-999_task-gone_run-9_bold")
+        at = _run(INSPECT, run="sub-999_task-gone_run-9_bold")
         assert not at.exception
         assert _selectbox(at, "Run").value == "sub-010_task-rest_run-1_bold"
 
     def test_the_url_is_rewritten_to_match_the_selection(self, full):
         """So the page a reviewer is looking at is the page they can send."""
-        at = _run(ALIGNMENT)
+        at = _run(INSPECT)
 
         def param(name):
             # AppTest hands back the raw multi-value form; the browser sends one.
@@ -367,9 +265,28 @@ class TestScopeTravel:
 class TestInspection:
     def test_every_domains_measures_share_one_table(self, full):
         """The four aspect tables concatenated — tSNR and motion side by side."""
-        rendered = _run(INSPECT).dataframe[0].value["Measure"].tolist()
+        table = _run(INSPECT).dataframe[0].value
+        rendered = table["Measure"].tolist()
         assert TSNR in rendered
         assert FD_MEAN in rendered
+        # A bare IQM cannot be read; where it sits among these runs can.
+        assert "Position in cohort" in table.columns
+
+    def test_each_domains_review_question_is_stated(self, full):
+        assert any("distortion corrected" in m.value for m in _run(INSPECT).markdown)
+
+    def test_a_domain_with_nothing_for_this_modality_explains_itself(self, full):
+        """Temporal has no number and no figure for a T1w — and says why."""
+        _write_anat_mriqc(full / "derivatives")
+        at = _run(INSPECT, modality="T1w")
+        assert not at.exception
+        assert any("single volume" in c for c in _captions(at))
+
+    def test_the_verdict_is_not_gated_behind_reviewing_anything(self, full):
+        """A reviewer seeing a wrecked run must be able to exclude it at once."""
+        at = _run(INSPECT)
+        exclude = [b for b in at.button if b.label == "Exclude"]
+        assert exclude and not exclude[0].disabled
 
     def test_the_evidence_is_open_on_arrival(self, full):
         """Looking at the figures is this page's purpose, so they start shown."""
@@ -451,19 +368,6 @@ class TestInspection:
     def test_a_domain_caveat_rides_with_the_numbers(self, full):
         """The sentinel/-1 and noise-estimate warnings must not hide in the glossary."""
         assert any("noise estimate" in c for c in _captions(_run(INSPECT)))
-
-    def test_a_url_selects_the_run_it_names(self, full):
-        at = _run(INSPECT, run="sub-011_task-rest_run-1_bold")
-        assert _selectbox(at, "Run").value == "sub-011_task-rest_run-1_bold"
-
-    def test_evidence_survives_a_project_with_no_mriqc(self, project):
-        """The load-bearing fallback, on the page that now carries the figures."""
-        _write_fmriprep(project / "derivatives")
-        at = _run(INSPECT)
-        assert not at.exception
-        assert any("No MRIQC metrics found" in w.value for w in at.warning)
-        seg = [t for t in at.toggle if t.label == "Show Tissue segmentation on the T1w"]
-        assert seg and seg[0].value
 
 
 # ---------------------------------------------------------------------------

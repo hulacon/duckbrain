@@ -36,22 +36,22 @@ def test_every_declared_page_file_exists():
     assert missing == []
 
 
-def test_every_qc_domain_has_a_page_and_every_qc_page_is_declared():
-    """The QC group and the domain taxonomy must not drift apart.
+def test_the_qc_group_is_exactly_overview_and_inspect():
+    """Two QC pages since the rework: the cohort worklist and the run inspector.
 
-    ``qc_panels.DOMAIN_PAGES`` is what the overview's deep links point at, and a
-    link to a page that is not in the nav is a dead end that nothing else
-    catches — ``st.page_link`` to an unregistered page fails at click time, on a
-    page nobody tests by hand.
+    The domain taxonomy no longer maps to pages — it structures the inspector's
+    sections instead — so what must not drift now is the pair of navigation
+    targets the pages hand each other: ``st.switch_page``/``st.page_link`` to an
+    unregistered page fails at click time, on a page nobody tests by hand.
     """
-    from duckbrain.core.qc_domains import DOMAINS
-    from duckbrain.gui.qc_panels import DOMAIN_PAGES
+    assert [f for f, _ in _QC_PAGES] == ["5_QC_Overview.py", "5a_QC_Inspect.py"]
 
-    assert set(DOMAIN_PAGES) == {d.key for d in DOMAINS}
+    import re
 
     declared = {f for f, _ in _QC_PAGES}
-    linked = {Path(p).name for p in DOMAIN_PAGES.values()}
-    assert linked <= declared, f"deep-linked but not in the nav: {linked - declared}"
+    source = (Path(__file__).parent.parent / "src/duckbrain/gui/qc_panels.py").read_text()
+    targeted = {Path(m).name for m in re.findall(r'"pages/(5[^"]+\.py)"', source)}
+    assert targeted <= declared, f"navigated-to but not in the nav: {targeted - declared}"
 
 
 def test_the_qc_group_leads_with_the_overview():

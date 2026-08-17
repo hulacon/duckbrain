@@ -524,8 +524,8 @@ def get_domain(key: str) -> ReviewDomain:
     This used to be declared ``-> ReviewDomain | None`` and nothing enforced it:
     of the 27 call sites, **zero** checked the result before reading an
     attribute off it. That is the difference between a return type and a shrug.
-    The keys are literals written next to the registry — a QC page says
-    ``render_domain_page("signal")`` — so an unknown one is a typo in the
+    The keys are literals written next to the registry — a caller says
+    ``get_domain("signal")`` — so an unknown one is a typo in the
     source, never a state a user can reach, and the useful behaviour is to say
     which key was wrong rather than to hand back a ``None`` that becomes
     ``AttributeError: 'NoneType' object has no attribute 'label'`` one line
