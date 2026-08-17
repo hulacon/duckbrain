@@ -91,6 +91,16 @@ def _write_mriqc(derivatives: Path):
     return mriqc
 
 
+def _write_anat_mriqc(derivatives: Path):
+    """T1w IQMs beside the bold ones, for the anat-modality cases."""
+    mriqc = derivatives / "mriqc"
+    mriqc.mkdir(parents=True, exist_ok=True)
+    iqms = json.loads((FIXTURES / "T1w.json").read_text())
+    for sub in ("010", "011"):
+        (mriqc / f"sub-{sub}_T1w.json").write_text(json.dumps(iqms))
+    return mriqc
+
+
 @pytest.fixture
 def project(tmp_path):
     # The metrics cache is process-wide, and tmp_path keys differ per test only
@@ -156,10 +166,17 @@ class TestEveryPageRenders:
 
     @pytest.mark.parametrize("page", ALL_PAGES)
     def test_the_scope_bar_is_on_every_page(self, full, page):
-        """The five pages must agree about what is being looked at."""
+        """The pages must agree about what is being looked at.
+
+        The overview is cohort-level since the rework — its table is the run
+        picker — so it carries the modality control only.
+        """
         at = _run(page)
         assert _selectbox(at, "Modality") is not None
-        assert _selectbox(at, "Run") is not None
+        if page == OVERVIEW:
+            assert _selectbox(at, "Run") is None
+        else:
+            assert _selectbox(at, "Run") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +320,7 @@ class TestDomainSignOff:
 
     def test_the_verdict_is_not_gated_behind_reviewing_every_domain(self, full):
         """A reviewer seeing a wrecked run must be able to exclude it at once."""
-        at = _run(OVERVIEW)
+        at = _run(INSPECT)
         exclude = [b for b in at.button if b.label == "Exclude"]
         assert exclude and not exclude[0].disabled
 
@@ -409,6 +426,25 @@ class TestInspection:
         at = _run(INSPECT, run="sub-010_task-rest_run-1_bold")
         assert any("per-aspect layout" in c and "concerns" in c for c in _captions(at))
 
+    def test_reviewed_aspects_do_not_become_a_verdict(self, full):
+        """Four reviewed aspects must prompt for a verdict, never stand in for one.
+
+        The settled rule (docs/qc-review-domains.md): derived readiness may be
+        displayed, never recorded, and the verdict buttons are never gated.
+        """
+        from duckbrain.core import qc
+
+        decisions = _decisions_dir(full)
+        for key in ("signal", "temporal", "alignment", "artifact"):
+            qc.save_decision(
+                decisions, "sub-010_task-rest_run-1_bold", "reviewed", reviewer="ben", domain=key
+            )
+        at = _run(INSPECT, run="sub-010_task-rest_run-1_bold")
+        assert not at.exception
+        assert any("no verdict recorded" in c for c in _captions(at))
+        keep = [b for b in at.button if b.label == "Keep"]
+        assert keep and not keep[0].disabled
+
     def test_the_glossary_leads_each_entry_with_its_bold_label(self, full):
         assert any(m.value.startswith(f"**{TSNR}**") for m in _run(INSPECT).markdown)
 
@@ -441,72 +477,47 @@ class TestOverview:
         assert not at.exception
         assert len(at.dataframe[0].value) == 2
 
-    def test_the_verdict_buttons_are_here(self, full):
-        labels = [b.label for b in _run(OVERVIEW).button]
-        assert {"Keep", "Exclude", "Investigate"} <= set(labels)
+    def test_the_at_a_glance_columns_are_here(self, full):
+        """Group-level scanning wants the eye-catchers in the table itself.
 
-    def test_recording_a_verdict_writes_it(self, full):
-        at = _run(OVERVIEW)
-        [b for b in at.button if b.label == "Keep"][0].click().run()
-        assert not at.exception
-        written = list(_decisions_dir(full).glob("*_decision.json"))
-        assert len(written) == 1
-        record = json.loads(written[0].read_text())
-        assert record["decisions"][-1]["decision"] == "keep"
-        assert record["decisions"][-1]["reviewer"]
+        The comma-joined flagged-names column is gone deliberately: with the
+        full measure set loaded it wrecked row height, and the names are one
+        click away on the Inspect page — the count is the eye-catcher.
+        """
+        columns = list(_run(OVERVIEW).dataframe[0].value.columns)
+        for col in ("Mean FD", "% high motion", "tSNR", "Flags"):
+            assert col in columns, col
+        assert "Flagged" not in columns
 
-    def test_a_note_alone_is_not_a_verdict(self, full):
-        """TODO #17.10, re-pinned: typing a reason must record nothing by itself."""
+    def test_an_anat_table_carries_no_motion_columns(self, full):
+        """Mean FD and tSNR are BOLD facts; an anat row must not show blanks."""
+        _write_anat_mriqc(full / "derivatives")
+        columns = list(_run(OVERVIEW, modality="T1w").dataframe[0].value.columns)
+        assert "Flags" in columns
+        assert "Mean FD" not in columns
+        assert "tSNR" not in columns
+
+    def test_no_per_run_interface_remains(self, full):
+        """Verdicts, the report embed and the run picker all moved to Inspect."""
         at = _run(OVERVIEW)
-        [i for i in at.text_input if i.label == "Reason"][0].set_value("just a note").run()
-        assert not at.exception
-        assert not list(_decisions_dir(full).glob("*_decision.json"))
+        labels = [b.label for b in at.button]
+        assert not {"Keep", "Exclude", "Investigate"} & set(labels)
+        assert not any("tool's own report" in e.label for e in at.expander)
+        assert _selectbox(at, "Run") is None
+
+    def test_the_table_click_invites_the_inspector(self, full):
+        """AppTest cannot click a dataframe row, so the invitation is what is
+        testable here; the click itself is in TODO.md #30's eyeball queue and
+        clicked_run_key is unit-tested in tests/test_qc_panels.py."""
+        assert any("Click a row" in c for c in _captions(_run(OVERVIEW)))
 
     def test_the_outlier_slider_is_here_and_only_here(self, full):
         assert [s for s in _run(OVERVIEW).slider if "IQR" in s.label]
-        assert not [s for s in _run(SIGNAL).slider if "IQR" in s.label]
-
-    def test_domain_progress_is_shown_but_no_verdict_is_derived(self, full):
-        """Four reviewed aspects must prompt for a verdict, never stand in for one."""
-        from duckbrain.core import qc
-
-        decisions = _decisions_dir(full)
-        for key in ("signal", "temporal", "alignment", "artifact"):
-            qc.save_decision(
-                decisions, "sub-010_task-rest_run-1_bold", "reviewed", reviewer="ben", domain=key
-            )
-        at = _run(OVERVIEW, run="sub-010_task-rest_run-1_bold")
-        assert not at.exception
-        captions = " ".join(_captions(at))
-        assert "4/4 aspects reviewed" in captions
-        assert "no verdict recorded" in captions
+        assert not [s for s in _run(INSPECT).slider if "IQR" in s.label]
 
     def test_the_export_is_still_offered(self, full):
         """Slice B was dropped, not the capability — the report still exports."""
         assert any("Export" in e.label for e in _run(OVERVIEW).expander)
-
-    def test_the_tools_own_report_is_reachable_again(self, full):
-        """Between the per-figure move and now, nothing in duckbrain opened one.
-
-        The figures are reviewable a domain at a time on the pages; the methods
-        boilerplate, fMRIPrep's About and its error list are only in the tool's
-        own document, and it had no route.
-        """
-        at = _run(OVERVIEW, run="sub-010_task-rest_run-1_bold")
-        assert not at.exception
-        assert any("tool's own report" in e.label for e in at.expander)
-        assert any("fMRIPrep" in t.label for t in at.toggle)
-
-    def test_the_report_is_not_read_until_it_is_asked_for(self, full):
-        """An expander's body runs while collapsed, so the toggle is the gate.
-
-        Streamlit's media manager reads every figure into the server's RAM as
-        the page is built — ~80 MB for an fMRIPrep subject — and that is exactly
-        the spend the per-figure viewer exists to avoid paying by default.
-        """
-        at = _run(OVERVIEW, run="sub-010_task-rest_run-1_bold")
-        assert not at.get("iframe")
-        assert all(t.value is False for t in at.toggle)
 
     def test_the_export_is_not_built_until_it_is_asked_for(self, full):
         """An expander's body runs while collapsed, so this has to be explicit.

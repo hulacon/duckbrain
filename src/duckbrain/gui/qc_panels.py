@@ -782,6 +782,48 @@ def _page_link(path: str, label: str, **kwargs: Any) -> None:
         st.caption(label)
 
 
+def _switch_page(path: str, label: str) -> None:
+    """Best-effort ``st.switch_page``, degrading like :func:`_page_link` does.
+
+    ``st.switch_page`` needs the ``st.navigation`` registry too, so outside the
+    app — every page test, every standalone debug run — it raises rather than
+    navigates. The caption names where the click would have gone.
+    """
+    try:
+        st.switch_page(path)
+    except Exception:
+        st.caption(label)
+
+
+def _selection_rows(event: Any) -> list[int]:
+    """The selected row indices out of a ``st.dataframe`` selection event.
+
+    Defensive because the return shape is Streamlit's, not ours: outside a
+    session (``AppTest``) the call returns the element rather than a selection
+    state, and a missing attribute must read as "nothing selected", not crash
+    the overview.
+    """
+    try:
+        return list(event.selection.rows)
+    except Exception:
+        return []
+
+
+def clicked_run_key(runs: list[RunRow], rows: list[int]) -> str:
+    """The run key behind a table row selection, or ``""`` when there is none.
+
+    Pure on purpose: ``AppTest`` models a dataframe as an element with no
+    ``select_row``, so the click itself can only be eyeballed (``TODO.md``
+    ``#30``) — this mapping is the part a test can hold.
+    """
+    if not rows:
+        return ""
+    index = rows[0]
+    if 0 <= index < len(runs):
+        return str(runs[index]["run_key"])
+    return ""
+
+
 def domain_links(run_key: str, modality: str) -> None:
     """One link per domain, carrying the selection into that domain's page.
 
@@ -984,14 +1026,18 @@ def _export_panel(scope: Scope) -> None:
 
 
 def render_overview() -> None:
-    """The whole body of the QC overview page."""
-    import getpass
+    """The whole body of the QC overview page: the cohort, scanned at a glance.
 
-    flush_toasts()  # as in render_domain_page
+    Cohort-level only, since the rework that gave each run its own inspection
+    page: no run dropdown, no verdict buttons, no per-run report. The table is
+    the worklist — a click on a row opens that run on the Inspect page, which is
+    where everything per-run now lives.
+    """
+    flush_toasts()  # as in render_inspection_page
     st.title("QC Overview")
 
     config = load_config_or_stop()
-    scope = scope_bar(config)
+    scope = scope_bar(config, with_run=False)
     if scope is None:
         return
 
@@ -1016,62 +1062,61 @@ def render_overview() -> None:
     st.subheader("Runs")
     st.caption(
         "Every measure is compared within this dataset, never against a fixed "
-        "cutoff — a flag means unusual here, not bad."
+        "cutoff — a flag means unusual here, not bad. Click a row to open that "
+        "run on the Inspect page."
     )
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {
-                    "Run": r["run_key"],
-                    "Decision": r["decision"] or "pending",
-                    "Reviewer": r["reviewer"],
-                    "Flagged": ", ".join(r["flagged_metrics"]) or "",
-                }
-                for r in scope.runs
-            ]
-        ),
+    rows: list[dict[str, Any]] = []
+    for r in scope.runs:
+        row: dict[str, Any] = {
+            "Run": r["run_key"],
+            "Decision": r["decision"] or "pending",
+        }
+        # At-a-glance columns for a group-level scan (reviewer request,
+        # 2026-08-17). The motion pair and tSNR are BOLD-only facts, so anat
+        # tables carry just the flag count rather than three empty columns.
+        if scope.modality == "bold":
+            row["Mean FD"] = (r.get("motion") or {}).get("mean_fd")
+            row["% high motion"] = r["iqms"].get("fd_perc")
+            row["tSNR"] = r["iqms"].get("tsnr")
+        row["Flags"] = len(r["flagged_metrics"])
+        row["Reviewer"] = r["reviewer"]
+        rows.append(row)
+    event = st.dataframe(
+        pd.DataFrame(rows),
         hide_index=True,
         width="stretch",
+        key="qc_overview_runs",
+        on_select="rerun",
+        selection_mode="single-row",
+        column_config={
+            "Mean FD": st.column_config.NumberColumn(
+                format="%.3f",
+                help="Mean framewise displacement (mm) — the standard motion summary.",
+            ),
+            "% high motion": st.column_config.NumberColumn(
+                format="%.1f%%",
+                help="Share of frames moving more than MRIQC's 0.2 mm FD threshold.",
+            ),
+            "tSNR": st.column_config.NumberColumn(
+                format="%.1f", help="Temporal signal-to-noise ratio."
+            ),
+            "Flags": st.column_config.NumberColumn(
+                help=(
+                    "How many of this run's measures sit outside the IQR fence "
+                    "for this dataset. Which ones, and why they matter, is on "
+                    "the Inspect page."
+                ),
+            ),
+        },
     )
+    clicked = clicked_run_key(scope.runs, _selection_rows(event))
+    if clicked:
+        # The clicked row becomes the inspector's selection through session
+        # state — the same channel its Run selectbox reads, so the two ways of
+        # arriving at a run cannot disagree.
+        st.session_state["qc_run"] = clicked
+        st.session_state["qc_modality"] = scope.modality
+        _switch_page("pages/5a_QC_Inspect.py", f"Open **{clicked}** on the Inspect page.")
 
     if scope.runs:
         _export_panel(scope)
-
-    if not scope.run_key:
-        return
-
-    st.subheader(f"Review {scope.run_key}")
-
-    # Shown, never recorded. Reviewing all four domains is not a verdict: the
-    # domains do not partition the question a verdict answers — none covers task
-    # timing, stimulus delivery, or a participant asleep with their eyes open.
-    # So this prompts, and the reviewer still has to make the call.
-    record = qc.load_decisions(scope.decisions_read_dirs).get(scope.run_key)
-    done, total = qc.domain_progress(record, [d.key for d in qc_domains.DOMAINS])
-    verdict = (record.get("latest") or {}).get("decision") if record else None
-    st.caption(
-        f"{done}/{total} aspects reviewed · "
-        + (f"verdict: **{verdict}**" if verdict else "no verdict recorded")
-    )
-    domain_links(scope.run_key, scope.modality)
-
-    with st.expander("Open the tool's own report"):
-        full_report_panel(
-            scope.mriqc_dir, scope.fmriprep_dir, scope.run_key, modality=scope.modality
-        )
-
-    if not scope.run:
-        return
-
-    st.divider()
-    reviewer = getpass.getuser()
-    st.caption(f"Signing off as **{reviewer}**, recorded with each decision.")
-    counts = qc.decision_counts(qc.load_decisions(scope.decisions_read_dirs))
-    if counts["unattributed"]:
-        st.warning(
-            f"{counts['unattributed']} decision(s) were recorded before duckbrain "
-            f"captured a reviewer, so no one can be identified as having made them. "
-            f"They are shown as unattributed and do not count as signed off — "
-            f"re-record any you still stand behind."
-        )
-    verdict_panel(scope, reviewer)

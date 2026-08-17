@@ -75,6 +75,53 @@ def _images(at: AppTest):
     return [e for e in at._tree if e.type in ("image", "imgs")]
 
 
+def _switch_script():
+    from duckbrain.gui import qc_panels
+
+    qc_panels._switch_page("pages/5a_QC_Inspect.py", "would have opened the Inspect page")
+
+
+class TestOverviewClickThrough:
+    """The overview's row-click, held at the seams a test can reach.
+
+    ``AppTest`` models a dataframe as an element with no ``select_row``, so the
+    click itself can only be eyeballed (``TODO.md`` ``#30``); what is testable
+    is the row→run mapping, the defensive read of Streamlit's event shape, and
+    the degradation outside ``st.navigation``.
+    """
+
+    RUNS = [
+        {"run_key": "sub-010_task-rest_run-1_bold"},
+        {"run_key": "sub-011_task-rest_run-1_bold"},
+    ]
+
+    def test_a_selected_row_maps_to_its_run_key(self):
+        assert qc_panels.clicked_run_key(self.RUNS, [1]) == "sub-011_task-rest_run-1_bold"
+
+    def test_no_selection_and_a_stale_index_both_read_as_no_click(self):
+        """A row index can outlive the run list it indexed — never raise."""
+        assert qc_panels.clicked_run_key(self.RUNS, []) == ""
+        assert qc_panels.clicked_run_key(self.RUNS, [5]) == ""
+        assert qc_panels.clicked_run_key([], [0]) == ""
+
+    def test_selection_rows_reads_the_event_shape_and_shrugs_at_others(self):
+        class Selection:
+            rows = [1]
+
+        class Event:
+            selection = Selection()
+
+        assert qc_panels._selection_rows(Event()) == [1]
+        # Outside a session st.dataframe returns the element, not a state.
+        assert qc_panels._selection_rows(object()) == []
+        assert qc_panels._selection_rows(None) == []
+
+    def test_switch_page_degrades_to_a_caption_outside_the_app(self):
+        at = AppTest.from_function(_switch_script, default_timeout=30).run()
+        assert not at.exception
+        assert any("would have opened" in c.value for c in at.caption)
+
+
 class TestEvidenceViewer:
     def test_nothing_is_loaded_on_arrival(self, fmriprep):
         """Megabyte-scale figures are a cost the reviewer chooses to spend."""
