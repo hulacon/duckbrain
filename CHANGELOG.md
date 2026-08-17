@@ -10,6 +10,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Changed
+
+- **The QC dashboard is two pages instead of five** (beta-tester feedback).
+  The Overview is now cohort-level only — its runs table gained at-a-glance
+  columns (Mean FD, % high motion, tSNR for BOLD; a count of IQR-flagged
+  measures everywhere), and clicking a row opens that run on the new
+  **Inspect a run** page, which replaces the four per-aspect pages: all
+  domains' measures in one table, every evidence figure shown on arrival
+  (toggles now hide rather than reveal), the tool's own report, and a
+  glossary of every measure at the foot of the page. Sign-off is one
+  interface per run — recording a Keep/Exclude/Investigate verdict *is* the
+  review; the per-aspect "Reviewed — no concerns / concerns" states are gone
+  from the UI, and anything recorded with them remains readable on the
+  Inspect page as history.
+
 ### Fixed
 
 - **The QC pages now load every metric the guidance registry documents** —

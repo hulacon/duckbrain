@@ -370,3 +370,51 @@ The real risk is suite wall-clock rather than the gate: `test_qc_page.py` runs
 with `default_timeout=60` because the page renders the full Plotly report twice.
 That is a design constraint on the split, not a test trick — **a domain page must
 render only its own domain's chart and must not embed the full report.**
+
+---
+
+## Addendum, 2026-08-17 — two pages instead of five
+
+Beta feedback after three weeks of dogfooding: the five-page split organised
+the material correctly and slowed the reviewing down. Four sign-offs per run
+across four navigations is 260 possible clicks on a 65-run project — the cost
+this doc accepted at "the run stays the unit of review" — and the mitigation it
+relied on (a run×domain matrix on the overview) was never built. Two of the
+pages carried only a few numbers each, and the per-measure guidance expanders
+read as detached from the table they explain. So the pages collapsed to two:
+
+- **Overview** — cohort-level only. The runs table gained at-a-glance columns
+  (Mean FD, % high motion, tSNR on bold; a Flags count everywhere), and a row
+  click opens that run on the Inspect page. No run dropdown, no verdict
+  buttons, no report embed.
+- **Inspect a run** — everything per-run: all four domains' measures in one
+  table, every evidence figure open on arrival (the toggle now *hides*), the
+  tool's own report, one sign-off, and a flat glossary at the foot with each
+  label in bold. Mouseover definitions were considered and declined:
+  `st.dataframe` has per-column `help=` tooltips but nothing per-cell.
+
+**What survives unchanged, and on purpose:**
+
+- **The taxonomy.** `core/qc_domains.py` is untouched; the domains order the
+  inspector's table, section its evidence and group its glossary. The pages
+  stopped mapping 1:1 to domains — the questions did not go anywhere.
+- **The decision schema, both vocabularies included.** The UI no longer writes
+  `reviewed`/`concerns` aspect states — recording a Keep/Exclude/Investigate
+  verdict *is* the sign-off now — but everything recorded under the five-page
+  layout stays readable (append-only files; `_legacy_aspect_note` shows them
+  back), and `save_decision` still enforces the disjoint vocabularies that
+  keep a domain note from ever becoming a run verdict.
+- **The settled rule: a verdict is never derived, and never gated.** Re-pinned
+  against the Inspect page by
+  `tests/test_qc_pages.py::TestInspection::test_reviewed_aspects_do_not_become_a_verdict`.
+- **Pages as declarations.** Both pages are thin shims over `gui/qc_panels.py`,
+  for the coverage reason the section below records.
+
+Landed alongside (same session, separate commit): the IQM columns are now
+derived from this taxonomy per modality (`qc.iqm_columns`) instead of a
+hand-written whitelist that had frozen at six bold columns while the registry
+grew to fifteen — the "blank cell indistinguishable from a broken loader"
+failure, reported by the same beta tester. The wall-clock constraint at the end
+of this doc ("a domain page must render only its own domain's chart") is
+superseded for the Inspect page, which renders every domain's evidence
+deliberately; its cost on real data is `TODO.md` `#30`'s eyeball entry.

@@ -1207,6 +1207,26 @@ plus the `ssh -L` line it prints.
     width (the same 1280px sitting as the narrow-widths entry above) — the new
     label ("Save skipped series as project default") is no longer than its
     neighbours, but a quarter-width column is a new narrowest case.
+12. **The QC overview's row-click.** Added 2026-08-17 with the two-page rework:
+    clicking a run's row hands the selection to the Inspect page via
+    `on_select` + `st.switch_page`, and AppTest models a dataframe as an
+    element with no `select_row`, so only the mapping and the degradation are
+    tested. Confirm (a) a click opens the Inspect page with *that* run
+    selected, and (b) navigating back to the Overview does not re-fire the
+    switch off a stale selection — if it loops, the guard is a
+    "last handled selection" session key next to the `clicked` check in
+    `render_overview`.
+13. **The Inspect page's weight with every figure open.** Added 2026-08-17:
+    evidence toggles now default on, which on a real subject is ~1.1 MB per
+    SVG across up to ten figures per run. On `divatten_beta_v2`, judge load
+    time and scroll feel — **[OOD]**, because the proxy leg is where the bytes
+    hurt. If it drags, the lever is `default_open` per domain, not removing
+    the toggles.
+14. **The exported report at fifteen bold columns.** Added 2026-08-17 with the
+    IQM-whitelist fix: the export's flat table follows `scope.iqm_cols`, so it
+    widened from six columns to fifteen with no layout change. Open one export
+    and judge whether the table still reads or wants a narrower export-time
+    column set.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
