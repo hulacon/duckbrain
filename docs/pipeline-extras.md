@@ -177,8 +177,9 @@ which ships captions.
 ### One pre-existing inaccuracy this surfaced
 
 Worth fixing whether or not QSIPrep is ever built. `gui/qc_panels.py`'s
-`MODALITIES` omits `dwi` while `core/qc_domains.py`'s includes it, and `iqm_cols`
-falls back to `ANAT_IQMS` for any non-BOLD modality. Meanwhile six measures
+`MODALITIES` omits `dwi` while `core/qc_domains.py`'s includes it, and
+`qc.iqm_columns("dwi")` would dutifully project the registry onto a modality no
+page offers. Meanwhile six measures
 already declare `dwi` in `qc_guidance.py` — `fd_mean`, `fd_num`, `fd_perc`,
 `gsr_x`, `gsr_y`, `snr` — but MRIQC's diffusion IQMs are `snr_cc`, `ndc`,
 `fa_nans`, `fa_degenerate`, `spikes_ppm` and the per-shell

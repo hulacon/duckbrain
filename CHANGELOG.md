@@ -10,6 +10,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **The QC pages now load every metric the guidance registry documents** —
+  the IQM column list was a hand-written whitelist frozen at six bold columns
+  (seven anat) while the registry grew to fifteen (seventeen), so documented
+  measures like SNR, non-standardized DVARS, the AFNI quality index and
+  outlier ratio, global correlation, ghost-to-signal ratio and estimated
+  smoothness rendered as blank cells indistinguishable from a broken loader
+  (reported by a beta tester, 2026-08-17). Columns are now derived from the
+  registry per modality (`qc.iqm_columns`), so the table a reviewer reads,
+  the outlier fence, and the exported report all agree with the taxonomy.
+  Consequences: the IQR outlier fence now runs over the full set, so ⚠️ flag
+  counts rise, and the exported report's table gains the same columns.
+
 ## [0.6.0] — 2026-08-16
 
 ### Fixed

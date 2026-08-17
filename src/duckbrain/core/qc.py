@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import pandas as pd
 
+from duckbrain.core import qc_domains
+
 if TYPE_CHECKING:
     from ..config import Config
 
@@ -150,8 +152,33 @@ def parse_entities(stem: str) -> dict[str, str]:
 
 # ---- Outlier Detection ----
 
-BOLD_IQMS = ["fd_mean", "fd_perc", "tsnr", "dvars_std", "efc", "fber"]
-ANAT_IQMS = ["cnr", "cjv", "efc", "fber", "snr_total", "qi_1", "wm2max"]
+#: Motion summaries duckbrain derives from fMRIPrep's confounds
+#: (``qc_report`` computes them); MRIQC never writes these keys, so asking the
+#: IQM table for them can only produce blanks.
+DERIVED_MOTION = frozenset({"mean_fd", "pct_high_motion"})
+
+
+def iqm_columns(modality: str) -> list[str]:
+    """Every MRIQC IQM the review taxonomy documents for *modality*, in taxonomy order.
+
+    Derived from the domain registry rather than written out, because the
+    hand-maintained list drifted: it froze at six bold columns while the
+    guidance registry grew to fifteen, and every documented-but-unlisted
+    measure rendered as a blank cell indistinguishable from a broken loader.
+    Whatever the registry documents for a modality is what gets loaded,
+    flagged and shown — one source of truth, and the converse test in
+    ``tests/test_qc_guidance.py`` holds it.
+    """
+    return [
+        m
+        for domain in qc_domains.DOMAINS
+        for m in domain.measures_for(modality)
+        if m not in DERIVED_MOTION
+    ]
+
+
+BOLD_IQMS = iqm_columns("bold")
+ANAT_IQMS = iqm_columns("T1w")
 
 
 def cohort_position(

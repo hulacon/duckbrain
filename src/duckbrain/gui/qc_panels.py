@@ -316,7 +316,7 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
     metrics_df = _load_metrics(
         str(mriqc_dir), modality, _fingerprint_of(mriqc_dir, f"*_{modality}.json")
     )
-    iqm_cols = qc.BOLD_IQMS if modality == "bold" else qc.ANAT_IQMS
+    iqm_cols = qc.iqm_columns(modality)
     iqr_multiplier = float(st.session_state.get("qc_iqr", settings["iqr_multiplier"]))
     runs: list[RunRow] = []
 

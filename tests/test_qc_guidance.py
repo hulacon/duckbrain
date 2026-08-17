@@ -55,9 +55,38 @@ class TestRegistryCoverage:
         }
         assert missing == {}, f"IQM columns lacking guidance: {missing}"
 
+    def test_every_documented_measure_is_loaded(self):
+        """The converse of the test above, and the invariant that broke.
+
+        The hand-written whitelist froze at six bold columns while the registry
+        grew to fifteen, and every documented-but-unlisted measure rendered as a
+        blank cell. Deriving the columns from the registry makes the two sets
+        equal by construction — so the only way to drop a documented measure now
+        is to remove its guidance entry, which the other tests notice.
+        """
+        for modality in ("bold", "T1w", "T2w"):
+            documented = {g.key for g in guidance_for_modality(modality)} - qc.DERIVED_MOTION
+            assert documented == set(qc.iqm_columns(modality)), modality
+
+    def test_the_formerly_missing_measures_are_loaded(self):
+        """Regression for the 2026-08-17 report of blank dashboard rows.
+
+        Each of these was documented, present in every real MRIQC JSON of
+        divatten_beta_v2, and silently dropped by the old whitelist.
+        """
+        cols = qc.iqm_columns("bold")
+        for key in ("snr", "dvars_nstd", "aqi", "aor", "gcor", "gsr_x", "gsr_y", "fwhm_avg"):
+            assert key in cols, key
+        for key in ("snr_gm", "snr_wm", "qi_2", "inu_range", "tpm_overlap_gm", "fwhm_avg"):
+            assert key in qc.iqm_columns("T1w"), key
+        # Every anat guidance entry declares both T1w and T2w, so the
+        # projections must be identical — an assertion, not an assumption.
+        assert qc.iqm_columns("T1w") == qc.iqm_columns("T2w")
+
     def test_derived_motion_columns_are_documented(self):
         """mean_fd/pct_high_motion are computed by duckbrain, not by MRIQC."""
-        assert undocumented_keys(["mean_fd", "pct_high_motion"]) == []
+        assert undocumented_keys(sorted(qc.DERIVED_MOTION)) == []
+        assert not qc.DERIVED_MOTION & set(qc.iqm_columns("bold"))
 
     def test_registry_key_matches_entry_key(self):
         for key, g in MEASURE_GUIDANCE.items():
@@ -231,7 +260,7 @@ class TestAgainstRealMriqcOutput:
         ``mean_fd`` and ``pct_high_motion`` are excluded because duckbrain
         derives them from fMRIPrep confounds; MRIQC never writes them.
         """
-        derived = {"mean_fd", "pct_high_motion"}
+        derived = qc.DERIVED_MOTION
         real = set(_fixture(modality))
         documented = {g.key for g in guidance_for_modality(modality)} - derived
         assert documented <= real, f"documented but absent from MRIQC: {documented - real}"
