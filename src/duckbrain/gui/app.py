@@ -47,6 +47,7 @@ _PAGES = [
 # groups rather than inside one.
 _QC_PAGES = [
     ("5_QC_Overview.py", "Overview"),
+    ("5a_QC_Inspect.py", "Inspect a run"),
     ("5a_QC_Signal.py", "Signal & contrast"),
     ("5b_QC_Temporal.py", "Temporal stability"),
     ("5c_QC_Alignment.py", "Alignment & distortion"),

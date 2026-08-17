@@ -33,11 +33,12 @@ FD_MEAN = get_guidance("fd_mean").label
 from conftest import page_path
 
 OVERVIEW = page_path("src/duckbrain/gui/pages/5_QC_Overview.py")
+INSPECT = page_path("src/duckbrain/gui/pages/5a_QC_Inspect.py")
 SIGNAL = page_path("src/duckbrain/gui/pages/5a_QC_Signal.py")
 TEMPORAL = page_path("src/duckbrain/gui/pages/5b_QC_Temporal.py")
 ALIGNMENT = page_path("src/duckbrain/gui/pages/5c_QC_Alignment.py")
 ARTIFACTS = page_path("src/duckbrain/gui/pages/5d_QC_Artifacts.py")
-ALL_PAGES = [OVERVIEW, SIGNAL, TEMPORAL, ALIGNMENT, ARTIFACTS]
+ALL_PAGES = [OVERVIEW, INSPECT, SIGNAL, TEMPORAL, ALIGNMENT, ARTIFACTS]
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mriqc"
 
@@ -339,6 +340,94 @@ class TestScopeTravel:
 
         assert param("run") == "sub-010_task-rest_run-1_bold"
         assert param("modality") == "bold"
+
+
+# ---------------------------------------------------------------------------
+# The inspector: one run, every domain at once
+# ---------------------------------------------------------------------------
+
+
+class TestInspection:
+    def test_every_domains_measures_share_one_table(self, full):
+        """The four aspect tables concatenated — tSNR and motion side by side."""
+        rendered = _run(INSPECT).dataframe[0].value["Measure"].tolist()
+        assert TSNR in rendered
+        assert FD_MEAN in rendered
+
+    def test_the_evidence_is_open_on_arrival(self, full):
+        """Looking at the figures is this page's purpose, so they start shown."""
+        at = _run(INSPECT)
+        figure_toggles = [t for t in at.toggle if t.label.startswith("Show ")]
+        assert figure_toggles, "no evidence toggles rendered"
+        assert all(t.value for t in figure_toggles)
+        # An open toggle really renders its figure's reading instructions.
+        assert any(m.value.startswith("*Look for:*") for m in at.markdown)
+
+    def test_the_tools_report_stays_gated_while_figures_are_open(self, full):
+        """The 80 MB report embed must not inherit the figures' default-open."""
+        at = _run(INSPECT, run="sub-010_task-rest_run-1_bold")
+        report_toggles = [t for t in at.toggle if t.label.startswith("Open ")]
+        assert report_toggles, "the tool's own report is not offered"
+        assert all(t.value is False for t in report_toggles)
+        assert not at.get("iframe")
+
+    def test_recording_a_verdict_writes_it(self, full):
+        at = _run(INSPECT)
+        [b for b in at.button if b.label == "Keep"][0].click().run()
+        assert not at.exception
+        written = list(_decisions_dir(full).glob("*_decision.json"))
+        assert len(written) == 1
+        record = json.loads(written[0].read_text())["decisions"][-1]
+        assert record["decision"] == "keep"
+        assert record["reviewer"]
+
+    def test_a_note_alone_is_not_a_verdict(self, full):
+        """#17.10, pinned again on the page that now owns the verdict."""
+        at = _run(INSPECT)
+        [i for i in at.text_input if i.label == "Reason"][0].set_value("just a note").run()
+        assert not at.exception
+        assert not list(_decisions_dir(full).glob("*_decision.json"))
+
+    def test_no_per_aspect_sign_off_is_offered(self, full):
+        """One review interface per run — the collapse the rework exists for."""
+        labels = [b.label for b in _run(INSPECT).button]
+        assert "Reviewed — no concerns" not in labels
+        assert "Reviewed — concerns" not in labels
+
+    def test_a_historical_aspect_review_is_shown_read_only(self, full):
+        """Dogfooding-era domain entries stay visible; nothing writes new ones."""
+        from duckbrain.core import qc
+
+        qc.save_decision(
+            _decisions_dir(full),
+            "sub-010_task-rest_run-1_bold",
+            "concerns",
+            reason="ringing",
+            reviewer="ben",
+            domain="artifact",
+        )
+        at = _run(INSPECT, run="sub-010_task-rest_run-1_bold")
+        assert any("per-aspect layout" in c and "concerns" in c for c in _captions(at))
+
+    def test_the_glossary_leads_each_entry_with_its_bold_label(self, full):
+        assert any(m.value.startswith(f"**{TSNR}**") for m in _run(INSPECT).markdown)
+
+    def test_a_domain_caveat_rides_with_the_numbers(self, full):
+        """The sentinel/-1 and noise-estimate warnings must not hide in the glossary."""
+        assert any("noise estimate" in c for c in _captions(_run(INSPECT)))
+
+    def test_a_url_selects_the_run_it_names(self, full):
+        at = _run(INSPECT, run="sub-011_task-rest_run-1_bold")
+        assert _selectbox(at, "Run").value == "sub-011_task-rest_run-1_bold"
+
+    def test_evidence_survives_a_project_with_no_mriqc(self, project):
+        """The load-bearing fallback, on the page that now carries the figures."""
+        _write_fmriprep(project / "derivatives")
+        at = _run(INSPECT)
+        assert not at.exception
+        assert any("No MRIQC metrics found" in w.value for w in at.warning)
+        seg = [t for t in at.toggle if t.label == "Show Tissue segmentation on the T1w"]
+        assert seg and seg[0].value
 
 
 # ---------------------------------------------------------------------------

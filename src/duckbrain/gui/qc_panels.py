@@ -90,13 +90,17 @@ def evidence_viewer(
     *,
     modality: str = "bold",
     key_prefix: str = "",
+    default_open: bool = False,
 ) -> int:
     """Show the fMRIPrep figures *domain* is reviewed through. Returns how many.
 
     Each figure sits behind its own toggle with its size named first, because
     these are megabyte-scale SVGs and the reviewer should choose knowingly which
     to load. That is the same courtesy the whole-report panel extended, at
-    1.1 MB per figure instead of 80 MB per subject.
+    1.1 MB per figure instead of 80 MB per subject. ``default_open`` flips the
+    toggles on to begin with — the inspector page wants the evidence visible on
+    arrival, since looking at it *is* that page's purpose — while the toggle
+    stays as the way to put a figure away.
 
     An absent figure is **reported, not skipped**. For most that reads as "this
     run was not preprocessed"; for the distortion-correction figure it means the
@@ -120,7 +124,7 @@ def evidence_viewer(
         st.caption(f"**{fig.label}** — {_size_note(hit.total_bytes, len(hit.paths))}")
         # Not lower-cased: these labels are full of acronyms, and "bold to t1w
         # coregistration" reads as a mistake rather than as a sentence.
-        if not st.toggle(f"Show {fig.label}", key=widget_key):
+        if not st.toggle(f"Show {fig.label}", key=widget_key, value=default_open):
             continue
 
         st.markdown(f"*Look for:* {fig.look_for}")
@@ -592,6 +596,162 @@ def domain_signoff(scope: Scope, domain: ReviewDomain) -> None:
         f"Recorded as **{reviewer}**, against this aspect only. It does not give "
         f"the run a keep/exclude verdict — that stays a separate call on the Overview."
     )
+
+
+# ---------------------------------------------------------------------------
+# The inspector: one run, every domain at once
+# ---------------------------------------------------------------------------
+
+
+def measure_glossary(measures: list[str]) -> None:
+    """Every shown measure's guidance, as one glossary at the foot of the page.
+
+    The inspector puts all domains' numbers in one table, so per-measure
+    expanders beside it would be thirty click targets each hiding one
+    paragraph — reviewer feedback (2026-08-17) called that detached and
+    awkward. Per-cell mouseover is not something ``st.dataframe`` offers, so
+    the definitions live here instead, label leading in bold so the eye can
+    index this list the way it indexes the table above.
+    """
+    for g in qc_guidance.guidance_for_keys(measures):
+        head = f"**{g.label}** ({g.direction_label}"
+        if g.units:
+            head += f", {g.units}"
+        body = f"{head}) — {g.why} *Look for:* {g.look_for} *Flagged when:* {g.auto_flag}"
+        if g.literature_threshold:
+            body += f" *A priori thresholds:* {g.literature_threshold}"
+        if g.caveats:
+            body += f" *Caveats:* {g.caveats}"
+        st.markdown(body)
+        for ref in g.references:
+            st.caption(f"[{ref.label}]({ref.url}) — {ref.detail}. {ref.note}")
+
+
+def _legacy_aspect_note(record: qc.DecisionRecord | None) -> None:
+    """Aspect reviews recorded under the five-page layout, shown read-only.
+
+    The decision files are append-only, so per-domain entries written before
+    the inspector replaced the domain pages are still on disk and still load.
+    They are shown rather than hidden — a reviewer's recorded look at a run
+    does not stop having happened because the interface moved on — but nothing
+    writes new ones.
+    """
+    domains = record["domains"] if record else {}
+    parts = []
+    for key, dom in domains.items():
+        if not dom.get("signed_off"):
+            continue
+        latest = dom.get("latest") or {}
+        try:
+            label = qc_domains.get_domain(key).label
+        except KeyError:
+            label = key
+        parts.append(
+            f"{label}: **{latest.get('decision')}** "
+            f"({latest.get('reviewer')}, {latest.get('timestamp', '')[:10]})"
+        )
+    if parts:
+        st.caption(
+            "Aspect reviews recorded under the previous per-aspect layout, "
+            "kept for the record — " + " · ".join(parts)
+        )
+
+
+def run_signoff(scope: Scope) -> None:
+    """Who is signing, what has been signed before, and the verdict buttons.
+
+    The one review interface a run has: recording a keep/exclude/investigate
+    verdict *is* the sign-off. The per-aspect reviewed/concerns states that
+    used to sit under each domain page are gone from the UI — four states per
+    run across a 65-run project was the clicking the feedback objected to —
+    though everything previously recorded stays readable via
+    :func:`_legacy_aspect_note`.
+    """
+    import getpass
+
+    if not scope.run:
+        return
+    reviewer = getpass.getuser()
+    st.caption(f"Signing off as **{reviewer}**, recorded with each decision.")
+    counts = qc.decision_counts(qc.load_decisions(scope.decisions_read_dirs))
+    if counts["unattributed"]:
+        st.warning(
+            f"{counts['unattributed']} decision(s) were recorded before duckbrain "
+            f"captured a reviewer, so no one can be identified as having made them. "
+            f"They are shown as unattributed and do not count as signed off — "
+            f"re-record any you still stand behind."
+        )
+    verdict_panel(scope, reviewer)
+
+
+def render_inspection_page() -> None:
+    """The whole body of the inspection page: one run, every domain at once.
+
+    This page replaces the four per-domain pages. Reviewer feedback
+    (2026-08-17): four sign-offs per run slowed review to no benefit, and two
+    of the domain pages carried only a few numbers each. The domain taxonomy
+    still structures the page — it orders the table, sections the evidence and
+    groups the glossary — it just no longer costs a navigation to cross.
+    """
+    # A verdict recorded on the previous run confirms itself here; see
+    # `components.queue_toast` for why it cannot confirm itself at the call site.
+    flush_toasts()
+    st.title("Inspect a run")
+
+    config = load_config_or_stop()
+    scope = scope_bar(config)
+    if scope is None:
+        return
+    if not scope.run_key:
+        st.info("Pick a run above to review it.")
+        return
+
+    all_measures = [m for d in qc_domains.DOMAINS for m in d.measures_for(scope.modality)]
+
+    st.subheader("Numbers at a glance")
+    if scope.run and all_measures:
+        measure_table(scope, all_measures)
+        # A domain-wide caveat is about reading its numbers, so it belongs with
+        # the table rather than down in the glossary a reader may not reach.
+        for domain in qc_domains.DOMAINS:
+            if domain.caveat and domain.measures_for(scope.modality):
+                st.caption(f"**{domain.label}:** {domain.caveat}")
+    else:
+        st.caption(
+            "The measures need MRIQC — run it from **Preprocessing**. The figures below do not."
+        )
+
+    st.subheader("Evidence")
+    for domain in qc_domains.DOMAINS:
+        if not domain.evidence_for(scope.modality):
+            continue
+        st.markdown(f"**{domain.label}** — {domain.question}")
+        evidence_viewer(
+            scope.fmriprep_dir,
+            domain,
+            scope.run_key,
+            modality=scope.modality,
+            default_open=True,
+        )
+
+    with st.expander("Open the tool's own report"):
+        full_report_panel(
+            scope.mriqc_dir, scope.fmriprep_dir, scope.run_key, modality=scope.modality
+        )
+
+    if scope.run:
+        st.divider()
+        st.subheader(f"Review {scope.run_key}")
+        record = qc.load_decisions(scope.decisions_read_dirs).get(scope.run_key)
+        verdict = (record.get("latest") or {}).get("decision") if record else None
+        st.caption(f"verdict: **{verdict}**" if verdict else "no verdict recorded")
+        _legacy_aspect_note(record)
+        run_signoff(scope)
+
+    st.divider()
+    st.subheader("Glossary")
+    measure_glossary(all_measures)
+    _page_link("pages/5_QC_Overview.py", "Back to the Overview", icon="⬅️")
 
 
 # ---------------------------------------------------------------------------
