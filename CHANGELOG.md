@@ -12,6 +12,23 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **The Contract A catalog engine lives here now** (`duckbrain.catalog`,
+  migrated from mmmdata's `scripts/catalog_*.py`): `python -m duckbrain.catalog
+  rebuild --root <bids_root>` indexes a whole BIDS tree — raw plus every
+  derivative — into `<root>/inventory/catalog.duckdb` (bids2table sweep with
+  provenance-resolved `datasets` table, declared-expectations tier with the
+  four-state `resolution` view, QC-decision ingest, and a supplemental tier
+  that makes unindexed files queryable rather than invisible). The engine is
+  generic; everything dataset-specific comes from the dataset's
+  `expectations/dataset.toml` (`[catalog]` section for indexing scope). Its
+  dependencies (bids2table, duckdb, pyarrow) sit behind a new optional extra,
+  `duckbrain[catalog]`; the CLI refuses with the install hint rather than
+  degrading. The QC ingest imports `core/qc.py`'s reading semantics directly,
+  retiring the out-of-repo replication of the two on-disk decision schemas.
+  Verified against the live mmmdata catalog: identical row counts on every
+  table and an identical resolution tally (34 datasets, 40,691 files rows,
+  full rebuild 36 s).
+
 - **The conversion preflight now checks every planned filename against the
   BIDS schema itself** (via `bidsschematools`, a new dependency the setup
   script's pip step installs). A name no BIDS tool would index — a hand-edited

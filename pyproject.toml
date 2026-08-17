@@ -58,6 +58,21 @@ dev = [
     # Raise the bound in its own commit so new diagnostics are reviewed rather
     # than discovered. Patch is deliberately unpinned; those are bug fixes.
     "mypy>=2.3,<2.4",
+    # Self-reference, not a duplicated list: dev includes the catalog engine's
+    # deps because CI's pytest/mypy run against the whole package, and a dev
+    # install that can't import duckbrain.catalog would skip its tests and
+    # silently drop the package's coverage.
+    "duckbrain[catalog]",
+]
+# The Contract A catalog engine (duckbrain.catalog): index a BIDS tree into a
+# queryable DuckDB catalog. Optional because the GUI needs none of it — the
+# CLI (`python -m duckbrain.catalog`) refuses with the install hint rather
+# than degrading. Like bidsschematools above, these are NOT mirrored into
+# environment.yml's conda list; the pip step installs them.
+catalog = [
+    "bids2table>=2.3",
+    "duckdb>=1.5",
+    "pyarrow>=25",
 ]
 
 [tool.hatch.version]
@@ -504,3 +519,11 @@ ignore_missing_imports = true
 # dev box, which is the worst of both: a local check people learn to ignore.
 # On 3.10 the package *is* installed, so its real types are still used — this
 # only ever fires where it could not be found at all.
+
+[[tool.mypy.overrides]]
+# The catalog engine's two stub gaps: neither bids2table nor pyarrow ships
+# `py.typed` (checked in their installed wheels). duckdb does, and so needs
+# nothing here. `bids2table` is listed alongside `bids2table.*` because the
+# dotted pattern does not match the bare top-level import.
+module = ["bids2table", "bids2table.*", "pyarrow.*"]
+ignore_missing_imports = true
