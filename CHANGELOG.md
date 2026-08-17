@@ -10,7 +10,26 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **The conversion preflight now checks every planned filename against the
+  BIDS schema itself** (via `bidsschematools`, a new dependency the setup
+  script's pip step installs). A name no BIDS tool would index — a hand-edited
+  `custom_entities` with an illegal value, an unknown entity, a misspelled
+  suffix — is reported as an error before anything is submitted, and bulk
+  convert refuses the session rather than paying for a SLURM job whose output
+  fMRIPrep and MRIQC would silently ignore. Generated configs are unaffected:
+  measured across 268 real sessions, duckbrain's own plans produce zero
+  findings.
+
 ### Changed
+
+- **The Conversion page's `becomes` column shows entities in the order
+  dcm2bids will actually write them.** The tool reorders every filename
+  against the BIDS entity table at runtime, so a hand-edited
+  `run-1_task-x` used to preview as a filename that would never exist; it now
+  previews reordered — and two edits that collide only *after* reordering are
+  caught as the collision they are instead of silently overwriting each other.
 
 - **The QC dashboard is two pages instead of five** (beta-tester feedback).
   The Overview is now cohort-level only — its runs table gained at-a-glance

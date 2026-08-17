@@ -15,8 +15,7 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#13`](#13) **next** — conversion legibility (`#13.2` plan-time filename checks; `#13.1` shipped 2026-08-16, so `v0.6.0` is ready to cut) ·
-[`#16`](#16) sanity checks (Slices A–C done; `#16.3` open) ·
+[`#16`](#16) **next** — sanity checks (Slices A–C done; `#16.3` open) ·
 [Licensing](#licensing-follow-ups) ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
 walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
@@ -41,8 +40,12 @@ moved back out of **next**: `v0.5.0` shipped its writing, and everything left
 in it is externally blocked (see the entry), so `#16` leads again. On
 2026-08-16 `#16.2` shipped, which hands the lead to `#13.1` — the last item in
 `v0.6.0`'s plan. Later the same day `#13.1` shipped too (the `[series_skip]`
-section; see the ledger), so the next act is cutting `v0.6.0` per
-`docs/releasing.md`, and `#13`'s remainder is `#13.2`.
+section; see the ledger), and `v0.6.0` was cut the same day — a fact this file
+kept misstating as "ready to cut" for a day afterwards; `git tag` and the
+Releases page agree it is out and published. On 2026-08-17 `#13.2` shipped —
+the plan-time schema check, taking `#19.11`'s answer with it — which closed
+`#13` outright, so `#16` leads the queue and `#13.2` rides in whatever release
+comes next.
 
 ---
 
@@ -108,7 +111,7 @@ The cut also surfaced that **`v0.4.0`'s tag was pushed but its GitHub Release
 was never published** — the exact failure `docs/releasing.md` warns about, and
 why the GUI told nobody about `v0.4.0` for five days.
 
-### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2` ✅, `#13.1` ✅ — ready to cut
+### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2` ✅, `#13.1` ✅ — cut 2026-08-16 ✅
 
 This is the one with genuine design risk in it, which is exactly why it must not
 be bundled with the release above. That risk is now retired: `#16.2` needed
@@ -128,8 +131,11 @@ deviation from the plan recorded here, no job id in the cache key — in
 
 **`#13.1` shipped 2026-08-16** (see the ledger; the design record is
 `core/series_skip.py`'s module docstring, the page mechanics are
-`docs/conversion-legibility.md` phase 9). Nothing remains in this release —
-cut it per `docs/releasing.md`.
+`docs/conversion-legibility.md` phase 9), and the release was cut the same day
+— tagged, pushed, and published on the Releases page. `#13.2` (2026-08-17)
+missed it and rides in the next release: a new refusal, not a new recipe — the
+sweep measured zero filename changes, so nothing duckbrain *writes* moved, and
+on the roadmap's own minor-vs-patch test it does not by itself force a minor.
 
 ### `#19` — deliberately not in the version plan
 
@@ -148,8 +154,8 @@ Most of what is open there is **blocked on data, not on effort**:
 - `#19.12` has no fixture at all — 0 unequal ND pairings across all 166 corpus
   sessions — so it is a policy decision whenever someone wants to make it.
 
-The exception is `#19.11`, which is a check-then-probably-delete against the
-pinned container's source and needs no fixture. It can ride along with anything.
+The one sub-item that needed no fixture, `#19.11`, rode along with `#13.2` and
+closed 2026-08-17 (see the ledger).
 
 ### The cost this plan accepts, stated once
 
@@ -237,10 +243,12 @@ occasional and deliberate — versus a per-unit **contract** check on the board.
   rather than building two things.
 - **Display-vs-reality**, inherited from `#17`. Every one of that item's ten
   findings was a display or a control, so none could be caught by tests asserting
-  on returned values. The cheap general *defense* is already articulated by `#13`
-  — **derive the display from the artifact that will actually be used, never
-  re-derive it from the inputs**. Whether detection can be mechanized here at all
-  is unproven; `#13`'s rule may be the whole answer.
+  on returned values. The cheap general *defense* is already articulated by
+  `#13`'s anti-drift rule (now closed; the standing statement is
+  `core/conversion_plan.py`'s module docstring) — **derive the display from the
+  artifact that will actually be used, never re-derive it from the inputs**.
+  Whether detection can be mechanized here at all is unproven; that rule may be
+  the whole answer.
 
 **Why it's worth real effort:** the failure mode is the expensive one — not a
 crash, but hours of compute producing derivatives that are quietly wrong,
@@ -253,82 +261,6 @@ never took effect was never tested by reality, so activating one is a
 data-migration problem, not just a fix. duckbrain's shipped default partition was
 `medium` — not a Talapas partition at all — and that was invisible for months
 *because* the field was inert.
-
----
-
-<a id="13"></a>
-## #13 — Conversion legibility: what the eyeball pass left
-
-**Phases 1–9 shipped, granularity is settled, and the browser validation is
-done** (see the ledger; phase 9 — `#13.1`'s project-level skip — shipped
-2026-08-16, its design record in `core/series_skip.py`'s module docstring).
-What is left is `#13.2` below plus three notes the eyeball pass produced. Full
-design in **`docs/conversion-legibility.md`**.
-
-- **The eyeball pass is done, 2026-07-30, on
-  `/projects/hulacon/bhutch/fmap_eyeball`** (`sub-01` two fieldmap pairs,
-  `sub-02` three; symlinked at the `dicom` level into the read-only `mmmdata`
-  export, nothing converted because the Conversion Plan renders from DICOMs).
-  Ben's verdict: the board works. **The central bet holds** — the third pair's
-  colour was "orange and easy to see", which is the thing the whole
-  one-stable-colour-per-group design was for and the thing tests could only
-  assert as a string. Density fine, the `Type` dropdown fine. Keep the fixture:
-  92 of the export's 109 sessions have ≥2 complete pairs, max 4 groups against a
-  5-colour palette, so the wrap-around is unreachable in this study.
-- **Three residual notes, none blocking, all deliberately not acted on** — they
-  are polish, and polish before the theme is settled is work done twice:
-  - `anat/T1w` reads slightly filenamey; `anat (T1w)` was floated and explicitly
-    called non-essential. Not free either: the token *is* the persisted
-    `[series_types]` value, so changing the display changes the config format.
-  - The grouped fieldmap view (phase 4) may be **redundant with the table**
-    (phase 6). Fair: phase 4 was designed before the unified table existed, and
-    the table now carries the same relation on every row in both directions.
-    What the section still adds is *aggregation* — every bold for one pair in one
-    place, versus scanning 40 rows for a colour — and Ben found it "good for
-    sanity checking". So the question is whether that earns a surface, and the
-    cheap middle is an expander rather than deletion. Decide with `#8`, since it
-    is a density judgment and density depends on the theme.
-  - Judged on a desktop monitor only. Narrow widths are untested, and OnDemand
-    users are often on laptops.
-- **Dark theme was not tested and is now `#8`'s**, by Ben's call — a theming pass
-  is coming and testing against defaults would be work done twice. One specific
-  thing for whoever does it, or it will be missed: the Fieldmap Detection badges
-  use Streamlit's theme-aware `:blue-badge[…]` markdown while the tokens *inside*
-  the table are plain emoji, which are font-rendered and do not shift with the
-  theme. If those two diverge, the colour join breaks exactly where it carries
-  information. `docs/conversion-legibility.md` phase 3 also names
-  `5_QC_Dashboard.py`'s hardcoded `#ffcccc` as the existing example of getting
-  this wrong.
-- **The anti-drift rule this hangs on**, and the reason the phases were built
-  this way: the preview is derived **from the generated config dict**, never
-  re-derived from the series list. Same stance `resolve_fmap_assignments` takes.
-- **Drag-and-drop was considered and rejected** — reasoning recorded in the doc so
-  it isn't re-proposed. Short version: bindings must persist across 37 subjects,
-  which is what `[fmap_mapping]` already is; a gesture is per-session and would
-  have to be re-expressed as that rule anyway.
-- **Bidirectional table↔JSON sync was also rejected** — the table is *lossy*
-  relative to the config (criteria beyond `SeriesNumber`, arbitrary
-  `sidecar_changes`, custom ids, dcm2bids options), so a continuous round trip
-  would drop them silently. The import is explicit, one-shot, and reports what it
-  couldn't represent.
-
-### `#13.2` — Check a planned filename against the schema, before submitting
-
-Inherited from `#15` when that closed 2026-08-03. `bidsschematools` (pip)
-validates a *filename* against the BIDS schema with no dataset present, which
-would let every row of the Conversion Plan be checked before a job is submitted
-rather than after one has run. It can say whether
-`sub-001_task-x_run-1_bold.nii.gz` is legal BIDS; it cannot say that
-`div_perFace_r1` means task `divPerFace` run 1 — that inference is study-specific
-and is what duckbrain's heuristics are *for*. Complementary to the dataset
-validator, not an alternative to it.
-
-It lives here rather than under `#15` because it is plan-time, and **`#15`'s own
-advice about where it fits — "`core/consistency.py` is where a wrapper fits" — is
-stale.** The plan-time check surface that actually exists is `plan_warnings` (via
-`conversion_plan.py`, expanded in `docs/conversion-legibility.md`), which is this
-item's subject, and a finding belongs in the plan table beside the row it is
-about, not in a panel two pages away.
 
 ---
 
@@ -642,16 +574,6 @@ extra entity. duckbrain's `_sanitize_label` already strips these on ingestion, s
 this is not a duckbrain bug; it is a note that the *canonical* trees in that
 repository are not all valid, so "matches the curator" is not by itself a
 correctness argument.
-
-### `#19.11` — Is `_fmap_description`'s manual entity ordering already redundant?
-
-Inherited from `#15` when that closed 2026-08-03, and it is a check-then-probably-
-delete, not a feature. dcm2bids reorders `custom_entities` per the spec unless
-`--do_not_reorder_entities` is passed, which duckbrain does not pass — so
-`_fmap_description`'s hand-written acq/dir/run ordering may be doing work dcm2bids
-would do anyway. Harmless either way; worth resolving *before* anyone adds more of
-it. Confirm against the pinned container's source, then either delete the ordering
-or leave a comment saying why it stays.
 
 ### `#19.12` — Should an unequal ND/corrected pairing be refused, not truncated?
 
@@ -1044,6 +966,16 @@ other five are unstarted.
    only untested module in `core/`.
 5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
    confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
+   **Dud detection is this item's first half** (ruled 2026-08-17, mmmdata
+   Contract A close-out): MMMData's catalog declares physio/eyetracking per
+   bold unit, and per the acquisition notes ~50% of physio attempts produced
+   empty files — the catalog sees presence, not emptiness. The pass this item
+   owns: read each recording (766 across sub-03/04/05), judge real-vs-dud, and
+   hand per-run dispositions back across the ingest boundary so the catalog's
+   315 `pending` physio/eye units resolve (engine/contributor split:
+   mmmdata-agents `docs/constellation-contracts.md` §3.2 — duckbrain
+   contributes facts, the catalog ingests). Any PhysIO/TAPAS implementation
+   parses every recording anyway, so dud detection falls out of step one.
 6. **ReproIn** — **reading it is DONE** (2026-07-21): duckbrain parses the naming
    convention and trusts its entities over the heuristics, still converting with
    dcm2bids. What's left is the *social* half — recommending the convention to
@@ -1090,6 +1022,21 @@ will not remind you of:
 - `5_QC_Dashboard.py` hardcodes `#ffcccc`, which reads poorly on a dark
   background. Flagged in `docs/conversion-legibility.md` phase 3 as the thing not
   to repeat, and never fixed.
+
+Two polish notes from `#13`'s eyeball pass landed here when that item closed
+(2026-08-17) — both were parked on "decide with the theme, or the work is done
+twice", which is this item:
+
+- The Conversion table's `anat/T1w` reads slightly filenamey; `anat (T1w)` was
+  floated and called non-essential. Not free either: the token *is* the
+  persisted `[series_types]` value, so changing the display means either a
+  render-only mapping or a config-format change.
+- Whether the grouped fieldmap view (`docs/conversion-legibility.md` phase 4)
+  is redundant with the unified table (phase 6). The table carries the same
+  relation on every row; what the section still adds is aggregation — every
+  bold for one pair in one place — which Ben found "good for sanity checking".
+  The cheap middle is an expander rather than deletion. A density judgment,
+  and density depends on the theme.
 
 ---
 
@@ -1379,6 +1326,8 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-17 | `#13` | **Plan-time filename validation against the BIDS schema (`#13.2`) — closes the item.** `core/bids_schema.py` compiles `bidsschematools`' schema into filename regexes; a planned path matching none is an `invalid-filename` **error** in `plan_warnings`, shown in the page's preflight and refused by bulk convert. `_bids_filename` now mirrors the pinned dcm2bids' entity reordering, quirks included — without it the check would cry wolf on a mis-order the tool repairs itself, and *with* it the collision check finally sees two entity strings that differ only in order landing on one file. Measured across 268 LCNI-corpus + `mmmsourcedata` sessions (3162 planned files): zero nonconforming names from generated configs and zero paths moved by the mirror, so what the check guards in practice is the hand-edited JSON override. Design: `docs/conversion-legibility.md` phase 10; pinned by `tests/test_bids_schema.py` and the schema-check block of `tests/test_conversion_plan.py`. `bidsschematools` is a new runtime dep, pip-side deliberately (the reasoning is on the dep in `pyproject.toml`). The eyeball pass's residual polish notes (the `anat (T1w)` display, phase 4's redundancy with the table) moved to `#8`, whose theme decision they were always waiting on. |
+| 2026-08-17 | `#19.11` | **Yes — dcm2bids reorders every filename it writes** (`setDstFile` in the pinned container's `acquisition.py`, on by default), so `_fmap_description`'s manual entity ordering is redundant for the *file*. It stays anyway, for the saved JSON a user reads and hand-edits, with a comment saying exactly that; and the confirmed table now does real work as `conversion_plan._DCM2BIDS_ENTITY_ORDER`, where the preview mirrors the tool's reorder (see the `#13` row above). |
 | 2026-08-16 | `#13.1` | **The project-level skip — `[series_skip]`, a list of SeriesDescriptions the study never converts, honoured by the page, bulk convert and the cockpit alike.** Closes the item; the standing design record is `core/series_skip.py`'s module docstring, the page mechanics are `docs/conversion-legibility.md` phase 9. Motivated by curation scope, not junk (the item's own second measurement): five of the LCNI corpus's fifteen studies curate **anat only** — on WMS that is 6 descriptions × 56 sessions, ~336 unticks — and REV's curator dropped `fieldmap1` in 6 of 6 sessions. Every decision the item queued got its answer. **Own section**, not a `[series_types]` `ignore` value (the 2026-07-30 rejection holds: an ignore *classification* bypasses the actual skip mechanism — `generate_config(skip=…)` + `_without_skipped_groups`, keyed on series numbers — cannot express the per-session aborted-run case, and erases the classification the preflight reads) and **not `[expected]`** (the 2026-08-11 decision: a count cannot say *which*, and reports-never-repairs must stay true). The **coarser include-by-datatype control was declined**: "anat only" in one line inverts the failure mode — a study that adds a sequence loses it silently, where under a skip the new series converts visibly. Applied **inside `generate_session_config`, next to `type_rules`**, exactly as the item's note demanded: a description resolves to series numbers only once the session is listed, and the resolved set merges into the existing per-session `skip`, so the whole-pair rule and the saved-JSON round trip carry over with no new state. Only emitted classifications resolve — a scout matching a skipped description earns no "deliberate drop" note for a conversion that was never going to happen — and a **malformed section raises** (the fallback is converting the series the study excluded, the silently-degrading shape). On the page: the seed unticks, a re-tick wins for that session, the drop note names the section rather than "you unticked `convert`", and a fourth save button promotes **only descriptions with no ticked row** — a mixed description (the `fmap_eyeball` aborted-run case, identical names) stays per-session and the save says so — while re-ticking every row of a saved description and saving removes it, the same last-wins layering as `[series_types]`. A project binding to a pair the project's own skip removes **fails loudly** through the existing missing-group path. One neighbouring guard corrected on the way: the one-shot JSON import and the hand-edited override used to re-derive `convert` only for rows currently ticked, so an explicit review could never re-tick a row a seed had unticked; both now key on the row being *emittable*, and the import wins in both directions. Pinned by `tests/test_series_skip.py` (section, resolution, the non-GUI path) and the `[series_skip]` block of `tests/test_conversion_page.py`; the four-column save row is a `#30` eyeball entry. |
 | 2026-08-16 | `#16.2` | **Outcome checks and duckbrain's first cache (L3, `#16` Slice C):** `outcome-sdc` reads fMRIPrep's own SDC verdict from the per-run summary reportlets (filename entities map each verdict to its BOLD; gated on sidecar `B0FieldSource`, COMPLETE units only) and `outcome-nordic` flags NORDIC output numerically identical to its raw input (volume 0, scaled values). Both `EXPENSIVE`: run only via `run_expensive_checks`, persisted to `<log_dir>/checks.json` with a per-check `count:mtime` fingerprint, rendered in a cockpit panel that confesses staleness. One deviation from the in-principle plan (no job id in the key) and two family members closed without code — design record: `docs/sanity-checks.md` Slice C. Anat-reuse re-homed to the unhomed candidates. Slice A's tripwire test flipped into the admission condition. Validated live on `divatten_beta_v2`: 65/65 runs judged through the NORDIC staged tree, clean, 8.4 s to measure and 0.07 s to fingerprint. |
 | 2026-08-11 | `#16.1` | **The request record (L2, `#16` Slice B):** every SLURM launch writes `<log_dir>/requests/<job_id>.json` — the builder's resolved context minus config-wide keys, sorted for diffing — with a `request_path` column in `submissions.tsv`; first consumer `checks._check_requested_spaces` compares recorded `output_spaces` to written `space-` entities (newest attempt only, COMPLETE units only), and the `run_checks` gate became per-check so L2 needs no `[expected]`. Design record: `docs/sanity-checks.md` Slice B. The `[expected]`-vs-skip question it owed is answered at `#13.1`. |

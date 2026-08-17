@@ -1066,15 +1066,17 @@ with st.container(border=True):
     _clean = not _blocking and not _suspect and not _override_error
     if _clean and _probes:
         st.success(
-            f"{len(plan.files)} file(s) will be written, nothing collides, every "
-            f"series is accounted for, and the phase encoding of the {len(_probes)} "
-            "series dcm2niix could read matches its label."
+            f"{len(plan.files)} file(s) will be written, every filename is legal "
+            "BIDS, nothing collides, every series is accounted for, and the "
+            f"phase encoding of the {len(_probes)} series dcm2niix could read "
+            "matches its label."
         )
     elif _clean:
         st.info(
-            f"{len(plan.files)} file(s) will be written, nothing collides, and "
-            "every series is accounted for — but the phase-encoding checks did "
-            "not run, so this is clean only as far as duckbrain could look."
+            f"{len(plan.files)} file(s) will be written, every filename is legal "
+            "BIDS, nothing collides, and every series is accounted for — but "
+            "the phase-encoding checks did not run, so this is clean only as "
+            "far as duckbrain could look."
         )
     # Unconditional, not folded into the clean branch: a session that also has a
     # collision must still say the phase encoding went unchecked, or the user

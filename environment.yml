@@ -39,7 +39,11 @@ dependencies:
 
   # The runtime dependency list from pyproject.toml, unpinned — the floors
   # there are all satisfied by any current solve, and real bounds belong in
-  # pyproject.toml, not duplicated here.
+  # pyproject.toml, not duplicated here. One deliberate absentee:
+  # bidsschematools rides the pip section below instead, because its presence
+  # on conda-forge could not be verified from this cluster and a conda create
+  # naming an absent package fails the whole build (pyproject.toml carries the
+  # full reasoning next to the dep).
   - streamlit
   - jinja2
   - pandas
@@ -55,7 +59,8 @@ dependencies:
       # duckbrain (editable, from this checkout) plus the dev extra: pytest,
       # pytest-cov, and the pinned ruff/mypy gates. The runtime floors above
       # are already satisfied by the conda builds, so pip installs only the
-      # dev tools and duckbrain itself — setup_env.sh verifies afterwards that
+      # dev tools, bidsschematools (see the absentee note above) and duckbrain
+      # itself — setup_env.sh verifies afterwards that
       # no runtime package got shadowed by a pip wheel, which is the classic
       # way a conda+pip environment goes subtly wrong.
       - -e .[dev]

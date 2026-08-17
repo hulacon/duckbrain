@@ -251,6 +251,116 @@ def test_clean_session_yields_no_error_or_warning():
     assert severities <= {"info"}
 
 
+# ---- the schema check, and the entity reorder it depends on ----
+
+
+def _hand_edit(series, edit, subject="001", session="01"):
+    """Run the real chain, then mutate the config as the JSON override does.
+
+    The hand-edited JSON is the one production path that can put arbitrary
+    ``custom_entities`` in front of `plan_conversion` — the generator sanitizes
+    — so these tests edit the generated dict rather than hand-writing one.
+    """
+    classify_series(series)
+    fieldmaps = detect_fieldmaps(series)
+    config = generate_config(
+        series,
+        fieldmaps,
+        subject=subject,
+        session=session,
+        mapping=build_task_run_mapping(series),
+    )
+    edit(config["descriptions"])
+    return plan_conversion(config, series, subject=subject, session=session), fieldmaps
+
+
+def test_a_filename_outside_the_schema_is_an_error_naming_the_series():
+    series = [_bold(9, "perFace", 1)]
+
+    def edit(descriptions):
+        bold = next(d for d in descriptions if d["suffix"] == "bold")
+        bold["custom_entities"] = "task-div!_run-1"  # illegal character in a value
+
+    plan, fieldmaps = _hand_edit(series, edit)
+    findings = [w for w in plan_warnings(plan, fieldmaps) if w.kind == "invalid-filename"]
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert findings[0].series == [9]
+    assert "task-div!" in findings[0].message
+
+
+def test_misordered_entities_are_rendered_reordered_not_reported():
+    """dcm2bids reorders entities before writing, so the plan must too.
+
+    Two halves of the same fact: the ``becomes`` filename shows what actually
+    lands on disk (task before run, whatever the config said), and the schema
+    check keeps quiet — order alone is a mistake dcm2bids repairs itself.
+    Mirrors the pinned container's `setDstFile`; `_DCM2BIDS_ENTITY_ORDER`
+    records the provenance.
+    """
+    series = [_bold(9, "perFace", 1)]
+
+    def edit(descriptions):
+        bold = next(d for d in descriptions if d["suffix"] == "bold")
+        bold["custom_entities"] = "run-1_task-perFace"
+
+    plan, fieldmaps = _hand_edit(series, edit)
+    bold = next(f for f in plan.files if f.is_bold)
+    assert bold.filename == "sub-001_ses-01_task-perFace_run-1_bold.nii.gz"
+    assert bold.entities == "run-1_task-perFace"  # the config's string, as written
+    assert not [w for w in plan_warnings(plan, fieldmaps) if w.kind == "invalid-filename"]
+
+
+def test_the_mirror_keeps_dcm2bids_quirks_and_the_schema_check_reports_them():
+    """An unknown key is appended after the known ones; a bare token moves to the suffix.
+
+    Both are what the pinned container's `setDstFile` does with tokens it cannot
+    place, and both produce names outside the schema — so the plan must show the
+    name dcm2bids will really write *and* the check must refuse it, rather than
+    the mirror quietly tidying the tokens away.
+    """
+    series = [_bold(9, "perFace", 1)]
+
+    def edit(descriptions):
+        bold = next(d for d in descriptions if d["suffix"] == "bold")
+        bold["custom_entities"] = "foo-bar_highres_task-perFace"
+
+    plan, fieldmaps = _hand_edit(series, edit)
+    bold = next(f for f in plan.files if f.is_bold)
+    assert bold.filename == "sub-001_ses-01_task-perFace_foo-bar_highres_bold.nii.gz"
+    findings = [w for w in plan_warnings(plan, fieldmaps) if w.kind == "invalid-filename"]
+    assert [w.series for w in findings] == [[9]]
+
+
+def test_entity_order_alone_does_not_hide_a_collision():
+    """`run-1_task-a` and `task-a_run-1` are one file on disk; the plan must agree."""
+    series = [_bold(9, "perFace", 1), _bold(19, "perFace", 2)]
+
+    def edit(descriptions):
+        # Both runs hand-edited onto the same entities, one of them misordered —
+        # before the reorder mirror this pair sailed past the collision check
+        # and dcm2bids kept whichever it wrote last.
+        for d in descriptions:
+            if d["suffix"] in ("bold", "sbref"):
+                d["custom_entities"] = (
+                    "task-perFace_run-1" if d["criteria"]["SeriesNumber"] == 9 else ""
+                )
+        edited = next(d for d in descriptions if d["criteria"]["SeriesNumber"] == 19)
+        edited["custom_entities"] = "run-1_task-perFace"
+
+    plan, fieldmaps = _hand_edit(series, edit)
+    collisions = [w for w in plan_warnings(plan, fieldmaps) if w.kind == "collision"]
+    assert len(collisions) == 1
+    assert collisions[0].series == [9, 19]
+
+
+def test_plans_without_a_subject_skip_the_schema_check():
+    """No subject label means no path can conform; skipping beats drowning."""
+    series = [_series(2, "t1w_mprage"), _bold(9, "perFace", 1)]
+    plan, fieldmaps = _plan(series, subject="", session="")
+    assert not [w for w in plan_warnings(plan, fieldmaps) if w.kind == "invalid-filename"]
+
+
 def test_by_series_keeps_every_planned_file():
     series = [_series(8, "div_perFace_r1_SBRef", n=1), _series(9, "div_perFace_r1")]
     plan, _ = _plan(series)

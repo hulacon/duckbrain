@@ -1,6 +1,8 @@
 # Conversion legibility — making the mapping tables readable
 
-Design doc for `TODO.md` `#13`. Written 2026-07-21.
+Design doc for `TODO.md` `#13`. Written 2026-07-21; the item closed 2026-08-17
+with phase 10, so `#13` now resolves to a ledger row and this document is the
+standing record.
 
 ## The problem, stated precisely
 
@@ -263,6 +265,42 @@ docstring first. What belongs *here* is how it lands on this page:
   listed — and merges into the same `skip` set the checkbox feeds, which is
   what carries the whole-pair rule and the saved-config round trip over
   unchanged.
+
+## Phase 10 — the filename meets the schema (`#13.2`, shipped 2026-08-17)
+
+Every planned path is matched against the BIDS schema before anything is
+submitted — `bidsschematools` compiled to filename regexes in
+`core/bids_schema.py`, consumed by a new `invalid-filename` **error** in
+`plan_warnings`. Inherited from `#15` (which validated the dataset *after* a
+job had already run and paid for the lesson); the plan-time surface is this
+page's preflight, beside the rows it is about, and the error severity means
+bulk convert refuses the session rather than submitting a job whose output no
+BIDS tool would index. The check is syntax only: it can say
+`sub-001_task-x_run-1_bold.nii.gz` is legal, never that `div_perFace_r1`
+*means* task `divPerFace` — that inference is the rest of this document.
+
+Three things the shipping shape settled:
+
+- **The plan now reorders entities exactly as dcm2bids does.** The pinned
+  container reorders every filename against its entity table before writing
+  (`setDstFile`, on by default — the confirmation `#19.11` asked for, done
+  2026-08-17), so a mis-ordered hand-edit was already a case where `becomes`
+  promised a filename the tool wouldn't write, and it would have made the
+  schema check cry wolf on a mistake dcm2bids repairs itself.
+  `_bids_filename` now mirrors the tool's algorithm, quirks included
+  (`_DCM2BIDS_ENTITY_ORDER` records the provenance) — which also closed a real
+  gap: two entity strings differing only in order are one file on disk, and
+  the collision check used to miss that. `_fmap_description`'s manual ordering
+  stays, for the legibility of the saved JSON, with a comment saying so.
+- **Generated configs never trip it, measured.** 268 sessions across the LCNI
+  corpus and `mmmsourcedata`, 3162 planned files: zero nonconforming names and
+  zero paths changed by the reorder mirror. The generator sanitizes labels and
+  takes suffixes from vocabularies, so what the check catches in practice is
+  the hand-edited JSON override — which is also the one production path that
+  can put arbitrary `custom_entities` in front of the plan.
+- **A plan built without a subject label skips the check** rather than
+  reporting every row: no subject-rooted path exists to judge, and both real
+  callers (the page, bulk convert) always pass one.
 
 ## Validated in the browser — 2026-07-30
 

@@ -23,7 +23,7 @@ out of the same artifact instead of being parsed out of the string — group nam
 can legitimately contain underscores (``se_epi_ap_foo_bar``), which would make
 splitting the composed identifier ambiguous.
 
-See ``docs/conversion-legibility.md`` (TODO ``#13``) for the design.
+See ``docs/conversion-legibility.md`` for the design.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from . import bids_schema
 from .dcm2niix_probe import PE_FOR_DIR, SeriesProbe
 from .dicom_inspect import (
     EMITTED_CLASSIFICATIONS,
@@ -79,8 +80,10 @@ _IMAGE_EXT = ".nii.gz"
 class PlannedFile:
     """One BIDS file the config will produce.
 
-    ``entities`` is the ``custom_entities`` string as written (already in BIDS
-    entity order); ``path`` is relative to the BIDS root. ``fmap_group`` is the
+    ``entities`` is the ``custom_entities`` string exactly as the config wrote
+    it; ``filename`` and ``path`` reorder its tokens the way dcm2bids will (see
+    :func:`_bids_filename`), so they state what lands on disk even when the
+    config's order doesn't. ``path`` is relative to the BIDS root. ``fmap_group`` is the
     fieldmap group this file binds to — the pair that corrects it for a bold, or
     the pair it belongs to for a fieldmap — and is ``None`` when there is none.
     """
@@ -164,12 +167,74 @@ class ConversionPlan:
         ]
 
 
+# The entity table the pinned dcm2bids (3.2.0, `utils/utils.py` in the image)
+# reorders every filename against before writing it — `setDstFile` in its
+# `acquisition.py`, on by default; duckbrain never passes
+# `--do_not_reorder_entities`. Confirmed against the container's source
+# 2026-08-17 (the check `#19.11` asked for). `sub`/`ses` lead the table, which
+# is why composing them as a fixed prefix below is the same result.
+_DCM2BIDS_ENTITY_ORDER = (
+    "sample",
+    "task",
+    "tracksys",
+    "acq",
+    "ce",
+    "trc",
+    "stain",
+    "rec",
+    "dir",
+    "run",
+    "mod",
+    "echo",
+    "flip",
+    "inv",
+    "mt",
+    "part",
+    "proc",
+    "hemi",
+    "space",
+    "split",
+    "recording",
+    "chunk",
+    "seg",
+    "res",
+    "den",
+    "label",
+    "desc",
+)
+
+
 def _bids_filename(subject: str, session: str, entities: str, suffix: str) -> str:
-    """Compose ``sub-X[_ses-Y][_<entities>]_<suffix>.nii.gz``."""
+    """Compose ``sub-X[_ses-Y][_<entities>]_<suffix>.nii.gz`` as dcm2bids will write it.
+
+    The entity tokens are reordered against ``_DCM2BIDS_ENTITY_ORDER`` because
+    that is what the tool itself does to every filename before writing: a
+    hand-edited ``run-1_task-x`` comes out of dcm2bids as ``task-x_run-1``, so a
+    preview that kept the config's order would promise a filename the tool won't
+    write — and would miss the collision between two entity strings that differ
+    only in order. The mirror is exact, quirks included: a repeated key
+    last-wins, an unknown key (``foo-bar``) is appended after the known ones in
+    the order it appeared, and a token that is not one ``key-value`` pair — a
+    bare word, or a value containing ``-`` — is moved to the end beside the
+    suffix. Those last two produce names the schema check below then refuses,
+    which is the reporting path; quietly dropping them here would not be.
+    """
+    pairs: dict[str, str] = {}
+    bare: list[str] = []
+    for token in entities.split("_"):
+        if not token:
+            continue
+        halves = token.split("-")
+        if len(halves) == 2:
+            pairs[halves[0]] = halves[1]
+        else:
+            bare.append(token)
     parts = [f"sub-{subject}"] if subject else []
     if session:
         parts.append(f"ses-{session}")
-    parts.extend(p for p in entities.split("_") if p)
+    parts.extend(f"{key}-{pairs.pop(key)}" for key in _DCM2BIDS_ENTITY_ORDER if key in pairs)
+    parts.extend(f"{key}-{value}" for key, value in pairs.items())
+    parts.extend(bare)
     parts.append(suffix)
     return "_".join(parts) + _IMAGE_EXT
 
@@ -407,6 +472,39 @@ def plan_warnings(
                     series=nums,
                 )
             )
+
+    # --- Filenames the BIDS schema does not recognise. dcm2bids writes whatever
+    # the config composes — its only reaction to an unknown entity is a log line
+    # — but every BIDS app *indexes* by these patterns, so a nonconforming file
+    # converts fine and then does not exist as far as fMRIPrep or MRIQC are
+    # concerned, and the validator flags it after the job already ran. Checked
+    # on the reordered path (`_bids_filename`), so a wrong *order* alone is
+    # never reported — dcm2bids fixes that itself. Generated configs compose
+    # from sanitized labels and schema suffixes (zero findings across 268
+    # LCNI-corpus + mmmsourcedata sessions, 3162 planned files, measured
+    # 2026-08-17), so what this catches in practice
+    # is the hand-edited JSON override. Only a subject-rooted path can conform;
+    # plans built without a subject label (tests, mostly) skip rather than
+    # drown in findings about a prefix no caller composed.
+    for f in sorted(plan.files, key=lambda f: f.series_number):
+        if not f.path.startswith("sub-") or bids_schema.conforms(f.path):
+            continue
+        out.append(
+            PlanWarning(
+                kind="invalid-filename",
+                severity="error",
+                message=(
+                    f"Series {f.series_number} `{f.description}` is planned as "
+                    f"`{f.path}`, which matches no filename pattern in the BIDS "
+                    f"schema (BIDS {bids_schema.bids_version()}). dcm2bids will "
+                    "write the file anyway, but BIDS tools index by these "
+                    "patterns — fMRIPrep and MRIQC would never see it, and the "
+                    "dataset fails validation. Check the entities and suffix; a "
+                    "hand-edited `custom_entities` is the usual cause."
+                ),
+                series=[f.series_number],
+            )
+        )
 
     # --- Pepolar pairs that don't oppose. A pepolar fieldmap estimates the field
     # from two acquisitions traversed in *opposite* directions; two halves with

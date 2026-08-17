@@ -1163,6 +1163,15 @@ def _fmap_description(
     """
     # BIDS entity order is acq- before dir-, run- after; extra_entity may carry
     # either or both (a named group reacquired in one session gets both).
+    #
+    # Not redundant with dcm2bids' own reordering, though it looks it: the tool
+    # does reorder every filename it writes (confirmed in the pinned container's
+    # `acquisition.py`, 2026-08-17 — the check conversion_plan's
+    # `_DCM2BIDS_ENTITY_ORDER` records), so a wrong order *here* would still
+    # convert correctly. What it would cost is legibility one layer up — this
+    # string is what the saved `dcm2bids_config.json` carries and what a user
+    # reads and hand-edits, and a config whose order already matches what lands
+    # on disk is one fewer thing to reconcile.
     parts = [p for p in extra_entity.split("_") if p]
     acq = next((p for p in parts if p.startswith("acq-")), "")
     run = next((p for p in parts if p.startswith("run-")), "")

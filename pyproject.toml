@@ -24,6 +24,17 @@ dependencies = [
     "nibabel>=5.0",
     "plotly>=5.0",
     "pydicom>=2.4",
+    # The BIDS schema as compiled filename regexes, for the Conversion page's
+    # plan-time check (core/bids_schema.py). Base install only — the
+    # `validation`/`expressions` extras pull jsonschema/pyparsing for features
+    # duckbrain doesn't call. Floor at 1.1 (`rules.regexify_all` and `py.typed`
+    # are both present there). Unlike the other runtime deps this one is NOT
+    # mirrored into environment.yml's conda list: it could not be verified on
+    # conda-forge from this cluster, and a conda create naming an absent
+    # package fails the whole env build, so the pip step installs it instead —
+    # setup_env.sh's shadowing check names its packages explicitly and is not
+    # tripped by that.
+    "bidsschematools>=1.1",
     "tomli-w>=1.0",
     "tomli>=2.0; python_version < '3.11'",
 ]

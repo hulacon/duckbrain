@@ -148,8 +148,10 @@ release roadmap as of 2026-08-06 — and `docs/releasing.md` to cut the next one
   source — that's a second backlog nothing sorts, prioritizes, or reads. This
   repo has zero and should keep it that way.
 - **Cite a `TODO` id only for *open* work, and only from a doc that expands it**
-  (`conversion_plan.py` → `docs/conversion-legibility.md` for `#13` is the shape:
-  both ends live, the pointer leads somewhere richer than itself). In code,
+  — both ends live, the pointer leads somewhere richer than itself.
+  (`conversion_plan.py` → `docs/conversion-legibility.md` for `#13` was the
+  canonical example until `#13` closed 2026-08-17; the module now cites the doc
+  alone, which is the closed-item form of the same shape.) In code,
   **state the reason and let `git blame` carry the provenance.** A backward
   pointer to a closed item resolves to a ledger row that says *less* than the
   comment you were already reading, it pins the id registry in place forever, and
