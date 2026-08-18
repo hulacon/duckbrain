@@ -1073,113 +1073,65 @@ plus the `ssh -L` line it prints.
    error, no console message, just a dead click. Slice 2 emitted relative paths
    to fix the exported copy, and that fix has never been confirmed under the
    proxy. Open the exported dashboard from `divatten_beta_v2`'s `derivatives/`
-   and click through to an MRIQC report.
+   and click through to an MRIQC report. The 2026-08-18 pass left this pending
+   but noted "the html report downloaded via browser nicely" — if that download
+   *was* the click on a View-report link, the verdict is "the link resolves but
+   this serving context downloads instead of rendering", a different (and
+   probably livable) outcome from the dead click; pin down which it was.
 2. **[OOD] Should the app serve tool reports itself?** A design question, not a
-   check, and the one that needs a live session to settle rather than an
-   argument. The embed is a `srcdoc` frame with **no origin**, so a relative link
-   inside it has nothing to resolve against and cannot route to an MRIQC report
-   by construction — the export above is the only way to reach them today.
-   `docs/qc-dashboard-migration.md` calls item 2 "only half-closed" for exactly
-   this. Its analysis predates `#23`'s `st.iframe` swap but survives it: that
-   ledger row measured the two elements' sandboxes as identical.
-3. **The embedded report after the `st.iframe` swap (`#23`).** Closed 2026-08-03
-   on an assertion about the frame's `srcdoc` — the right test for *what was
-   passed*, and silent about what renders. Look for what a srcdoc assertion
-   cannot reach: does the report scroll inside its frame rather than clipping,
-   is the height sane, and do its own internal anchors work.
-4. **The Preprocessing page's three tabs.** Added 2026-08-04 with the page's
-   first tests. All three tab bodies execute on every run, so AppTest sees their
-   contents whether or not Streamlit would draw them — the tab strip itself is
-   unexercised. Confirm the three tabs render and switch, and that **Export
-   Scripts** puts an `.sbatch` in `code/logs`.
-5. **The BIDS validation panel (`#15`).** The validator was proved end to end
-   through a real conversion job — the *log* was read, not the panel. It is an
-   on-demand button whose results table nothing has ever looked at. A clean
-   project (`divatten_beta`) and a dirty one is the useful pair.
-6. **Do save/launch confirmations actually appear?** Added 2026-08-04 with the
-   streamlit 1.61 fix. Every "Saved"/"Submitted"/"Cancelled" toast in the GUI is
-   now queued into session state and raised on the *next* run rather than beside
-   the action, because 1.61 discards a toast queued before the `st.rerun()` that
-   follows one. AppTest confirms the message is produced; **what it cannot say is
-   whether a real browser was ever dropping them, or for how long.** If the
-   browser on 1.59 was already silently swallowing these, then this fixed a
-   user-facing bug nobody had reported rather than only a test. Press Save on
-   Project Setup and launch a cell on the cockpit, and see whether a toast
-   appears — and note that the queued one now arrives on the *redrawn* page,
-   which is a slightly different moment than before.
-7. **Narrow widths — a laptop, not a desktop monitor.** `#13`'s pass explicitly
-   judged density on a large display and recorded that narrow widths were
-   untested, which matters because OnDemand users are usually on laptops. The
-   Conversion Plan table and the cockpit grid are the two that will break first.
-   Worth doing at 1280px wide before anything else on this list.
-8. **[OOD] The OnDemand launch through the conda branch.** Added 2026-08-07
-   with the conda environment: `script.sh.erb` now prefers the env recorded in
-   `.conda-prefix` over `.venv`, prepends its `bin/`, and sets
-   `PYTHONPATH=<checkout>/src` + `PYTHONNOUSERSITE=1`. `scripts/launch.sh`'s
-   twin of that branch was smoke-tested headlessly (HTTP 200 from the served
-   app), but the OnDemand leg runs a different script through the
-   `/node/<host>/<port>/` proxy and only a real session can settle it: the
-   session starts, the gateway link connects, and the sidebar's version stamp
-   shows this checkout's `git describe` (which proves the PYTHONPATH half —
-   the shared env has a checkout editable-installed, and serving *that* one
-   would look identical except for the stamp). **Widened 2026-08-16 by the
-   canonical-location repoint:** the sandbox symlink and the form default now
-   name the shared checkout
-   (`/gpfs/projects/hulacon/shared/mmmdata/code/duckbrain`), but OnDemand
-   remembers per-user form values, so the cached `duckbrain_dir` may still say
-   `~/code/duckbrain` — check the field before launching, and confirm the
-   served app is the shared checkout (until `~/code` pulls, the presence of
-   the `#16.2` Outcome checks panel is a discriminator the stamp also settles).
-9. **The top nav with seven entries plus the QC group.** Added 2026-08-07 with
-   `#2`'s "New to Talapas?" page. `st.navigation(position="top")` gets no
-   width modelling from AppTest, and the new title is the longest in the bar
-   (and carries a `?`). Confirm the bar neither wraps nor collapses entries
-   into an overflow menu at laptop width — same 1280px sitting as the
-   narrow-widths entry above.
-10. **The before/after flicker in the QC evidence viewer.** Added 2026-08-10
-    with the fix for the frozen reportlets: fMRIPrep's before/after SVGs pause
-    their flicker until `:hover`, which an SVG inside an `<img>` never
-    receives, so `gui/qc_panels._show_figure` now ships any `:hover`-carrying
-    figure as an `st.iframe` document instead. AppTest confirms the srcdoc and
-    its styles; what only a browser can settle is (a) hovering the SDC or
-    coregistration figure actually starts the alternation, and (b) the frame's
-    `height="content"` sizing gives the figure a sane height — the SVG is
-    styled `width:100%; height:auto` off its `viewBox`, and whether Streamlit's
-    sizing observer re-measures on window resize is unknown. Not **[OOD]** —
-    a srcdoc iframe has no URL for the proxy to rewrite.
-11. **The Conversion page's save-buttons row at four columns.** Added
-    2026-08-16 with `#13.1`: the "save as project default" row went from three
-    `st.columns` to four to take the skip button, and AppTest models neither
-    column widths nor label wrapping. Confirm the four buttons read at laptop
-    width (the same 1280px sitting as the narrow-widths entry above) — the new
-    label ("Save skipped series as project default") is no longer than its
-    neighbours, but a quarter-width column is a new narrowest case.
-12. **The QC overview's row-click.** Added 2026-08-17 with the two-page rework:
-    clicking a run's row hands the selection to the Inspect page via
-    `on_select` + `st.switch_page`, and AppTest models a dataframe as an
-    element with no `select_row`, so only the mapping and the degradation are
-    tested. Confirm (a) a click opens the Inspect page with *that* run
-    selected, and (b) navigating back to the Overview does not re-fire the
-    switch off a stale selection — if it loops, the guard is a
-    "last handled selection" session key next to the `clicked` check in
-    `render_overview`.
-13. **The Inspect page's weight with every figure open.** Added 2026-08-17:
-    evidence toggles now default on, which on a real subject is ~1.1 MB per
-    SVG across up to ten figures per run. On `divatten_beta_v2`, judge load
-    time and scroll feel — **[OOD]**, because the proxy leg is where the bytes
-    hurt. If it drags, the lever is `default_open` per domain, not removing
-    the toggles.
-14. **The exported report at fifteen bold columns.** Added 2026-08-17 with the
-    IQM-whitelist fix: the export's flat table follows `scope.iqm_cols`, so it
-    widened from six columns to fifteen with no layout change. Open one export
-    and judge whether the table still reads or wants a narrower export-time
-    column set.
+   check — restated 2026-08-18 after a pass found it too vague to act on. The
+   embedded report is a `srcdoc` frame with **no origin**, so links *inside* it
+   have nothing to resolve against and are dead by construction, and the
+   exported dashboard is today's only route to a full MRIQC/fMRIPrep report
+   outside the app. The concrete question, answerable only mid-review: **while
+   doing a real QC pass, how often do you reach for the full report, and does
+   the export-then-open detour hurt enough to justify the app serving
+   derivative files over HTTP itself?** If the detour is fine in practice,
+   close this as an accepted limitation in `docs/qc-dashboard-migration.md`
+   (which calls its item 2 "only half-closed" for exactly this); if it hurts,
+   the follow-up is real design work — a static file route — and gets its own
+   TODO item rather than a line here.
+3. **The full tool report embedded on the Inspect page** — the "Open the
+   tool's own report" expander (`gui/qc_panels.py`, `full_report_panel`), which
+   ships the MRIQC/fMRIPrep HTML itself as an `st.iframe` `srcdoc`. Distinct
+   from the evidence figures above it, which the 2026-08-18 pass cleared; the
+   2026-08-18 pass asked "what report?", which is this note's reason to exist.
+   Closed 2026-08-03 (`#23`) on an assertion about the frame's `srcdoc` — the
+   right test for *what was passed*, and silent about what renders. Look for
+   what a srcdoc assertion cannot reach: does the report scroll inside its
+   frame rather than clipping, is the height sane, and do its own internal
+   anchors work.
+4. **[OOD] Repoint the cached OnDemand form value, then confirm the stamp.**
+   Narrowed 2026-08-18 from the conda-branch launch entry: the launch itself is
+   now proven — the whole eyeball pass ran through the proxy on the conda env
+   (the personal checkout records the shared prefix and has no `.venv`, so no
+   other branch could have served it) — but the session's `duckbrain_dir` was
+   the *cached* legacy default (`/gpfs/home/%{ENV:USER}/code/duckbrain`, which
+   `script.sh.erb` rewrites to `$HOME/code/duckbrain`), so it served the
+   personal checkout, not the shared one. Harmless that day — both checkouts
+   sat at the same commit with clean trees, which is what keeps the pass's
+   verdicts valid — but exactly the drift the 2026-08-16 repoint exists to end.
+   Edit the field once to `/gpfs/projects/hulacon/shared/mmmdata/code/duckbrain`
+   (OnDemand remembers it from then on), relaunch, and confirm the sidebar
+   version stamp shows the shared checkout's `git describe` — the commit that
+   struck the old entries landed only here, so until `~/code` pulls, the stamp
+   discriminates.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
 is the obvious economy: the theming pass has to look at every surface anyway.
 
-**Already discharged; do not re-add.** The cockpit's browser eyeball closed
+**Already discharged; do not re-add.** The 2026-08-18 pass (Ben, OnDemand +
+resize) discharged ten entries in one sitting — the Preprocessing tabs and
+their `.sbatch` export, the BIDS validation panel, save confirmations, cockpit
+narrowness, the before/after flicker viewer, the four-button save row, the
+Overview→Inspect→Overview round trip, the Inspect page's weight with every
+figure open, the fifteen-column export, and the seven-entry top nav — verdicts
+in the commit that struck them. It also surfaced the staleness heuristic firing
+correctly on a same-day NORDIC run for a subject fMRIPrep hasn't touched
+(`_check_staleness` compares project-wide newest mtimes by design; its
+"re-run fMRIPrep" advice overreaches in that case). The cockpit's browser
+eyeball closed
 2026-07-17 (`de1a155` — dashboard width good, folder picker fine); three rows of
 `docs/pipeline-cockpit.md` claimed otherwise until this item was written, and now
 say so. `#13`'s Conversion Plan pass closed 2026-07-30 on `fmap_eyeball`
@@ -1187,9 +1139,10 @@ say so. `#13`'s Conversion Plan pass closed 2026-07-30 on `fmap_eyeball`
 figures were confirmed reaching a browser as self-contained data URIs, which is
 why they are **not** entry 1: a data URI has no URL for the proxy to get wrong,
 and that is by construction rather than by luck. (That eyeball judged *presence*,
-not motion — the same figures sat frozen on their "before" frame until
-2026-08-10, which is entry 10. The hover-gated ones now travel as srcdoc
-iframes; still URL-free, so still not entry 1's problem.)
+not motion — the same figures sat frozen on their "before" frame until the
+2026-08-10 hover fix, whose flicker eyeball the 2026-08-18 pass cleared. The
+hover-gated ones travel as srcdoc iframes; still URL-free, so still not entry
+1's problem.)
 
 ---
 
