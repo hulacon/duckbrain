@@ -165,16 +165,19 @@ duckbrain/
 
 ## GUI Pages
 
+The top bar is **Status · Setup · Preprocessing · Guide · BIDSification ▾ · QC ▾**.
+A session with a project open lands on Status; a project-less one lands on Setup.
+
 | Page | Purpose |
 |------|---------|
-| **0. Project Status** | Pipeline cockpit — one actionable board. A per-`(subject, session)` × stage grid (ingested → converted → nordic → fmriprep → mriqc) grading completion by **expected outputs** (a crashed run reads *partial*, not done) fused with **live SLURM state**. Each cell *is* the control: **▶** launches the next step (params inline, dependency-gated, no double-submit); a running/queued/failed cell opens a reference to the **exact SLURM job** — id, live squeue/sacct detail, and log tail — with **cancel** for in-flight jobs and **re-run** for failed ones. Column headers run a whole stage (guarded). Job tracking (the former Job Monitor) is folded in as an **All SLURM jobs** panel — active + recent history + arbitrary-job-id log lookup — the catch-all for jobs not tied to a cell. Plus a durable submission log and provenance/consistency checks. See `docs/pipeline-cockpit.md`. |
-| **1. Project Setup** | First-run wizard — pick the project directory, set SLURM settings and shared container/license locations. Writes shared settings to `~/.config/duckbrain/config.toml` and project settings to `<project>/code/duckbrain.toml`. |
-| **2. Data Ingestion** | Browse LCNI DICOM sessions, auto-assign BIDS subject/session labels by date, symlink or copy into sourcedata, generate participants.tsv. |
-| **3. BIDS Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export a conversion job — or bulk-convert all unconverted sessions at once. |
-| **4. Preprocessing** | Tabbed interface for fMRIPrep, NORDIC, and MRIQC — select subjects/sessions, configure options, submit SLURM jobs or export scripts. |
-| **5. QC Dashboard** | MRIQC metrics table with IQR outlier highlighting, Plotly distribution plots, motion summary, per-run keep/exclude/investigate decisions. |
-| **6. Guide** | Orientation — what each page is for and where to start. |
-| **7. New to Talapas?** | Signpost for first-time cluster users, pointing at the newcomer guide ([docs/new-to-talapas.md](docs/new-to-talapas.md)). The guide itself lives in the repo — not in the GUI — so it is readable *before* any setup, by exactly the people who can't launch the GUI yet. |
+| **Status** | Pipeline cockpit — one actionable board. A per-`(subject, session)` × stage grid (ingested → converted → nordic → fmriprep → mriqc) grading completion by **expected outputs** (a crashed run reads *partial*, not done) fused with **live SLURM state**. Each cell *is* the control: **▶** launches the next step (params inline, dependency-gated, no double-submit); a running/queued/failed cell opens a reference to the **exact SLURM job** — id, live squeue/sacct detail, and log tail — with **cancel** for in-flight jobs and **re-run** for failed ones. Column headers run a whole stage (guarded). Job tracking (the former Job Monitor) is folded in as an **All SLURM jobs** panel — active + recent history + arbitrary-job-id log lookup — the catch-all for jobs not tied to a cell. Plus a durable submission log and provenance/consistency checks. See `docs/pipeline-cockpit.md`. |
+| **Setup** | First-run wizard — pick the project directory, set SLURM settings and shared container/license locations. Writes shared settings to `~/.config/duckbrain/config.toml` and project settings to `<project>/code/duckbrain.toml`. |
+| **Preprocessing** | Tabbed interface for fMRIPrep, NORDIC, and MRIQC — select subjects/sessions, configure options, submit SLURM jobs or export scripts. |
+| **Guide** | Orientation — what each page is for and where to start — plus the signpost for first-time cluster users, pointing at the newcomer guide ([docs/new-to-talapas.md](docs/new-to-talapas.md)). The guide itself lives in the repo — not in the GUI — so it is readable *before* any setup, by exactly the people who can't launch the GUI yet. |
+| **BIDSification ▸ Ingestion** | Browse LCNI DICOM sessions, auto-assign BIDS subject/session labels by date, symlink or copy into sourcedata. |
+| **BIDSification ▸ Conversion** | Auto-inspect DICOMs, review series classifications and fieldmap detection, edit dcm2bids config, submit or export a conversion job — or bulk-convert all unconverted sessions at once. |
+| **BIDSification ▸ Project** | Manage the dataset itself: generate `participants.tsv` / `dataset_description.json`, run the BIDS validator on demand, and declare (or clear) the study's `[expected]` session contents. |
+| **QC ▸ Overview / Inspect** | MRIQC metrics table with IQR outlier highlighting, Plotly distribution plots, motion summary, per-run keep/exclude/investigate decisions. |
 
 *(Live job tracking is no longer a separate page — squeue/sacct tables and the log
 viewer are folded into Project Status as its "All SLURM jobs" panel, and jobs are

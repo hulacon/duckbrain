@@ -3,8 +3,9 @@
 ``gui/app.py`` moved off the filesystem ``pages/`` convention onto
 ``st.navigation(position="top")`` so the nav sits along the top and leaves the
 left side free. These lock in the parts that would fail silently: that every
-declared page file actually exists, that Status is the landing page, and that the
-project bar (which replaced the sidebar indicator) renders and can switch.
+declared page file actually exists, that the landing page is computed (Status
+with a project open, Setup without), and that the project bar (which replaced
+the sidebar indicator) renders and can switch.
 """
 
 import os
@@ -15,7 +16,7 @@ from streamlit.testing.v1 import AppTest
 
 from conftest import page_path
 from duckbrain.config import remember_project, scaffold_project
-from duckbrain.gui.app import _PAGES, _PAGES_DIR, _QC_PAGES, _shorten
+from duckbrain.gui.app import _BIDS_PAGES, _PAGES, _PAGES_DIR, _QC_PAGES, _shorten
 
 APP = page_path("src/duckbrain/gui/app.py")
 
@@ -32,8 +33,28 @@ def _no_ambient_project(monkeypatch):
 
 def test_every_declared_page_file_exists():
     """A typo'd filename would only surface as a 404 in the browser."""
-    missing = [f for f, _ in [*_PAGES, *_QC_PAGES] if not (_PAGES_DIR / f).is_file()]
+    missing = [f for f, _ in [*_PAGES, *_BIDS_PAGES, *_QC_PAGES] if not (_PAGES_DIR / f).is_file()]
     assert missing == []
+
+
+def test_the_bidsification_group_is_ingestion_conversion_project():
+    """DICOMs in, a valid managed BIDS tree out — the two pages that do the
+    work, then the one that manages what they produce. The deep
+    links on Status and Ingestion navigate into the group, so a page falling
+    out of it fails at click time on a page nobody tests by hand."""
+    assert [f for f, _ in _BIDS_PAGES] == [
+        "2_Data_Ingestion.py",
+        "3_BIDS_Conversion.py",
+        "3a_Project.py",
+    ]
+
+    import re
+
+    declared = {f for f, _ in [*_PAGES, *_BIDS_PAGES, *_QC_PAGES]}
+    for source_file in ("pages/0_Project_Status.py", "pages/2_Data_Ingestion.py"):
+        source = (Path(__file__).parent.parent / "src/duckbrain/gui" / source_file).read_text()
+        targeted = {Path(m).name for m in re.findall(r'"pages/([^"]+\.py)"', source)}
+        assert targeted <= declared, f"navigated-to but not in the nav: {targeted - declared}"
 
 
 def test_the_qc_group_is_exactly_overview_and_inspect():
@@ -59,10 +80,30 @@ def test_the_qc_group_leads_with_the_overview():
     assert _QC_PAGES[0][0] == "5_QC_Overview.py"
 
 
-def test_status_is_the_default_landing_page():
-    # Status degrades gracefully with no project (it points at Setup), which is
-    # what makes it safe as the default rather than a welcome screen detour.
+def test_status_leads_the_bar():
+    # The cockpit is the daily page, so it leads the bar even when a
+    # project-less session lands on Setup instead.
     assert _PAGES[0][0] == "0_Project_Status.py"
+
+
+def test_a_projectless_session_lands_on_setup(user_cfg):
+    """The default page is computed, not fixed. With nothing open there
+    is no cockpit to show, so the landing is the page that can open one."""
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    assert not at.exception
+    assert any("Project Setup" in t.value for t in at.title)
+
+
+def test_a_session_with_a_project_lands_on_status(user_cfg, tmp_path, monkeypatch):
+    """The other half of the computed default: a returning user with an active
+    project wants the cockpit, not a Setup detour."""
+    proj = tmp_path / "proj"
+    scaffold_project(str(proj))
+    monkeypatch.setenv("DUCKBRAIN_PROJECT_DIR", str(proj))
+
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    assert not at.exception
+    assert any("Project Status" in t.value for t in at.title)
 
 
 def test_app_runs_and_shows_no_project_prompt(user_cfg):

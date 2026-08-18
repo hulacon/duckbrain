@@ -309,35 +309,21 @@ def test_failed_cell_shows_stderr_even_when_stdout_is_not_empty(project, monkeyp
 
 # ---- Declared expectations (TODO #16 Slice A) --------------------------------
 #
-# These assert on what the page DISPLAYS, which is the #17 lesson: every one of
-# that item's ten findings was a display or a control, so none could be caught by
-# a test asserting on a returned value. The expectations panel is a control that
-# writes config, which is exactly that shape.
+# The declaration panel itself lives on the Project page and its display
+# tests live with it (``test_project_page.py``). What stays pinned HERE is the
+# reading side: the warnings a declaration drives render on this page, next to
+# the board they judge.
 
 
-def test_expectations_panel_is_offered_and_says_checks_are_off(project):
-    at = AppTest.from_file(PAGE, default_timeout=60).run()
-    assert not at.exception
-    labels = [e.label for e in at.expander]
-    assert any("Declared expectations" in label and "none set" in label for label in labels)
-
-
-def test_a_declaration_is_summarized_and_its_shortfall_reported(project):
-    """The declaration reads back on the page, and the check it drives fires.
-
-    sub-01 has one T1w and no BOLD, so a declaration asking for two runs of
-    `rest` must both render as a summary and produce a visible error.
-    """
+def test_a_declared_shortfall_is_reported_in_the_warnings_panel(project):
+    """sub-01 has one T1w and no BOLD, so a declaration asking for two runs of
+    `rest` must produce a visible error on the cockpit."""
     save_project_config(
         str(project),
         {"expected": {"session": {"anat": {"T1w": 1}, "task": {"rest": 2}}}},
     )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
-
-    labels = [e.label for e in at.expander]
-    assert any("Declared expectations" in label and "none set" not in label for label in labels)
-    assert any("2** run(s) of `rest`" in m for m in _markdowns(at))
 
     # A task absent entirely is an error, not a warning — and it must reach the UI
     # as one, since severity is only meaningful if the widget honours it.
@@ -354,57 +340,7 @@ def test_no_declaration_adds_no_warnings(project):
     assert not [w.value for w in at.warning if "expected-" in w.value]
 
 
-# ---- BIDS validation panel ----
-
-
-@pytest.fixture
-def validator_ready(project, monkeypatch):
-    """A project where the validator *could* run, so the button is enabled."""
-    import duckbrain.core.validation as V
-
-    monkeypatch.setattr(V, "validator_unavailable_reason", lambda container, bids: "")
-    return project
-
-
-def _counting_validator(monkeypatch, result=None):
-    import subprocess
-
-    import duckbrain.core.validation as V
-
-    calls = []
-
-    def fake(cmd, timeout_s):
-        calls.append(cmd)
-        payload = result if result is not None else '{"issues": {}, "summary": {"totalFiles": 3}}'
-        return subprocess.CompletedProcess(cmd, 0, payload, "")
-
-    monkeypatch.setattr(V, "_run_validator", fake)
-    return calls
-
-
-def test_the_validation_panel_runs_nothing_until_the_button_is_pressed(
-    validator_ready, monkeypatch
-):
-    """The cockpit is a fragment that re-runs every 30 s.
-
-    A subprocess over the whole BIDS tree on that path would fire on every tick.
-    `core/checks.py` states the constraint; this is what enforces it for the one
-    genuinely expensive thing the page can do.
-    """
-    calls = _counting_validator(monkeypatch)
-
-    at = AppTest.from_file(PAGE, default_timeout=60).run()
-    assert not at.exception
-    assert calls == [], "the validator ran on a plain render"
-
-    at.run()  # a second render, standing in for an auto-refresh tick
-    assert calls == [], "the validator ran on a re-render"
-
-    assert "validate_bids_btn" in _btn_keys(at)
-    at.button(key="validate_bids_btn").click().run()
-    assert not at.exception
-    assert len(calls) == 1
-    assert "--ignoreSymlinks" in calls[0]
+# ---- Outcome checks panel ----
 
 
 def test_the_outcome_panel_measures_nothing_until_the_button_is_pressed(project, monkeypatch):
@@ -462,43 +398,3 @@ def test_a_persisted_snapshot_renders_with_its_staleness_confessed(project):
     warnings = [w.value for w in at.warning]
     assert any("preprocessed uncorrected" in w for w in warnings)
     assert any("Inputs have changed since" in w for w in warnings)
-
-
-def test_the_panel_reports_when_the_validator_could_not_run(project, monkeypatch):
-    """A missing container must read as "could not run", never as a clean dataset.
-
-    The reason is pinned rather than produced by the environment: this machine's
-    real user config names a `containers_dir` that does hold the image, and the
-    fixture does not isolate it, so leaving it to chance would make the test
-    depend on whose checkout it runs in.
-    """
-    import duckbrain.core.validation as V
-
-    monkeypatch.setattr(
-        V, "validator_unavailable_reason", lambda container, bids: "container image not found"
-    )
-
-    at = AppTest.from_file(PAGE, default_timeout=60).run()
-    assert not at.exception
-
-    # No button to press, and the reason takes its place.
-    assert "validate_bids_btn" not in _btn_keys(at)
-    assert any("Can't run the validator" in i.value for i in at.info)
-
-
-def test_a_result_carries_the_time_it_was_measured(validator_ready, monkeypatch):
-    """A stale answer must not read as a current one — the reason this is not cached."""
-    from pathlib import Path
-
-    fixture = Path(__file__).parent / "fixtures" / "bids_validator" / "dwi_eyeball.json"
-    _counting_validator(monkeypatch, result=fixture.read_text())
-
-    at = AppTest.from_file(PAGE, default_timeout=60).run()
-    at.button(key="validate_bids_btn").click().run()
-    assert not at.exception
-
-    captions = [c.value for c in at.caption]
-    assert any("measured" in c for c in captions)
-    # And the findings themselves reach the panel.
-    assert any("DATASET_DESCRIPTION_JSON_MISSING" in e.value for e in at.error)
-    assert any("README_FILE_MISSING" in w.value for w in at.warning)

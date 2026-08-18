@@ -28,23 +28,34 @@ from duckbrain.core.updates import update_available
 # where the process was launched from — which is not a given under OnDemand.
 _PAGES_DIR = Path(__file__).resolve().parent / "pages"
 
-# (filename, nav title). Pipeline order, but Status leads: it is the cockpit and
-# the page you land on daily. Deliberately no icons — the top bar stays legible,
-# and glyphs in chrome were exactly the thing that read as noise.
+# (filename, nav title). Status leads: it is the cockpit and the page you land
+# on daily. Deliberately no icons — the top bar stays legible, and glyphs in
+# chrome were exactly the thing that read as noise. Guide sits here rather than
+# last because the frontend renders every ungrouped page *before* the
+# collapsible groups regardless of dict order — last-in-the-bar would cost
+# Guide a one-item dropdown, which Ben declined (2026-08-18).
 _PAGES = [
     ("0_Project_Status.py", "Status"),
     ("1_Project_Setup.py", "Setup"),
-    ("2_Data_Ingestion.py", "Ingestion"),
-    ("3_BIDS_Conversion.py", "Conversion"),
     ("4_Preprocessing.py", "Preprocessing"),
     ("6_Guide.py", "Guide"),
-    ("7_New_to_Talapas.py", "New to Talapas?"),
 ]
 
-# QC is its own *group*: passing st.navigation a dict makes each grouping one
-# collapsible item at position="top", which keeps the top bar the length it
-# was. The empty-string key is what puts the pipeline pages before the groups
-# rather than inside one.
+# BIDSification is a *group* the way QC already is: DICOMs in, a valid managed
+# BIDS tree out (the name is Ben's; "Data" was rejected as too vague).
+# Ingestion and Conversion do the work; Project manages what they produce
+# (metadata files, validation, the declared expectations). Groups, not tabs,
+# deliberately: tabs are the AppTest-blind primitive that keeps feeding #30 —
+# pages stay fully testable.
+_BIDS_PAGES = [
+    ("2_Data_Ingestion.py", "Ingestion"),
+    ("3_BIDS_Conversion.py", "Conversion"),
+    ("3a_Project.py", "Project"),
+]
+
+# Passing st.navigation a dict makes each grouping one collapsible item at
+# position="top", which is what keeps the top bar short. The empty-string key
+# holds the ungrouped pages.
 _QC_PAGES = [
     ("5_QC_Overview.py", "Overview"),
     ("5a_QC_Inspect.py", "Inspect a run"),
@@ -132,6 +143,18 @@ def _project_bar() -> None:
                     st.rerun()
 
 
+def _default_page() -> str:
+    """Where a launch lands: Status with a project open, Setup without one.
+
+    The "Setup first" request bundled two decisions — bar order and the default
+    page — and only the second is real: a returning user with an active
+    project wants the cockpit, a project-less session wants Setup. Computed at
+    nav time from the same source the pages read, rather than reordering the
+    bar for everyone.
+    """
+    return "0_Project_Status.py" if active_project() else "1_Project_Setup.py"
+
+
 def main() -> None:
     st.set_page_config(
         page_title="duckbrain",
@@ -139,12 +162,11 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="collapsed",
     )
+    default = _default_page()
     nav = st.navigation(
         {
-            "": [
-                st.Page(_PAGES_DIR / f, title=t, default=(i == 0))
-                for i, (f, t) in enumerate(_PAGES)
-            ],
+            "": [st.Page(_PAGES_DIR / f, title=t, default=(f == default)) for f, t in _PAGES],
+            "BIDSification": [st.Page(_PAGES_DIR / f, title=t) for f, t in _BIDS_PAGES],
             "QC": [st.Page(_PAGES_DIR / f, title=t) for f, t in _QC_PAGES],
         },
         position="top",

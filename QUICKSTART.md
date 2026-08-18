@@ -21,7 +21,7 @@ exactly this: the concepts (compute nodes, SLURM, PIRGs) in plain words, the
 canonical tutorials to start from (the Unix shell, Talapas/RACS, Git/GitHub,
 conda, SLURM, BIDS, fMRIPrep, MRIQC), and the list of setup decisions to check
 with your PI before building anything. Read it first, then come back here. (The
-GUI's **New to Talapas?** page points at the same document.)
+GUI's **Guide** page points at the same document.)
 
 > **⚠️ Several steps below encode a *lab* decision, not a personal one** —
 > which PIRG to charge, where the shared conda environment and containers
@@ -314,17 +314,22 @@ Apps** (Interactive Apps → Neuroimaging).
 
 Once the GUI is open, the intended flow is:
 
-1. **Project Setup** — choose your project directory; set SLURM account and the
+1. **Setup** — choose your project directory; set SLURM account and the
    shared container/license/NORDIC locations. This writes your user + project
-   config.
-2. **Data Ingestion** — browse your LCNI DICOM export, let duckbrain assign BIDS
-   subject/session labels, and symlink (or copy) sessions into `sourcedata/`.
-3. **BIDS Conversion** — review the auto-detected series classification and
-   fieldmap pairing, then submit a dcm2bids job (or bulk-convert everything).
-4. **Preprocessing** — run fMRIPrep, NORDIC, and/or MRIQC.
-5. **QC Dashboard** — review MRIQC metrics and record keep/exclude decisions.
-…but **Project Status** is where you land and where you will spend most of your
-time. It is the cockpit: a per-`(subject, session) × stage` matrix that grades
+   config. (A session with no project open lands here.)
+2. **BIDSification → Ingestion** — browse your LCNI DICOM export, let duckbrain
+   assign BIDS subject/session labels, and symlink (or copy) sessions into
+   `sourcedata/`.
+3. **BIDSification → Conversion** — review the auto-detected series
+   classification and fieldmap pairing, then submit a dcm2bids job (or
+   bulk-convert everything).
+4. **BIDSification → Project** — generate `participants.tsv` /
+   `dataset_description.json`, validate the BIDS tree, and (once a session has
+   converted correctly) freeze the study's declared expectations.
+5. **Preprocessing** — run fMRIPrep, NORDIC, and/or MRIQC.
+6. **QC** — review MRIQC metrics and record keep/exclude decisions.
+…but **Status** is where you land once a project is open, and where you will
+spend most of your time. It is the cockpit: a per-`(subject, session) × stage` matrix that grades
 completion from real outputs and fuses in live SLURM state. The cells *are* the
 controls — launch the next step, or open a running/failed cell to see the exact
 SLURM job (id, live state, log tail) and cancel or re-run it. Live

@@ -41,6 +41,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Changed
 
+- **The GUI's top bar is reorganized around a BIDSification group** (decided
+  with the 2026-08-18 eyeball pass): **Status · Setup · Preprocessing · Guide
+  · BIDSification ▾ · QC ▾**. The new **Project** page (in BIDSification,
+  after Ingestion and Conversion) collects the dataset-management cluster
+  that used to straddle three pages — `participants.tsv` /
+  `dataset_description.json` generation (from Ingestion), the BIDS validation
+  panel and the declared-expectations editor (from Status) — so Status is
+  purely the cockpit + SLURM view and Setup is purely configuration. The
+  warnings a declaration drives still render on Status, next to the board
+  they judge. The **"New to Talapas?" page merged into Guide** (one
+  orientation page, and the bar's longest label gone); the newcomer guide
+  itself stays in the repo at `docs/new-to-talapas.md`. And **the landing
+  page is now computed**: a session with a project open lands on Status, a
+  project-less one lands on Setup.
+
 - **The Conversion page's `becomes` column shows entities in the order
   dcm2bids will actually write them.** The tool reorders every filename
   against the BIDS entity table at runtime, so a hand-edited

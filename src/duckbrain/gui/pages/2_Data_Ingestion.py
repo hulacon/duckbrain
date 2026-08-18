@@ -269,64 +269,19 @@ if not selected.empty:
                     )
                 )
 
-# ---- BIDS Metadata Generation ----
+# `participants.tsv` / `dataset_description.json` generation lives on the
+# Project page with the rest of the dataset-management cluster; this page
+# ingests, and the pointer below is so the next step is one click rather than
+# a hunt through the nav.
 st.divider()
-st.subheader("BIDS Metadata")
-st.markdown("Generate `participants.tsv` and `dataset_description.json` from DICOM demographics.")
-
-bids_dir = paths.get("bids_dir", "")
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Generate participants.tsv"):
-        if not bids_dir:
-            st.error("BIDS directory not set in config.")
-        elif not sourcedata_dir or not Path(sourcedata_dir).is_dir():
-            st.error("No sourcedata found.")
-        else:
-            from duckbrain.core.bids_metadata import generate_participants_from_sourcedata
-
-            try:
-                tsv_path = generate_participants_from_sourcedata(sourcedata_dir, bids_dir)
-                participants_df = pd.read_csv(tsv_path, sep="\t")
-                if participants_df.empty:
-                    st.warning(
-                        f"No ingested subjects found under `{sourcedata_dir}` — "
-                        "ingest sessions above first. Wrote a header-only "
-                        f"`{tsv_path}`."
-                    )
-                else:
-                    st.success(f"Written: `{tsv_path}` ({len(participants_df)} subjects)")
-                    st.dataframe(participants_df, width="stretch", hide_index=True)
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-with col2:
-    if st.button("Generate dataset_description.json"):
-        if not bids_dir:
-            st.error("BIDS directory not set in config.")
-        else:
-            from duckbrain.core.bids_metadata import (
-                converter_generated_by,
-                dataset_extra_fields,
-                write_dataset_description,
-            )
-
-            project_name = config.get("project", {}).get("name", "")
-            try:
-                # Record the converter too, not just duckbrain — dcm2bids' version
-                # is what determines the BIDS this root contains. This button
-                # *refreshes* on demand (after a rename, or new Authors); the
-                # conversion choke point only *ensures presence*. Safe to press
-                # repeatedly: the write preserves fields duckbrain doesn't own.
-                desc_path = write_dataset_description(
-                    bids_dir,
-                    name=project_name,
-                    extra_fields=dataset_extra_fields(config),
-                    generated_by=converter_generated_by(config),
-                )
-                st.success(f"Written: `{desc_path}`")
-            except Exception as e:
-                st.error(f"Error: {e}")
+try:
+    st.page_link(
+        "pages/3a_Project.py",
+        label="Generate `participants.tsv` / `dataset_description.json` on the Project page",
+        icon="🗂️",
+    )
+except Exception:
+    pass  # standalone (non-multipage) render — links are best-effort
 
 # ---- DICOM Sorter (for non-LCNI data) ----
 st.divider()
