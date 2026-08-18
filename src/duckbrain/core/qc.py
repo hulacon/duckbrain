@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import warnings
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -512,7 +512,7 @@ def save_decision(
         "reason": reason,
         "reviewer": reviewer,
         "automated": bool(automated),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     if recommendation is not None:
         entry["recommendation"] = recommendation

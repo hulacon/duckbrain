@@ -22,7 +22,6 @@ import getpass
 import hashlib
 import os
 import re
-import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -31,16 +30,7 @@ if TYPE_CHECKING:
     from .core.dcm2bids_config import FmapRule, TaskRule
     from .core.series_types import TypeRule
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    # No try/except around this: `tomllib` is 3.11+, so below the floor there is
-    # nothing to try, and pyproject's `tomli; python_version < '3.11'` marker is
-    # what guarantees the fallback is installed. The old attempt-tomllib-first
-    # spelling could never succeed here and cost the type checker a `tomllib`
-    # it had to resolve at 3.10, where it does not exist.
-    import tomli as tomllib
-
+import tomllib
 
 #: The merged configuration mapping — what ``load_config`` returns and what the
 #: ``config`` parameter means everywhere in the package.
@@ -134,12 +124,7 @@ def _load_toml(path: str | Path | None) -> Config:
     """Load a TOML file, or return {} if it is missing."""
     if path and Path(path).exists():
         with open(path, "rb") as f:
-            # `dict(...)` rather than returning the parse straight: on any
-            # interpreter above the 3.10 floor `tomli` is not installed, so the
-            # loader mypy sees is untyped and this would return `Any` under a
-            # `dict` annotation. Not decoration — deleting it turns the gate red
-            # on 3.11 only.
-            return dict(tomllib.load(f))
+            return tomllib.load(f)
     return {}
 
 

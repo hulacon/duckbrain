@@ -20,23 +20,15 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+import tomllib
 from collections.abc import Sequence
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    # `tomllib` is 3.11+; pyproject's `tomli; python_version < '3.11'` marker
-    # guarantees the fallback below the floor (same spelling as config.py).
-    import tomli as tomllib
 
 
 def load_declaration(path: pathlib.Path) -> dict[str, Any]:
     """Parse the dataset declaration TOML."""
     with open(path, "rb") as f:
-        # `dict(...)` so 3.10's untyped tomli fallback doesn't turn the
-        # return into `Any` (same reasoning as config._load_toml).
-        return dict(tomllib.load(f))
+        return tomllib.load(f)
 
 
 def _parse(argv: Sequence[str] | None) -> argparse.Namespace:

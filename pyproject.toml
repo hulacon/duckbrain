@@ -9,7 +9,7 @@ name = "duckbrain"
 # importable without a build step — and a second copy here would drift silently.
 dynamic = ["version"]
 description = "General-purpose neuroimaging toolbox with Streamlit GUI for LCNI/Talapas HPC"
-requires-python = ">=3.10"
+requires-python = ">=3.11"  # bids2table>=2.3 (the catalog engine) requires 3.11
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 dependencies = [
@@ -36,7 +36,6 @@ dependencies = [
     # tripped by that.
     "bidsschematools>=1.1",
     "tomli-w>=1.0",
-    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -398,11 +397,13 @@ known-first-party = ["duckbrain"]
 # interpreter runs mypy, which is the trap it took a red build to find: it makes
 # mypy parse every third-party stub with 3.10 grammar too, and a package that
 # requires a newer Python may ship stubs written in newer syntax (numpy 2.5 uses
-# PEP 695 `type X = ...`). A stub it cannot parse is a *blocking* error — mypy
-# exits 2 having checked nothing. So the CI job that runs this pins Python 3.10 to
-# match, which makes the mismatch impossible: anything pip resolves for 3.10 is
-# something that supports 3.10. Change one and change the other.
-python_version = "3.10"
+# PEP 695 `type X = ...`, 3.12 grammar). A stub it cannot parse is a *blocking*
+# error — mypy exits 2 having checked nothing. So the CI job that runs this pins
+# Python 3.11 to match, which makes the mismatch impossible: anything pip
+# resolves for 3.11 is something that supports 3.11. Change one and change the
+# other. (The floor moved 3.10 -> 3.11 on 2026-08-17 when the catalog engine
+# brought in bids2table>=2.3, which requires 3.11.)
+python_version = "3.11"
 files = ["src/duckbrain/"]
 
 # Vestigial now, and kept deliberately rather than deleted. It was the
@@ -507,18 +508,8 @@ disallow_any_generics = true
 # announce itself — a stale stub is a false error or a false pass, and neither
 # names its cause. Re-measure before re-opening: if plotly ever ships `py.typed`,
 # delete this entry rather than adding a package.
-module = ["pandas.*", "plotly.*", "tomli"]
+module = ["pandas.*", "plotly.*"]
 ignore_missing_imports = true
-
-# `tomli` is here for a different reason than the two above: it is not a stub
-# gap, it is a package that is *absent by design* on the interpreter most people
-# run this on. The dependency marker installs it only below 3.11, while
-# `python_version` pins the analysis at 3.10 — so mypy reads `config.py`'s
-# `else: import tomli as tomllib` branch on every interpreter and can only
-# resolve it on 3.10. Without this, the gate is green in CI and red on a 3.11
-# dev box, which is the worst of both: a local check people learn to ignore.
-# On 3.10 the package *is* installed, so its real types are still used — this
-# only ever fires where it could not be found at all.
 
 [[tool.mypy.overrides]]
 # The catalog engine's two stub gaps: neither bids2table nor pyarrow ships

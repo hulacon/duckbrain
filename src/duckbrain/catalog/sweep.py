@@ -108,7 +108,7 @@ def run_sweep(
 
     report: dict[str, Any] = {
         "root": str(root),
-        "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "started_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "bids2table_version": getattr(b2t, "__version__", "unknown"),
         "duckdb_version": duckdb.__version__,
         "excluded": list(exclude),

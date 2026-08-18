@@ -32,7 +32,7 @@ Designed to port back to mmmdata, which already grew Nipoppy's shape
 from __future__ import annotations
 
 from collections.abc import Iterator
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -46,12 +46,13 @@ if TYPE_CHECKING:
 STAGES = ("ingested", "converted", "nordic", "fmriprep", "mriqc")
 
 
-class Status(str, Enum):
+class Status(StrEnum):
     """Completion of one stage for one subject/session unit.
 
     Ordered worst→best by ``RANK`` below so a project rollup can report the
-    weakest link. ``str`` base so the value drops straight into a DataFrame cell
-    and compares equal to its plain-string form.
+    weakest link. ``StrEnum`` so the value drops straight into a DataFrame cell
+    and compares equal to its plain-string form (and, unlike the old
+    ``str, Enum`` mixin, ``str()``/f-strings yield the value itself).
     """
 
     MISSING = "missing"  # no expected outputs at all — stage not started
