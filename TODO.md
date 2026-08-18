@@ -22,6 +22,10 @@ walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — tak
 sub-items as the blockers clear ·
 [`#19`](#19) conversion coverage — **not scheduled**, mostly data-blocked; take
 sub-items as fixtures appear ·
+[`#40`](#40) per-subject staleness ·
+[`#37`](#37) GUI reorganization — the BIDSification group ·
+[`#39`](#39) QC Overview IQR strips ·
+[`#38`](#38) ingestion import badges ·
 [`#9`](#9) launch surface ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -744,6 +748,102 @@ elsewhere.
   setup and answers "is this worth doing / what scope should it cover". Do the
   container prep only if hands-on-their-account is the actual goal, and *before*
   the meeting rather than during.
+
+---
+
+<a id="40"></a>
+## #40 — Staleness check: compare per subject, not project-wide
+
+Found live 2026-08-18, the first real firing of `_check_staleness`
+(`core/consistency.py`): a NORDIC run for `sub-020` — a subject fMRIPrep has
+never touched — flagged fMRIPrep stale across the whole project, and the
+message's advice ("re-run it on the updated NORDIC data") prescribed re-running
+five subjects whose inputs never changed. The heuristic compares project-wide
+newest mtimes by design, which is exactly wrong for the grow-the-project case:
+every new subject's NORDIC run smears "stale" over every finished one, and a
+warning that overreaches gets ignored, which is how a *true* staleness later
+walks past it. Compare newest NORDIC bold against newest preproc bold **per
+subject**, flag only subjects where both derivatives exist and NORDIC is newer,
+and name them in the message. A subject with NORDIC and no fMRIPrep is not
+stale — it is not run yet, which the cockpit already shows and
+`_check_presence` deliberately doesn't cover (it guards the inverse).
+
+---
+
+<a id="37"></a>
+## #37 — GUI reorganization: the BIDSification group, a Project page, and where a session lands
+
+**Decided with Ben 2026-08-18**, out of the `#30` eyeball pass's stray
+comments. The diagnosis is his: Status and Setup straddle three concerns —
+machine/user *config* (paths, containers, licenses), project *management*
+(participants.tsv, dataset_description.json, BIDS validation status,
+`[expected]` logging), and *orchestration* (the cockpit and SLURM) — and the
+seams show as pages that feel like they're about several things at once. The
+group name is also his: **BIDSification** ("Data" was rejected as too vague,
+correctly — BIDSification says what the group actually does: DICOMs in, a
+valid managed BIDS tree out).
+
+- **`#37.1` — a BIDSification nav group and a Project page.** Use
+  `st.navigation` groups the way QC already does: a **BIDSification** group
+  holding Ingestion, Conversion, and a new **Project** page that takes the
+  management cluster out of Status/Setup (participants.tsv /
+  dataset_description.json generation, the BIDS validation panel,
+  expectations). Setup keeps machine/user config and project creation; Status
+  becomes purely the cockpit + SLURM view. Groups, not tabs, deliberately:
+  tabs are the AppTest-blind primitive that keeps feeding `#30`, pages stay
+  fully testable. The top bar becomes
+  Status · Setup · BIDSification ▾ · QC ▾ · Guide.
+- **`#37.2` — merge "New to Talapas?" into Guide.** One page, and the best
+  lever on nav length: removes the bar's longest label (and its `?`).
+  Right-justifying the nav was asked and is not available —
+  `st.navigation(position="top")` exposes no alignment, and a CSS override
+  would be fragile across Streamlit upgrades.
+- **`#37.3` — land on Setup only when no project is open.** The "Setup first"
+  request bundles two decisions: bar order, and the default page. A returning
+  user with an active project wants Status; a project-less session wants
+  Setup. Compute the `default=` at nav time from `active_project()` rather
+  than reordering the bar for everyone.
+
+When this lands, `#30` gets entries — the group dropdowns and the redrawn bar
+are exactly the width/strip behaviour AppTest cannot judge.
+
+---
+
+<a id="39"></a>
+## #39 — QC Overview: IQR strip plots under the run table, click-to-inspect
+
+Asked by Ben 2026-08-18: the exported dashboard's IQR plots are "pretty
+useful" — render them live below the Overview run table too. Plotly is
+already a dependency, and the click-through is less ambitious than it sounds:
+`st.plotly_chart` emits `on_select` events the same way the run table's
+row-click does, so a clicked point hands its run to the Inspect page through
+the exact mechanism the two-page rework proved — including the
+consumed-selection guard against re-firing on the way back, which the
+2026-08-18 eyeball pass confirmed working live. While touching the page: a
+caption hint on the run table ("select a row to open it in Inspect") — the
+same pass read the bare checkbox affordance as odd, and a hint is the whole
+remedy available (`st.dataframe` has no button column; hand-rolled rows would
+trade away sorting and column config).
+
+---
+
+<a id="38"></a>
+## #38 — Ingestion: badge source sessions that are already imported
+
+Asked by Ben 2026-08-18 ("is there any easy way to show which of the
+available dicom sessions have already been imported?"). The page lists what
+`discover_sessions` finds under `dcm_source` and says nothing about what the
+project already holds, so a top-up ingest means eyeballing two trees. The
+provenance already exists: `ingest_session` symlinks or writes a source
+marker into each `sourcedata` session, and `_same_source` /
+`list_ingested_sessions` (`core/ingestion.py`) can answer "was this source
+folder taken, and into which sub/ses?" — the feature is a join and a badge
+column, not new state. **Three states, not two:** imported-from-here,
+imported-but-unverifiable (a pre-marker copy, whose None the marker reader
+documents as "must not read as different"), and not imported. Badge, don't
+filter: a source folder that is present but *differs* from what was ingested
+(re-export, added series) is the interesting case, and hiding imported rows
+would hide it.
 
 ---
 
