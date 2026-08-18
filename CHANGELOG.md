@@ -88,6 +88,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **The NORDIC-staleness warning now compares per subject, not project-wide**
+  — its first real firing (2026-08-18) was a NORDIC run for a subject fMRIPrep
+  had never touched, and the project-wide newest-vs-newest mtime comparison
+  flagged fMRIPrep stale across the whole project, prescribing a re-run of
+  five subjects whose inputs never changed. The check now compares each
+  subject's own NORDIC bold against its own preprocessed bold, flags only
+  subjects where both exist and NORDIC is newer, and names each one in its
+  warning. A subject with NORDIC output and no fMRIPrep is not stale — it is
+  not run yet, which the pipeline board already shows.
+
 - **The QC pages now load every metric the guidance registry documents** —
   the IQM column list was a hand-written whitelist frozen at six bold columns
   (seven anat) while the registry grew to fifteen (seventeen), so documented

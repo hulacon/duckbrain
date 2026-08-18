@@ -716,23 +716,64 @@ def test_submission_without_output_on_disk_contributes_no_provenance(tmp_path):
 # ---- staleness --------------------------------------------------------------
 
 
-def test_nordic_newer_than_fmriprep_flags_staleness(tmp_path):
+def _bold_pair(tmp_path, subject, fmriprep_mtime, nordic_mtime):
+    """One subject's fMRIPrep and NORDIC bold, each at a chosen mtime (None = absent)."""
     import os
 
-    cfg = _config(tmp_path, use_nordic=True)
     deriv = tmp_path / "derivatives"
-    fp = deriv / "fmriprep" / "sub-01" / "func"
-    nd = deriv / "nordic" / "sub-01" / "func"
-    fp.mkdir(parents=True)
-    nd.mkdir(parents=True)
-    fp_bold = fp / "sub-01_task-x_desc-preproc_bold.nii.gz"
-    nd_bold = nd / "sub-01_task-x_bold.nii.gz"
-    fp_bold.write_text("x")
-    nd_bold.write_text("x")
-    # Force NORDIC output to be newer than the fMRIPrep output.
-    os.utime(fp_bold, (1000, 1000))
-    os.utime(nd_bold, (2000, 2000))
-    assert "staleness" in _codes(check_consistency(cfg))
+    if fmriprep_mtime is not None:
+        fp = deriv / "fmriprep" / f"sub-{subject}" / "func"
+        fp.mkdir(parents=True)
+        fp_bold = fp / f"sub-{subject}_task-x_desc-preproc_bold.nii.gz"
+        fp_bold.write_text("x")
+        os.utime(fp_bold, (fmriprep_mtime, fmriprep_mtime))
+    if nordic_mtime is not None:
+        nd = deriv / "nordic" / f"sub-{subject}" / "func"
+        nd.mkdir(parents=True)
+        nd_bold = nd / f"sub-{subject}_task-x_bold.nii.gz"
+        nd_bold.write_text("x")
+        os.utime(nd_bold, (nordic_mtime, nordic_mtime))
+
+
+def test_nordic_newer_than_fmriprep_flags_staleness(tmp_path):
+    cfg = _config(tmp_path, use_nordic=True)
+    _bold_pair(tmp_path, "01", fmriprep_mtime=1000, nordic_mtime=2000)
+    issues = [i for i in check_consistency(cfg) if i.check == "staleness"]
+    assert len(issues) == 1
+    assert issues[0].subject == "01"
+    assert "sub-01" in issues[0].message
+
+
+def test_a_new_subjects_nordic_run_does_not_smear_staleness(tmp_path):
+    """The check's first live firing, pinned (#40): a NORDIC run for a subject
+    fMRIPrep has never touched must not flag the finished subjects.
+
+    The project-wide comparison took the newest NORDIC mtime (the new subject)
+    against the newest fMRIPrep mtime (a finished one) and prescribed re-running
+    five subjects whose inputs never changed. A subject with NORDIC and no
+    fMRIPrep is not stale — it is not run yet, which the cockpit already shows.
+    """
+    cfg = _config(tmp_path, use_nordic=True)
+    _bold_pair(tmp_path, "01", fmriprep_mtime=2000, nordic_mtime=1000)  # finished, in order
+    _bold_pair(tmp_path, "20", fmriprep_mtime=None, nordic_mtime=3000)  # new, not run yet
+    assert "staleness" not in _codes(check_consistency(cfg))
+
+
+def test_only_the_genuinely_stale_subject_is_flagged_and_named(tmp_path):
+    cfg = _config(tmp_path, use_nordic=True)
+    _bold_pair(tmp_path, "01", fmriprep_mtime=2000, nordic_mtime=1000)  # in order
+    _bold_pair(tmp_path, "02", fmriprep_mtime=1000, nordic_mtime=2000)  # stale
+    issues = [i for i in check_consistency(cfg) if i.check == "staleness"]
+    assert [i.subject for i in issues] == ["02"]
+    assert "sub-02" in issues[0].message
+
+
+def test_a_nordic_subject_dir_without_bold_output_is_not_stale(tmp_path):
+    """An empty or partial NORDIC subject tree contributes no mtime evidence."""
+    cfg = _config(tmp_path, use_nordic=True)
+    _bold_pair(tmp_path, "01", fmriprep_mtime=1000, nordic_mtime=None)
+    (tmp_path / "derivatives" / "nordic" / "sub-01" / "func").mkdir(parents=True)
+    assert "staleness" not in _codes(check_consistency(cfg))
 
 
 # ---- presence ---------------------------------------------------------------

@@ -757,25 +757,44 @@ def _describe_groups(groups: dict[str, list[str]]) -> str:
 
 
 def _check_staleness(config: Config) -> list[ConsistencyIssue]:
-    """Heuristic: NORDIC re-run after fMRIPrep leaves fMRIPrep stale (mtime)."""
+    """Heuristic: NORDIC re-run after fMRIPrep leaves fMRIPrep stale (mtime).
+
+    Compared per subject, never project-wide. The check's first live firing
+    (2026-08-18) was a NORDIC run for a subject fMRIPrep had never touched, and
+    the project-wide newest-vs-newest comparison smeared "stale" over five
+    finished subjects whose inputs never changed — a warning that overreaches
+    gets ignored, which is how a true staleness later walks past it. A subject
+    with NORDIC output and no fMRIPrep is not stale, just not run yet: the
+    cockpit board already shows that, and `_check_presence` guards the inverse.
+    """
     if not _use_nordic(config):
         return []
     deriv = Path(config["paths"]["derivatives_dir"])
-    nordic_new = _newest_mtime(deriv / "nordic", "sub-*/**/func/*_bold.nii.gz")
-    fmriprep_old = _newest_mtime(deriv / "fmriprep", "sub-*/**/func/*_desc-preproc_bold.nii.gz")
-    if nordic_new is not None and fmriprep_old is not None and nordic_new > fmriprep_old:
-        return [
-            ConsistencyIssue(
-                "staleness",
-                stage="fmriprep",
-                message=(
-                    "NORDIC output is newer than the fMRIPrep derivative that should "
-                    "consume it — NORDIC was likely re-run after fMRIPrep. fMRIPrep is "
-                    "stale; re-run it on the updated NORDIC data."
-                ),
+    try:
+        nordic_subjects = sorted(d for d in (deriv / "nordic").glob("sub-*") if d.is_dir())
+    except OSError:
+        return []
+    issues: list[ConsistencyIssue] = []
+    for sub_dir in nordic_subjects:
+        nordic_new = _newest_mtime(sub_dir, "**/func/*_bold.nii.gz")
+        fmriprep_old = _newest_mtime(
+            deriv / "fmriprep" / sub_dir.name, "**/func/*_desc-preproc_bold.nii.gz"
+        )
+        if nordic_new is not None and fmriprep_old is not None and nordic_new > fmriprep_old:
+            issues.append(
+                ConsistencyIssue(
+                    "staleness",
+                    subject=sub_dir.name.removeprefix("sub-"),
+                    stage="fmriprep",
+                    message=(
+                        f"{sub_dir.name}: NORDIC output is newer than the fMRIPrep "
+                        "derivative that should consume it — NORDIC was likely re-run "
+                        "after fMRIPrep. This subject's fMRIPrep is stale; re-run it "
+                        "on the updated NORDIC data."
+                    ),
+                )
             )
-        ]
-    return []
+    return issues
 
 
 def _check_presence(config: Config) -> list[ConsistencyIssue]:

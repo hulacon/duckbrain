@@ -22,7 +22,6 @@ walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — tak
 sub-items as the blockers clear ·
 [`#19`](#19) conversion coverage — **not scheduled**, mostly data-blocked; take
 sub-items as fixtures appear ·
-[`#40`](#40) per-subject staleness ·
 [`#39`](#39) QC Overview IQR strips ·
 [`#9`](#9) launch surface ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
@@ -749,25 +748,6 @@ elsewhere.
 
 ---
 
-<a id="40"></a>
-## #40 — Staleness check: compare per subject, not project-wide
-
-Found live 2026-08-18, the first real firing of `_check_staleness`
-(`core/consistency.py`): a NORDIC run for `sub-020` — a subject fMRIPrep has
-never touched — flagged fMRIPrep stale across the whole project, and the
-message's advice ("re-run it on the updated NORDIC data") prescribed re-running
-five subjects whose inputs never changed. The heuristic compares project-wide
-newest mtimes by design, which is exactly wrong for the grow-the-project case:
-every new subject's NORDIC run smears "stale" over every finished one, and a
-warning that overreaches gets ignored, which is how a *true* staleness later
-walks past it. Compare newest NORDIC bold against newest preproc bold **per
-subject**, flag only subjects where both derivatives exist and NORDIC is newer,
-and name them in the message. A subject with NORDIC and no fMRIPrep is not
-stale — it is not run yet, which the cockpit already shows and
-`_check_presence` deliberately doesn't cover (it guards the inverse).
-
----
-
 <a id="39"></a>
 ## #39 — QC Overview: IQR strip plots under the run table, click-to-inspect
 
@@ -1183,9 +1163,10 @@ narrowness, the before/after flicker viewer, the four-button save row, the
 Overview→Inspect→Overview round trip, the Inspect page's weight with every
 figure open, the fifteen-column export, and the seven-entry top nav — verdicts
 in the commit that struck them. It also surfaced the staleness heuristic firing
-correctly on a same-day NORDIC run for a subject fMRIPrep hasn't touched
-(`_check_staleness` compares project-wide newest mtimes by design; its
-"re-run fMRIPrep" advice overreaches in that case). The cockpit's browser
+on a same-day NORDIC run for a subject fMRIPrep hadn't touched —
+`_check_staleness` then compared project-wide newest mtimes, so its "re-run
+fMRIPrep" advice overreached; fixed the same day as `#40` (per-subject
+comparison, see the ledger). The cockpit's browser
 eyeball closed
 2026-07-17 (`de1a155` — dashboard width good, folder picker fine); three rows of
 `docs/pipeline-cockpit.md` claimed otherwise until this item was written, and now
@@ -1334,6 +1315,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-18 | `#40` | **The NORDIC-staleness check compares per subject, not project-wide.** Its first live firing was a false alarm: `sub-020`'s NORDIC run — a subject fMRIPrep had never touched — flagged fMRIPrep stale across the whole project and prescribed re-running five subjects whose inputs never changed. `_check_staleness` now compares each subject's newest NORDIC bold against its own newest preproc bold, flags only subjects where both exist and NORDIC is newer, and names each in its warning; NORDIC-without-fMRIPrep is "not run yet", which the board shows and `_check_presence` guards the inverse of. The live false alarm is pinned by `tests/test_consistency.py::test_a_new_subjects_nordic_run_does_not_smear_staleness`. |
 | 2026-08-18 | `#38` | **Ingestion badges source sessions that are already imported.** An "Imported" column on the Available DICOM Sessions table joins each discovered folder to what sourcedata holds, via the provenance `ingest_session` already leaves (symlink target / copy marker) — read the way `_same_source` reads it but precomputed per side, O(N+M) resolves. The three specified states shipped as specified: ✅ imported (naming the sub/ses), ❓ unverifiable (pre-marker copies, whose None must not read as "different"), blank = new; badged rather than filtered so a source folder that changed after ingest stays visible. `core.ingestion.match_imported_sources`; the badge refreshing on a plain rerun (an ingest changes sourcedata without changing the folder set that keys the table rebuild) is pinned by `tests/test_ingestion_page.py`. The rendered column is a `#30` entry. |
 | 2026-08-18 | `#37` | **GUI reorganized around a BIDSification nav group** (Ingestion · Conversion · **Project**). The new Project page collects the dataset-management cluster — `participants.tsv` / `dataset_description.json` generation (from Ingestion), the BIDS validation panel and the expectations editor (from Status) — so Status is purely cockpit + SLURM and Setup purely configuration; the warnings a declaration drives still render on Status, next to the board they judge. "New to Talapas?" merged into Guide (`#37.2`), and the landing page is computed (`#37.3`): Status with a project open, Setup without. Two deviations from the sketch, both Ben's calls the same day: **Preprocessing keeps its bar slot** (the decided bar had no home for it, and hiding a feature page behind a footer link was declined), and **Guide sits inline after Setup** — Streamlit renders ungrouped pages before the collapsible groups regardless of dict order, so last-in-bar would have cost Guide a one-item dropdown. The freeze control gained its first test in the move (`tests/test_project_page.py`); the redraw itself is a `#30` entry. |
 | 2026-08-17 | `#13` | **Plan-time filename validation against the BIDS schema (`#13.2`) — closes the item.** `core/bids_schema.py` compiles `bidsschematools`' schema into filename regexes; a planned path matching none is an `invalid-filename` **error** in `plan_warnings`, shown in the page's preflight and refused by bulk convert. `_bids_filename` now mirrors the pinned dcm2bids' entity reordering, quirks included — without it the check would cry wolf on a mis-order the tool repairs itself, and *with* it the collision check finally sees two entity strings that differ only in order landing on one file. Measured across 268 LCNI-corpus + `mmmsourcedata` sessions (3162 planned files): zero nonconforming names from generated configs and zero paths moved by the mirror, so what the check guards in practice is the hand-edited JSON override. Design: `docs/conversion-legibility.md` phase 10; pinned by `tests/test_bids_schema.py` and the schema-check block of `tests/test_conversion_plan.py`. `bidsschematools` is a new runtime dep, pip-side deliberately (the reasoning is on the dep in `pyproject.toml`). The eyeball pass's residual polish notes (the `anat (T1w)` display, phase 4's redundancy with the table) moved to `#8`, whose theme decision they were always waiting on. |
