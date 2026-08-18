@@ -44,11 +44,13 @@ if not sourcedata_dir:
 # ---- Already ingested sessions ----
 from duckbrain.core.ingestion import (
     BidsMapping,
+    ImportStatus,
     IngestCollision,
     InvalidLabel,
     discover_sessions,
     ingest_session,
     list_ingested_sessions,
+    match_imported_sources,
     plan_ingest,
     sub_ses_relpath,
 )
@@ -68,6 +70,21 @@ if not sessions:
     st.warning("No session folders found in the DICOM source directory.")
     st.stop()
 
+# Badge each source folder with what sourcedata already holds, so a top-up
+# ingest doesn't mean eyeballing two trees. Badge rather than filter: an
+# imported folder that has since changed (re-export, added series) is the
+# interesting case, and hiding imported rows would hide it.
+import_status = match_imported_sources(sessions, sourcedata_dir)
+
+
+def _import_badge(status: ImportStatus) -> str:
+    if status.state == "imported":
+        return f"✅ {status.where}"
+    if status.state == "unverifiable":
+        return f"❓ maybe — {status.where}"
+    return ""
+
+
 # Build the editable table once and keep it in session_state so programmatic
 # edits (auto-assign) and manual edits survive reruns. Rebuild only when the
 # set of discovered folders changes, so a rerun (e.g. ticking a checkbox)
@@ -84,6 +101,7 @@ if st.session_state.get("_ingest_folders") != folder_key:
                 "parsed_session": s.parsed_session,
                 "date": s.date,
                 "series_count": s.series_count,
+                "imported": "",
                 "notes": s.notes,
                 "bids_subject": "",
                 "bids_session": "",
@@ -92,6 +110,14 @@ if st.session_state.get("_ingest_folders") != folder_key:
         ]
     )
     st.session_state["_editor_rev"] = 0
+
+# Refresh the badges every rerun: the table rebuilds only when the discovered
+# folder set changes, and ingesting changes sourcedata without changing that
+# set — a fresh ingest must not keep reading as not-imported.
+st.session_state["ingest_df"]["imported"] = [
+    _import_badge(import_status.get(f, ImportStatus("new")))
+    for f in st.session_state["ingest_df"]["folder_name"]
+]
 
 # ---- Auto-session numbering ----
 if st.button("Auto-assign subjects & sessions by date"):
@@ -130,6 +156,15 @@ edited_df = st.data_editor(
         "parsed_session": st.column_config.TextColumn("Parsed Session", disabled=True),
         "date": st.column_config.TextColumn("Date", disabled=True),
         "series_count": st.column_config.NumberColumn("# Series", disabled=True),
+        "imported": st.column_config.TextColumn(
+            "Imported",
+            disabled=True,
+            help="Already in sourcedata? ✅ names the sub/ses this folder was "
+            "ingested into (from the symlink target or the copy's source "
+            "marker). ❓ means sourcedata holds sessions with no recorded "
+            "source — copies made before duckbrain wrote markers — so this "
+            "folder may be among them. Blank means not imported.",
+        ),
         "notes": st.column_config.TextColumn(
             "Notes",
             disabled=True,

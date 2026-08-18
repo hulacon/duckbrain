@@ -24,7 +24,6 @@ sub-items as the blockers clear ·
 sub-items as fixtures appear ·
 [`#40`](#40) per-subject staleness ·
 [`#39`](#39) QC Overview IQR strips ·
-[`#38`](#38) ingestion import badges ·
 [`#9`](#9) launch surface ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -787,26 +786,6 @@ trade away sorting and column config).
 
 ---
 
-<a id="38"></a>
-## #38 — Ingestion: badge source sessions that are already imported
-
-Asked by Ben 2026-08-18 ("is there any easy way to show which of the
-available dicom sessions have already been imported?"). The page lists what
-`discover_sessions` finds under `dcm_source` and says nothing about what the
-project already holds, so a top-up ingest means eyeballing two trees. The
-provenance already exists: `ingest_session` symlinks or writes a source
-marker into each `sourcedata` session, and `_same_source` /
-`list_ingested_sessions` (`core/ingestion.py`) can answer "was this source
-folder taken, and into which sub/ses?" — the feature is a join and a badge
-column, not new state. **Three states, not two:** imported-from-here,
-imported-but-unverifiable (a pre-marker copy, whose None the marker reader
-documents as "must not read as different"), and not imported. Badge, don't
-filter: a source folder that is present but *differs* from what was ingested
-(re-export, added series) is the interesting case, and hiding imported rows
-would hide it.
-
----
-
 <a id="9"></a>
 ## #9 — Launch surface: one place to run, everywhere else prepares
 
@@ -1186,6 +1165,12 @@ plus the `ssh -L` line it prints.
    version stamp shows the shared checkout's `git describe` — the commit that
    struck the old entries landed only here, so until `~/code` pulls, the stamp
    discriminates.
+6. **The ingestion "Imported" badge column** (`#38`, 2026-08-18). Rendered
+   inside `st.data_editor`, whose output AppTest does not model — the tests
+   pin the backing dataframe's values, not what the frontend draws. Look at a
+   project with ingested sessions: do the ✅/❓ glyphs render legibly in the
+   disabled column, does the column width leave the `sub-XX/ses-YY` labels
+   readable rather than truncated, and does the header tooltip open.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
@@ -1349,6 +1334,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-18 | `#38` | **Ingestion badges source sessions that are already imported.** An "Imported" column on the Available DICOM Sessions table joins each discovered folder to what sourcedata holds, via the provenance `ingest_session` already leaves (symlink target / copy marker) — read the way `_same_source` reads it but precomputed per side, O(N+M) resolves. The three specified states shipped as specified: ✅ imported (naming the sub/ses), ❓ unverifiable (pre-marker copies, whose None must not read as "different"), blank = new; badged rather than filtered so a source folder that changed after ingest stays visible. `core.ingestion.match_imported_sources`; the badge refreshing on a plain rerun (an ingest changes sourcedata without changing the folder set that keys the table rebuild) is pinned by `tests/test_ingestion_page.py`. The rendered column is a `#30` entry. |
 | 2026-08-18 | `#37` | **GUI reorganized around a BIDSification nav group** (Ingestion · Conversion · **Project**). The new Project page collects the dataset-management cluster — `participants.tsv` / `dataset_description.json` generation (from Ingestion), the BIDS validation panel and the expectations editor (from Status) — so Status is purely cockpit + SLURM and Setup purely configuration; the warnings a declaration drives still render on Status, next to the board they judge. "New to Talapas?" merged into Guide (`#37.2`), and the landing page is computed (`#37.3`): Status with a project open, Setup without. Two deviations from the sketch, both Ben's calls the same day: **Preprocessing keeps its bar slot** (the decided bar had no home for it, and hiding a feature page behind a footer link was declined), and **Guide sits inline after Setup** — Streamlit renders ungrouped pages before the collapsible groups regardless of dict order, so last-in-bar would have cost Guide a one-item dropdown. The freeze control gained its first test in the move (`tests/test_project_page.py`); the redraw itself is a `#30` entry. |
 | 2026-08-17 | `#13` | **Plan-time filename validation against the BIDS schema (`#13.2`) — closes the item.** `core/bids_schema.py` compiles `bidsschematools`' schema into filename regexes; a planned path matching none is an `invalid-filename` **error** in `plan_warnings`, shown in the page's preflight and refused by bulk convert. `_bids_filename` now mirrors the pinned dcm2bids' entity reordering, quirks included — without it the check would cry wolf on a mis-order the tool repairs itself, and *with* it the collision check finally sees two entity strings that differ only in order landing on one file. Measured across 268 LCNI-corpus + `mmmsourcedata` sessions (3162 planned files): zero nonconforming names from generated configs and zero paths moved by the mirror, so what the check guards in practice is the hand-edited JSON override. Design: `docs/conversion-legibility.md` phase 10; pinned by `tests/test_bids_schema.py` and the schema-check block of `tests/test_conversion_plan.py`. `bidsschematools` is a new runtime dep, pip-side deliberately (the reasoning is on the dep in `pyproject.toml`). The eyeball pass's residual polish notes (the `anat (T1w)` display, phase 4's redundancy with the table) moved to `#8`, whose theme decision they were always waiting on. |
 | 2026-08-17 | `#19.11` | **Yes — dcm2bids reorders every filename it writes** (`setDstFile` in the pinned container's `acquisition.py`, on by default), so `_fmap_description`'s manual entity ordering is redundant for the *file*. It stays anyway, for the saved JSON a user reads and hand-edits, with a comment saying exactly that; and the confirmed table now does real work as `conversion_plan._DCM2BIDS_ENTITY_ORDER`, where the preview mirrors the tool's reorder (see the `#13` row above). |

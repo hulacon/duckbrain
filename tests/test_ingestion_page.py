@@ -63,3 +63,43 @@ def test_single_session_leaves_bids_session_blank(project):
     assert not at.exception
     assert list(at.session_state["ingest_df"]["bids_session"]) == ["", ""]
     assert any("single-session" in s.value.lower() for s in at.success)
+
+
+def _ingest_first_folder(project):
+    from duckbrain.core.ingestion import BidsMapping, SessionInfo, ingest_session
+
+    src = next((project / "dcmsrc").glob("TEST_001_*"))
+    session = SessionInfo(
+        folder_name=src.name, parsed_subject="001", parsed_session="", date="", path=src
+    )
+    ingest_session(session, BidsMapping(src.name, "001", ""), project / "sourcedata")
+    return src.name
+
+
+def test_imported_badge_marks_already_ingested_rows(project):
+    """#38: a source folder already in sourcedata badges with its destination."""
+    ingested_folder = _ingest_first_folder(project)
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    df = at.session_state["ingest_df"]
+    badges = dict(zip(df["folder_name"], df["imported"], strict=True))
+    assert "sub-001" in badges[ingested_folder]
+    other = next(f for f in badges if f != ingested_folder)
+    assert badges[other] == ""
+
+
+def test_imported_badge_refreshes_without_a_table_rebuild(project):
+    """An ingest changes sourcedata but not the discovered folder set, so the
+    badge must update on a plain rerun rather than waiting for a rebuild."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert list(at.session_state["ingest_df"]["imported"]) == ["", ""]
+
+    ingested_folder = _ingest_first_folder(project)
+
+    at.run()
+    assert not at.exception
+    df = at.session_state["ingest_df"]
+    badges = dict(zip(df["folder_name"], df["imported"], strict=True))
+    assert "sub-001" in badges[ingested_folder]

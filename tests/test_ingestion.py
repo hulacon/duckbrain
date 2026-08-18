@@ -560,6 +560,76 @@ def test_copied_target_without_a_marker_is_not_a_collision(tmp_path):
     assert target == sourcedata / "sub-01" / "dicom"
 
 
+# ---- #38: the source table shows what sourcedata already holds --------------
+
+
+def test_symlink_ingested_source_reports_where_it_went(tmp_path):
+    """A folder ingested by symlink badges as imported, naming its sub/ses."""
+    from duckbrain.core.ingestion import ImportStatus, match_imported_sources
+
+    src_a = tmp_path / "export" / "STUDY_001_20230101"
+    src_b = tmp_path / "export" / "STUDY_002_20230102"
+    for d in (src_a, src_b):
+        (d / "Series_01").mkdir(parents=True)
+    sourcedata = tmp_path / "sourcedata"
+    ingest_session(_sess(src_a), BidsMapping(src_a.name, "01", "01"), sourcedata)
+
+    status = match_imported_sources([_sess(src_a), _sess(src_b)], sourcedata)
+    assert status[src_a.name] == ImportStatus("imported", "sub-01/ses-01")
+    assert status[src_b.name] == ImportStatus("new")
+
+
+def test_copied_source_with_marker_reports_imported(tmp_path):
+    """A copy's marker file answers the join just like a symlink target does."""
+    from duckbrain.core.ingestion import match_imported_sources
+
+    src = tmp_path / "export" / "STUDY_001_20230101"
+    (src / "Series_01").mkdir(parents=True)
+    sourcedata = tmp_path / "sourcedata"
+    ingest_session(_sess(src), BidsMapping(src.name, "01", ""), sourcedata, method="copy")
+
+    status = match_imported_sources([_sess(src)], sourcedata)
+    assert status[src.name].state == "imported"
+    assert status[src.name].where == "sub-01"
+
+
+def test_unmarked_copy_makes_unmatched_sources_unverifiable_not_new(tmp_path):
+    """A pre-marker copy's unknown provenance must not read as "not imported".
+
+    The unmarked copy could have come from any source folder, so the folders it
+    does NOT definitely match get the third state — while a folder a symlink
+    definitely accounts for still badges as imported.
+    """
+    from duckbrain.core.ingestion import match_imported_sources
+
+    src_a = tmp_path / "export" / "STUDY_001_20230101"
+    src_b = tmp_path / "export" / "STUDY_002_20230102"
+    for d in (src_a, src_b):
+        (d / "Series_01").mkdir(parents=True)
+    sourcedata = tmp_path / "sourcedata"
+    # A copied target as an older duckbrain would have left it: no marker.
+    (sourcedata / "sub-99" / "dicom" / "Series_01").mkdir(parents=True)
+    ingest_session(_sess(src_a), BidsMapping(src_a.name, "01", ""), sourcedata)
+
+    status = match_imported_sources([_sess(src_a), _sess(src_b)], sourcedata)
+    assert status[src_a.name].state == "imported"
+    assert status[src_b.name].state == "unverifiable"
+    assert "sub-99" in status[src_b.name].where
+
+
+def test_ingested_dirs_without_dicom_do_not_count(tmp_path):
+    """A sub/ses directory with no dicom/ payload attributes nothing."""
+    from duckbrain.core.ingestion import ImportStatus, match_imported_sources
+
+    src = tmp_path / "export" / "STUDY_001_20230101"
+    (src / "Series_01").mkdir(parents=True)
+    sourcedata = tmp_path / "sourcedata"
+    (sourcedata / "sub-01" / "ses-01").mkdir(parents=True)
+
+    status = match_imported_sources([_sess(src)], sourcedata)
+    assert status[src.name] == ImportStatus("new")
+
+
 # ---- DB-003 residue: labels and duplicate destinations ----------------------
 
 

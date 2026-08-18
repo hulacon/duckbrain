@@ -643,3 +643,74 @@ def list_ingested_sessions(sourcedata_dir: str | Path) -> list[dict[str, Any]]:
             )
 
     return sessions
+
+
+@dataclass(frozen=True)
+class ImportStatus:
+    """Whether one discovered source folder is already in sourcedata, and where.
+
+    Three states, not two, because provenance can be genuinely unknowable:
+    ``"imported"`` — a sourcedata target records this exact folder as its
+    source; ``"unverifiable"`` — no target records this folder, but sourcedata
+    holds copies made before the source marker existed, whose None answer must
+    not read as "not this one" (see :func:`_ingested_source`); ``"new"`` — no
+    target claims it and every target's provenance is known. ``where`` lists
+    the ``sub-XX[/ses-YY]`` destinations: the matching ones for ``"imported"``,
+    the unattributed ones for ``"unverifiable"``.
+    """
+
+    state: str
+    where: str = ""
+
+
+def match_imported_sources(
+    sessions: list[SessionInfo], sourcedata_dir: str | Path
+) -> dict[str, ImportStatus]:
+    """Which discovered source folders are already ingested, keyed by folder name.
+
+    The ingestion page lists what :func:`discover_sessions` finds under the
+    export and, without this join, says nothing about what the project already
+    holds — a top-up ingest meant eyeballing two trees. The provenance is what
+    :func:`ingest_session` left behind (a symlink is its own record, a copy
+    carries the marker file), read the same way :func:`_same_source` reads it
+    but precomputed per side, so a large export against a large sourcedata
+    costs O(N+M) resolves on GPFS rather than O(N*M).
+    """
+    by_source: dict[Path, list[str]] = {}
+    unattributed: list[str] = []
+    for rec in list_ingested_sessions(sourcedata_dir):
+        if not rec["has_dicom"]:
+            continue
+        target = Path(rec["path"]) / "dicom"
+        label = str(sub_ses_relpath(rec["subject"], rec["session"]))
+        try:
+            if target.is_symlink():
+                by_source.setdefault(target.resolve(), []).append(label)
+                continue
+        except OSError:
+            # Unreadable target: not attributable to any source, and not the
+            # unmarked-copy case either (`_same_source` answers False here).
+            continue
+        recorded = _ingested_source(target)
+        if recorded is None:
+            unattributed.append(label)
+            continue
+        try:
+            by_source.setdefault(Path(recorded).resolve(), []).append(label)
+        except OSError:
+            by_source.setdefault(Path(recorded), []).append(label)
+
+    statuses: dict[str, ImportStatus] = {}
+    for s in sessions:
+        try:
+            resolved = Path(s.path).resolve()
+        except OSError:
+            resolved = Path(s.path)
+        labels = by_source.get(resolved)
+        if labels:
+            statuses[s.folder_name] = ImportStatus("imported", ", ".join(labels))
+        elif unattributed:
+            statuses[s.folder_name] = ImportStatus("unverifiable", ", ".join(unattributed))
+        else:
+            statuses[s.folder_name] = ImportStatus("new")
+    return statuses

@@ -12,6 +12,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **The Data Ingestion table now shows which source sessions are already
+  imported.** An "Imported" column joins each discovered DICOM folder against
+  what sourcedata holds, using the provenance ingestion already leaves behind
+  (a symlink's target, or the source marker written into copies): ✅ names the
+  sub/ses the folder was ingested into, ❓ flags folders that *may* be
+  imported because sourcedata holds copies made before the marker existed, and
+  blank means not imported. Imported rows are badged rather than hidden, so a
+  source folder that changed after ingest (a re-export, added series) stays
+  visible for comparison.
+
 - **The Contract A catalog engine lives here now** (`duckbrain.catalog`,
   migrated from mmmdata's `scripts/catalog_*.py`): `python -m duckbrain.catalog
   rebuild --root <bids_root>` indexes a whole BIDS tree — raw plus every
