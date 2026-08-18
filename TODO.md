@@ -23,7 +23,6 @@ sub-items as the blockers clear ·
 [`#19`](#19) conversion coverage — **not scheduled**, mostly data-blocked; take
 sub-items as fixtures appear ·
 [`#40`](#40) per-subject staleness ·
-[`#37`](#37) GUI reorganization — the BIDSification group ·
 [`#39`](#39) QC Overview IQR strips ·
 [`#38`](#38) ingestion import badges ·
 [`#9`](#9) launch surface ·
@@ -770,45 +769,6 @@ stale — it is not run yet, which the cockpit already shows and
 
 ---
 
-<a id="37"></a>
-## #37 — GUI reorganization: the BIDSification group, a Project page, and where a session lands
-
-**Decided with Ben 2026-08-18**, out of the `#30` eyeball pass's stray
-comments. The diagnosis is his: Status and Setup straddle three concerns —
-machine/user *config* (paths, containers, licenses), project *management*
-(participants.tsv, dataset_description.json, BIDS validation status,
-`[expected]` logging), and *orchestration* (the cockpit and SLURM) — and the
-seams show as pages that feel like they're about several things at once. The
-group name is also his: **BIDSification** ("Data" was rejected as too vague,
-correctly — BIDSification says what the group actually does: DICOMs in, a
-valid managed BIDS tree out).
-
-- **`#37.1` — a BIDSification nav group and a Project page.** Use
-  `st.navigation` groups the way QC already does: a **BIDSification** group
-  holding Ingestion, Conversion, and a new **Project** page that takes the
-  management cluster out of Status/Setup (participants.tsv /
-  dataset_description.json generation, the BIDS validation panel,
-  expectations). Setup keeps machine/user config and project creation; Status
-  becomes purely the cockpit + SLURM view. Groups, not tabs, deliberately:
-  tabs are the AppTest-blind primitive that keeps feeding `#30`, pages stay
-  fully testable. The top bar becomes
-  Status · Setup · BIDSification ▾ · QC ▾ · Guide.
-- **`#37.2` — merge "New to Talapas?" into Guide.** One page, and the best
-  lever on nav length: removes the bar's longest label (and its `?`).
-  Right-justifying the nav was asked and is not available —
-  `st.navigation(position="top")` exposes no alignment, and a CSS override
-  would be fragile across Streamlit upgrades.
-- **`#37.3` — land on Setup only when no project is open.** The "Setup first"
-  request bundles two decisions: bar order, and the default page. A returning
-  user with an active project wants Status; a project-less session wants
-  Setup. Compute the `default=` at nav time from `active_project()` rather
-  than reordering the bar for everyone.
-
-When this lands, `#30` gets entries — the group dropdowns and the redrawn bar
-are exactly the width/strip behaviour AppTest cannot judge.
-
----
-
 <a id="39"></a>
 ## #39 — QC Overview: IQR strip plots under the run table, click-to-inspect
 
@@ -1201,7 +1161,17 @@ plus the `ssh -L` line it prints.
    what a srcdoc assertion cannot reach: does the report scroll inside its
    frame rather than clipping, is the height sane, and do its own internal
    anchors work.
-4. **[OOD] Repoint the cached OnDemand form value, then confirm the stamp.**
+4. **The `#37` bar redraw.** The reorganized top nav (Status · Setup ·
+   Preprocessing · Guide · BIDSification ▾ · QC ▾) is exactly the width/strip
+   behaviour AppTest cannot judge — it asserts the declared page lists, not
+   what the frontend draws. Three looks in one: does the **BIDSification
+   dropdown** open, name its three pages, and navigate; does the bar hold at
+   the widths the 2026-08-18 pass tried now that the two longest labels are
+   gone and two groups sit in it; and does the computed landing behave in a
+   real session (a fresh launch with a project open goes to Status, one
+   without goes to Setup — AppTest pins the `default=`, not what the browser's
+   session actually restores).
+5. **[OOD] Repoint the cached OnDemand form value, then confirm the stamp.**
    Narrowed 2026-08-18 from the conda-branch launch entry: the launch itself is
    now proven — the whole eyeball pass ran through the proxy on the conda env
    (the personal checkout records the shared prefix and has no `.venv`, so no
@@ -1379,6 +1349,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-18 | `#37` | **GUI reorganized around a BIDSification nav group** (Ingestion · Conversion · **Project**). The new Project page collects the dataset-management cluster — `participants.tsv` / `dataset_description.json` generation (from Ingestion), the BIDS validation panel and the expectations editor (from Status) — so Status is purely cockpit + SLURM and Setup purely configuration; the warnings a declaration drives still render on Status, next to the board they judge. "New to Talapas?" merged into Guide (`#37.2`), and the landing page is computed (`#37.3`): Status with a project open, Setup without. Two deviations from the sketch, both Ben's calls the same day: **Preprocessing keeps its bar slot** (the decided bar had no home for it, and hiding a feature page behind a footer link was declined), and **Guide sits inline after Setup** — Streamlit renders ungrouped pages before the collapsible groups regardless of dict order, so last-in-bar would have cost Guide a one-item dropdown. The freeze control gained its first test in the move (`tests/test_project_page.py`); the redraw itself is a `#30` entry. |
 | 2026-08-17 | `#13` | **Plan-time filename validation against the BIDS schema (`#13.2`) — closes the item.** `core/bids_schema.py` compiles `bidsschematools`' schema into filename regexes; a planned path matching none is an `invalid-filename` **error** in `plan_warnings`, shown in the page's preflight and refused by bulk convert. `_bids_filename` now mirrors the pinned dcm2bids' entity reordering, quirks included — without it the check would cry wolf on a mis-order the tool repairs itself, and *with* it the collision check finally sees two entity strings that differ only in order landing on one file. Measured across 268 LCNI-corpus + `mmmsourcedata` sessions (3162 planned files): zero nonconforming names from generated configs and zero paths moved by the mirror, so what the check guards in practice is the hand-edited JSON override. Design: `docs/conversion-legibility.md` phase 10; pinned by `tests/test_bids_schema.py` and the schema-check block of `tests/test_conversion_plan.py`. `bidsschematools` is a new runtime dep, pip-side deliberately (the reasoning is on the dep in `pyproject.toml`). The eyeball pass's residual polish notes (the `anat (T1w)` display, phase 4's redundancy with the table) moved to `#8`, whose theme decision they were always waiting on. |
 | 2026-08-17 | `#19.11` | **Yes — dcm2bids reorders every filename it writes** (`setDstFile` in the pinned container's `acquisition.py`, on by default), so `_fmap_description`'s manual entity ordering is redundant for the *file*. It stays anyway, for the saved JSON a user reads and hand-edits, with a comment saying exactly that; and the confirmed table now does real work as `conversion_plan._DCM2BIDS_ENTITY_ORDER`, where the preview mirrors the tool's reorder (see the `#13` row above). |
 | 2026-08-16 | `#13.1` | **The project-level skip — `[series_skip]`, a list of SeriesDescriptions the study never converts, honoured by the page, bulk convert and the cockpit alike.** Closes the item; the standing design record is `core/series_skip.py`'s module docstring, the page mechanics are `docs/conversion-legibility.md` phase 9. Motivated by curation scope, not junk (the item's own second measurement): five of the LCNI corpus's fifteen studies curate **anat only** — on WMS that is 6 descriptions × 56 sessions, ~336 unticks — and REV's curator dropped `fieldmap1` in 6 of 6 sessions. Every decision the item queued got its answer. **Own section**, not a `[series_types]` `ignore` value (the 2026-07-30 rejection holds: an ignore *classification* bypasses the actual skip mechanism — `generate_config(skip=…)` + `_without_skipped_groups`, keyed on series numbers — cannot express the per-session aborted-run case, and erases the classification the preflight reads) and **not `[expected]`** (the 2026-08-11 decision: a count cannot say *which*, and reports-never-repairs must stay true). The **coarser include-by-datatype control was declined**: "anat only" in one line inverts the failure mode — a study that adds a sequence loses it silently, where under a skip the new series converts visibly. Applied **inside `generate_session_config`, next to `type_rules`**, exactly as the item's note demanded: a description resolves to series numbers only once the session is listed, and the resolved set merges into the existing per-session `skip`, so the whole-pair rule and the saved-JSON round trip carry over with no new state. Only emitted classifications resolve — a scout matching a skipped description earns no "deliberate drop" note for a conversion that was never going to happen — and a **malformed section raises** (the fallback is converting the series the study excluded, the silently-degrading shape). On the page: the seed unticks, a re-tick wins for that session, the drop note names the section rather than "you unticked `convert`", and a fourth save button promotes **only descriptions with no ticked row** — a mixed description (the `fmap_eyeball` aborted-run case, identical names) stays per-session and the save says so — while re-ticking every row of a saved description and saving removes it, the same last-wins layering as `[series_types]`. A project binding to a pair the project's own skip removes **fails loudly** through the existing missing-group path. One neighbouring guard corrected on the way: the one-shot JSON import and the hand-edited override used to re-derive `convert` only for rows currently ticked, so an explicit review could never re-tick a row a seed had unticked; both now key on the row being *emittable*, and the import wins in both directions. Pinned by `tests/test_series_skip.py` (section, resolution, the non-GUI path) and the `[series_skip]` block of `tests/test_conversion_page.py`; the four-column save row is a `#30` eyeball entry. |
