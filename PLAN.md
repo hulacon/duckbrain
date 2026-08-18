@@ -87,7 +87,7 @@ project = ""               # e.g., "mmmdata"
 
 [containers]
 dcm2bids_version = "3.2.0"
-fmriprep_version = "24.1.1"
+fmriprep_version = "25.2.5"
 mriqc_version = "24.1.0"
 
 [fmriprep]

@@ -118,7 +118,7 @@ real, validated build sources:
 CONTAINERS_DIR=/path/to/your/containers   # e.g. /projects/<pirg>/$USER/containers
 
 singularity build $CONTAINERS_DIR/dcm2bids-3.2.0.sif  docker://unfmontreal/dcm2bids:3.2.0
-singularity build $CONTAINERS_DIR/fmriprep-24.1.1.sif docker://nipreps/fmriprep:24.1.1
+singularity build $CONTAINERS_DIR/fmriprep-25.2.5.sif docker://nipreps/fmriprep:25.2.5
 singularity build $CONTAINERS_DIR/mriqc-24.0.2.sif    docker://nipreps/mriqc:24.0.2
 ```
 

@@ -372,7 +372,7 @@ with c2:
         "dcm2bids version", value=_get_user("containers", "dcm2bids_version") or "3.2.0"
     )
     fmriprep_ver = st.text_input(
-        "fMRIPrep version", value=_get_user("containers", "fmriprep_version") or "24.1.1"
+        "fMRIPrep version", value=_get_user("containers", "fmriprep_version") or "25.2.5"
     )
     mriqc_ver = st.text_input(
         "MRIQC version", value=_get_user("containers", "mriqc_version") or "24.0.2"
