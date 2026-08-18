@@ -673,6 +673,38 @@ def clicked_run_key(runs: list[RunRow], rows: list[int]) -> str:
     return ""
 
 
+def _selection_points(event: Any) -> list[dict[str, Any]]:
+    """The selected points out of a ``st.plotly_chart`` selection event.
+
+    Defensive for the same reason :func:`_selection_rows` is: the return shape
+    is Streamlit's, and outside a session the call returns the element rather
+    than a selection state.
+    """
+    try:
+        return [dict(p) for p in event.selection.points]
+    except Exception:
+        return []
+
+
+def clicked_point_run_key(points: list[dict[str, Any]]) -> str:
+    """The run key a clicked chart point carries, or ``""`` when there is none.
+
+    The strips' scatter points carry their run key in ``customdata`` (see
+    ``core.qc_report.build_iqm_figure``); Streamlit hands it back either bare or
+    wrapped in a one-element list depending on how the trace declared it, so
+    both shapes are read. A point without one — the box trace, a stray
+    selection — reads as no click, exactly as :func:`clicked_run_key` treats a
+    stale row index.
+    """
+    for point in points:
+        data = point.get("customdata")
+        if isinstance(data, str) and data:
+            return data
+        if isinstance(data, (list, tuple)) and data and isinstance(data[0], str) and data[0]:
+            return str(data[0])
+    return ""
+
+
 def _fmriprep_report_keys(run_key: str) -> list[str]:
     """The stems an fMRIPrep report for *run_key* could carry, most specific first.
 
@@ -943,12 +975,55 @@ def render_overview() -> None:
     )
     clicked = clicked_run_key(scope.runs, _selection_rows(event))
     if clicked:
-        # The clicked row becomes the inspector's selection through session
-        # state — the same channel its Run selectbox reads, so the two ways of
-        # arriving at a run cannot disagree.
-        st.session_state["qc_run"] = clicked
-        st.session_state["qc_modality"] = scope.modality
-        _switch_page("pages/5a_QC_Inspect.py", f"Open **{clicked}** on the Inspect page.")
+        _open_in_inspector(clicked, scope.modality)
 
     if scope.runs:
+        _iqm_strips(scope)
         _export_panel(scope)
+
+
+def _open_in_inspector(run_key: str, modality: str) -> None:
+    """Hand *run_key* to the Inspect page through session state.
+
+    The same channel the inspector's Run selectbox reads, so however a run is
+    arrived at — a table row, a chart point, the dropdown itself — the ways
+    cannot disagree about what is selected.
+    """
+    st.session_state["qc_run"] = run_key
+    st.session_state["qc_modality"] = modality
+    _switch_page("pages/5a_QC_Inspect.py", f"Open **{run_key}** on the Inspect page.")
+
+
+def _iqm_strips(scope: Scope) -> None:
+    """The exported dashboard's IQR strip plots, live under the run table.
+
+    Same figure the export ships (``core.qc_report.build_iqm_figure`` — one
+    builder, two delivery paths), rendered natively so a reviewer scanning the
+    cohort sees the distributions without exporting anything. Cheap where the
+    export panel is not: ``st.plotly_chart`` ships figure data against
+    Streamlit's own plotly bundle, not the ~5 MB inline copy the export inlines.
+
+    A clicked point opens its run on the Inspect page through the same channel
+    as the table's row-click; the widget's selection state is dropped whenever
+    a page render omits the chart, which is what keeps the click from re-firing
+    on the way back — the mechanism the row-click already proved live.
+    """
+    fig = qc_report.build_iqm_figure(scope.runs, scope.iqm_cols, scope.modality)
+    if fig is None:
+        return
+    st.subheader("Distributions")
+    st.caption(
+        "Every measure across the runs shown, grouped by subject — the boxes "
+        "are the IQR the outlier fence is computed from, and ✗ marks a flagged "
+        "run. Click a point to open that run on the Inspect page."
+    )
+    event = st.plotly_chart(
+        fig,
+        width="stretch",
+        key="qc_overview_strips",
+        on_select="rerun",
+        selection_mode="points",
+    )
+    clicked = clicked_point_run_key(_selection_points(event))
+    if clicked:
+        _open_in_inspector(clicked, scope.modality)

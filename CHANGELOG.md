@@ -12,6 +12,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **The QC Overview now renders the IQR strip plots live under the run
+  table** — the same per-measure distribution charts the exported dashboard
+  carries, without exporting anything: one box per subject with every run as
+  a point, flagged runs marked ✗. Clicking a point opens that run on the
+  Inspect page, exactly as clicking its table row does. The exported report's
+  charts are the same figure and gain clickable-point metadata but otherwise
+  look as before (points now sit at deterministic jitter positions rather
+  than the browser's random ones).
+
 - **The Data Ingestion table now shows which source sessions are already
   imported.** An "Imported" column joins each discovered DICOM folder against
   what sourcedata holds, using the provenance ingestion already leaves behind

@@ -22,7 +22,6 @@ walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — tak
 sub-items as the blockers clear ·
 [`#19`](#19) conversion coverage — **not scheduled**, mostly data-blocked; take
 sub-items as fixtures appear ·
-[`#39`](#39) QC Overview IQR strips ·
 [`#9`](#9) launch surface ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
@@ -748,24 +747,6 @@ elsewhere.
 
 ---
 
-<a id="39"></a>
-## #39 — QC Overview: IQR strip plots under the run table, click-to-inspect
-
-Asked by Ben 2026-08-18: the exported dashboard's IQR plots are "pretty
-useful" — render them live below the Overview run table too. Plotly is
-already a dependency, and the click-through is less ambitious than it sounds:
-`st.plotly_chart` emits `on_select` events the same way the run table's
-row-click does, so a clicked point hands its run to the Inspect page through
-the exact mechanism the two-page rework proved — including the
-consumed-selection guard against re-firing on the way back, which the
-2026-08-18 eyeball pass confirmed working live. While touching the page: a
-caption hint on the run table ("select a row to open it in Inspect") — the
-same pass read the bare checkbox affordance as odd, and a hint is the whole
-remedy available (`st.dataframe` has no button column; hand-rolled rows would
-trade away sorting and column config).
-
----
-
 <a id="9"></a>
 ## #9 — Launch surface: one place to run, everywhere else prepares
 
@@ -1151,6 +1132,15 @@ plus the `ssh -L` line it prints.
    project with ingested sessions: do the ✅/❓ glyphs render legibly in the
    disabled column, does the column width leave the `sub-XX/ses-YY` labels
    readable rather than truncated, and does the header tooltip open.
+7. **The Overview's IQR strips and their point-click** (`#39`, 2026-08-18).
+   AppTest asserts the section and its caption exist, not what plotly draws
+   or does. Three looks: do the strips render under the run table with the
+   subject labels legible on the reworked numeric axis (the jitter moved from
+   `boxpoints` to a scatter overlay — the look should read as before); does
+   clicking a *point* (not the box) land on the Inspect page with that run
+   selected, and does returning to the Overview stay put rather than
+   re-firing the click; does a box-select of several points open exactly one
+   run rather than misbehaving.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
@@ -1315,6 +1305,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-18 | `#39` | **The exported dashboard's IQR strip plots render live under the Overview run table, click-to-inspect.** One figure builder for both delivery paths (`qc_report.build_iqm_figure`; the export's `_render_iqm_charts` wraps it in HTML, the Overview hands it to `st.plotly_chart`). The points moved from the box trace's `boxpoints` to scatter markers carrying the run key in `customdata` — box points do not reliably emit click events in plotly.js — with the jitter recomputed deterministically so the strip look survived; a clicked point opens its run on the Inspect page through the same session-state channel as the table's row-click (`_open_in_inspector`). The item's caption-hint half had already shipped with the row-click itself (`87d6da7`). The rendered strips and the point-click are a `#30` entry. |
 | 2026-08-18 | `#40` | **The NORDIC-staleness check compares per subject, not project-wide.** Its first live firing was a false alarm: `sub-020`'s NORDIC run — a subject fMRIPrep had never touched — flagged fMRIPrep stale across the whole project and prescribed re-running five subjects whose inputs never changed. `_check_staleness` now compares each subject's newest NORDIC bold against its own newest preproc bold, flags only subjects where both exist and NORDIC is newer, and names each in its warning; NORDIC-without-fMRIPrep is "not run yet", which the board shows and `_check_presence` guards the inverse of. The live false alarm is pinned by `tests/test_consistency.py::test_a_new_subjects_nordic_run_does_not_smear_staleness`. |
 | 2026-08-18 | `#38` | **Ingestion badges source sessions that are already imported.** An "Imported" column on the Available DICOM Sessions table joins each discovered folder to what sourcedata holds, via the provenance `ingest_session` already leaves (symlink target / copy marker) — read the way `_same_source` reads it but precomputed per side, O(N+M) resolves. The three specified states shipped as specified: ✅ imported (naming the sub/ses), ❓ unverifiable (pre-marker copies, whose None must not read as "different"), blank = new; badged rather than filtered so a source folder that changed after ingest stays visible. `core.ingestion.match_imported_sources`; the badge refreshing on a plain rerun (an ingest changes sourcedata without changing the folder set that keys the table rebuild) is pinned by `tests/test_ingestion_page.py`. The rendered column is a `#30` entry. |
 | 2026-08-18 | `#37` | **GUI reorganized around a BIDSification nav group** (Ingestion · Conversion · **Project**). The new Project page collects the dataset-management cluster — `participants.tsv` / `dataset_description.json` generation (from Ingestion), the BIDS validation panel and the expectations editor (from Status) — so Status is purely cockpit + SLURM and Setup purely configuration; the warnings a declaration drives still render on Status, next to the board they judge. "New to Talapas?" merged into Guide (`#37.2`), and the landing page is computed (`#37.3`): Status with a project open, Setup without. Two deviations from the sketch, both Ben's calls the same day: **Preprocessing keeps its bar slot** (the decided bar had no home for it, and hiding a feature page behind a footer link was declined), and **Guide sits inline after Setup** — Streamlit renders ungrouped pages before the collapsible groups regardless of dict order, so last-in-bar would have cost Guide a one-item dropdown. The freeze control gained its first test in the move (`tests/test_project_page.py`); the redraw itself is a `#30` entry. |

@@ -122,6 +122,44 @@ class TestOverviewClickThrough:
         assert any("would have opened" in c.value for c in at.caption)
 
 
+class TestStripClickThrough:
+    """The distribution strips' point-click, held at the same seams as the
+    row-click above: the point→run mapping and the defensive event read are
+    testable; the plotly render and the click itself are ``TODO.md`` ``#30``."""
+
+    def test_a_clicked_point_maps_through_its_customdata(self):
+        key = "sub-010_task-rest_run-1_bold"
+        assert qc_panels.clicked_point_run_key([{"customdata": key}]) == key
+        # Streamlit hands per-point customdata back wrapped in a list for some
+        # trace declarations — both shapes must land on the same run.
+        assert qc_panels.clicked_point_run_key([{"customdata": [key]}]) == key
+
+    def test_a_point_without_a_run_key_reads_as_no_click(self):
+        assert qc_panels.clicked_point_run_key([]) == ""
+        assert qc_panels.clicked_point_run_key([{}]) == ""
+        assert qc_panels.clicked_point_run_key([{"customdata": None}]) == ""
+        assert qc_panels.clicked_point_run_key([{"customdata": []}]) == ""
+        assert qc_panels.clicked_point_run_key([{"customdata": [3.5]}]) == ""
+
+    def test_the_first_keyed_point_wins_a_multi_point_selection(self):
+        """A box- or lasso-select hands back many points; opening one run is
+        better than opening none, and the first with a key is as good as any."""
+        points = [{"customdata": None}, {"customdata": "a_key"}, {"customdata": "b_key"}]
+        assert qc_panels.clicked_point_run_key(points) == "a_key"
+
+    def test_selection_points_reads_the_event_shape_and_shrugs_at_others(self):
+        class Selection:
+            points = [{"customdata": "k"}]
+
+        class Event:
+            selection = Selection()
+
+        assert qc_panels._selection_points(Event()) == [{"customdata": "k"}]
+        # Outside a session st.plotly_chart returns the element, not a state.
+        assert qc_panels._selection_points(object()) == []
+        assert qc_panels._selection_points(None) == []
+
+
 class TestEvidenceViewer:
     def test_nothing_is_loaded_on_arrival(self, fmriprep):
         """Megabyte-scale figures are a cost the reviewer chooses to spend."""

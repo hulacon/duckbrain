@@ -685,40 +685,90 @@ def _render_table(
     )
 
 
-def _render_iqm_charts(
-    runs: list[RunRow], iqm_cols: list[str], modality: str, subject: str | None
-) -> str:
+def _jitter_positions(centers: list[float]) -> list[float]:
+    """Spread points sharing a center across a narrow band, deterministically.
+
+    ``boxpoints`` jitter is computed randomly in the browser; these offsets are
+    fixed so the same cohort always draws the same strip, and so a test can hold
+    that every point stays inside its own group's band.
+    """
+    from collections import Counter
+
+    total = Counter(centers)
+    seen: Counter[float] = Counter()
+    out = []
+    for c in centers:
+        j, n = seen[c], total[c]
+        seen[c] += 1
+        out.append(c if n == 1 else c - 0.2 + 0.4 * j / (n - 1))
+    return out
+
+
+def build_iqm_figure(
+    runs: list[RunRow], iqm_cols: list[str], modality: str, subject: str | None = None
+) -> Any:
+    """The IQM distribution figure, shared by the export and the live overview.
+
+    One builder on purpose — this module's rule of one renderer with two
+    delivery paths: :func:`_render_iqm_charts` wraps it in HTML for the export,
+    and the QC Overview hands it straight to ``st.plotly_chart``. Returns
+    ``None`` when there is nothing to chart.
+
+    The runs' points are scatter markers carrying the run key in ``customdata``,
+    not the box trace's own ``boxpoints``: box points do not reliably emit
+    click/selection events in plotly.js, and ``customdata`` is how the live page
+    maps a clicked point back to the run it opens on the Inspect page
+    (``gui.qc_panels.clicked_point_run_key``). The box itself stays — it *is*
+    the IQR being plotted — and the group axis goes numeric underneath so the
+    points can keep the jittered strip look ``boxpoints`` used to provide.
+    """
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
     except ImportError:  # pragma: no cover - plotly is a hard dependency
-        return "<p>Plotly not available — charts skipped.</p>"
+        return None
 
     present = [m for m in iqm_cols if any(r["iqms"].get(m) is not None for r in runs)]
     if not present or not runs:
-        return "<p>No data for charts.</p>"
+        return None
+
+    def _group(r: RunRow) -> str:
+        return str((r["session"] if subject else r["subject"]) or "")
 
     cols = min(len(present), 3)
     n_rows = (len(present) + cols - 1) // cols
     fig = make_subplots(rows=n_rows, cols=cols, subplot_titles=present, vertical_spacing=0.10)
 
     for i, metric in enumerate(present):
+        row_i, col_i = i // cols + 1, i % cols + 1
         having = [r for r in runs if r["iqms"].get(metric) is not None]
-        values = [r["iqms"][metric] for r in having]
-        groups = [(r["session"] if subject else r["subject"]) or "" for r in having]
+        position = {g: float(k) for k, g in enumerate(sorted({_group(r) for r in having}))}
+        centers = [position[_group(r)] for r in having]
+
         fig.add_trace(
             go.Box(
-                y=values,
-                x=groups,
+                y=[r["iqms"][metric] for r in having],
+                x=centers,
                 name=metric,
-                boxpoints="all",
-                jitter=0.3,
-                marker={"size": 4, "opacity": 0.5},
-                text=[_run_label(r) for r in having],
+                boxpoints=False,
                 showlegend=False,
             ),
-            row=i // cols + 1,
-            col=i % cols + 1,
+            row=row_i,
+            col=col_i,
+        )
+        fig.add_trace(
+            go.Scatter(
+                y=[r["iqms"][metric] for r in having],
+                x=_jitter_positions(centers),
+                mode="markers",
+                marker={"size": 5, "opacity": 0.5},
+                text=[_run_label(r) for r in having],
+                customdata=[r["run_key"] for r in having],
+                hoverinfo="text+y",
+                showlegend=False,
+            ),
+            row=row_i,
+            col=col_i,
         )
 
         flagged = [r for r in having if metric in r["flagged_metrics"]]
@@ -726,23 +776,40 @@ def _render_iqm_charts(
             fig.add_trace(
                 go.Scatter(
                     y=[r["iqms"][metric] for r in flagged],
-                    x=[(r["session"] if subject else r["subject"]) or "" for r in flagged],
+                    x=[position[_group(r)] for r in flagged],
                     mode="markers",
                     marker={"color": "red", "size": 10, "symbol": "x"},
                     text=[_run_label(r) for r in flagged],
+                    customdata=[r["run_key"] for r in flagged],
                     hoverinfo="text+y",
                     name="outlier",
                     showlegend=(i == 0),
                 ),
-                row=i // cols + 1,
-                col=i % cols + 1,
+                row=row_i,
+                col=col_i,
             )
+        fig.update_xaxes(
+            tickvals=list(position.values()),
+            ticktext=list(position.keys()),
+            row=row_i,
+            col=col_i,
+        )
 
     fig.update_layout(height=300 * n_rows, title_text=f"IQM distributions ({modality})")
+    return fig
+
+
+def _render_iqm_charts(
+    runs: list[RunRow], iqm_cols: list[str], modality: str, subject: str | None
+) -> str:
+    fig = build_iqm_figure(runs, iqm_cols, modality, subject)
+    if fig is None:
+        return "<p>No data for charts.</p>"
     # `str()` at each of the three plotly returns in this module, not decoration:
     # plotly ships no type information (see the mypy override in pyproject.toml),
-    # so everything it hands back is untyped and these three values are the only
-    # ones that leave the module — straight into the report HTML.
+    # so everything it hands back is untyped and these HTML strings go straight
+    # into the report. (`build_iqm_figure`'s figure leaves the module too, as
+    # `Any` for the same reason — Streamlit takes it as-is.)
     return str(fig.to_html(full_html=False, include_plotlyjs=False))
 
 

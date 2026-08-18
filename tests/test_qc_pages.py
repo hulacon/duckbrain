@@ -415,6 +415,16 @@ class TestOverview:
         clicked_run_key is unit-tested in tests/test_qc_panels.py."""
         assert any("Click a row" in c for c in _captions(_run(OVERVIEW)))
 
+    def test_the_strips_render_with_their_click_invitation(self, full):
+        """The IQR strip plots live under the run table (#39). AppTest cannot
+        see a plotly render or click a point — both are #30's eyeball, and
+        clicked_point_run_key is unit-tested in tests/test_qc_panels.py — so
+        what holds here is that the section arrives with its invitation."""
+        at = _run(OVERVIEW)
+        assert not at.exception
+        assert any("Distributions" == s.value for s in at.subheader)
+        assert any("Click a point" in c for c in _captions(at))
+
     def test_the_outlier_slider_is_here_and_only_here(self, full):
         assert [s for s in _run(OVERVIEW).slider if "IQR" in s.label]
         assert not [s for s in _run(INSPECT).slider if "IQR" in s.label]

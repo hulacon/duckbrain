@@ -489,3 +489,57 @@ class TestMotionStatusBanner:
         html = qc_report.render_report(runs, "bold", ["fd_mean", "tsnr"])
         assert "cell-absent" in html
         assert "No fMRIPrep confounds for this run" in html
+
+
+class TestIqmFigure:
+    """The shared IQM figure both delivery paths render — build_iqm_figure."""
+
+    def _figure(self, metrics_df):
+        rows = qc_report.build_run_rows(metrics_df, "bold", IQMS)
+        return qc_report.build_iqm_figure(rows, IQMS, "bold")
+
+    def test_every_point_carries_its_run_key_for_the_click_through(self, metrics_df):
+        """The live overview maps a clicked point to a run through customdata —
+        a trace without it would render fine and click dead."""
+        fig = self._figure(metrics_df)
+        keys = {"sub-015_task-rest_run-1_bold", "sub-016_task-rest_run-1_bold"}
+        scatters = [t for t in fig.data if t.type == "scatter"]
+        assert scatters
+        for trace in scatters:
+            assert set(trace.customdata) <= keys
+        # Each charted measure offers every run as a clickable point.
+        assert len([t for t in scatters if set(t.customdata) == keys]) == len(IQMS)
+
+    def test_the_flagged_marker_is_clickable_too(self, metrics_df):
+        fig = self._figure(metrics_df)
+        outliers = [t for t in fig.data if t.name == "outlier"]
+        assert len(outliers) == 1  # only tsnr tripped the fence
+        assert tuple(outliers[0].customdata) == ("sub-016_task-rest_run-1_bold",)
+
+    def test_box_points_stay_off(self, metrics_df):
+        """Box points do not emit click events in plotly.js; showing them would
+        double-draw every run and leave half the dots dead to a click."""
+        fig = self._figure(metrics_df)
+        boxes = [t for t in fig.data if t.type == "box"]
+        assert len(boxes) == len(IQMS)
+        assert all(t.boxpoints is False for t in boxes)
+
+    def test_nothing_to_chart_returns_none(self, metrics_df):
+        assert qc_report.build_iqm_figure([], IQMS, "bold") is None
+        rows = qc_report.build_run_rows(metrics_df, "bold", IQMS)
+        for r in rows:
+            r["iqms"] = {}
+        assert qc_report.build_iqm_figure(rows, IQMS, "bold") is None
+
+    def test_the_export_still_wraps_the_same_figure(self, metrics_df):
+        rows = qc_report.build_run_rows(metrics_df, "bold", IQMS)
+        html = qc_report.render_report(rows, "bold", IQMS)
+        # The clickable points' run keys travel into the export's chart data too.
+        assert "sub-016_task-rest_run-1_bold" in html
+
+    def test_jitter_spreads_shared_centers_inside_their_band(self):
+        centers = [0.0, 0.0, 0.0, 1.0]
+        jittered = qc_report._jitter_positions(centers)
+        assert jittered[3] == 1.0  # a lone point stays put
+        assert all(abs(j - c) <= 0.2 for j, c in zip(jittered, centers, strict=True))
+        assert len(set(jittered[:3])) == 3  # points sharing a center spread out
