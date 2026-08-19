@@ -481,7 +481,7 @@ def _provenance_note(
     """State what produced these numbers and what the counts above mean.
 
     On a NORDIC project the two halves of this table describe **two different
-    images**: MRIQC always runs on raw BIDS (see ``pipeline.effective_depends_on``
+    images**: MRIQC always runs on raw BIDS (see ``pipeline.effective_dependencies``
     for why that is right), while the motion columns come from fMRIPrep, which
     read the denoised tree. Labelling only the fMRIPrep half — which is all this
     did — leaves the more surprising claim unstated, since a reader who knows the

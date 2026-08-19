@@ -1,0 +1,98 @@
+#!/bin/bash
+#SBATCH --job-name=freesurfer_{{ subject }}
+#SBATCH --partition={{ slurm.partition }}
+#SBATCH --time={{ slurm.time }}
+#SBATCH --cpus-per-task={{ slurm.cpus }}
+#SBATCH --mem={{ slurm.memory }}
+#SBATCH --output={{ paths.log_dir }}/freesurfer_%j.out
+{% if slurm.email %}#SBATCH --mail-user={{ slurm.email }}
+#SBATCH --mail-type={{ slurm.mail_type }}
+{% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
+{% endif %}
+echo "=== FreeSurfer {{ fs_version }} recon-all: sub-{{ subject }} (subject-level) ==="
+echo "Started: $(date)"
+echo "Node: $(hostname)"
+
+{# Paths carry `| sh` — one interpolation, one shell argument — and every
+   expansion of them is quoted in turn. All were respelled by
+   core.freesurfer.container_visible before rendering: recon-all here is a bash
+   wrapper that apptainer-execs into the FreeSurfer image with only the site's
+   default binds, so `/gpfs/projects/...` does not exist inside it while
+   `/projects/...` does (docs/pipeline-extras.md §9 Trap 2). For the same
+   reason this script must run on the HOST — invoking it from inside another
+   container nests apptainer, which the site config does not allow.
+
+   The recon runs under a per-subject staging SUBJECTS_DIR and only a recon
+   that finished moves into the shared import dir — one rename on one GPFS
+   filesystem, so the import dir either holds a complete recon or none, and
+   fMRIPrep can never find (and silently "resume", with its own FreeSurfer 7)
+   a half-built subject. Per-subject staging also keeps recon-all's own
+   fsaverage copy out of the shared dir, whose seeded FreeSurfer-7 fsaverage
+   is core/fsaverage.py's territory (TODO #21). #}
+SUBJECTS_DIR_STAGING={{ subjects_dir | sh }}
+IMPORT_DIR={{ import_dir | sh }}
+STAGED="$SUBJECTS_DIR_STAGING/sub-{{ subject }}"
+FINAL="$IMPORT_DIR/sub-{{ subject }}"
+
+# Completeness at this stage's level: recon-all's own done-marker AND its
+# build-stamp naming the pinned release. The marker alone also matches a recon
+# fMRIPrep's bundled FreeSurfer 7 wrote at the identical path.
+recon_ok() {
+    [ -f "$1/scripts/recon-all.done" ] &&
+        grep -qF -- "-{{ fs_version }}" "$1/scripts/build-stamp.txt" 2>/dev/null
+}
+
+if [ -d "$FINAL" ]; then
+    if recon_ok "$FINAL"; then
+        echo "Complete FreeSurfer {{ fs_version }} recon already imported at $FINAL"
+        exit 0
+    fi
+    echo "ERROR: $FINAL exists but is not a complete FreeSurfer {{ fs_version }} recon."
+    echo "Move it away to re-recon, or set [freesurfer] version to match it."
+    exit 1
+fi
+
+mkdir -p "$SUBJECTS_DIR_STAGING" "$IMPORT_DIR"
+
+if recon_ok "$STAGED"; then
+    # A previous attempt finished the recon but died before the import rename.
+    echo "Staged recon is already complete — importing without re-running."
+else
+    # Anything else staged is a dead partial run. recon-all cannot cleanly
+    # resume an interrupted -all (IsRunning sentinels, half-written stages), so
+    # start over; the staging dir is scratch by construction and holds nothing
+    # else. ${STAGED:?} so an unset/empty variable aborts rather than expanding
+    # the rm to something catastrophic.
+    rm -rf "${STAGED:?}"
+
+    export SUBJECTS_DIR="$SUBJECTS_DIR_STAGING"
+    export FS_LICENSE={{ fs_license_file | sh }}
+
+    {{ fs_bin_dir }}/recon-all \
+        -s sub-{{ subject }} \
+{% for t1 in t1w_files %}        -i {{ t1 | sh }} \
+{% endfor %}{% if t2w_file %}        -T2 {{ t2w_file | sh }} -T2pial \
+{% endif %}        -all \
+        -threads {{ slurm.cpus }}
+
+    EXIT_CODE=$?
+    echo "recon-all exit code: $EXIT_CODE"
+    if [ "$EXIT_CODE" -ne 0 ]; then
+        echo "recon-all failed; staged tree kept for inspection at $STAGED"
+        exit "$EXIT_CODE"
+    fi
+    if ! recon_ok "$STAGED"; then
+        echo "ERROR: recon-all exited 0 but $STAGED lacks recon-all.done or a"
+        echo "build-stamp naming {{ fs_version }} — not importing an unverified recon."
+        exit 1
+    fi
+fi
+
+# One rename on one filesystem: the shared import dir — which concurrent
+# fMRIPrep jobs read, and core/fsaverage.py seeds — never sees a partial tree.
+mv "$STAGED" "$FINAL"
+rm -rf "${SUBJECTS_DIR_STAGING:?}"
+
+echo "Imported: $FINAL"
+echo "Finished: $(date)"
+exit 0

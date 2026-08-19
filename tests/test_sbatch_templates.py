@@ -50,6 +50,17 @@ _TEMPLATE_DEFAULTS = {
     "mriqc": dict(subject="04", session="01", container_path="/x.sif", mem_gb=8),
     "nordic_denoise": dict(subject="04", session="01", bold_count=2, scripts_dir="/s"),
     "nordic_bids_input": dict(subject="04", session="01", python_cmd="/usr/bin/python3"),
+    "freesurfer_recon": dict(
+        subject="04",
+        session="",
+        fs_bin_dir="/packages/freesurfer/8.2.0/bin",
+        fs_version="8.2.0",
+        fs_license_file="/l",
+        subjects_dir="/projects/study/derivatives/fmriprep/sourcedata/freesurfer/.recon-staging/sub-04",
+        import_dir="/projects/study/derivatives/fmriprep/sourcedata/freesurfer",
+        t1w_files=["/projects/study/sub-04/ses-01/anat/sub-04_ses-01_T1w.nii.gz"],
+        t2w_file="",
+    ),
 }
 
 
@@ -344,6 +355,9 @@ def _flag_lines_outside_a_command(script):
         ("mriqc", {}),
         ("nordic_denoise", {}),
         ("nordic_bids_input", {}),
+        # Both sides of the recon template's T2 branch, which sits mid-command.
+        ("freesurfer_recon", {}),
+        ("freesurfer_recon", dict(t2w_file="/projects/study/sub-04/anat/sub-04_T2w.nii.gz")),
     ],
 )
 def test_no_comment_breaks_a_line_continuation(step, extra):
@@ -399,6 +413,20 @@ def test_no_comment_breaks_a_line_continuation(step, extra):
         ("mriqc", dict(subject="04", session="01", container_path=NASTY, mem_gb=8)),
         ("nordic_denoise", dict(subject="04", session="01", bold_count=2, scripts_dir=NASTY)),
         ("nordic_bids_input", dict(subject="04", session="01", python_cmd="/usr/bin/python3")),
+        (
+            "freesurfer_recon",
+            dict(
+                subject="04",
+                session="",
+                fs_bin_dir="/packages/freesurfer/8.2.0/bin",
+                fs_version="8.2.0",
+                fs_license_file=NASTY,
+                subjects_dir=f"{NASTY}/.recon-staging/sub-04",
+                import_dir=NASTY,
+                t1w_files=[f"{NASTY}/sub-04_T1w.nii.gz"],
+                t2w_file=f"{NASTY}/sub-04_T2w.nii.gz",
+            ),
+        ),
     ],
 )
 def test_rendered_scripts_are_parseable_shell(step, extra):
@@ -486,7 +514,7 @@ def test_extra_flags_stays_an_unquoted_shell_fragment():
 
 def test_mriqc_reads_raw_bids_even_when_the_project_uses_nordic():
     """MRIQC grades the acquisition, not fMRIPrep's input — see
-    ``pipeline.effective_depends_on`` for why that asymmetry is deliberate.
+    ``pipeline.effective_dependencies`` for why that asymmetry is deliberate.
 
     Unpinned until now: the only MRIQC/NORDIC assertion anywhere was on the
     *dependency*, so a change to the input path would have gone unnoticed. The
@@ -702,3 +730,51 @@ def test_a_superseded_crash_record_does_not_block_cleanup(tmp_path, stage):
     os.utime(stale, (0, 0))
     work = _run_rendered(script, tmp_path)
     assert not Path(work).exists()
+
+
+# ---- freesurfer_recon: stage-then-import, version-gated -----------------------
+
+
+def _recon_script(**extra):
+    ctx = build_context(
+        _cfg(), "freesurfer", **dict(_TEMPLATE_DEFAULTS["freesurfer_recon"], **extra)
+    )
+    return render_sbatch("freesurfer_recon", ctx)
+
+
+def test_recon_job_name_carries_no_session():
+    # Subject-level stage: the name must match what advance_one submits
+    # (freesurfer_<sub>) or the cockpit's live-state join goes blind.
+    assert "#SBATCH --job-name=freesurfer_04\n" in _recon_script()
+
+
+def test_recon_inputs_one_i_flag_per_t1w_and_optional_t2():
+    script = _recon_script(
+        t1w_files=["/p/a_T1w.nii.gz", "/p/b_T1w.nii.gz"], t2w_file="/p/c_T2w.nii.gz"
+    )
+    assert script.count("-i '") == 0  # sh filter only quotes when needed
+    assert script.count("-i /p/a_T1w.nii.gz") == 1
+    assert script.count("-i /p/b_T1w.nii.gz") == 1
+    assert "-T2 /p/c_T2w.nii.gz -T2pial" in script
+    assert "-T2 " not in _recon_script()  # no T2w → no flag at all
+
+
+def test_recon_verifies_before_importing_and_never_imports_unverified():
+    """The import rename must be unreachable except through recon_ok — the
+    done-marker AND the pinned version's build-stamp. An exit-0 recon-all that
+    left no done-marker (or a FreeSurfer 7 tree at the final path) must end the
+    job, not reach `mv`."""
+    script = _recon_script()
+    assert 'recon_ok "$STAGED"' in script
+    assert 'recon_ok "$FINAL"' in script
+    assert 'grep -qF -- "-8.2.0"' in script
+    # mv appears once, after the verification gates.
+    assert script.count('mv "$STAGED" "$FINAL"') == 1
+    assert script.index("recon_ok()") < script.index('mv "$STAGED" "$FINAL"')
+
+
+def test_recon_runs_under_staging_never_the_import_dir():
+    script = _recon_script()
+    assert 'export SUBJECTS_DIR="$SUBJECTS_DIR_STAGING"' in script
+    # recon-all is invoked from the pinned install, not bare PATH.
+    assert "/packages/freesurfer/8.2.0/bin/recon-all" in script

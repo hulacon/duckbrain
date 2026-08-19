@@ -418,6 +418,15 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
   exists locally to test against, so the implementation is unit-tested only.
 
 ## 9. External FreeSurfer (8.x) feeding fMRIPrep, instead of fMRIPrep's own recon
+
+> **Taken 2026-08-19** — the stage is built (`core/freesurfer.py`, the
+> `freesurfer` stage, `[freesurfer]` config; the `#7.7` ledger row is the
+> implementation record, and the `#5b` forcing question below was answered by
+> `effective_dependencies` returning a tuple). This section stays as the
+> scoping record: the traps below are real and their closures cite this text.
+> Live validation + the LCNI/nipreps validity ask are tracked in mmmdata-agents
+> `docs/workbench/fs8-external-recon/`.
+
 - **What:** run `recon-all` from FreeSurfer 8 as its own stage, then have fMRIPrep
   (25.x) import that reconstruction rather than building its own with the
   FreeSurfer bundled in its container. **Asked for by LCNI** (relayed 2026-07-24),

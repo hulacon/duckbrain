@@ -84,6 +84,7 @@ singularity run {{ container_flags }} \
   -w "$WORK_DIR" \
 {% if anat_only %}  --anat-only \
 {% endif %}{% if derivatives %}  --derivatives {{ derivatives | sh }} \
+{% endif %}{% if fs_no_resume is defined and fs_no_resume %}  --fs-no-resume \
 {% endif %}{% if extra_flags is defined and extra_flags %}  {{ extra_flags }} \
 {% endif %}  --skip-bids-validation --notrack
 

@@ -281,6 +281,28 @@ def _build_fmriprep(
             "anatomicals in any session. Run fMRIPrep once with Anat-only first, or "
             "clear the reuse option."
         )
+    # External FreeSurfer recon (TODO #7.7, docs/pipeline-extras.md §9). The
+    # recon sits at fMRIPrep's default fs_subjects_dir, so no path flag is
+    # needed — but --fs-no-resume is, and it is only sound when the recon is
+    # verifiably complete AND from the pinned FreeSurfer: without the flag,
+    # fMRIPrep *resumes* any recon it judges unfinished using its own bundled
+    # FreeSurfer 7, yielding a mixed-version surface that announces nothing
+    # (the anat-reuse silent no-op, again). So the gate raises unless
+    # recon_complete — done-marker plus build-stamp version — holds.
+    fs_no_resume = False
+    if _use_external_fs(config):
+        from .freesurfer import fs_version, recon_complete, subject_import_dir
+
+        recon_dir = subject_import_dir(derivatives_dir, subject)
+        if not recon_complete(config, recon_dir):
+            raise PipelineError(
+                f"[freesurfer] use_external is on, but sub-{subject} has no complete "
+                f"FreeSurfer {fs_version(config)} recon at {recon_dir}. Run the "
+                "freesurfer stage first — submitting now would let fMRIPrep build "
+                "or resume a recon with its own bundled FreeSurfer instead."
+            )
+        fs_no_resume = True
+
     extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", ""))).strip()
     # Both resource knobs name the SLURM allocation. `nprocs` is the allocation's
     # CPUs outright — fMRIPrep documents --nprocs as the budget across all its
@@ -307,6 +329,7 @@ def _build_fmriprep(
         anat_only=anat_only,
         derivatives=output_dir if use_derivatives else "",
         extra_flags=extra_flags,
+        fs_no_resume=fs_no_resume,
         mem_gb=mem_gb,
     )
     # Both GUI knobs land on the allocation, and the template reads its `--nprocs`
@@ -381,6 +404,98 @@ def _build_nordic(
     return "nordic_denoise", ctx
 
 
+def _build_freesurfer(
+    config: Config, subject: str, session: str, log_dir: str, params: JobParams
+) -> tuple[str, TemplateContext]:
+    """External FreeSurfer recon for one *subject* (``session`` already
+    normalized to ``""`` by ``advance_one`` — the stage is subject-level).
+
+    Preconditions raise rather than degrade, per the silently-degrading-option
+    rule: the two states this refuses (no pinned FreeSurfer on disk, an existing
+    recon from a different FreeSurfer than the pin) are exactly the ones that
+    would otherwise surface as a wrong surface imported without a word. See
+    ``core/freesurfer.py`` for the design and ``docs/pipeline-extras.md`` §9 for
+    its record.
+    """
+    from .fmriprep import find_fs_license
+    from .freesurfer import (
+        build_stamp,
+        container_visible,
+        fs_bin_dir,
+        fs_version,
+        import_subjects_dir,
+        recon_complete,
+        staging_subjects_dir,
+        stamp_version,
+        subject_import_dir,
+        t1w_inputs,
+        t2w_inputs,
+    )
+
+    paths = config["paths"]
+    derivatives_dir = paths["derivatives_dir"]
+
+    version = fs_version(config)
+    if not version:
+        raise PipelineError(
+            "[freesurfer] version is not set. Pin the FreeSurfer release the recon "
+            'stage should run (e.g. version = "8.2.0").'
+        )
+    bin_dir = fs_bin_dir(config)
+    if not (bin_dir / "recon-all").exists():
+        raise PipelineError(
+            f"recon-all not found at {bin_dir}. Check [freesurfer] install_root and "
+            "version against the site's FreeSurfer installs."
+        )
+    fs_license = find_fs_license(config)
+    if not fs_license:
+        raise PipelineError("FreeSurfer license not found. Set it in Project Setup.")
+
+    final = subject_import_dir(derivatives_dir, subject)
+    if final.is_dir():
+        # Never clobber an existing recon, whatever produced it. A complete
+        # matching one means nothing to do; anything else at this path (an FS7
+        # recon from a pre-toggle fMRIPrep run, a crashed import) is the user's
+        # to remove or re-pin — deleting a reconstruction is not a launcher's
+        # call to make.
+        if recon_complete(config, final):
+            raise PipelineError(
+                f"sub-{subject} already has a complete FreeSurfer {version} recon at "
+                f"{final} — nothing to do."
+            )
+        stamped = stamp_version(build_stamp(final)) or "unknown version"
+        raise PipelineError(
+            f"A FreeSurfer recon already exists at {final} ({stamped}, incomplete or "
+            f"not matching the pinned {version}). Move it away to re-recon, or set "
+            "[freesurfer] version to match it."
+        )
+
+    t1ws = t1w_inputs(paths["bids_dir"], subject)
+    if not t1ws:
+        raise PipelineError(
+            f"No T1w images found for sub-{subject} in the BIDS tree — recon-all "
+            "needs at least one."
+        )
+    t2ws = t2w_inputs(paths["bids_dir"], subject)
+
+    ctx = build_context(
+        config,
+        "freesurfer",
+        subject=subject,
+        session="",
+        fs_bin_dir=container_visible(bin_dir),
+        fs_version=version,
+        fs_license_file=container_visible(fs_license),
+        subjects_dir=container_visible(staging_subjects_dir(derivatives_dir, subject)),
+        import_dir=container_visible(import_subjects_dir(derivatives_dir)),
+        t1w_files=[container_visible(p) for p in t1ws],
+        # recon-all takes a single -T2; the first (lexicographically earliest
+        # session's) is the deterministic choice when several exist.
+        t2w_file=container_visible(t2ws[0]) if t2ws else "",
+    )
+    return "freesurfer_recon", ctx
+
+
 def _build_mriqc(
     config: Config, subject: str, session: str, log_dir: str, params: JobParams
 ) -> tuple[str, TemplateContext]:
@@ -416,6 +531,13 @@ class StageSpec:
     the SLURM job name (the join key for live-state fusion). ``depends_on`` is the
     surveyor stage that must be COMPLETE before this stage is actionable. ``build``
     assembles ``(template, context)``; ``None`` for non-SLURM stages.
+
+    ``unit`` is the granularity one job covers: ``"session"`` (the default — one
+    job per matrix row) or ``"subject"`` (one job covers every session row of the
+    subject, so the job name and the live-state join drop the session tag). The
+    external FreeSurfer recon is the subject-level case: recon-all consumes all
+    of a subject's T1w at once, matching fMRIPrep 25's default subject-level
+    anatomical reference.
     """
 
     name: str
@@ -423,6 +545,12 @@ class StageSpec:
     depends_on: str | None
     build: StageBuilder | None = None
     is_slurm: bool = True
+    unit: str = "session"
+
+    def job_tag(self, subject: str, session: str) -> str:
+        """The unit tag for job/script names — session dropped for subject-level
+        stages, so every caller building or matching a job name agrees."""
+        return tag_for(subject, session if self.unit == "session" else "")
 
 
 STAGE_SPECS: dict[str, StageSpec] = {
@@ -430,6 +558,9 @@ STAGE_SPECS: dict[str, StageSpec] = {
     "converted": StageSpec("converted", "dcm2bids", "ingested", build=_build_dcm2bids),
     "fmriprep": StageSpec("fmriprep", "fmriprep", "converted", build=_build_fmriprep),
     "nordic": StageSpec("nordic", "nordic", "converted", build=_build_nordic),
+    "freesurfer": StageSpec(
+        "freesurfer", "freesurfer", "converted", build=_build_freesurfer, unit="subject"
+    ),
     "mriqc": StageSpec("mriqc", "mriqc", "converted", build=_build_mriqc),
 }
 
@@ -442,13 +573,28 @@ def _use_nordic(config: Config) -> bool:
     return bool(config.get("nordic", {}).get("use_nordic", False))
 
 
-def effective_depends_on(config: Config, stage: str) -> str | None:
-    """The dependency stage that must be COMPLETE before *stage* is runnable.
+def _use_external_fs(config: Config) -> bool:
+    """Whether this project feeds fMRIPrep an external FreeSurfer recon."""
+    from .freesurfer import use_external_fs
 
-    Same as ``STAGE_SPECS[stage].depends_on`` except fMRIPrep depends on
-    ``nordic`` (not ``converted``) when the project has ``use_nordic`` on — the
-    denoised input must exist first. NORDIC itself stays a pure ``converted``
-    producer regardless.
+    return use_external_fs(config)
+
+
+def effective_dependencies(config: Config, stage: str) -> tuple[str, ...]:
+    """Every stage that must be COMPLETE before *stage* is runnable.
+
+    Same as ``STAGE_SPECS[stage].depends_on`` except for fMRIPrep, the one stage
+    with more than one producer, all of them config-conditional: its *input*
+    producer is ``nordic`` (not ``converted``) when the project has
+    ``use_nordic`` on — the denoised tree must exist first — and the external
+    FreeSurfer recon joins as a second producer when ``use_external`` is on.
+    NORDIC and the recon stage stay pure ``converted`` producers regardless.
+
+    A tuple, not a string, since the fMRIPrep case above forced the question
+    (TODO ``#5b``): two config-conditional dependencies on one stage is the
+    whole requirement, so the answer is the minimal generalization of the
+    return type — not the named-pipeline DAG Case 3 parks, which waits for
+    branch counts to actually grow.
 
     **MRIQC is deliberately not rewritten, and the asymmetry is the point.**
     ``use_nordic`` is a statement about *fMRIPrep's input*, not about the
@@ -468,10 +614,13 @@ def effective_depends_on(config: Config, stage: str) -> str | None:
     """
     spec = STAGE_SPECS.get(stage)
     if spec is None:
-        return None
-    if stage == "fmriprep" and _use_nordic(config):
-        return "nordic"
-    return spec.depends_on
+        return ()
+    if stage == "fmriprep":
+        deps = ["nordic" if _use_nordic(config) else "converted"]
+        if _use_external_fs(config):
+            deps.append("freesurfer")
+        return tuple(deps)
+    return (spec.depends_on,) if spec.depends_on else ()
 
 
 # ---- public API -------------------------------------------------------------
@@ -561,6 +710,11 @@ def advance_one(
         raise PipelineError(f"Unknown stage {stage!r}.")
     if not spec.is_slurm or spec.build is None:
         raise PipelineError(f"Stage {stage!r} is not launchable as a SLURM job.")
+    # A subject-level stage covers every session row at once, so the session is
+    # dropped HERE — one place — and the builder, job name, submission record,
+    # and live-state join all agree without each knowing about stage units.
+    if spec.unit == "subject":
+        session = ""
 
     log_dir = _resolve_log_dir(config)
     Path(log_dir).mkdir(parents=True, exist_ok=True)
@@ -574,7 +728,7 @@ def advance_one(
     _fsaverage_preflight(config, stage, params)
 
     script = render_sbatch(template, ctx)
-    job_name = f"{spec.job_prefix}_{tag_for(subject, session)}"
+    job_name = f"{spec.job_prefix}_{spec.job_tag(subject, session)}"
 
     if export_only:
         return str(export_script(script, Path(log_dir) / f"{job_name}.sbatch"))
@@ -657,6 +811,7 @@ _STAGE_TOOL = {
     "fmriprep": ("fmriprep", "fmriprep_version"),
     "mriqc": ("mriqc", "mriqc_version"),
     "nordic": ("nordic", None),
+    "freesurfer": ("freesurfer", None),
 }
 
 
@@ -748,9 +903,23 @@ def run_provenance(config: Config, stage: str) -> dict[str, str]:
             code_source = ""
             runtime = ""
 
+    # The external recon runs the *system* FreeSurfer — no duckbrain-managed
+    # container, no checkout. Its version is the [freesurfer] pin (verified
+    # against the recon's own build-stamp at both launch gates), and the install
+    # path is the runtime; there is no separate code artifact to cite.
+    if stage == "freesurfer":
+        try:
+            from .freesurfer import fs_bin_dir, fs_version
+
+            tool_version = fs_version(config)
+            runtime = str(fs_bin_dir(config).parent)
+        except Exception:
+            tool_version = tool_version or ""
+            runtime = ""
+
     if stage == "fmriprep":
         input_variant = "nordic" if _use_nordic(config) else "raw"
-    elif stage in ("mriqc", "nordic"):
+    elif stage in ("mriqc", "nordic", "freesurfer"):
         input_variant = "raw"
     else:
         input_variant = ""
@@ -1095,10 +1264,10 @@ def survey_live(
     for stage in overlay_stages:
         if stage not in matrix.columns:  # defensive: stage w/o a surveyor column
             continue
-        prefix = STAGE_SPECS[stage].job_prefix
+        spec = STAGE_SPECS[stage]
         vals = []
         for _, row in matrix.iterrows():
-            name = f"{prefix}_{tag_for(row['subject'], row['session'])}"
+            name = f"{spec.job_prefix}_{spec.job_tag(row['subject'], row['session'])}"
             if name in active:
                 vals.append(active[name])
             elif row[stage] == Status.COMPLETE.value:
@@ -1127,10 +1296,11 @@ def stage_runnable(row: pd.Series, stage: str, config: Config | None = None) -> 
     cockpit's per-cell run gate — it deliberately excludes re-running a COMPLETE
     stage (that's a separate "advanced" affordance).
 
-    When *config* is supplied, the dependency is resolved via
-    :func:`effective_depends_on`, so a ``use_nordic`` project gates fMRIPrep on
-    ``nordic`` instead of ``converted``. Omitting *config* keeps the static
-    ``STAGE_SPECS`` dependency (back-compat for existing callers).
+    When *config* is supplied, dependencies are resolved via
+    :func:`effective_dependencies`, so a ``use_nordic`` project gates fMRIPrep on
+    ``nordic`` instead of ``converted`` and an external-recon project gates it on
+    ``freesurfer`` too. Omitting *config* keeps the static ``STAGE_SPECS``
+    dependency (back-compat for existing callers).
     """
     spec = STAGE_SPECS.get(stage)
     if spec is None or not spec.is_slurm or stage not in row:
@@ -1142,7 +1312,12 @@ def stage_runnable(row: pd.Series, stage: str, config: Config | None = None) -> 
     # days of compute for a derivative nothing would read (TODO #17.4).
     if row[stage] in (Status.COMPLETE.value, Status.NA.value):
         return False
-    dep = effective_depends_on(config, stage) if config is not None else spec.depends_on
-    if dep is not None and row.get(dep) != Status.COMPLETE.value:
-        return False
+    deps = (
+        effective_dependencies(config, stage)
+        if config is not None
+        else ((spec.depends_on,) if spec.depends_on else ())
+    )
+    for dep in deps:
+        if row.get(dep) != Status.COMPLETE.value:
+            return False
     return True

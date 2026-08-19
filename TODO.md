@@ -960,6 +960,10 @@ Deferred until actually needed. Case 1 (the `use_nordic` toggle) is validated li
   Matches BIDS-derivatives norms.
 - **Case 3, full named-pipeline DAG: PARKED.** Only if branch counts grow (multiple
   denoisers / fMRIPrep configs routinely). This is the complexity to avoid.
+  The forcing function `#7.7` warned about fired 2026-08-19 (external FreeSurfer
+  gives fMRIPrep a second producer) and was answered *without* un-parking this:
+  `effective_dependencies` returns a tuple of producers, `stage_runnable`
+  iterates it, and that is the whole requirement — see the `#7.7` ledger row.
 - **Candidate affordance** (ties to `#2`): the Setup page validates containers
   exist; give NORDIC the same treatment — "toolbox not found → fetch pinned
   version", cloning upstream at a duckbrain-pinned SHA into the user's own space.
@@ -1059,18 +1063,15 @@ other five are unstarted.
    `ses-` entity (it currently takes session from the ingestion mapping), and is a
    ReproIn-named study worth acquiring as a test case.
 7. **External FreeSurfer 8 feeding fMRIPrep 25** instead of fMRIPrep's bundled
-   recon — **asked for by LCNI**, who already run it this way. Cheaper than it
-   looks: **FS 8.2.0 is already installed on Talapas and on the default `PATH`**,
-   so this is the one candidate stage with nothing to build, and NORDIC is the
-   precedent for an `--array` stage that shells out. Writing to
-   `<derivatives>/fmriprep/sourcedata/freesurfer/` means fMRIPrep finds it with
-   **no flag at all** (that is its default `fs_subjects_dir` under
-   `--output-layout bids`). Two traps and the real cost — including why
-   `--fs-subjects-dir` without `--fs-no-resume` re-creates the anat-reuse silent
-   no-op, and why fMRIPrep-25-against-FS-8 is a question for LCNI/nipreps and not
-   for us — in `docs/pipeline-extras.md` §9. **If taken, it forces `#5b` Case 3's
-   DAG decision**: fMRIPrep would depend on two producers and
-   `effective_depends_on` is a single string with one special case already.
+   recon — **BUILT 2026-08-19** (see the ledger row): `[freesurfer]
+   use_external`, a subject-level `freesurfer` stage, stage-then-import with a
+   build-stamp version gate at both ends, `--fs-no-resume` wired, and the
+   `#5b` forcing question answered by `effective_dependencies` (tuple, not
+   DAG). **Not yet validated on a real subject** — the live pilot (one recon +
+   one fMRIPrep import, checked end to end) is tracked in mmmdata-agents
+   `docs/workbench/fs8-external-recon/`, along with the still-open
+   fMRIPrep-25-against-FS-8 validity ask to LCNI/nipreps. The scoping record
+   with both traps stays `docs/pipeline-extras.md` §9.
 8. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
    actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
    path off raw/minimal data. Low demand, unique requirements.
@@ -1390,6 +1391,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-19 | `#7.7` | **External FreeSurfer recon stage feeding fMRIPrep — built, with the `#5b` forcing question settled on the way.** New `core/freesurfer.py` + `templates/sbatch/freesurfer_recon.sbatch.j2` + `[freesurfer]` config; opt-in per project (`use_external`), NA otherwise (`#17.4`'s rule). The stage is duckbrain's first **subject-level** one — recon-all takes every session's T1w at once, matching fMRIPrep 25's default subject-level anatomical reference — carried by `StageSpec.unit` so `advance_one` drops the session in one place and the job name, submission record, cockpit overlay, and bulk-run dedupe all follow. §9's two traps are closed structurally: the recon runs under a dot-prefixed per-subject staging `SUBJECTS_DIR` and only a finished recon is atomically renamed into `<derivatives>/fmriprep/sourcedata/freesurfer/` (never a second writer in the `#21` battleground, never a partial tree at the import path); version identity is the recon's own `build-stamp.txt` against the `[freesurfer]` pin, required by the surveyor tracker, the recon launcher, and the fMRIPrep gate — so fMRIPrep refuses to submit (rather than silently FS7-resuming) until the recon is complete and version-matched, then passes `--fs-no-resume`. **The `#5b` Case 3 decision: parked stays parked.** `effective_depends_on` became `effective_dependencies` returning a tuple — fMRIPrep is the one stage with two config-conditional producers, and that is the whole requirement; the named-pipeline DAG still waits for branch counts to actually grow. `_DUCKBRAIN_RECIPE_STAGES` deliberately does NOT gain a row: the recon lands in a FreeSurfer SUBJECTS_DIR that is not ours to stamp, and its identity question is answered by the build-stamp gates (comment at the dict says so). Not yet validated live — pilot + the LCNI/nipreps validity ask tracked in mmmdata-agents `docs/workbench/fs8-external-recon/`. Tests: `test_freesurfer.py`, freesurfer sections of `test_pipeline.py` / `test_surveyor.py` / `test_sbatch_templates.py`. |
 | 2026-08-18 | `#41` | **Adopt an existing BIDS dataset — no DICOM conversion.** Asked for by a prospective user; the downstream half already worked by design (the surveyor's external branches, consistency's un-stamped-provenance stance, submission builders reading only `bids_dir`), so the item was the gap between working and *supported*. Shipped in two commits, bugs first: the metadata buttons stopped destroying imported data (`participants.json` written only when absent; `GeneratedBy` merged by `Name`; the dcm2bids entry claimed only at the choke point or with a saved conversion config as evidence — `tests/test_bids_metadata.py`). Then the feature: a Setup toggle writing `[project] external_bids` (`config.external_bids`, the only independent statement — an empty sourcedata is equally true of a project that hasn't started); `survey_project`'s NORDIC special case generalized to a per-stage applicability map so `ingested` grades NA (`converted` deliberately keeps grading — `stage_runnable` gates on it, and presence is real information); participants rostered from the BIDS tree with the file's own column order respected (`generate_participants_from_bids` — the our-order-under-their-header append silently misaligned every row); `.nii` seen everywhere `.nii.gz` is via `ingestion.nii_glob` (dedup prefers `.gz`; the NORDIC template's bash glob, skip-check and staging exclusions widened to match); `docs/external-bids.md` + a QUICKSTART pointer say it out loud. Residual caveats (validator needs the dcm2bids container; phasediff pairs read 0, `#19.6`; DataLad broken symlinks grade MISSING) are recorded in the doc. The three GUI surfaces are a `#30` entry. |
 | 2026-08-18 | `#39` | **The exported dashboard's IQR strip plots render live under the Overview run table, click-to-inspect.** One figure builder for both delivery paths (`qc_report.build_iqm_figure`; the export's `_render_iqm_charts` wraps it in HTML, the Overview hands it to `st.plotly_chart`). The points moved from the box trace's `boxpoints` to scatter markers carrying the run key in `customdata` — box points do not reliably emit click events in plotly.js — with the jitter recomputed deterministically so the strip look survived; a clicked point opens its run on the Inspect page through the same session-state channel as the table's row-click (`_open_in_inspector`). The item's caption-hint half had already shipped with the row-click itself (`87d6da7`). The rendered strips and the point-click are a `#30` entry. |
 | 2026-08-18 | `#40` | **The NORDIC-staleness check compares per subject, not project-wide.** Its first live firing was a false alarm: `sub-020`'s NORDIC run — a subject fMRIPrep had never touched — flagged fMRIPrep stale across the whole project and prescribed re-running five subjects whose inputs never changed. `_check_staleness` now compares each subject's newest NORDIC bold against its own newest preproc bold, flags only subjects where both exist and NORDIC is newer, and names each in its warning; NORDIC-without-fMRIPrep is "not run yet", which the board shows and `_check_presence` guards the inverse of. The live false alarm is pinned by `tests/test_consistency.py::test_a_new_subjects_nordic_run_does_not_smear_staleness`. |

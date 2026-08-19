@@ -125,6 +125,25 @@ excluded_nodes = ""
 # pure producer regardless; this only redirects fMRIPrep's input.
 use_nordic = false
 
+[freesurfer]
+# External FreeSurfer recon stage (docs/pipeline-extras.md §9). When
+# use_external is true, the `freesurfer` stage runs the pinned system
+# FreeSurfer's recon-all per SUBJECT (all sessions' T1w at once — fMRIPrep 25's
+# default subject-level anatomical reference), stages it privately, and imports
+# only a completed recon into <derivatives>/fmriprep/sourcedata/freesurfer/ —
+# the path fMRIPrep reads with no flag. fMRIPrep then gains --fs-no-resume and
+# gates on the recon being complete AND build-stamped with this exact version;
+# without both, fMRIPrep would quietly build or resume a recon with its own
+# bundled FreeSurfer (7.3.2 in the 25.2 image) instead. Set in a project's
+# code/duckbrain.toml.
+use_external = false
+# The system install to run: <install_root>/<version>/bin/recon-all. On Talapas
+# these are Apptainer images behind bash wrappers — plain host commands, but
+# containers underneath, so the recon sbatch must never itself run inside a
+# container. Pinned rather than trusting whatever `recon-all` is on PATH.
+version = "8.2.0"
+install_root = "/packages/freesurfer"
+
 [qc]
 # Quality-control thresholds. core/qc_guidance.py carries, per measure, why it
 # is on the dashboard and what the literature does — and mostly does not —
@@ -186,6 +205,14 @@ cpus = "4"
 time = "02:00:00"
 memory = "32G"
 cpus = "4"
+
+[slurm.overrides.freesurfer]
+# recon-all is hours per subject even threaded; -threads reads this cpus value.
+# Long role: a hard-case brain can exceed the 24 h normal-partition ceiling.
+time = "36:00:00"
+memory = "16G"
+cpus = "4"
+long = true
 
 [slurm.overrides.fmriprep]
 time = "48:00:00"

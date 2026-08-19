@@ -805,3 +805,82 @@ def test_run_progress_counts_what_the_status_says(tmp_path):
     assert run_progress(config, "nordic", "01", "") == (2, 4)
     # Stages without a per-run correspondence have no number to give.
     assert run_progress(config, "converted", "01", "") is None
+
+
+# ---- freesurfer (external recon): subject-level, version-gated ----------------
+
+FS8_STAMP = "freesurfer-linux-ubuntu22.04_x86_64-8.2.0-20250101-abcdef0"
+FS7_STAMP = "freesurfer-linux-centos7_x86_64-7.3.2-20220804-6354275"
+
+
+def _fs_config(root):
+    cfg = _config(root)
+    cfg["freesurfer"] = {"use_external": True, "version": "8.2.0"}
+    return cfg
+
+
+def _fs_recon(root, subject="01", stamp=FS8_STAMP, done=True):
+    scripts = (
+        root
+        / "derivatives"
+        / "fmriprep"
+        / "sourcedata"
+        / "freesurfer"
+        / f"sub-{subject}"
+        / "scripts"
+    )
+    _touch(scripts / "build-stamp.txt", stamp)
+    if done:
+        _touch(scripts / "recon-all.done")
+
+
+def test_freesurfer_is_na_without_use_external(tmp_path):
+    """Opt-in, same rule and reason as NORDIC (#17.4): without use_external
+    nothing imports the recon, so offering it would spend recon-all hours on a
+    derivative fMRIPrep never reads."""
+    _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
+    assert survey_project(_config(tmp_path)).loc[0, "freesurfer"] == Status.NA
+
+
+def test_freesurfer_missing_partial_complete(tmp_path):
+    _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
+    cfg = _fs_config(tmp_path)
+    assert survey_project(cfg).loc[0, "freesurfer"] == Status.MISSING
+    # A done-marker with the WRONG build-stamp — fMRIPrep's own FS7 recon at
+    # the identical path — must not grade COMPLETE (§9 Trap 1, surveyor form).
+    _fs_recon(tmp_path, stamp=FS7_STAMP)
+    assert survey_project(cfg).loc[0, "freesurfer"] == Status.PARTIAL
+    _fs_recon(tmp_path, stamp=FS8_STAMP)
+    assert survey_project(cfg).loc[0, "freesurfer"] == Status.COMPLETE
+
+
+def test_freesurfer_grades_subject_wide_across_sessions(tmp_path):
+    """recon-all consumes every session's T1w at once, so all of a subject's
+    rows carry one answer — `_fmriprep_status`'s anat widening, same reason."""
+    for ses in ("01", "02"):
+        _touch(tmp_path / "sourcedata" / "sub-01" / f"ses-{ses}" / "dicom" / "0001.dcm")
+    cfg = _fs_config(tmp_path)
+    _fs_recon(tmp_path)
+    df = survey_project(cfg)
+    assert list(df["freesurfer"]) == [Status.COMPLETE, Status.COMPLETE]
+
+
+def test_freesurfer_staging_dir_never_flips_the_cell(tmp_path):
+    """An in-flight recon lives in the dot-prefixed staging dir and must read
+    MISSING (plus a running job overlay), not PARTIAL — the cell flips only on
+    an imported, complete recon."""
+    _touch(tmp_path / "sourcedata" / "sub-01" / "dicom" / "0001.dcm")
+    cfg = _fs_config(tmp_path)
+    staging = (
+        tmp_path
+        / "derivatives"
+        / "fmriprep"
+        / "sourcedata"
+        / "freesurfer"
+        / ".recon-staging"
+        / "sub-01"
+        / "sub-01"
+        / "scripts"
+    )
+    _touch(staging / "build-stamp.txt", FS8_STAMP)
+    assert survey_project(cfg).loc[0, "freesurfer"] == Status.MISSING

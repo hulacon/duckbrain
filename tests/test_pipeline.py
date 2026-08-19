@@ -19,7 +19,7 @@ from duckbrain.core.pipeline import (
     STAGE_SPECS,
     PipelineError,
     advance_one,
-    effective_depends_on,
+    effective_dependencies,
     read_submissions,
     record_submission,
     run_provenance,
@@ -65,7 +65,7 @@ def test_tag_for_sessionless_and_multisession():
 
 
 def test_slurm_stages_all_have_builders():
-    assert set(SLURM_STAGES) == {"converted", "fmriprep", "nordic", "mriqc"}
+    assert set(SLURM_STAGES) == {"converted", "fmriprep", "nordic", "freesurfer", "mriqc"}
     for stage in SLURM_STAGES:
         assert STAGE_SPECS[stage].build is not None
 
@@ -74,6 +74,18 @@ def test_dependency_chain():
     assert STAGE_SPECS["converted"].depends_on == "ingested"
     assert STAGE_SPECS["fmriprep"].depends_on == "converted"
     assert STAGE_SPECS["mriqc"].depends_on == "converted"
+    assert STAGE_SPECS["freesurfer"].depends_on == "converted"
+
+
+def test_stage_units_and_job_tags():
+    # freesurfer is the one subject-level stage: its job tag drops the session,
+    # so the launcher, the submission record, and the live-state join all name
+    # one job per subject however many session rows the matrix holds.
+    assert STAGE_SPECS["freesurfer"].unit == "subject"
+    assert STAGE_SPECS["freesurfer"].job_tag("04", "02") == "04"
+    for stage in ("converted", "fmriprep", "nordic", "mriqc"):
+        assert STAGE_SPECS[stage].unit == "session"
+        assert STAGE_SPECS[stage].job_tag("04", "02") == "04_02"
 
 
 # ---- non-launchable stages --------------------------------------------------
@@ -764,16 +776,31 @@ def test_stage_runnable_dependency_gating(monkeypatch):
     assert stage_runnable(row, "fmriprep") is False  # converted not complete → gated
 
 
-def test_effective_depends_on_use_nordic():
+def test_effective_dependencies_use_nordic():
     off = {}
     on = {"nordic": {"use_nordic": True}}
     # fMRIPrep swings from converted -> nordic when use_nordic is on.
-    assert effective_depends_on(off, "fmriprep") == "converted"
-    assert effective_depends_on(on, "fmriprep") == "nordic"
+    assert effective_dependencies(off, "fmriprep") == ("converted",)
+    assert effective_dependencies(on, "fmriprep") == ("nordic",)
     # Other stages are unaffected; NORDIC stays a converted producer.
-    assert effective_depends_on(on, "mriqc") == "converted"
-    assert effective_depends_on(on, "nordic") == "converted"
-    assert effective_depends_on(on, "converted") == "ingested"
+    assert effective_dependencies(on, "mriqc") == ("converted",)
+    assert effective_dependencies(on, "nordic") == ("converted",)
+    assert effective_dependencies(on, "converted") == ("ingested",)
+    # The root stage has no dependencies, and an unknown stage has none either.
+    assert effective_dependencies(on, "ingested") == ()
+    assert effective_dependencies(on, "nonesuch") == ()
+
+
+def test_effective_dependencies_external_freesurfer():
+    fs_on = {"freesurfer": {"use_external": True}}
+    both = {"freesurfer": {"use_external": True}, "nordic": {"use_nordic": True}}
+    # The recon joins as a SECOND producer of fMRIPrep — alongside whichever
+    # input producer the project uses — and stays a converted producer itself.
+    assert effective_dependencies(fs_on, "fmriprep") == ("converted", "freesurfer")
+    assert effective_dependencies(both, "fmriprep") == ("nordic", "freesurfer")
+    assert effective_dependencies(both, "freesurfer") == ("converted",)
+    # MRIQC keeps grading the raw acquisition regardless.
+    assert effective_dependencies(both, "mriqc") == ("converted",)
 
 
 def test_stage_runnable_use_nordic_gates_fmriprep_on_nordic():
@@ -1474,3 +1501,159 @@ def test_an_older_log_gains_the_script_and_request_columns(tmp_path):
     assert lines[1].split("\t")[9] == "900"  # the old row kept its job id
     assert lines[1].split("\t")[-2:] == ["", ""]  # ...and fills the new fields empty
     assert lines[2].split("\t")[-2:] == ["/s.sbatch", "/r.json"]
+
+
+# ---- freesurfer stage (external recon, docs/pipeline-extras.md §9) -----------
+
+FS8_STAMP = "freesurfer-linux-ubuntu22.04_x86_64-8.2.0-20250101-abcdef0"
+FS7_STAMP = "freesurfer-linux-centos7_x86_64-7.3.2-20220804-6354275"
+
+
+def _fs_config(tmp_path, **extra):
+    """A config with a fake pinned FreeSurfer install on disk."""
+    cfg = _config(tmp_path)
+    bindir = tmp_path / "fsinstall" / "8.2.0" / "bin"
+    bindir.mkdir(parents=True, exist_ok=True)
+    (bindir / "recon-all").write_text("#!/bin/bash\n")
+    cfg["freesurfer"] = {
+        "version": "8.2.0",
+        "install_root": str(tmp_path / "fsinstall"),
+        **extra,
+    }
+    return cfg
+
+
+def _t1w(root, subject="008", session="01"):
+    anat = root / f"sub-{subject}" / f"ses-{session}" / "anat"
+    anat.mkdir(parents=True, exist_ok=True)
+    (anat / f"sub-{subject}_ses-{session}_T1w.nii.gz").write_bytes(b"x")
+
+
+def _recon_on_disk(tmp_path, subject="008", stamp=FS8_STAMP, done=True):
+    scripts = (
+        tmp_path
+        / "derivatives"
+        / "fmriprep"
+        / "sourcedata"
+        / "freesurfer"
+        / f"sub-{subject}"
+        / "scripts"
+    )
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / "build-stamp.txt").write_text(stamp + "\n")
+    if done:
+        (scripts / "recon-all.done").write_text("done\n")
+
+
+def _license(monkeypatch, tmp_path):
+    import duckbrain.core.fmriprep as F
+
+    lic = tmp_path / "license.txt"
+    lic.write_text("x")
+    monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
+
+
+def test_freesurfer_job_is_subject_level(monkeypatch, tmp_path):
+    """The session is dropped at advance_one, once: the job name carries no
+    session tag and the builder sees ``session == ""`` however the launch was
+    addressed — so a launch from any session row is the same one job."""
+    _license(monkeypatch, tmp_path)
+    _t1w(tmp_path, session="01")
+    _t1w(tmp_path, session="02")
+
+    cap = {}
+    monkeypatch.setattr(
+        P, "render_sbatch", lambda template, ctx: cap.update(t=template, ctx=ctx) or "s"
+    )
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: cap.update(name=n) or "J")
+    advance_one(_fs_config(tmp_path), "freesurfer", "008", "02")
+
+    assert cap["name"] == "freesurfer_008"
+    assert cap["t"] == "freesurfer_recon"
+    assert cap["ctx"]["session"] == ""
+    assert len(cap["ctx"]["t1w_files"]) == 2  # both sessions' T1w, one recon
+
+
+def test_freesurfer_without_version_pin_raises(monkeypatch, tmp_path):
+    _license(monkeypatch, tmp_path)
+    _t1w(tmp_path)
+    cfg = _config(tmp_path)
+    cfg["freesurfer"] = {"use_external": True}
+    with pytest.raises(PipelineError, match=r"\[freesurfer\] version"):
+        advance_one(cfg, "freesurfer", "008", "")
+
+
+def test_freesurfer_missing_install_raises(monkeypatch, tmp_path):
+    _license(monkeypatch, tmp_path)
+    _t1w(tmp_path)
+    cfg = _fs_config(tmp_path)
+    cfg["freesurfer"]["version"] = "9.9.9"  # pinned, not on disk
+    with pytest.raises(PipelineError, match="recon-all not found"):
+        advance_one(cfg, "freesurfer", "008", "")
+
+
+def test_freesurfer_no_t1w_raises(monkeypatch, tmp_path):
+    _license(monkeypatch, tmp_path)
+    with pytest.raises(PipelineError, match="No T1w"):
+        advance_one(_fs_config(tmp_path), "freesurfer", "008", "")
+
+
+def test_freesurfer_existing_matching_recon_is_nothing_to_do(monkeypatch, tmp_path):
+    _license(monkeypatch, tmp_path)
+    _t1w(tmp_path)
+    _recon_on_disk(tmp_path)
+    with pytest.raises(PipelineError, match="nothing to do"):
+        advance_one(_fs_config(tmp_path), "freesurfer", "008", "")
+
+
+def test_freesurfer_existing_mismatched_recon_refused_not_clobbered(monkeypatch, tmp_path):
+    """An FS7 recon at the import path — fMRIPrep's own output from a pre-toggle
+    run — is refused with both versions named, never deleted or re-reconned
+    over. Deleting a reconstruction is not a launcher's call."""
+    _license(monkeypatch, tmp_path)
+    _t1w(tmp_path)
+    _recon_on_disk(tmp_path, stamp=FS7_STAMP)
+    with pytest.raises(PipelineError, match=r"7\.3\.2.*8\.2\.0"):
+        advance_one(_fs_config(tmp_path), "freesurfer", "008", "")
+
+
+# ---- fMRIPrep import gate (--fs-no-resume) ------------------------------------
+
+
+def _fmriprep_script(monkeypatch, tmp_path, cfg):
+    """The sbatch text fMRIPrep would submit under *cfg*, rendered for real."""
+    import duckbrain.core.fmriprep as F
+    from duckbrain.slurm.templates import render_sbatch
+
+    _license(monkeypatch, tmp_path)
+    monkeypatch.setattr(F, "get_container_path", lambda c: "cont.simg")
+
+    cap = {}
+    monkeypatch.setattr(
+        P, "render_sbatch", lambda template, ctx: cap.update(t=template, ctx=ctx) or "s"
+    )
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
+    advance_one(cfg, "fmriprep", "008", "")
+    return render_sbatch(cap["t"], cap["ctx"])
+
+
+def test_fmriprep_without_complete_recon_refuses_to_submit(monkeypatch, tmp_path):
+    """use_external on + no (or incomplete, or wrong-version) recon = the state
+    where fMRIPrep would silently build or resume a recon with its own bundled
+    FreeSurfer 7. The launch refuses instead (§9 Trap 1)."""
+    cfg = _fs_config(tmp_path, use_external=True)
+    with pytest.raises(PipelineError, match="freesurfer stage first"):
+        _fmriprep_script(monkeypatch, tmp_path, cfg)
+    _recon_on_disk(tmp_path, stamp=FS7_STAMP)  # wrong FreeSurfer entirely
+    with pytest.raises(PipelineError, match="freesurfer stage first"):
+        _fmriprep_script(monkeypatch, tmp_path, cfg)
+
+
+def test_fmriprep_with_complete_recon_passes_fs_no_resume(monkeypatch, tmp_path):
+    cfg = _fs_config(tmp_path, use_external=True)
+    _recon_on_disk(tmp_path)
+    assert "--fs-no-resume" in _fmriprep_script(monkeypatch, tmp_path, cfg)
+
+
+def test_fmriprep_without_external_fs_never_passes_fs_no_resume(monkeypatch, tmp_path):
+    assert "--fs-no-resume" not in _fmriprep_script(monkeypatch, tmp_path, _config(tmp_path))

@@ -43,7 +43,7 @@ from .ingestion import sub_ses_relpath
 if TYPE_CHECKING:
     from ..config import Config
 
-STAGES = ("ingested", "converted", "nordic", "fmriprep", "mriqc")
+STAGES = ("ingested", "converted", "nordic", "freesurfer", "fmriprep", "mriqc")
 
 
 class Status(StrEnum):
@@ -509,10 +509,40 @@ def _nordic_status(config: Config, subject: str, session: str) -> Status:
     return _grade(expected, found, _has_match(root, _fmt("{ss}", subject, session)))
 
 
+def _freesurfer_status(config: Config, subject: str, session: str) -> Status:
+    """External FreeSurfer recon — subject-level, like fMRIPrep's anat.
+
+    recon-all consumes every session's T1w at once (fMRIPrep 25's default
+    subject-level anatomical reference), so all of a subject's rows grade
+    together — the same widening `_fmriprep_status` applies to its anat half,
+    for the same longitudinal reason.
+
+    COMPLETE requires `core.freesurfer.recon_complete`: the `recon-all.done`
+    marker AND a build-stamp matching the pinned [freesurfer] version. The
+    marker alone cannot distinguish this stage's recon from one fMRIPrep's own
+    bundled FreeSurfer 7 wrote at the *identical* path on a pre-toggle run —
+    grading that COMPLETE would wave the wrong surface through to import
+    (`docs/pipeline-extras.md` §9 Trap 1, in surveyor form). A subject dir that
+    exists but fails the check grades PARTIAL: something is there and needs a
+    decision, and the launch gate's message states the choices. The dot-prefixed
+    staging dir is invisible to this tracker on purpose — an in-flight recon
+    reads MISSING plus a running job, not PARTIAL.
+    """
+    from .freesurfer import recon_complete, subject_import_dir
+
+    subject_dir = subject_import_dir(config["paths"]["derivatives_dir"], subject)
+    if recon_complete(config, subject_dir):
+        return Status.COMPLETE
+    if subject_dir.is_dir():
+        return Status.PARTIAL
+    return Status.MISSING
+
+
 _TRACKERS = {
     "ingested": _ingested_status,
     "converted": _converted_status,
     "nordic": _nordic_status,
+    "freesurfer": _freesurfer_status,
     "fmriprep": _fmriprep_status,
     "mriqc": _mriqc_status,
 }
@@ -556,6 +586,11 @@ def survey_project(config: Config) -> pd.DataFrame:
     # deliberately in such a project is still possible from the Preprocessing
     # page's NORDIC tab.
     applies["nordic"] = bool(config.get("nordic", {}).get("use_nordic", False))
+    # Same rule, same reason: the external FreeSurfer recon is opt-in, and
+    # without use_external nothing imports it — fMRIPrep runs its own bundled
+    # recon — so offering the stage would spend recon-all hours on a derivative
+    # nothing reads.
+    applies["freesurfer"] = bool(config.get("freesurfer", {}).get("use_external", False))
     # A declared external-BIDS project ingests no DICOMs, ever — the tree was
     # converted elsewhere and dropped in (#41.2, #17.4's shape again). Only
     # `ingested` goes NA: `converted` keeps grading, deliberately, because its

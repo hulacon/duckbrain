@@ -62,10 +62,18 @@ if config.get("nordic", {}).get("use_nordic", False):
         "gated on the `nordic` stage."
     )
 
+if config.get("freesurfer", {}).get("use_external", False):
+    st.caption(
+        "🧠 **use_external** FreeSurfer on — fMRIPrep imports the external "
+        "recon (`--fs-no-resume`) and is gated on the `freesurfer` stage, "
+        "which runs once per subject."
+    )
+
 from duckbrain.core.checks import run_checks
 from duckbrain.core.consistency import check_consistency
 from duckbrain.core.pipeline import (
     SLURM_STAGES,
+    STAGE_SPECS,
     advance_one,
     read_submissions,
     stage_runnable,
@@ -665,10 +673,22 @@ def dashboard() -> None:
     # deps + no-double-submit, so a running/queued/complete cell is never offered.
     runnable_map: dict[tuple[str, str, str], bool] = {}
     runnable_by_stage: defaultdict[str, list[pd.Series]] = defaultdict(list)
+    seen_subject_units: set[tuple[str, str]] = set()
     for _, row in matrix.iterrows():
         for stage in SLURM_STAGES:
             if stage in matrix.columns and stage_runnable(row, stage, config):
                 runnable_map[(str(row["subject"]), str(row["session"]), stage)] = True
+                # A subject-level stage (freesurfer) covers every session row of
+                # the subject with one job, so the bulk list takes one entry per
+                # subject — otherwise "run all" submits one duplicate recon per
+                # session. Per-cell launches stay offered on every row; the
+                # duplicates there are absorbed by advance_one dropping the
+                # session and the job overlay marking all rows once one runs.
+                if STAGE_SPECS[stage].unit == "subject":
+                    key = (stage, str(row["subject"]))
+                    if key in seen_subject_units:
+                        continue
+                    seen_subject_units.add(key)
                 runnable_by_stage[stage].append(row)
 
     view = matrix

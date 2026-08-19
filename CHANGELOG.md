@@ -12,6 +12,23 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **External FreeSurfer recon stage feeding fMRIPrep** (`docs/pipeline-extras.md`
+  §9; asked for by LCNI). Set `[freesurfer] use_external = true` in a project's
+  `code/duckbrain.toml` and the new `freesurfer` stage runs the pinned system
+  FreeSurfer's `recon-all` (default pin 8.2.0) once per **subject** — all
+  sessions' T1w together, plus a T2w for pial refinement when one exists —
+  stages the recon privately, and imports only a *completed* recon into
+  `<derivatives>/fmriprep/sourcedata/freesurfer/`, the path fMRIPrep reads with
+  no flag. fMRIPrep then gains `--fs-no-resume` and **refuses to submit** until
+  the subject's recon is complete *and* build-stamped with the pinned version —
+  without both, fMRIPrep quietly builds or resumes a recon with its own bundled
+  FreeSurfer 7 and nothing says so. A pre-existing recon at the import path from
+  a different FreeSurfer is likewise refused with the fix stated, never graded
+  complete, silently imported, or deleted. The Status board gains the column and
+  the per-subject run control automatically; dependency resolution now returns
+  every producer a stage waits for (`pipeline.effective_dependencies`), so an
+  external-recon project gates fMRIPrep on both its input tree and the recon.
+
 - **A project can adopt an existing BIDS dataset — no DICOM conversion.**
   Point Project Setup's project directory at a BIDS root converted elsewhere
   (heudiconv output, an OpenNeuro download) and turn on **"This project uses

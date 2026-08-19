@@ -463,6 +463,14 @@ _DUCKBRAIN_RECIPE_STAGES = {
         "duckbrain supplies NORDIC's MATLAB entrypoint and sbatch recipe, so a "
         "release-line change can alter what NORDIC actually does"
     ),
+    # The external FreeSurfer recon is deliberately NOT here, though duckbrain
+    # authors its recipe too: this check compares against a dataset_description
+    # the stage would have to write, and the recon lands inside fMRIPrep's own
+    # sourcedata/freesurfer tree, which is a FreeSurfer SUBJECTS_DIR and not a
+    # derivative dataset of ours to stamp. Its identity question — which
+    # FreeSurfer built this — is answered by the recon's own build-stamp, which
+    # both launch gates verify against the [freesurfer] pin (core/freesurfer.py);
+    # the submission log carries duckbrain's version as for every stage.
 }
 
 
