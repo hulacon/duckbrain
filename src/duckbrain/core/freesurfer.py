@@ -105,8 +105,55 @@ def staging_subjects_dir(derivatives_dir: str | Path, subject: str) -> Path:
 
 
 def recon_done_file(subject_dir: str | Path) -> Path:
-    """recon-all's own completion marker inside one subject's recon."""
+    """recon-all's run marker inside one subject's recon.
+
+    NOT a success marker on its own. FreeSurfer 8's recon-all writes this file
+    on **both** exit paths — the success block fills it with a rich record
+    (``SUBJECT``/``START_TIME``/``END_TIME``/…), the error path writes the
+    single line ``1`` (``bin/recon-all``, the ``echo "1" > $DoneFile`` arm) —
+    and the pilot proved it: an OOM-killed run left a stub recon carrying both
+    this file and ``recon-all.error``, and the first import gate waved it
+    through (fs8_pilot job 46353636/46358868, 2026-08-19). Success is
+    :func:`done_marks_success` + no error file + the artifacts, never bare
+    existence.
+    """
     return Path(subject_dir) / "scripts" / "recon-all.done"
+
+
+def recon_error_file(subject_dir: str | Path) -> Path:
+    """recon-all's error marker. Both markers are ``rm -f``-ed at the start of
+    every run (same source, the ``rm -f $DoneFile`` / ``rm -f $ErrorFile``
+    pair), so a stale error can never linger past a later successful re-run."""
+    return Path(subject_dir) / "scripts" / "recon-all.error"
+
+
+def done_marks_success(subject_dir: str | Path) -> bool:
+    """Whether the done file carries the success-path record.
+
+    The success block always writes an ``END_TIME`` line; the error path
+    writes only ``1``. Checked positively for the success format rather than
+    negatively against the sentinel, so an unrecognized future format fails
+    closed.
+    """
+    try:
+        text = recon_done_file(subject_dir).read_text()
+    except OSError:
+        return False
+    return any(line.startswith("END_TIME") for line in text.splitlines())
+
+
+#: The recon artifacts fMRIPrep's import actually consumes — the
+#: ``--fs-no-resume`` contract makes their presence *our* responsibility
+#: ("The user is responsible for ensuring that all necessary files are
+#: present"). A marker-only gate is one semantics change away from importing
+#: a stub; these cannot be argued with.
+_REQUIRED_ARTIFACTS = (
+    "surf/lh.white",
+    "surf/rh.white",
+    "surf/lh.pial",
+    "surf/rh.pial",
+    "mri/aparc+aseg.mgz",
+)
 
 
 def build_stamp(subject_dir: str | Path) -> str:
@@ -132,16 +179,29 @@ def stamp_version(stamp: str) -> str:
 def recon_complete(config: Config, subject_dir: str | Path) -> bool:
     """Whether *subject_dir* holds a finished recon from the pinned FreeSurfer.
 
-    Both halves are required. ``recon-all.done`` alone accepts fMRIPrep's own
-    FS7 recon (same path, same marker); the stamp alone accepts a crashed FS8
-    run. The comparison is against the exact pin: after a ``[freesurfer]
-    version`` bump an existing recon stops grading complete — deliberately, the
-    same posture as the fMRIPrep-version drift check, and the mismatch message
-    at the launch gate states the two ways out.
+    Four requirements, each carrying real weight:
+
+    * the done file in its **success format** (:func:`done_marks_success`) —
+      bare existence also matches every failed FS8 run;
+    * **no** ``recon-all.error`` — written by the failure path, cleared at the
+      start of every run, so it is exactly "the last run failed";
+    * the build stamp matching the exact ``[freesurfer] version`` pin —
+      ``recon-all.done`` alone also matches fMRIPrep's own FS7 recon at the
+      identical path, and after a pin bump an existing recon deliberately
+      stops grading complete (same posture as the fMRIPrep drift check; the
+      launch-gate message states the two ways out);
+    * the surfaces and segmentation fMRIPrep's import consumes
+      (``_REQUIRED_ARTIFACTS``) — the ``--fs-no-resume`` contract puts their
+      presence on us, and no marker semantics can fake them.
     """
-    if not recon_done_file(subject_dir).is_file():
+    subject_dir = Path(subject_dir)
+    if not done_marks_success(subject_dir):
         return False
-    return stamp_version(build_stamp(subject_dir)) == fs_version(config)
+    if recon_error_file(subject_dir).exists():
+        return False
+    if stamp_version(build_stamp(subject_dir)) != fs_version(config):
+        return False
+    return all((subject_dir / rel).is_file() for rel in _REQUIRED_ARTIFACTS)
 
 
 def container_visible(path: str | Path) -> str:

@@ -819,19 +819,22 @@ def _fs_config(root):
     return cfg
 
 
-def _fs_recon(root, subject="01", stamp=FS8_STAMP, done=True):
-    scripts = (
-        root
-        / "derivatives"
-        / "fmriprep"
-        / "sourcedata"
-        / "freesurfer"
-        / f"sub-{subject}"
-        / "scripts"
-    )
-    _touch(scripts / "build-stamp.txt", stamp)
-    if done:
-        _touch(scripts / "recon-all.done")
+def _fs_recon(root, subject="01", stamp=FS8_STAMP, complete=True):
+    subj = root / "derivatives" / "fmriprep" / "sourcedata" / "freesurfer" / f"sub-{subject}"
+    _touch(subj / "scripts" / "build-stamp.txt", stamp)
+    if complete:
+        _touch(subj / "scripts" / "recon-all.done", "------------------------------\nEND_TIME t1\n")
+        for rel in (
+            "surf/lh.white",
+            "surf/rh.white",
+            "surf/lh.pial",
+            "surf/rh.pial",
+            "mri/aparc+aseg.mgz",
+        ):
+            _touch(subj / rel)
+    else:
+        _touch(subj / "scripts" / "recon-all.done", "1\n")
+        _touch(subj / "scripts" / "recon-all.error")
 
 
 def test_freesurfer_is_na_without_use_external(tmp_path):

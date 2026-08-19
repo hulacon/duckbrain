@@ -760,14 +760,20 @@ def test_recon_inputs_one_i_flag_per_t1w_and_optional_t2():
 
 
 def test_recon_verifies_before_importing_and_never_imports_unverified():
-    """The import rename must be unreachable except through recon_ok — the
-    done-marker AND the pinned version's build-stamp. An exit-0 recon-all that
-    left no done-marker (or a FreeSurfer 7 tree at the final path) must end the
-    job, not reach `mv`."""
+    """The import rename must be unreachable except through recon_ok, whose
+    conditions mirror core.freesurfer.recon_complete. Existence of
+    recon-all.done is NOT one of them: FS8 writes that file on failure too
+    (content "1"), which is how pilot job 46358868 imported an OOM-killed
+    stub. The gate must read the success format (END_TIME), refuse an error
+    file, pin the build-stamp, and see the surfaces fMRIPrep consumes."""
     script = _recon_script()
     assert 'recon_ok "$STAGED"' in script
     assert 'recon_ok "$FINAL"' in script
+    assert 'grep -q "^END_TIME" "$1/scripts/recon-all.done"' in script
+    assert '[ ! -e "$1/scripts/recon-all.error" ]' in script
     assert 'grep -qF -- "-8.2.0"' in script
+    assert '[ -f "$1/surf/lh.white" ]' in script
+    assert '[ -f "$1/mri/aparc+aseg.mgz" ]' in script
     # mv appears once, after the verification gates.
     assert script.count('mv "$STAGED" "$FINAL"') == 1
     assert script.index("recon_ok()") < script.index('mv "$STAGED" "$FINAL"')

@@ -25,20 +25,42 @@ from duckbrain.core.freesurfer import (
     use_external_fs,
 )
 
-FS8_STAMP = "freesurfer-linux-ubuntu22.04_x86_64-8.2.0-20250101-abcdef0"
+FS8_STAMP = "freesurfer-linux-rocky8_x86_64-8.2.0-20260314-d932c45"
 FS7_STAMP = "freesurfer-linux-centos7_x86_64-7.3.2-20220804-6354275"
+
+# What FS8's recon-all actually writes on each exit path (read from the
+# script's own source, and hit live by pilot jobs 46353636/46358868): success
+# is a rich record with END_TIME; failure is the single line "1" — and the
+# done file exists in BOTH cases.
+DONE_SUCCESS = "------------------------------\nSUBJECT sub-x\nSTART_TIME t0\nEND_TIME t1\n"
+DONE_FAILURE = "1\n"
+
+ARTIFACTS = ("surf/lh.white", "surf/rh.white", "surf/lh.pial", "surf/rh.pial", "mri/aparc+aseg.mgz")
 
 
 def _cfg(**fs):
     return {"freesurfer": fs}
 
 
-def _recon(subject_dir: Path, stamp: str = FS8_STAMP, done: bool = True) -> Path:
+def _recon(
+    subject_dir: Path,
+    stamp: str = FS8_STAMP,
+    done: str | None = DONE_SUCCESS,
+    error: bool = False,
+    artifacts: bool = True,
+) -> Path:
     scripts = subject_dir / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     (scripts / "build-stamp.txt").write_text(stamp + "\n")
-    if done:
-        (scripts / "recon-all.done").write_text("done\n")
+    if done is not None:
+        (scripts / "recon-all.done").write_text(done)
+    if error:
+        (scripts / "recon-all.error").write_text("------------------------------\n")
+    if artifacts:
+        for rel in ARTIFACTS:
+            p = subject_dir / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"x")
     return subject_dir
 
 
@@ -92,10 +114,29 @@ def test_recon_complete_requires_done_and_matching_stamp(tmp_path):
     # The FS7 recon fMRIPrep's own bundled FreeSurfer writes at the same path:
     # done-marker present, wrong stamp. Grading it complete is Trap 1.
     assert recon_complete(cfg, _recon(tmp_path / "b", stamp=FS7_STAMP)) is False
-    # Crashed FS8 run: right stamp, no done-marker.
-    assert recon_complete(cfg, _recon(tmp_path / "c", done=False)) is False
+    # Crashed FS8 run: right stamp, no done-marker at all.
+    assert recon_complete(cfg, _recon(tmp_path / "c", done=None)) is False
     # Empty or absent dir.
     assert recon_complete(cfg, tmp_path / "nothing") is False
+
+
+def test_recon_complete_rejects_every_failed_run_shape(tmp_path):
+    """FS8 writes recon-all.done on FAILURE too — the error path's is the bare
+    line "1", beside a recon-all.error. Pilot job 46358868 imported an
+    OOM-killed stub past the existence-only check; none of these shapes may
+    ever grade complete again."""
+    cfg = _cfg(version="8.2.0")
+    # The exact stub the OOM left: failure-format done + error file + no
+    # surfaces (a real failed run has all three, but each alone must refuse).
+    assert (
+        recon_complete(cfg, _recon(tmp_path / "a", done=DONE_FAILURE, error=True, artifacts=False))
+        is False
+    )
+    assert recon_complete(cfg, _recon(tmp_path / "b", done=DONE_FAILURE)) is False
+    assert recon_complete(cfg, _recon(tmp_path / "c", error=True)) is False
+    assert recon_complete(cfg, _recon(tmp_path / "d", artifacts=False)) is False
+    # Unrecognized done format fails closed, not open.
+    assert recon_complete(cfg, _recon(tmp_path / "e", done="something new\n")) is False
 
 
 def test_build_stamp_reads_first_line_or_empty(tmp_path):

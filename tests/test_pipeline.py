@@ -1529,20 +1529,30 @@ def _t1w(root, subject="008", session="01"):
     (anat / f"sub-{subject}_ses-{session}_T1w.nii.gz").write_bytes(b"x")
 
 
-def _recon_on_disk(tmp_path, subject="008", stamp=FS8_STAMP, done=True):
-    scripts = (
-        tmp_path
-        / "derivatives"
-        / "fmriprep"
-        / "sourcedata"
-        / "freesurfer"
-        / f"sub-{subject}"
-        / "scripts"
-    )
+def _recon_on_disk(tmp_path, subject="008", stamp=FS8_STAMP, complete=True):
+    """A recon in the shape FS8 actually leaves: success writes a rich done
+    record (END_TIME line) plus the surfaces; failure (complete=False) is the
+    OOM stub pilot 46358868 wrongly imported — done file reading "1", an
+    error file, no surfaces."""
+    subj = tmp_path / "derivatives" / "fmriprep" / "sourcedata" / "freesurfer" / f"sub-{subject}"
+    scripts = subj / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     (scripts / "build-stamp.txt").write_text(stamp + "\n")
-    if done:
-        (scripts / "recon-all.done").write_text("done\n")
+    if complete:
+        (scripts / "recon-all.done").write_text("------------------------------\nEND_TIME t1\n")
+        for rel in (
+            "surf/lh.white",
+            "surf/rh.white",
+            "surf/lh.pial",
+            "surf/rh.pial",
+            "mri/aparc+aseg.mgz",
+        ):
+            p = subj / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"x")
+    else:
+        (scripts / "recon-all.done").write_text("1\n")
+        (scripts / "recon-all.error").write_text("------------------------------\n")
 
 
 def _license(monkeypatch, tmp_path):

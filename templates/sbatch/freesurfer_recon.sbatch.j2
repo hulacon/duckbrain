@@ -34,12 +34,21 @@ IMPORT_DIR={{ import_dir | sh }}
 STAGED="$SUBJECTS_DIR_STAGING/sub-{{ subject }}"
 FINAL="$IMPORT_DIR/sub-{{ subject }}"
 
-# Completeness at this stage's level: recon-all's own done-marker AND its
-# build-stamp naming the pinned release. The marker alone also matches a recon
-# fMRIPrep's bundled FreeSurfer 7 wrote at the identical path.
+# Completeness, four conditions matching core.freesurfer.recon_complete:
+# the done file in its SUCCESS format (FS8 writes recon-all.done on failure
+# too — the error path's is the single line "1", the success path's carries
+# END_TIME; pilot job 46358868 imported an OOM-killed stub on the
+# existence-only check), no recon-all.error (cleared at every run start, so
+# it means "the last run failed"), the pinned build-stamp (existence alone
+# also matches fMRIPrep's own FS7 recon at this path), and the surfaces +
+# segmentation the fMRIPrep import actually consumes.
 recon_ok() {
-    [ -f "$1/scripts/recon-all.done" ] &&
-        grep -qF -- "-{{ fs_version }}" "$1/scripts/build-stamp.txt" 2>/dev/null
+    grep -q "^END_TIME" "$1/scripts/recon-all.done" 2>/dev/null &&
+        [ ! -e "$1/scripts/recon-all.error" ] &&
+        grep -qF -- "-{{ fs_version }}" "$1/scripts/build-stamp.txt" 2>/dev/null &&
+        [ -f "$1/surf/lh.white" ] && [ -f "$1/surf/rh.white" ] &&
+        [ -f "$1/surf/lh.pial" ] && [ -f "$1/surf/rh.pial" ] &&
+        [ -f "$1/mri/aparc+aseg.mgz" ]
 }
 
 if [ -d "$FINAL" ]; then
