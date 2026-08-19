@@ -12,6 +12,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **A project can adopt an existing BIDS dataset — no DICOM conversion.**
+  Point Project Setup's project directory at a BIDS root converted elsewhere
+  (heudiconv output, an OpenNeuro download) and turn on **"This project uses
+  an existing BIDS dataset (no DICOM conversion)"**: the Status board marks
+  ingestion *n/a* instead of billing you forever for DICOMs that don't exist
+  (so the "only unfinished" filter and the all-complete state finally work
+  for such projects), `participants.tsv` is rostered from the tree's own
+  `sub-*` directories with demographics at `n/a` rather than invented, Setup
+  stops asking for a DICOM source or a dcm2bids container, and fMRIPrep /
+  MRIQC / NORDIC run as usual. Uncompressed NIfTI (`.nii`) datasets are now
+  seen everywhere compressed ones are — previously a bare-`.nii` tree graded
+  as unconverted and every downstream stage stayed locked. See
+  `docs/external-bids.md` for the workflow and its caveats.
+
 - **The QC Overview now renders the IQR strip plots live under the run
   table** — the same per-measure distribution charts the exported dashboard
   carries, without exporting anything: one box per subject with every run as

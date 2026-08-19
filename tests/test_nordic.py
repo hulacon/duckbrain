@@ -454,3 +454,37 @@ def test_staged_bids_input_files_are_never_symlinks(tmp_path):
     assert staged, "nothing was staged, so this proves nothing"
     assert [p for p in staged if p.is_symlink()] == []
     assert [p for p in tree.rglob("*") if p.is_dir() and p.is_symlink()] == []
+
+
+# ---- uncompressed NIfTI (#41.4) ----------------------------------------------
+
+
+def test_get_bold_runs_finds_uncompressed_bolds(tmp_path):
+    """get_bold_runs is the run-count source of truth (surveyor expectations,
+    the NORDIC array size, fMRIPrep's run list) — a bare-.nii adopted tree must
+    count there or it counts nowhere."""
+    from duckbrain.core.nordic import get_bold_runs
+
+    func = tmp_path / "sub-04" / "func"
+    func.mkdir(parents=True)
+    (func / "sub-04_task-b_bold.nii").write_bytes(b"x")
+    (func / "sub-04_task-a_bold.nii.gz").write_bytes(b"x")
+    names = [p.name for p in get_bold_runs(tmp_path, "04", "")]
+    assert names == ["sub-04_task-a_bold.nii.gz", "sub-04_task-b_bold.nii"]
+
+
+def test_staged_tree_excludes_an_uncompressed_raw_bold(tmp_path):
+    """The staged tree replaces raw BOLDs with denoised ones. A bare-.nii raw
+    BOLD slipping past a .nii.gz-only exclusion would sit beside its denoised
+    twin as a duplicate run in fMRIPrep's input."""
+    ss = "sub-04"
+    deriv = _seed_raw_and_nordic(tmp_path, ss)
+    raw_func = tmp_path / ss / "func"
+    (raw_func / "sub-04_task-y_bold.nii").write_bytes(b"raw-uncompressed")
+    # Its denoised twin (nordic_denoise.m always writes .nii.gz).
+    (deriv / "nordic" / ss / "func" / "sub-04_task-y_bold.nii.gz").write_bytes(b"denoised")
+
+    out = build_nordic_bids_input(tmp_path, "04", "", deriv / "nordic")
+
+    assert (out / "func" / "sub-04_task-y_bold.nii.gz").read_bytes() == b"denoised"
+    assert not (out / "func" / "sub-04_task-y_bold.nii").exists()

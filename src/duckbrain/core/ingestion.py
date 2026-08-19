@@ -340,6 +340,33 @@ def sub_ses_relpath(subject: str, session: str = "") -> Path:
     return p
 
 
+def nii_glob(root: str | Path, pattern: str) -> list[Path]:
+    """Every NIfTI matching *pattern* (written **without** extension) under *root*.
+
+    Matches both spellings BIDS allows — ``.nii.gz`` and bare ``.nii``. duckbrain's
+    own conversions always compress, but an adopted external tree (heudiconv and
+    dcm2niix configs commonly emit uncompressed) must not be invisible: with a
+    ``.nii.gz``-only glob such a dataset graded ``converted`` MISSING and every
+    downstream stage gated off (TODO ``#41.4``). Lives here beside
+    :func:`sub_ses_relpath` because the surveyor, ``nordic.get_bold_runs`` and
+    ``expectations`` all need the same answer and already import this module.
+
+    When one image exists in both spellings, only the compressed one is returned
+    — two spellings are one acquisition, and counting both would invent a run.
+    Sorted, files only; callers keep their own non-empty checks.
+    """
+    root = Path(root)
+    found: dict[str, Path] = {}
+    for ext in (".nii", ".nii.gz"):  # .gz second: it wins a double-spelled image
+        try:
+            for p in root.glob(pattern + ext):
+                if p.is_file():
+                    found[str(p).removesuffix(".gz")] = p
+        except (OSError, ValueError):
+            continue
+    return sorted(found.values())
+
+
 def plan_ingest(mappings: list[BidsMapping], sourcedata_dir: str | Path) -> dict[str, list[str]]:
     """Destinations claimed by more than one folder: ``{relpath: [folder, ...]}``.
 

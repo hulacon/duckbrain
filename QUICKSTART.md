@@ -337,6 +337,15 @@ SLURM job (id, live state, log tail) and cancel or re-run it. Live
 page. The pages above are for the work Status can't do for you: choosing a
 project, mapping DICOMs, and recording QC decisions.
 
+**Already have BIDS data?** duckbrain does not need to have done the conversion.
+Point **Setup**'s project directory at your existing BIDS root (heudiconv
+output, an OpenNeuro download, a colleague's dataset — compressed or
+uncompressed NIfTI) and turn on **"This project uses an existing BIDS dataset
+(no DICOM conversion)"**. Steps 2–3 disappear from your life: the Status board
+marks ingestion *n/a*, `participants.tsv` is rostered from the tree itself, and
+you go straight to preprocessing and QC. Details and caveats:
+`docs/external-bids.md`.
+
 > `UNVALIDATED` — the new-user *feel* of this flow (where the friction points
 > are, whether the ingestion mapping and conversion steps are self-explanatory)
 > has not been assessed in a real browser session by a first-time user. That

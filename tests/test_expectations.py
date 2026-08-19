@@ -108,6 +108,22 @@ def test_observe_handles_a_session(tmp_path):
     assert observe(tmp_path, "001", "02").task == {"div": 4}
 
 
+def test_observe_counts_an_uncompressed_tree(tmp_path):
+    """#41.4: an adopted external tree may be bare .nii — the counts (and the
+    fmap sidecar lookup, which used to string-replace '.nii.gz') must see it."""
+    unit = tmp_path / "sub-001"
+    _touch(unit / "anat" / "sub-001_T1w.nii")
+    for i in (1, 2):
+        _touch(unit / "func" / f"sub-001_task-div_run-{i}_bold.nii")
+    for d in ("AP", "PA"):
+        _touch(unit / "fmap" / f"sub-001_dir-{d}_epi.nii")
+        _write(unit / "fmap" / f"sub-001_dir-{d}_epi.json", {"B0FieldIdentifier": "pair1"})
+    got = observe(tmp_path, "001")
+    assert got.anat == {"T1w": 1}
+    assert got.task == {"div": 2}
+    assert got.fmap_pairs == 1
+
+
 # ---- the declaration --------------------------------------------------------
 
 

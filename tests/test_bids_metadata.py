@@ -114,6 +114,36 @@ def test_generate_single_session_layout(tmp_path):
     assert [r["participant_id"] for r in _rows(tsv)] == ["sub-001", "sub-002"]
 
 
+def test_generate_participants_from_bids_rosters_sub_dirs(tmp_path):
+    """#41.3: an external-BIDS project has no sourcedata to mine — the honest
+    roster is the sub-* directories, demographics at n/a rather than invented."""
+    from duckbrain.core.bids_metadata import generate_participants_from_bids
+
+    for sub in ("sub-002", "sub-001"):
+        (tmp_path / sub / "anat").mkdir(parents=True)
+    (tmp_path / "sub-junk.txt").write_text("not a dir")
+    rows = _rows(generate_participants_from_bids(tmp_path))
+    assert [r["participant_id"] for r in rows] == ["sub-001", "sub-002"]
+    assert {r["sex"] for r in rows} == {"n/a"}
+    assert {r["age"] for r in rows} == {"n/a"}
+
+
+def test_append_respects_an_imported_files_own_columns(tmp_path):
+    """An imported TSV can carry columns duckbrain doesn't know, in an order it
+    didn't choose. Appending rows in duckbrain's own column order under that
+    header silently misaligned every added row."""
+    from duckbrain.core.bids_metadata import generate_participants_from_bids
+
+    (tmp_path / "participants.tsv").write_text("participant_id\tgroup\tage\nsub-001\tactive\t34\n")
+    for sub in ("sub-001", "sub-002"):
+        (tmp_path / sub).mkdir()
+
+    rows = _rows(generate_participants_from_bids(tmp_path))
+    assert rows[0] == {"participant_id": "sub-001", "group": "active", "age": "34"}
+    # The appended row landed under the file's header, unknown columns at n/a.
+    assert rows[1] == {"participant_id": "sub-002", "group": "n/a", "age": "n/a"}
+
+
 def test_write_participants_append_dedupes(tmp_path):
     write_participants_tsv(tmp_path, [{"participant_id": "sub-001", "sex": "M", "age": 20}])
     write_participants_tsv(

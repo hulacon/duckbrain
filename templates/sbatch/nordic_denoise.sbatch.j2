@@ -18,10 +18,13 @@ echo "Node: $(hostname)"
 # Discover BOLD runs. Paths carry `| sh` — one interpolation, one shell argument
 # — and every expansion of them is quoted in turn.
 FUNC_DIR={{ (paths.bids_dir ~ "/sub-" ~ subject ~ ("/ses-" ~ session if session else "") ~ "/func") | sh }}
-BOLD_FILES=($(ls "${FUNC_DIR}"/*_bold.nii.gz 2>/dev/null | sort))
+# Both NIfTI spellings, sorted lexicographically — the SAME list, in the SAME
+# order, as python's nordic.get_bold_runs (ingestion.nii_glob), because the
+# array size was computed from that list and each task indexes into this one.
+BOLD_FILES=($(ls "${FUNC_DIR}"/*_bold.nii.gz "${FUNC_DIR}"/*_bold.nii 2>/dev/null | sort))
 # Count via wc, not a bash array-length expansion: the hash-brace token in
 # that expansion collides with Jinja's comment-open and breaks rendering.
-NUM_RUNS=$(ls "${FUNC_DIR}"/*_bold.nii.gz 2>/dev/null | wc -l)
+NUM_RUNS=$(ls "${FUNC_DIR}"/*_bold.nii.gz "${FUNC_DIR}"/*_bold.nii 2>/dev/null | sort | wc -l)
 
 if [ $NUM_RUNS -eq 0 ]; then
     echo "ERROR: No BOLD files found in ${FUNC_DIR}"
@@ -37,8 +40,12 @@ echo "Processing: $BOLD_IN"
 OUT_DIR={{ (paths.derivatives_dir ~ "/nordic/sub-" ~ subject ~ ("/ses-" ~ session if session else "") ~ "/func") | sh }}
 mkdir -p "$OUT_DIR"
 
-# Check if already processed
+# Check if already processed. The output is always .nii.gz whatever the input
+# spelling (nordic_denoise.m writes gzipped), so normalize before comparing —
+# checking for the input's own name would re-denoise a bare-.nii run forever.
 BOLD_BASENAME=$(basename "$BOLD_IN")
+BOLD_BASENAME="${BOLD_BASENAME%.gz}"
+BOLD_BASENAME="${BOLD_BASENAME%.nii}.nii.gz"
 if [ -f "${OUT_DIR}/${BOLD_BASENAME}" ]; then
     echo "Output already exists, skipping: ${OUT_DIR}/${BOLD_BASENAME}"
     exit 0

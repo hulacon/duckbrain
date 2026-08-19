@@ -405,3 +405,49 @@ def test_a_hand_written_authors_list_seeds_the_widget_readably(project):
 
     at = _open(project)
     assert _text_area(at, "Authors").value == "Jane Doe\nJohn Roe"
+
+
+# ---- #41.1: declaring an existing BIDS dataset --------------------------------
+
+_EXTERNAL = "This project uses an existing BIDS dataset (no DICOM conversion)"
+
+
+def test_external_bids_saves_and_reads_back(project):
+    at = _open(project)
+    assert _toggle(at, _EXTERNAL).value is False, "a fresh project defaults to converting"
+
+    _toggle(at, _EXTERNAL).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    from duckbrain.config import external_bids
+
+    assert external_bids(load_config(project_dir=str(project))) is True
+    assert _toggle(_open(project), _EXTERNAL).value is True
+
+
+def test_external_bids_hides_the_dicom_source_picker(project):
+    """A user importing BIDS has no DICOM export to point at; the subheader and
+    picker asking for one are noise that says the wrong workflow applies."""
+    at = _open(project)
+    assert any("LCNI DICOM source" in s.value for s in at.subheader)
+
+    _toggle(at, _EXTERNAL).set_value(True)
+    at.run()
+    assert not at.exception
+    assert not any("LCNI DICOM source" in s.value for s in at.subheader)
+
+
+def test_external_bids_keeps_a_stored_dicom_source(project):
+    """Toggling external on is a statement about conversion, not a request to
+    forget where the DICOMs were — the hidden field must round-trip, not be
+    reconciled away by the owned-section save."""
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(str(project), {"dcm_source": {"dir": "/somewhere/dicoms"}})
+
+    at = _open(project)
+    _toggle(at, _EXTERNAL).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+    assert _load_toml(project_config_path(project))["dcm_source"]["dir"] == "/somewhere/dicoms"

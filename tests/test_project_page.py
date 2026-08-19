@@ -82,6 +82,33 @@ def test_generate_dataset_description_writes_the_json(project):
     assert desc["Name"] == "test"
 
 
+def test_generate_participants_external_project_rosters_the_bids_tree(project):
+    """#41.3: a declared-external project has no sourcedata DICOMs — the roster
+    comes from the tree's own sub-* dirs, demographics at n/a, not from an
+    error telling the user to ingest something that will never exist."""
+    save_project_config(str(project), {"project": {"external_bids": True}})
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    next(b for b in at.button if "participants.tsv" in b.label).click().run()
+    assert not at.exception
+    assert not at.error
+    text = (project / "participants.tsv").read_text()
+    assert "sub-01" in text
+    assert "n/a" in text
+
+
+def test_generate_participants_guard_tests_for_subjects_not_the_dir(project):
+    """scaffold_project creates sourcedata/ empty in every project, so its mere
+    existence must not pass the guard — that defeated it, and the button ran
+    against nothing while reporting a benign warning."""
+    import shutil
+
+    shutil.rmtree(project / "sourcedata" / "sub-01")
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    next(b for b in at.button if "participants.tsv" in b.label).click().run()
+    assert not at.exception
+    assert any("No ingested subjects" in e.value for e in at.error)
+
+
 # ---- Declared expectations ----
 
 

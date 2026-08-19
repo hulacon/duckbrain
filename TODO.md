@@ -15,10 +15,9 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#16`](#16) **next** — sanity checks (Slices A–C done; `#16.3` open) ·
-[`#41`](#41) adopt an existing BIDS dataset — the two data-destroying bugs
-shipped 2026-08-18; the feature half is open ·
-[`#42`](#42) 100-subject scale — the cheap tranche is measured and itemized ·
+[`#42`](#42) **next** — 100-subject scale; the cheap tranche is measured and
+itemized ·
+[`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
 [Licensing](#licensing-follow-ups) ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
 walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
@@ -47,8 +46,13 @@ section; see the ledger), and `v0.6.0` was cut the same day — a fact this file
 kept misstating as "ready to cut" for a day afterwards; `git tag` and the
 Releases page agree it is out and published. On 2026-08-17 `#13.2` shipped —
 the plan-time schema check, taking `#19.11`'s answer with it — which closed
-`#13` outright, so `#16` leads the queue and `#13.2` rides in whatever release
-comes next.
+`#13` outright, so `#16` led the queue and `#13.2` rides in whatever release
+comes next. On 2026-08-18 a prospective user with an already-BIDS,
+~100-subject study opened `#41` (adopt an existing BIDS dataset) and `#42`
+(scale), and Ben put both above `#16`. `#41` closed the same day — the two
+data-destroying metadata bugs first, then the declaration, the surveyor's NA
+generalization, the BIDS-tree roster, `.nii` support and `docs/external-bids.md`
+(see the ledger) — so `#42` leads.
 
 ---
 
@@ -171,6 +175,74 @@ consistently refused elsewhere.
 
 ---
 
+<a id="42"></a>
+## #42 — Scale: ~100 subjects without the GUI going to sleep
+
+**Asked for by the same prospective user whose other question became `#41`
+(2026-08-18, closed same day — see the ledger): their study is ~100 subjects.**
+Dogfooding has been 5–40. The 2026-08-18 survey measured where it strains; the verdict is
+that nothing is architecturally wrong — SLURM polling is O(1) in cohort size
+(one `squeue` + one `sacct` per render, deliberately merged;
+`docs/pipeline-cockpit.md`), and the `checks.py` CHEAP/EXPENSIVE registry with
+its fingerprinted snapshot is exactly the right shape — but two hot paths
+re-derive the world per render, and at 100×2 units the numbers stop being
+tolerable.
+
+**The two measured offenders:**
+
+- `survey_project` runs **five times per cockpit render** — once in
+  `survey_live`, four more inside `check_consistency` — with no cache of any
+  kind, inside the 30 s auto-refresh fragment. Measured ~25 ms/unit cold on
+  GPFS → ~25 s/render at 200 units, blowing the refresh budget outright.
+  (`docs/pipeline-cockpit.md` contemplated "a survey_live cache with short ttl";
+  never built.)
+- `qc_panels` calls `qc.summarize_motion` **uncached, directly below the
+  carefully-cached `_load_metrics`** — it rglobs the fMRIPrep tree and parses
+  every confounds TSV on every widget interaction. Measured ~35 ms/file → ~42 s
+  and ~1 GB parsed per slider drag at ~1200 files. Needs ~4 columns of each.
+
+**The cheap tranche (about a day, in value order):**
+
+- **`#42.1`** — `st.cache_data` on `summarize_motion` with a
+  `(count, newest_mtime)` fingerprint (the `_fingerprint_of` pattern next door;
+  mind the `#29` non-underscore naming rule, `tests/test_streamlit_caches.py`)
+  plus `usecols=` on the read. Biggest win per line in the repo.
+- **`#42.2`** — the cockpit popovers evaluate their bodies on every render
+  (Streamlit executes popover content eagerly unless `on_change="rerun"`), so
+  every running cell's log globbing and the fMRIPrep cells' two recursive
+  anat-derivative globs run 100× per refresh. This is the *unfixed half* of
+  DB-010 — `docs/code-review-260722.md` recommended exactly this and only the
+  stderr half shipped.
+- **`#42.3`** — stop re-deriving: thread the matrix `survey_live` already built
+  into `check_consistency(config, matrix=...)` so its four internal surveys
+  reuse it. 5× → 1× for a small refactor.
+- **`#42.4`** — bulk submission is a blocking sequential sbatch loop with no
+  progress bar and no `MaxSubmitJobs` preflight; 200 units ≈ 40–200 s frozen,
+  and a mid-loop rejection renders as a pile of separate errors. The
+  Conversion page's bulk path already does this right (`st.progress`, per-row
+  results) — mirror it.
+- **`#42.5`** — the MRIQC flat-layout globs scan the whole derivative root once
+  per unit (O(N²) in units; ~400 root scandirs per survey at 100×2). Hoist to
+  one `os.scandir` bucketed by filename prefix.
+- **`#42.6`** — board ergonomics: paginate past ~50 rows (the `only_incomplete`
+  filter helps least mid-study, when most rows are incomplete), and make the
+  fragment interval adaptive — 30 s while jobs are live, minutes otherwise.
+
+**Design-level, unscheduled:**
+
+- **A persisted survey snapshot.** `surveyor.py`'s docstring already names
+  `checks.json` as the one deliberate exception to "no state store, re-derive
+  live"; the survey matrix is the second candidate, and the staleness-honesty
+  argument was already had for the first. Do not build a second, different
+  caching story — extend that one.
+- **Cross-subject job arrays** for fMRIPrep/MRIQC — one `--array=1-100` with a
+  subject-index lookup instead of 100 sbatch calls and 100 queue rows. Requires
+  rethinking the `{prefix}_{tag}` job-name join key `survey_live` matches on
+  (array tasks report as `12345_3`; `_attempt_order` already anticipates the
+  form). NORDIC's per-run array inside one unit is prior art in-repo.
+
+---
+
 <a id="16"></a>
 ## #16 — Sanity checks: what we asked for vs. what we got
 
@@ -264,139 +336,6 @@ never took effect was never tested by reality, so activating one is a
 data-migration problem, not just a fix. duckbrain's shipped default partition was
 `medium` — not a Talapas partition at all — and that was invisible for months
 *because* the field was inert.
-
----
-
-<a id="41"></a>
-## #41 — Adopt an existing BIDS dataset (no DICOM conversion)
-
-**Asked for by a prospective user, 2026-08-18** — they have data already in BIDS
-and want the downstream half of duckbrain (fMRIPrep / MRIQC / NORDIC submission,
-the cockpit, QC) without re-converting. The 2026-08-18 code survey found this
-**mostly works today, on purpose**: `derive_paths` anchors on the project dir
-(which *is* the BIDS root), `dcm_source` is optional in Setup,
-`surveyor.discover_units` and `_converted_status` carry explicit
-external-BIDS branches, `consistency` deliberately raises nothing for un-stamped
-provenance, and the submission builders read only `bids_dir` — NORDIC included
-(magnitude-only, globs BOLD from the raw tree). But **nothing anywhere says the
-workflow is supported**, so it reads as accidental; and three things degrade,
-two of which destroyed user data until 2026-08-18.
-
-**Shipped 2026-08-18 (ahead of the feature, because they are bugs regardless):**
-`write_participants_tsv` no longer overwrites an existing `participants.json`
-(an imported dataset's column definitions — group, handedness — were silently
-destroyed); `write_dataset_description` merges `GeneratedBy` by `Name` instead
-of replacing the list (heudiconv's/OpenNeuro's entry survives a refresh); and
-`converter_generated_by` claims the dcm2bids entry only at the conversion choke
-point (`converting=True`) or when sourcedata holds a saved
-`dcm2bids_config.json` — the surveyor's own discriminator — so an imported tree
-no longer gets a fabricated converter attribution. All pinned in
-`tests/test_bids_metadata.py`.
-
-**Open sub-items, in build order:**
-
-- **`#41.1` — the declaration.** A Setup-page toggle ("this project uses an
-  existing BIDS dataset — no DICOM conversion") writing one project-config key.
-  The key must join `_PROJECT_OWNED` on the Setup page (omitting it raises on
-  save, by design); the toggle should also collapse the DICOM-source subheader
-  and suppress the "Container not found: dcm2bids" warning for a user who will
-  never convert.
-- **`#41.2` — the surveyor, the highest-value single change.**
-  `survey_project` special-cases only `nordic` for `Status.NA`; generalize that
-  into a per-stage applicability map so `ingested` (and `converted`, for a
-  declared-external project) grade NA. Without it the cockpit reads "Ingested
-  0/N · ○ N missing" forever, the "only unfinished" filter matches every row,
-  and the all-complete message can never fire — the exact failure mode `#17.4`
-  fixed for NORDIC. `Status.NA` is already handled everywhere downstream, so no
-  page changes.
-- **`#41.3` — participants.tsv from the BIDS tree.** The Project-page button is
-  sourcedata-only, and its guard passes on the *empty* `sourcedata/` that
-  `scaffold_project` creates. Either hide it for an external project or add a
-  `generate_participants_from_bids` that enumerates `sub-*` dirs. (Harmless
-  since the sidecar fix — worst case is a header-only TSV and a warning — but
-  still a button that can't do what it says.)
-- **`#41.4` — uncompressed NIfTI.** `.nii.gz` is hardcoded in
-  `surveyor._converted_status`, `nordic.get_bold_runs` (the run-count source of
-  truth — fixing it there propagates to the surveyor, run progress, and the
-  submission builders at once) and `expectations`. A plain-`.nii` dataset is
-  invisible: `converted` grades MISSING and every downstream stage gates off.
-- **`#41.5` — say it's supported.** A `QUICKSTART.md` paragraph and a `docs/`
-  note. The support exists only as scattered design comments today; a user
-  can't be told "point Setup at your BIDS root" by any published word.
-
-**Noted, not scheduled:** the BIDS validator runs inside the dcm2bids container,
-so an import-only user still fetches ~1 GB to validate (it degrades honestly via
-`validator_unavailable_reason`); `_fmap_pair_count` counts only `*_epi` pairs,
-so phasediff/GRE fieldmaps — common on OpenNeuro — read as 0 (that is `#19.6`'s
-gap, hitting imported data harder); a DataLad/git-annex clone with unfetched
-content (broken symlinks) grades MISSING throughout.
-
----
-
-<a id="42"></a>
-## #42 — Scale: ~100 subjects without the GUI going to sleep
-
-**Same prospective user, same day: their study is ~100 subjects.** Dogfooding
-has been 5–40. The 2026-08-18 survey measured where it strains; the verdict is
-that nothing is architecturally wrong — SLURM polling is O(1) in cohort size
-(one `squeue` + one `sacct` per render, deliberately merged;
-`docs/pipeline-cockpit.md`), and the `checks.py` CHEAP/EXPENSIVE registry with
-its fingerprinted snapshot is exactly the right shape — but two hot paths
-re-derive the world per render, and at 100×2 units the numbers stop being
-tolerable.
-
-**The two measured offenders:**
-
-- `survey_project` runs **five times per cockpit render** — once in
-  `survey_live`, four more inside `check_consistency` — with no cache of any
-  kind, inside the 30 s auto-refresh fragment. Measured ~25 ms/unit cold on
-  GPFS → ~25 s/render at 200 units, blowing the refresh budget outright.
-  (`docs/pipeline-cockpit.md` contemplated "a survey_live cache with short ttl";
-  never built.)
-- `qc_panels` calls `qc.summarize_motion` **uncached, directly below the
-  carefully-cached `_load_metrics`** — it rglobs the fMRIPrep tree and parses
-  every confounds TSV on every widget interaction. Measured ~35 ms/file → ~42 s
-  and ~1 GB parsed per slider drag at ~1200 files. Needs ~4 columns of each.
-
-**The cheap tranche (about a day, in value order):**
-
-- **`#42.1`** — `st.cache_data` on `summarize_motion` with a
-  `(count, newest_mtime)` fingerprint (the `_fingerprint_of` pattern next door;
-  mind the `#29` non-underscore naming rule, `tests/test_streamlit_caches.py`)
-  plus `usecols=` on the read. Biggest win per line in the repo.
-- **`#42.2`** — the cockpit popovers evaluate their bodies on every render
-  (Streamlit executes popover content eagerly unless `on_change="rerun"`), so
-  every running cell's log globbing and the fMRIPrep cells' two recursive
-  anat-derivative globs run 100× per refresh. This is the *unfixed half* of
-  DB-010 — `docs/code-review-260722.md` recommended exactly this and only the
-  stderr half shipped.
-- **`#42.3`** — stop re-deriving: thread the matrix `survey_live` already built
-  into `check_consistency(config, matrix=...)` so its four internal surveys
-  reuse it. 5× → 1× for a small refactor.
-- **`#42.4`** — bulk submission is a blocking sequential sbatch loop with no
-  progress bar and no `MaxSubmitJobs` preflight; 200 units ≈ 40–200 s frozen,
-  and a mid-loop rejection renders as a pile of separate errors. The
-  Conversion page's bulk path already does this right (`st.progress`, per-row
-  results) — mirror it.
-- **`#42.5`** — the MRIQC flat-layout globs scan the whole derivative root once
-  per unit (O(N²) in units; ~400 root scandirs per survey at 100×2). Hoist to
-  one `os.scandir` bucketed by filename prefix.
-- **`#42.6`** — board ergonomics: paginate past ~50 rows (the `only_incomplete`
-  filter helps least mid-study, when most rows are incomplete), and make the
-  fragment interval adaptive — 30 s while jobs are live, minutes otherwise.
-
-**Design-level, unscheduled:**
-
-- **A persisted survey snapshot.** `surveyor.py`'s docstring already names
-  `checks.json` as the one deliberate exception to "no state store, re-derive
-  live"; the survey matrix is the second candidate, and the staleness-honesty
-  argument was already had for the first. Do not build a second, different
-  caching story — extend that one.
-- **Cross-subject job arrays** for fMRIPrep/MRIQC — one `--array=1-100` with a
-  subject-index lookup instead of 100 sbatch calls and 100 queue rows. Requires
-  rethinking the `{prefix}_{tag}` job-name join key `survey_live` matches on
-  (array tasks report as `12345_3`; `_attempt_order` already anticipates the
-  form). NORDIC's per-run array inside one unit is prior art in-repo.
 
 ---
 
@@ -1277,6 +1216,16 @@ plus the `ssh -L` line it prints.
    selected, and does returning to the Overview stay put rather than
    re-firing the click; does a box-select of several points open exactly one
    run rather than misbehaving.
+8. **The external-BIDS declaration's three surfaces** (`#41`, 2026-08-18).
+   AppTest pins the toggle's save, the hidden subheader, and the NA grades;
+   what it cannot judge is the *reading* of them together. On a project
+   pointed at an existing BIDS tree with the toggle on: does Setup read
+   coherently with the DICOM-source section gone (no orphaned gap, the NORDIC
+   subheader flowing sensibly after the toggle); does the Status board's
+   **Ingested** column render "— n/a" down its length with the rollup line
+   omitting it rather than shouting 0/N; and does the Project page's
+   participants button produce a table that reads right with `n/a`
+   demographics.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
@@ -1441,6 +1390,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-18 | `#41` | **Adopt an existing BIDS dataset — no DICOM conversion.** Asked for by a prospective user; the downstream half already worked by design (the surveyor's external branches, consistency's un-stamped-provenance stance, submission builders reading only `bids_dir`), so the item was the gap between working and *supported*. Shipped in two commits, bugs first: the metadata buttons stopped destroying imported data (`participants.json` written only when absent; `GeneratedBy` merged by `Name`; the dcm2bids entry claimed only at the choke point or with a saved conversion config as evidence — `tests/test_bids_metadata.py`). Then the feature: a Setup toggle writing `[project] external_bids` (`config.external_bids`, the only independent statement — an empty sourcedata is equally true of a project that hasn't started); `survey_project`'s NORDIC special case generalized to a per-stage applicability map so `ingested` grades NA (`converted` deliberately keeps grading — `stage_runnable` gates on it, and presence is real information); participants rostered from the BIDS tree with the file's own column order respected (`generate_participants_from_bids` — the our-order-under-their-header append silently misaligned every row); `.nii` seen everywhere `.nii.gz` is via `ingestion.nii_glob` (dedup prefers `.gz`; the NORDIC template's bash glob, skip-check and staging exclusions widened to match); `docs/external-bids.md` + a QUICKSTART pointer say it out loud. Residual caveats (validator needs the dcm2bids container; phasediff pairs read 0, `#19.6`; DataLad broken symlinks grade MISSING) are recorded in the doc. The three GUI surfaces are a `#30` entry. |
 | 2026-08-18 | `#39` | **The exported dashboard's IQR strip plots render live under the Overview run table, click-to-inspect.** One figure builder for both delivery paths (`qc_report.build_iqm_figure`; the export's `_render_iqm_charts` wraps it in HTML, the Overview hands it to `st.plotly_chart`). The points moved from the box trace's `boxpoints` to scatter markers carrying the run key in `customdata` — box points do not reliably emit click events in plotly.js — with the jitter recomputed deterministically so the strip look survived; a clicked point opens its run on the Inspect page through the same session-state channel as the table's row-click (`_open_in_inspector`). The item's caption-hint half had already shipped with the row-click itself (`87d6da7`). The rendered strips and the point-click are a `#30` entry. |
 | 2026-08-18 | `#40` | **The NORDIC-staleness check compares per subject, not project-wide.** Its first live firing was a false alarm: `sub-020`'s NORDIC run — a subject fMRIPrep had never touched — flagged fMRIPrep stale across the whole project and prescribed re-running five subjects whose inputs never changed. `_check_staleness` now compares each subject's newest NORDIC bold against its own newest preproc bold, flags only subjects where both exist and NORDIC is newer, and names each in its warning; NORDIC-without-fMRIPrep is "not run yet", which the board shows and `_check_presence` guards the inverse of. The live false alarm is pinned by `tests/test_consistency.py::test_a_new_subjects_nordic_run_does_not_smear_staleness`. |
 | 2026-08-18 | `#38` | **Ingestion badges source sessions that are already imported.** An "Imported" column on the Available DICOM Sessions table joins each discovered folder to what sourcedata holds, via the provenance `ingest_session` already leaves (symlink target / copy marker) — read the way `_same_source` reads it but precomputed per side, O(N+M) resolves. The three specified states shipped as specified: ✅ imported (naming the sub/ses), ❓ unverifiable (pre-marker copies, whose None must not read as "different"), blank = new; badged rather than filtered so a source folder that changed after ingest stays visible. `core.ingestion.match_imported_sources`; the badge refreshing on a plain rerun (an ingest changes sourcedata without changing the folder set that keys the table rebuild) is pinned by `tests/test_ingestion_page.py`. The rendered column is a `#30` entry. |

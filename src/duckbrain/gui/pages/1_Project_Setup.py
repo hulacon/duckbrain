@@ -71,7 +71,7 @@ def _clean_dict(d: dict[str, Any]) -> dict[str, Any]:
 # "fix" such an error by widening the list without checking the widget writes
 # what you think it writes.
 _PROJECT_OWNED = {
-    "project": ("name", "use_sessions", "authors"),
+    "project": ("name", "use_sessions", "authors", "external_bids"),
     "dcm_source": ("dir",),
     # One key of [nordic] only. The rest (magnitude_only, matlab_module,
     # excluded_nodes) is shared machine config a project may override by hand.
@@ -237,7 +237,16 @@ authors_text = st.text_area(
     ),
 )
 
-st.subheader("LCNI DICOM source")
+external_bids = st.toggle(
+    "This project uses an existing BIDS dataset (no DICOM conversion)",
+    value=_get_bool("project", "external_bids"),
+    help="On: the data were converted to BIDS outside duckbrain — point the "
+    "project directory at that BIDS root and use the preprocessing/QC half. "
+    "The Status board marks **Ingested n/a**, `participants.tsv` is rostered "
+    "from the BIDS tree, and no dcm2bids container is asked for. Off: duckbrain "
+    "ingests and converts DICOMs from the source below.",
+)
+
 # Legacy configs used base_dir/group/project; if one is present, seed from it.
 _legacy_dcm = _get("dcm_source", "dir") or "/".join(
     p
@@ -252,15 +261,22 @@ _legacy_dcm = _get("dcm_source", "dir") or "/".join(
 # user made: saving it as `dcm_source.dir` pointed Ingestion at the root of every
 # LCNI study and defeated build_dcm_source_path's "set dcm_source.dir" error.
 _DCM_BROWSE_ROOT = "/projects/lcni/dcm"
-dcm_dir = directory_picker(
-    "DICOM source directory",
-    key="dcm_source_pick",
-    default=_legacy_dcm or _DCM_BROWSE_ROOT,
-    must_exist=True,
-    help="Full path to this study's DICOM export folder (the one containing the "
-    "session folders, e.g. .../hulacon/Hutchinson/divatten).",
-    reset_on=active_project,
-)
+if external_bids:
+    # No picker to render — but the stored value must round-trip through the
+    # save below, not be reconciled away: toggling external on is a statement
+    # about conversion, not a request to forget where the DICOMs were.
+    dcm_dir = _legacy_dcm or _DCM_BROWSE_ROOT
+else:
+    st.subheader("LCNI DICOM source")
+    dcm_dir = directory_picker(
+        "DICOM source directory",
+        key="dcm_source_pick",
+        default=_legacy_dcm or _DCM_BROWSE_ROOT,
+        must_exist=True,
+        help="Full path to this study's DICOM export folder (the one containing "
+        "the session folders, e.g. .../hulacon/Hutchinson/divatten).",
+        reset_on=active_project,
+    )
 
 st.subheader("NORDIC")
 use_nordic = st.toggle(
@@ -327,6 +343,10 @@ if st.button("Save project settings"):
             # Coercing empty to "" lets the existing drop-the-empties rule delete
             # it, without touching _clean_dict, which four other sections share.
             "authors": _authors or "",
+            # Written even when false, like use_nordic below: "converts DICOMs"
+            # is a statement, not an absence, and an owned section reconciles
+            # field by field — omitting the key would delete it on save.
+            "external_bids": external_bids,
         },
         # An unchanged browse root is not a DICOM source — see _DCM_BROWSE_ROOT.
         "dcm_source": {"dir": "" if dcm_dir == _DCM_BROWSE_ROOT else dcm_dir},
@@ -405,7 +425,13 @@ issues = []
 if containers_dir and not Path(containers_dir).is_dir():
     issues.append(f"Containers directory `{containers_dir}` does not exist")
 elif containers_dir:
-    for name, ver in [("dcm2bids", dcm2bids_ver), ("fmriprep", fmriprep_ver), ("mriqc", mriqc_ver)]:
+    # An external-BIDS project never converts, so don't warn about the one
+    # container it will never launch. fMRIPrep/MRIQC stay checked — they are
+    # the half such a project is here for.
+    _needed = [("fmriprep", fmriprep_ver), ("mriqc", mriqc_ver)]
+    if not external_bids:
+        _needed.insert(0, ("dcm2bids", dcm2bids_ver))
+    for name, ver in _needed:
         if not any(
             (Path(containers_dir) / f"{name}-{ver}.{ext}").exists() for ext in ("sif", "simg")
         ) and not any((Path(containers_dir) / f"{name}.{ext}").exists() for ext in ("sif", "simg")):

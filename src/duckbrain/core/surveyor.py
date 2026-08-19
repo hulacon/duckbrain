@@ -327,18 +327,22 @@ def _converted_status(config: Config, subject: str, session: str) -> Status:
     subtree = _fmt("{ss}", subject, session)
     expected = _expected_conversion_counts(paths, subject, session)
 
+    from .ingestion import nii_glob
+
+    niftis = [
+        p for p in nii_glob(root, _fmt("{ss}/**/*", subject, session)) if p.stat().st_size > 0
+    ]
     if expected is not None:
         # Compare per datatype, so a session that converted its anat and dropped
         # half its BOLDs is partial rather than green.
         found: dict[str, int] = {}
-        for p in root.glob(_fmt("{ss}/**/*.nii.gz", subject, session)):
-            if p.is_file() and p.stat().st_size > 0:
-                found[p.parent.name] = found.get(p.parent.name, 0) + 1
+        for p in niftis:
+            found[p.parent.name] = found.get(p.parent.name, 0) + 1
         if found and all(found.get(dt, 0) >= n for dt, n in expected.items()):
             return Status.COMPLETE
         if found:
             return Status.PARTIAL
-    elif _has_match(root, _fmt("{ss}/**/*.nii.gz", subject, session)):
+    elif niftis:
         # No reviewed config to compare against — an externally converted or
         # hand-dropped BIDS tree, which `discover_units` deliberately supports.
         # Presence is the only claim we can make about a dataset duckbrain did
@@ -536,26 +540,40 @@ def survey_project(config: Config) -> pd.DataFrame:
         Columns: ``subject``, ``session``, then one per stage. Empty (with the
         right columns) when the project has no subjects yet.
     """
+    from ..config import external_bids
+
     paths = config["paths"]
     units = discover_units(paths)
 
+    # Per-stage applicability. A stage that cannot apply to this project grades
+    # NA — the enum member exists for exactly this — because graded MISSING it
+    # presents permanent unfinished work: the rollup reads "0/N", the cockpit
+    # offers a one-click "run all", and "every stage complete" is unreachable.
+    applies = dict.fromkeys(_TRACKERS, True)
     # NORDIC is opt-in per project. Without use_nordic nothing consumes its
-    # output — fMRIPrep reads the raw BIDS tree — so grading it MISSING presented
-    # every unit of every non-NORDIC project as unfinished work: the rollup read
-    # "Nordic 0/N", the cockpit offered a one-click "run all", and "every stage
-    # complete" was unreachable (TODO #17.4). NA is what that state means, and it
-    # is why the enum has the member. Launching NORDIC deliberately in such a
-    # project is still possible from the Preprocessing page's NORDIC tab.
-    nordic_applies = bool(config.get("nordic", {}).get("use_nordic", False))
+    # output — fMRIPrep reads the raw BIDS tree — so it doesn't apply (TODO
+    # #17.4, the first instance of the failure mode above). Launching NORDIC
+    # deliberately in such a project is still possible from the Preprocessing
+    # page's NORDIC tab.
+    applies["nordic"] = bool(config.get("nordic", {}).get("use_nordic", False))
+    # A declared external-BIDS project ingests no DICOMs, ever — the tree was
+    # converted elsewhere and dropped in (#41.2, #17.4's shape again). Only
+    # `ingested` goes NA: `converted` keeps grading, deliberately, because its
+    # external branch (presence-as-COMPLETE, see `_converted_status`) is what
+    # every downstream stage gates on — `pipeline.stage_runnable` requires the
+    # dependency COMPLETE, so an NA `converted` would lock fMRIPrep/MRIQC out of
+    # the very projects this flag exists for — and because "this unit has BIDS
+    # data" is real information on a board whose rows may include hand-dropped
+    # partial subjects.
+    applies["ingested"] = not external_bids(config)
 
     rows = []
     for subject, session in units:
         row = {"subject": subject, "session": session}
         for stage, tracker in _TRACKERS.items():
-            if stage == "nordic" and not nordic_applies:
-                row[stage] = Status.NA.value
-                continue
-            row[stage] = tracker(config, subject, session).value
+            row[stage] = (
+                tracker(config, subject, session).value if applies[stage] else Status.NA.value
+            )
         rows.append(row)
 
     columns = ["subject", "session", *STAGES]

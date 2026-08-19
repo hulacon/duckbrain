@@ -63,7 +63,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .ingestion import sub_ses_relpath
+from .ingestion import nii_glob, sub_ses_relpath
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -316,10 +316,13 @@ def _fmap_pair_count(fmap_dir: Path) -> int:
     if not fmap_dir.is_dir():
         return 0
     groups: dict[str, set[str]] = {}
-    for nii in sorted(fmap_dir.glob("*_epi.nii.gz")):
+    for nii in nii_glob(fmap_dir, "*_epi"):
         entities = bids_entities(nii.name)
         direction = entities.get("dir", "")
-        sidecar = nii.with_name(nii.name.replace(".nii.gz", ".json"))
+        # split(".") rather than replacing ".nii.gz": the tree may be
+        # uncompressed (see nii_glob), and a replace that doesn't match would
+        # quietly look up a sidecar named after the image itself.
+        sidecar = nii.with_name(nii.name.split(".")[0] + ".json")
         identifiers = _read_json(sidecar).get("B0FieldIdentifier")
         if isinstance(identifiers, str) and identifiers:
             key = identifiers
@@ -346,7 +349,7 @@ def observe(bids_dir: str | Path, subject: str, session: str = "") -> SessionCou
     anat: dict[str, int] = {}
     anat_dir = unit / "anat"
     if anat_dir.is_dir():
-        for nii in anat_dir.glob("*.nii.gz"):
+        for nii in nii_glob(anat_dir, "*"):
             suffix = bids_suffix(nii.name)
             if suffix:
                 anat[suffix] = anat.get(suffix, 0) + 1
@@ -354,7 +357,7 @@ def observe(bids_dir: str | Path, subject: str, session: str = "") -> SessionCou
     task: dict[str, int] = {}
     func_dir = unit / "func"
     if func_dir.is_dir():
-        for nii in func_dir.glob("*_bold.nii.gz"):
+        for nii in nii_glob(func_dir, "*_bold"):
             label = bids_entities(nii.name).get("task")
             if label:
                 task[label] = task.get(label, 0) + 1

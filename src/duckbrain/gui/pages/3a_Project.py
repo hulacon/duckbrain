@@ -55,31 +55,62 @@ def _unit_label(subject: str, session: str) -> str:
 
 
 # ---- BIDS metadata files ----
+from duckbrain.config import external_bids
+
+_external = external_bids(config)
+
 st.subheader("BIDS metadata")
-st.markdown("Generate `participants.tsv` and `dataset_description.json` from DICOM demographics.")
+st.markdown(
+    "Generate `participants.tsv` and `dataset_description.json` "
+    + (
+        "from the BIDS tree (this project adopted an existing BIDS dataset)."
+        if _external
+        else "from DICOM demographics."
+    )
+)
 
 col1, col2 = st.columns(2)
 with col1:
     if st.button("Generate participants.tsv"):
-        if not sourcedata_dir or not Path(sourcedata_dir).is_dir():
-            st.error("No sourcedata found — ingest sessions on **Ingestion** first.")
-        else:
-            from duckbrain.core.bids_metadata import generate_participants_from_sourcedata
+        tsv_path: Path | None = None
+        try:
+            if _external:
+                # No sourcedata to mine — roster the sub-* dirs of the tree
+                # itself, demographics left at n/a rather than invented.
+                from duckbrain.core.bids_metadata import generate_participants_from_bids
 
-            try:
+                tsv_path = generate_participants_from_bids(bids_dir)
+                _empty_msg = (
+                    f"No `sub-*` directories under `{bids_dir}` — nothing to "
+                    f"roster. Wrote a header-only `{tsv_path}`."
+                )
+            # Presence of the sourcedata dir is not the guard: scaffold_project
+            # creates it empty in every project, so test for ingested subjects.
+            elif not sourcedata_dir or not any(Path(sourcedata_dir).glob("sub-*")):
+                st.error(
+                    "No ingested subjects in sourcedata — ingest sessions on "
+                    "**Ingestion** first (or, if this dataset was converted "
+                    "outside duckbrain, declare it an existing BIDS dataset on "
+                    "**Project Setup**)."
+                )
+            else:
+                from duckbrain.core.bids_metadata import generate_participants_from_sourcedata
+
                 tsv_path = generate_participants_from_sourcedata(sourcedata_dir, bids_dir)
+                _empty_msg = (
+                    f"No ingested subjects found under `{sourcedata_dir}` — "
+                    "ingest sessions on the Ingestion page first. Wrote a "
+                    f"header-only `{tsv_path}`."
+                )
+            if tsv_path is not None:
                 participants_df = pd.read_csv(tsv_path, sep="\t")
                 if participants_df.empty:
-                    st.warning(
-                        f"No ingested subjects found under `{sourcedata_dir}` — "
-                        "ingest sessions on the Ingestion page first. Wrote a "
-                        f"header-only `{tsv_path}`."
-                    )
+                    st.warning(_empty_msg)
                 else:
                     st.success(f"Written: `{tsv_path}` ({len(participants_df)} subjects)")
                     st.dataframe(participants_df, width="stretch", hide_index=True)
-            except Exception as e:
-                st.error(f"Error: {e}")
+        except Exception as e:
+            st.error(f"Error: {e}")
 
 with col2:
     if st.button("Generate dataset_description.json"):

@@ -321,6 +321,71 @@ def test_na_unit_is_not_runnable_and_counts_as_done(tmp_path):
     assert stage_runnable(survey_project(on).loc[0], "nordic", on)
 
 
+# ---- TODO #41.2: an external-BIDS project doesn't ingest, ever ---------------
+
+
+def _external_config(root):
+    cfg = _config(root)
+    cfg["project"] = {"external_bids": True}
+    return cfg
+
+
+def test_ingested_is_na_for_an_external_bids_project(tmp_path):
+    """#17.4's failure mode, second instance: a declared-external project has no
+    DICOMs to ingest, so grading `ingested` MISSING read "Ingested 0/N" forever,
+    matched every row to the only-unfinished filter, and made all-complete
+    unreachable."""
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
+    df = survey_project(_external_config(tmp_path))
+    assert df.loc[0, "ingested"] == Status.NA
+    # `converted` deliberately keeps grading (presence-as-COMPLETE): downstream
+    # stages gate on it via stage_runnable's dependency check.
+    assert df.loc[0, "converted"] == Status.COMPLETE
+
+
+def test_external_project_downstream_stays_runnable(tmp_path):
+    from duckbrain.core.pipeline import stage_runnable
+
+    _bids_anat_func(tmp_path)
+    config = _external_config(tmp_path)
+    row = survey_project(config).loc[0]
+    assert row["ingested"] == Status.NA
+    assert stage_runnable(row, "fmriprep", config)
+    assert stage_runnable(row, "mriqc", config)
+
+
+def test_undeclared_project_still_bills_ingestion(tmp_path):
+    """The flag is the only signal — an empty sourcedata alone must not flip a
+    project to external, because it is equally true of one that hasn't started."""
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii.gz")
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "ingested"] == Status.MISSING
+
+
+# ---- TODO #41.4: uncompressed NIfTI is data too ------------------------------
+
+
+def test_converted_sees_uncompressed_nifti(tmp_path):
+    """A bare-.nii tree (heudiconv/dcm2niix commonly emit uncompressed) graded
+    MISSING with a .nii.gz-only glob, gating every downstream stage off."""
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii")
+    df = survey_project(_external_config(tmp_path))
+    assert df.loc[0, "converted"] == Status.COMPLETE
+
+
+def test_uncompressed_bold_counts_as_an_expected_run(tmp_path):
+    """get_bold_runs is the run-count source of truth, so `.nii` support there
+    reaches the surveyor: an fMRIPrep tree missing the run's output grades
+    PARTIAL rather than the run being invisible."""
+    _touch(tmp_path / "sub-01" / "anat" / "sub-01_T1w.nii")
+    _touch(tmp_path / "sub-01" / "func" / "sub-01_task-rest_bold.nii")
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01.html")
+    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
+    df = survey_project(_external_config(tmp_path))
+    assert df.loc[0, "fmriprep"] == Status.PARTIAL
+
+
 # ---- DB-002: completion counts runs, it doesn't just find one ----------------
 #
 # Every tracker graded COMPLETE off a single wildcard match, so a unit with four

@@ -159,6 +159,21 @@ def derive_paths(config: Config, project_dir: str | Path) -> Config:
     return config
 
 
+def external_bids(config: Config) -> bool:
+    """Whether the project declared its BIDS tree was produced outside duckbrain.
+
+    ``[project] external_bids = true`` is the *only* independent statement that a
+    project has no DICOM-conversion half — everything else duckbrain could look
+    at (an empty sourcedata, no saved dcm2bids configs) is equally true of a
+    brand-new project that simply hasn't ingested yet, so inferring from those
+    would make "declared external" and "not started" indistinguishable. Set from
+    the Project Setup page; read by the surveyor (``ingested`` grades NA rather
+    than presenting permanent unfinished work, TODO ``#41.2``) and the Project
+    page (participants come from the BIDS tree, not sourcedata DICOMs).
+    """
+    return bool((config.get("project") or {}).get("external_bids", False))
+
+
 #: Everything a directory name may not safely carry once it is interpolated into
 #: a shell script and a Singularity bind spec (a bind is `src:dst`, so a colon in
 #: the name would split it in two).

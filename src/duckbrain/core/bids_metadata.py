@@ -83,11 +83,17 @@ def write_participants_tsv(
     json_path = bids_dir / "participants.json"
     fields = ["participant_id", "sex", "age"]
 
-    # Load existing participants to avoid duplicates
+    # Load existing participants to avoid duplicates — and adopt the existing
+    # file's own column order while at it. An imported dataset's TSV can carry
+    # columns duckbrain doesn't know (group, handedness, …) or the same three
+    # in a different order, and appending rows in *our* order under *its*
+    # header silently misaligns every added row.
     existing_ids = set()
     if append and tsv_path.exists():
         with open(tsv_path) as f:
             reader = csv.DictReader(f, dialect="excel-tab")
+            if reader.fieldnames:
+                fields = list(reader.fieldnames)
             for row in reader:
                 existing_ids.add(row.get("participant_id", ""))
 
@@ -95,10 +101,14 @@ def write_participants_tsv(
 
     # Always ensure the file exists with a header, even with nothing to add, so
     # the returned path is valid (an empty BIDS participants.tsv is header-only).
+    # restval fills columns a new row has no value for with BIDS's missing-value
+    # marker rather than an empty cell.
     write_header = not tsv_path.exists()
     if write_header or new_participants:
         with open(tsv_path, "a", newline="") as f:
-            writer = csv.DictWriter(f, fields, dialect="excel-tab", extrasaction="ignore")
+            writer = csv.DictWriter(
+                f, fields, dialect="excel-tab", extrasaction="ignore", restval="n/a"
+            )
             if write_header:
                 writer.writeheader()
             for p in new_participants:
@@ -559,4 +569,21 @@ def generate_participants_from_sourcedata(
             }
         )
 
+    return write_participants_tsv(bids_dir, participants)
+
+
+def generate_participants_from_bids(bids_dir: str | Path) -> Path:
+    """Roster participants.tsv from the BIDS tree itself — no DICOMs read.
+
+    For a project that adopted an externally converted BIDS dataset (TODO
+    ``#41``) there is no sourcedata to mine demographics from. The honest roster
+    is the ``sub-*`` directories, with every other column left at BIDS's ``n/a``
+    rather than invented. Appends only subjects the TSV lacks — in the file's
+    own column order, per :func:`write_participants_tsv` — so a curated imported
+    file gains its missing rows and loses nothing.
+    """
+    bids_dir = Path(bids_dir)
+    participants = [
+        {"participant_id": d.name} for d in sorted(bids_dir.glob("sub-*")) if d.is_dir()
+    ]
     return write_participants_tsv(bids_dir, participants)

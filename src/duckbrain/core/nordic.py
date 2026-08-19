@@ -34,9 +34,12 @@ def get_bold_runs(
     Returns
     -------
     list[Path]
-        Paths to *_bold.nii.gz files, sorted.
+        Paths to ``*_bold.nii.gz`` / ``*_bold.nii`` files, sorted. Both
+        spellings, because this is the run-count source of truth (the surveyor's
+        ``_expected_bold_keys``, ``_build_nordic``/``_build_fmriprep``) and an
+        adopted uncompressed tree must count — see ``ingestion.nii_glob``.
     """
-    from .ingestion import sub_ses_relpath
+    from .ingestion import nii_glob, sub_ses_relpath
 
     bids_dir = Path(bids_dir)
     func_dir = bids_dir / sub_ses_relpath(subject, session) / "func"
@@ -44,7 +47,7 @@ def get_bold_runs(
     if not func_dir.is_dir():
         return []
 
-    return sorted(func_dir.glob("*_bold.nii.gz"))
+    return nii_glob(func_dir, "*_bold")
 
 
 def build_nordic_matlab_command(
@@ -280,15 +283,20 @@ def build_nordic_bids_input(
     items: list[_Item] = []
 
     # 1. NORDIC BOLDs — hardlinked, since they are the payload we are staging.
+    #    Always .nii.gz: nordic_denoise.m writes gzipped output whatever the
+    #    input spelling was (ARG.write_gzipped_niftis).
     if nordic_func.is_dir():
         for bold in sorted(nordic_func.glob("*_bold.nii.gz")):
             items.append(_Item(out_func / bold.name, bold, link=True))
 
     # 2. Every other func file from raw BIDS (sidecars, events, physio, SBRef).
     #    The raw BOLDs are deliberately absent — the NORDIC ones replace them.
+    #    Both raw spellings are excluded: an uncompressed raw BOLD slipping
+    #    through would sit beside its denoised twin as a duplicate run in
+    #    fMRIPrep's input.
     if raw_func.is_dir():
         for f in sorted(raw_func.iterdir()):
-            if f.is_file() and not f.name.endswith("_bold.nii.gz"):
+            if f.is_file() and not f.name.endswith(("_bold.nii.gz", "_bold.nii")):
                 items.append(_Item(out_func / f.name, f, link=False))
 
     # 3. Fieldmaps from raw BIDS.
@@ -305,7 +313,9 @@ def build_nordic_bids_input(
         out_anat = output_bids_input_dir / raw_anat.relative_to(bids_dir)
         for f in sorted(raw_anat.iterdir()):
             if f.is_file():
-                anat_items.append(_Item(out_anat / f.name, f, link=f.name.endswith(".nii.gz")))
+                anat_items.append(
+                    _Item(out_anat / f.name, f, link=f.name.endswith((".nii.gz", ".nii")))
+                )
     items += anat_items
 
     # 5. The unit-level scans.tsv. Its filename carries the same entities as the
@@ -366,7 +376,10 @@ def _derivative_sidecar(bold: Path, bids_dir: Path, provenance: dict[str, Any]) 
     Adds ``Sources`` (the BIDS-spec'd per-file provenance link, resolvable via the
     ``raw`` entry in our ``DatasetLinks``) and a namespaced ``Duckbrain`` object.
     """
-    raw_json = bold.parent / bold.name.replace(".nii.gz", ".json")
+    # split("."), not a ".nii.gz" replace: get_bold_runs can now hand back a bare
+    # .nii (adopted uncompressed tree), and a replace that doesn't match would
+    # quietly "find" no sidecar and write one with the metadata missing.
+    raw_json = bold.parent / (bold.name.split(".")[0] + ".json")
     content: dict[str, Any] = {}
     if raw_json.is_file():
         try:
@@ -428,7 +441,7 @@ def write_nordic_sidecars(
         if (out_dir / bold.name).exists():
             continue  # the sbatch will skip it; its sidecar already describes it
         out_dir.mkdir(parents=True, exist_ok=True)
-        path = out_dir / bold.name.replace(".nii.gz", ".json")
+        path = out_dir / (bold.name.split(".")[0] + ".json")  # .nii-safe; see above
         with open(path, "w") as f:
             json.dump(_derivative_sidecar(bold, bids_dir, provenance), f, indent=2)
         written.append(path)

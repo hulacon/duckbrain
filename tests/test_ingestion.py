@@ -701,3 +701,43 @@ def test_plan_ingest_is_empty_for_a_clean_mapping(tmp_path):
         )
         == {}
     )
+
+
+# ---- nii_glob: both NIfTI spellings, one answer (#41.4) ----------------------
+
+
+def _touch_files(root, *names):
+    root.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        (root / n).write_text("x")
+
+
+def test_nii_glob_matches_both_spellings_sorted(tmp_path):
+    from duckbrain.core.ingestion import nii_glob
+
+    _touch_files(
+        tmp_path / "func",
+        "sub-01_task-b_bold.nii",
+        "sub-01_task-a_bold.nii.gz",
+        "sub-01_task-a_bold.json",  # not a NIfTI
+    )
+    names = [p.name for p in nii_glob(tmp_path / "func", "*_bold")]
+    assert names == ["sub-01_task-a_bold.nii.gz", "sub-01_task-b_bold.nii"]
+
+
+def test_nii_glob_dedupes_a_double_spelled_image_preferring_gz(tmp_path):
+    """Two spellings are one acquisition — returning both would invent a run,
+    and every run count downstream (NORDIC arrays, surveyor expectations) keys
+    off this list."""
+    from duckbrain.core.ingestion import nii_glob
+
+    _touch_files(tmp_path, "sub-01_bold.nii", "sub-01_bold.nii.gz")
+    assert [p.name for p in nii_glob(tmp_path, "*_bold")] == ["sub-01_bold.nii.gz"]
+
+
+def test_nii_glob_recursive_and_missing_root(tmp_path):
+    from duckbrain.core.ingestion import nii_glob
+
+    _touch_files(tmp_path / "sub-01" / "ses-01" / "anat", "sub-01_T1w.nii")
+    assert [p.name for p in nii_glob(tmp_path, "sub-01/**/*")] == ["sub-01_T1w.nii"]
+    assert nii_glob(tmp_path / "absent", "*") == []
