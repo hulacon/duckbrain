@@ -65,11 +65,19 @@ else
     # the rm to something catastrophic.
     rm -rf "${STAGED:?}"
 
+    # -sd on the command line, not (only) the SUBJECTS_DIR export: the wrapper
+    # is a bare `apptainer exec`, and the image's own FreeSurfer environment
+    # wins over host-exported vars — the first pilot run (job 46350602) ignored
+    # the export and died on the container's read-only default subjects dir.
+    # A flag survives any env policy. The exports stay for FS sub-tools and the
+    # license lookup, which the container does not set.
     export SUBJECTS_DIR="$SUBJECTS_DIR_STAGING"
     export FS_LICENSE={{ fs_license_file | sh }}
+    export APPTAINERENV_FS_LICENSE={{ fs_license_file | sh }}
 
     {{ fs_bin_dir }}/recon-all \
         -s sub-{{ subject }} \
+        -sd "$SUBJECTS_DIR_STAGING" \
 {% for t1 in t1w_files %}        -i {{ t1 | sh }} \
 {% endfor %}{% if t2w_file %}        -T2 {{ t2w_file | sh }} -T2pial \
 {% endif %}        -all \

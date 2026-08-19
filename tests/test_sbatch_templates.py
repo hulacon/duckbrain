@@ -775,6 +775,12 @@ def test_recon_verifies_before_importing_and_never_imports_unverified():
 
 def test_recon_runs_under_staging_never_the_import_dir():
     script = _recon_script()
+    # -sd on the command line is the load-bearing half: the site wrapper is a
+    # bare `apptainer exec` and the image's own environment beats a host
+    # SUBJECTS_DIR export — pilot job 46350602 proved it by dying on the
+    # container's read-only default subjects dir. The export alone is not
+    # enough and must never again be the only statement of where to write.
+    assert '-sd "$SUBJECTS_DIR_STAGING"' in script
     assert 'export SUBJECTS_DIR="$SUBJECTS_DIR_STAGING"' in script
     # recon-all is invoked from the pinned install, not bare PATH.
     assert "/packages/freesurfer/8.2.0/bin/recon-all" in script
