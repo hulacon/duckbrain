@@ -60,7 +60,7 @@ def write_participants_tsv(
     participants: list[dict[str, Any]],
     append: bool = True,
 ) -> Path:
-    """Write or append to participants.tsv and its companion JSON sidecar.
+    """Write or append to participants.tsv, plus its JSON sidecar when absent.
 
     Parameters
     ----------
@@ -104,19 +104,24 @@ def write_participants_tsv(
             for p in new_participants:
                 writer.writerow(p)
 
-    # Always write the sidecar JSON
-    sidecar = {
-        "sex": {
-            "Description": "Sex of the participant",
-            "Levels": {"M": "male", "F": "female", "O": "other"},
-        },
-        "age": {
-            "Description": "Age of the participant at time of scan",
-            "Units": "years",
-        },
-    }
-    with open(json_path, "w") as f:
-        json.dump(sidecar, f, indent=2)
+    # The sidecar only when absent: it describes the two columns *this function*
+    # writes, but an existing participants.json can define columns duckbrain
+    # knows nothing about (group, handedness, diagnosis…) — an imported BIDS
+    # tree's, or a hand-extended one. The TSV path above never removes columns,
+    # so the sidecar must not either.
+    if not json_path.exists():
+        sidecar = {
+            "sex": {
+                "Description": "Sex of the participant",
+                "Levels": {"M": "male", "F": "female", "O": "other"},
+            },
+            "age": {
+                "Description": "Age of the participant at time of scan",
+                "Units": "years",
+            },
+        }
+        with open(json_path, "w") as f:
+            json.dump(sidecar, f, indent=2)
 
     return tsv_path
 
@@ -156,7 +161,25 @@ def _duckbrain_generated_by() -> dict[str, Any]:
     return {"Name": "duckbrain", "Version": duckbrain_version()}
 
 
-def converter_generated_by(config: Config) -> list[dict[str, Any]]:
+def _duckbrain_converted(config: Config) -> bool:
+    """Whether this project's BIDS tree has a duckbrain conversion behind it.
+
+    The evidence is the per-session ``dcm2bids_config.json`` duckbrain saves into
+    sourcedata for every conversion — the same discriminator the surveyor's
+    ``_converted_status`` uses to tell duckbrain output from an externally
+    converted tree, so the two answer alike. Both sourcedata layouts are checked
+    (``sub-XX/`` and ``sub-XX/ses-YY/``, per ``ingestion.sub_ses_relpath``).
+    """
+    src = Path((config.get("paths") or {}).get("sourcedata_dir", "") or "")
+    if not src.is_dir():
+        return False
+    return any(
+        next(src.glob(pattern), None) is not None
+        for pattern in ("sub-*/dcm2bids_config.json", "sub-*/ses-*/dcm2bids_config.json")
+    )
+
+
+def converter_generated_by(config: Config, *, converting: bool = False) -> list[dict[str, Any]]:
     """``GeneratedBy`` for an ingested BIDS root: duckbrain **and** its converter.
 
     The raw BIDS root is duckbrain's own output too — it ran dcm2bids to make it —
@@ -165,12 +188,23 @@ def converter_generated_by(config: Config) -> list[dict[str, Any]]:
     actually did the conversion, which is the more decision-relevant of the two:
     dcm2bids' own version determines the BIDS it emits.
 
+    But the converter entry is a *claim that dcm2bids produced this tree*, and the
+    provenance the entry is built from is config, not any record of a run — so it
+    is only made when it can be true. At the conversion choke point it is true by
+    construction (a dcm2bids submission is being built; pass ``converting=True``).
+    Everywhere else it must be proven by :func:`_duckbrain_converted`, because an
+    externally converted BIDS tree — which ``discover_units`` deliberately
+    supports — would otherwise get a fabricated dcm2bids attribution stamped over
+    provenance some other tool honestly wrote.
+
     Note this complements rather than duplicates dcm2bids' per-file
     ``Dcm2bidsVersion`` sidecar fields — those describe each file, this describes
     the dataset. Best-effort: degrades to duckbrain's entry alone rather than
     blocking a write.
     """
     entries = [_duckbrain_generated_by()]
+    if not converting and not _duckbrain_converted(config):
+        return entries
     try:
         from .containers import container_uri
         from .pipeline import resolve_container, run_provenance
@@ -208,7 +242,7 @@ def write_dataset_description(
     the same reason. :func:`write_derivative_description` stays a full overwrite,
     correctly — a derivative's description is duckbrain's output end to end.
 
-    Two rules that look like edge cases and are not:
+    Three rules that look like edge cases and are not:
 
     - *name* sets ``Name`` only when it is non-empty. The project name is a
       config field a user may never have filled in, and an unset one must not
@@ -217,6 +251,12 @@ def write_dataset_description(
       has a value**. :func:`dataset_extra_fields` omits ``Authors`` rather than
       passing ``[]``, so clearing the Setup field cannot blank an existing list.
       Same rule the Setup page's ``_clean_dict`` enforces one layer up.
+    - *generated_by* **merges by ``Name``** into any existing list rather than
+      replacing it (:func:`_merge_generated_by`). Replacement was the one hole
+      left in the read-modify-write contract: on an imported BIDS tree it
+      discarded the provenance the real converter wrote (heudiconv's, say) in
+      favour of duckbrain's claim about itself. Entries duckbrain passes refresh
+      in place; entries it didn't write survive.
 
     Parameters
     ----------
@@ -228,9 +268,9 @@ def write_dataset_description(
     extra_fields : dict, optional
         Additional fields to set (e.g. License, Authors, Funding).
     generated_by : list[dict], optional
-        ``GeneratedBy`` entries. Only written when given; defaults to
-        duckbrain's own entry when the file is being created from scratch. Pass
-        e.g. a dcm2bids entry to record the converter.
+        ``GeneratedBy`` entries, merged by ``Name`` into any existing list (see
+        above). Defaults to duckbrain's own entry when the file is being created
+        from scratch. Pass e.g. a dcm2bids entry to record the converter.
 
     Returns
     -------
@@ -246,8 +286,12 @@ def write_dataset_description(
     description["BIDSVersion"] = "1.9.0"
     if name or "Name" not in description:
         description["Name"] = name or bids_dir.name
-    if generated_by or "GeneratedBy" not in description:
-        description["GeneratedBy"] = generated_by or [_duckbrain_generated_by()]
+    if generated_by:
+        description["GeneratedBy"] = _merge_generated_by(
+            description.get("GeneratedBy"), generated_by
+        )
+    elif "GeneratedBy" not in description:
+        description["GeneratedBy"] = [_duckbrain_generated_by()]
 
     if extra_fields:
         description.update(extra_fields)
@@ -256,6 +300,34 @@ def write_dataset_description(
         json.dump(description, f, indent=2)
 
     return desc_path
+
+
+def _merge_generated_by(existing: Any, new: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge ``GeneratedBy`` entries by ``Name``: refresh ours, keep the rest.
+
+    Entries in *new* replace an existing entry of the same ``Name`` in place and
+    append otherwise, so an imported dataset's original provenance (heudiconv's,
+    OpenNeuro's) keeps its position while duckbrain's own entries stay current.
+    Existing entries that aren't dicts with a string ``Name`` are preserved
+    untouched — duckbrain didn't write them and can't match on them. A malformed
+    *existing* (anything but a list) is replaced outright, mirroring
+    :func:`_read_json`'s trade for the file as a whole.
+    """
+    if not isinstance(existing, list):
+        return list(new)
+    merged = list(existing)
+    by_name = {
+        e["Name"]: i
+        for i, e in enumerate(merged)
+        if isinstance(e, dict) and isinstance(e.get("Name"), str)
+    }
+    for entry in new:
+        i = by_name.get(entry.get("Name", ""))
+        if i is None:
+            merged.append(entry)
+        else:
+            merged[i] = entry
+    return merged
 
 
 def _read_json(path: Path) -> dict[str, Any]:

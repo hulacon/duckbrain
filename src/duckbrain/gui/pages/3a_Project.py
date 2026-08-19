@@ -95,7 +95,10 @@ with col2:
             # is what determines the BIDS this root contains. This button
             # *refreshes* on demand (after a rename, or new Authors); the
             # conversion choke point only *ensures presence*. Safe to press
-            # repeatedly: the write preserves fields duckbrain doesn't own.
+            # repeatedly and on an imported BIDS tree: the write preserves
+            # fields duckbrain doesn't own, GeneratedBy entries merge by Name
+            # rather than replacing the list, and the dcm2bids entry is only
+            # claimed when sourcedata shows duckbrain actually converted.
             desc_path = write_dataset_description(
                 bids_dir,
                 name=project_name,

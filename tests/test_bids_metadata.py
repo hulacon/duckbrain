@@ -141,7 +141,9 @@ def test_converter_generated_by_names_duckbrain_and_dcm2bids(monkeypatch, tmp_pa
     img.write_text("img")
     monkeypatch.setattr(C, "get_container_path", lambda cfg: img)
     cfg = {"paths": {"containers_dir": str(tmp_path)}, "containers": {"dcm2bids_version": "3.2.0"}}
-    entries = converter_generated_by(cfg)
+    # `converting=True` is the choke-point posture: a submission is being built,
+    # so the claim needs no on-disk evidence.
+    entries = converter_generated_by(cfg, converting=True)
     assert [e["Name"] for e in entries] == ["duckbrain", "dcm2bids"]
     assert entries[1]["Version"] == "3.2.0"
     assert entries[1]["Container"]["Tag"] == "dcm2bids-3.2.0.sif"
@@ -151,8 +153,46 @@ def test_converter_generated_by_degrades_to_duckbrain_alone(tmp_path):
     """No containers configured: record what we know, never block the write."""
     from duckbrain.core.bids_metadata import converter_generated_by
 
-    entries = converter_generated_by({"paths": {}})
+    entries = converter_generated_by({"paths": {}}, converting=True)
     assert entries[0]["Name"] == "duckbrain"
+
+
+def test_converter_entry_needs_evidence_when_not_converting(tmp_path):
+    """The dcm2bids entry is a claim that dcm2bids produced this tree.
+
+    Off the choke point (the Project page's refresh button) the provenance it is
+    built from is *config*, which every project has — so without the gate an
+    imported, externally converted BIDS tree gets a fabricated dcm2bids
+    attribution. Evidence is the dcm2bids_config.json duckbrain saves into
+    sourcedata for every conversion, the surveyor's own discriminator.
+    """
+    from duckbrain.core.bids_metadata import converter_generated_by
+
+    src = tmp_path / "sourcedata"
+    cfg = {
+        "paths": {"sourcedata_dir": str(src)},
+        "containers": {"dcm2bids_version": "3.2.0"},
+    }
+    # No sourcedata at all, then sourcedata without any saved conversion config:
+    # duckbrain's entry alone, no converter claim.
+    assert [e["Name"] for e in converter_generated_by(cfg)] == ["duckbrain"]
+    (src / "sub-001" / "ses-01").mkdir(parents=True)
+    assert [e["Name"] for e in converter_generated_by(cfg)] == ["duckbrain"]
+
+    # A saved per-session config is proof of a duckbrain conversion — either
+    # sourcedata layout counts.
+    (src / "sub-001" / "ses-01" / "dcm2bids_config.json").write_text("{}")
+    assert [e["Name"] for e in converter_generated_by(cfg)] == ["duckbrain", "dcm2bids"]
+
+
+def test_converter_evidence_single_session_layout(tmp_path):
+    from duckbrain.core.bids_metadata import converter_generated_by
+
+    src = tmp_path / "sourcedata"
+    (src / "sub-001").mkdir(parents=True)
+    (src / "sub-001" / "dcm2bids_config.json").write_text("{}")
+    cfg = {"paths": {"sourcedata_dir": str(src)}, "containers": {"dcm2bids_version": "3.2.0"}}
+    assert [e["Name"] for e in converter_generated_by(cfg)] == ["duckbrain", "dcm2bids"]
 
 
 def test_root_description_records_the_converter(monkeypatch, tmp_path):
@@ -165,7 +205,9 @@ def test_root_description_records_the_converter(monkeypatch, tmp_path):
     cfg = {"paths": {"containers_dir": str(tmp_path)}, "containers": {"dcm2bids_version": "3.2.0"}}
     desc = _json(
         write_dataset_description(
-            tmp_path / "bids", name="study", generated_by=converter_generated_by(cfg)
+            tmp_path / "bids",
+            name="study",
+            generated_by=converter_generated_by(cfg, converting=True),
         )
     )
     assert [g["Name"] for g in desc["GeneratedBy"]] == ["duckbrain", "dcm2bids"]
@@ -231,6 +273,78 @@ def test_no_generated_by_does_not_blank_an_existing_one(tmp_path):
     (bids / "dataset_description.json").write_text(json.dumps({"GeneratedBy": existing}))
 
     assert _json(write_dataset_description(bids, name="study"))["GeneratedBy"] == existing
+
+
+def test_generated_by_merges_rather_than_replacing(tmp_path):
+    """An imported BIDS tree's own provenance survives a refresh.
+
+    Replacement was the one hole left in the read-modify-write contract: pressing
+    the Project page's "Generate" button on a heudiconv-converted dataset
+    discarded heudiconv's GeneratedBy entry in favour of duckbrain's claim about
+    itself. Foreign entries keep their position; duckbrain's refresh in place.
+    """
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    (bids / "dataset_description.json").write_text(
+        json.dumps(
+            {
+                "GeneratedBy": [
+                    {"Name": "heudiconv", "Version": "1.1.0"},
+                    {"Name": "duckbrain", "Version": "v0.1.0"},
+                ]
+            }
+        )
+    )
+
+    desc = _json(
+        write_dataset_description(bids, generated_by=[{"Name": "duckbrain", "Version": "v0.6.0"}])
+    )
+    assert desc["GeneratedBy"] == [
+        {"Name": "heudiconv", "Version": "1.1.0"},
+        {"Name": "duckbrain", "Version": "v0.6.0"},
+    ]
+
+
+def test_generated_by_merge_appends_new_names_and_tolerates_junk(tmp_path):
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    (bids / "dataset_description.json").write_text(
+        # A nameless entry and a non-dict: duckbrain didn't write them and can't
+        # match on them, so they pass through untouched.
+        json.dumps({"GeneratedBy": [{"Version": "?"}, "free-text provenance"]})
+    )
+
+    desc = _json(write_dataset_description(bids, generated_by=[{"Name": "duckbrain"}]))
+    assert desc["GeneratedBy"] == [{"Version": "?"}, "free-text provenance", {"Name": "duckbrain"}]
+
+
+def test_generated_by_malformed_existing_is_replaced(tmp_path):
+    """A non-list GeneratedBy is invalid BIDS — replaced outright, mirroring
+    _read_json's trade for the file as a whole."""
+    bids = tmp_path / "bids"
+    bids.mkdir()
+    (bids / "dataset_description.json").write_text(json.dumps({"GeneratedBy": "dcm2bids"}))
+
+    desc = _json(write_dataset_description(bids, generated_by=[{"Name": "duckbrain"}]))
+    assert desc["GeneratedBy"] == [{"Name": "duckbrain"}]
+
+
+def test_participants_sidecar_written_when_absent_only(tmp_path):
+    """participants.json describes columns; an imported dataset's can define ones
+    duckbrain knows nothing about (group, handedness…). The TSV path never
+    removes columns, so the sidecar must not either."""
+    theirs = {
+        "group": {"Description": "Experimental group", "Levels": {"a": "active", "s": "sham"}}
+    }
+    (tmp_path / "participants.json").write_text(json.dumps(theirs))
+
+    write_participants_tsv(tmp_path, [{"participant_id": "sub-001", "sex": "F", "age": 21}])
+    assert _json(tmp_path / "participants.json") == theirs
+
+    # Absent, it is written — the companion the TSV duckbrain writes deserves.
+    (tmp_path / "participants.json").unlink()
+    write_participants_tsv(tmp_path, [{"participant_id": "sub-002", "sex": "M", "age": 22}])
+    assert set(_json(tmp_path / "participants.json")) == {"sex", "age"}
 
 
 def test_authors_absent_from_config_never_blanks_an_existing_list(tmp_path):

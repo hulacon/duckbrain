@@ -97,6 +97,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **The BIDS-metadata buttons no longer destroy what an imported dataset
+  brought with it.** Both fixes matter most for a project pointed at a BIDS
+  tree duckbrain didn't convert (heudiconv output, an OpenNeuro download):
+  "Generate participants.tsv" overwrote an existing `participants.json`
+  with duckbrain's two-column sidecar, silently destroying any other column
+  definitions (group, handedness, …) — it now writes the sidecar only when
+  none exists. And "Generate dataset_description.json" *replaced* the
+  `GeneratedBy` list, discarding the real converter's provenance entry in
+  favour of a fabricated dcm2bids attribution; entries now merge by `Name`
+  (foreign entries survive, duckbrain's refresh in place), and the dcm2bids
+  entry is only claimed when duckbrain actually converted — at the conversion
+  choke point, or when sourcedata holds the saved per-session conversion
+  config that proves it.
+
 - **The NORDIC-staleness warning now compares per subject, not project-wide**
   — its first real firing (2026-08-18) was a NORDIC run for a subject fMRIPrep
   had never touched, and the project-wide newest-vs-newest mtime comparison

@@ -137,7 +137,10 @@ def _build_dcm2bids(
         bids_dir,
         name=project_name,
         extra_fields=dataset_extra_fields(config),
-        generated_by=converter_generated_by(config),
+        # `converting=True`: a dcm2bids submission is being built right here, so
+        # the converter claim is true by construction — including for the very
+        # first conversion, before any on-disk evidence of one exists.
+        generated_by=converter_generated_by(config, converting=True),
     )
     ensure_readme(bids_dir, name=project_name)
     force = bool(params.get("force", False))
