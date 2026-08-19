@@ -210,7 +210,11 @@ cpus = "4"
 # recon-all is hours per subject even threaded; -threads reads this cpus value.
 # Long role: a hard-case brain can exceed the 24 h normal-partition ceiling.
 time = "36:00:00"
-memory = "16G"
+# FreeSurfer 8's recon-all runs SynthStrip/SynthSeg/SynthMorph by default, and
+# mri_synthseg on CPU is the memory peak — 16G was OOM-killed 87 s in on a
+# routine T1w (job 46353636, fs8_pilot). 48G holds it with the same headroom
+# philosophy as fMRIPrep's allocation; re-measure before trimming.
+memory = "48G"
 cpus = "4"
 long = true
 
