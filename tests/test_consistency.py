@@ -984,3 +984,42 @@ def test_consistency_issue_is_frozen_dataclass():
     i = ConsistencyIssue("presence", "msg", subject="01")
     assert i.severity == "warning"
     assert (i.check, i.subject) == ("presence", "01")
+
+
+# ---- fs8-fmriprep-pairing ------------------------------------------------------
+
+
+def _pairing(root, fmriprep_version, use_external=True):
+    cfg = _config(root, containers={"fmriprep_version": fmriprep_version})
+    if use_external:
+        cfg["freesurfer"] = {"use_external": True}
+    return [i for i in check_consistency(cfg) if i.check == "fs8-fmriprep-pairing"]
+
+
+def test_fs8_with_pre25_fmriprep_warns_before_compute_is_spent(tmp_path):
+    """Config-vs-config on purpose: the audience is a user who inherited a
+    project config or is new to the pipeline, and the warning has to land
+    before the hours are spent, not after. The only validated pairing for an
+    imported FS8 recon is fMRIPrep 25.x."""
+    issues = _pairing(tmp_path, "24.1.1")
+    assert len(issues) == 1
+    assert issues[0].severity == "warning"
+    assert issues[0].stage == "fmriprep"
+    assert "24.1.1" in issues[0].message
+    assert "25.2.5" in issues[0].message  # the fix is stated, not implied
+
+
+def test_fs8_with_fmriprep_25_or_later_is_silent(tmp_path):
+    assert _pairing(tmp_path, "25.2.5") == []
+    assert _pairing(tmp_path, "26.0.0") == []
+
+
+def test_fs8_pairing_never_fires_without_use_external(tmp_path):
+    # A pre-25 pin alone is legitimate (existing derivatives live on 24.1.1);
+    # only the combination is the untested corner.
+    assert _pairing(tmp_path, "24.1.1", use_external=False) == []
+
+
+def test_fs8_pairing_unparseable_version_is_unknowable_not_wrong(tmp_path):
+    assert _pairing(tmp_path, "latest") == []
+    assert _pairing(tmp_path, "") == []

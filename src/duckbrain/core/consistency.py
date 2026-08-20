@@ -286,6 +286,49 @@ def _check_config_vs_provenance(config: Config) -> list[ConsistencyIssue]:
     return []
 
 
+def _check_fs8_fmriprep_pairing(config: Config) -> list[ConsistencyIssue]:
+    """External FS8 recon paired with a pre-25 fMRIPrep pin — untested territory.
+
+    Config-vs-config, not config-vs-provenance: it fires *before* anyone spends
+    the hours, which is the point — the audience is a user who inherited a
+    project config or is new to the pipeline, not the person who chose both
+    pins on purpose. The pairing is not known-broken (the flags exist and were
+    verified against the 24.1.1 image; ``docs/pipeline-extras.md`` §9), so this
+    is a warning, never a refusal: fMRIPrep ships its own FreeSurfer 7 and runs
+    some of its binaries against the imported surfaces, and the only pairing
+    with any validation behind it — community reports plus duckbrain's own
+    pilot (fs8_pilot, 2026-08-19) — is fMRIPrep 25.x. A pre-25 fMRIPrep has
+    never been observed consuming an FS8 recon, in either direction.
+
+    An unparseable version string yields no issue — unknowable, not wrong —
+    and the container-drift check already covers a pin that names no image.
+    """
+    from .freesurfer import use_external_fs
+
+    if not use_external_fs(config):
+        return []
+    version = str(config.get("containers", {}).get("fmriprep_version", ""))
+    m = re.match(r"(\d+)", version.strip())
+    if not m or int(m.group(1)) >= 25:
+        return []
+    return [
+        ConsistencyIssue(
+            "fs8-fmriprep-pairing",
+            stage="fmriprep",
+            message=(
+                "This project imports an external FreeSurfer 8 recon "
+                f"(use_external), but pins fMRIPrep {version} — a pairing with no "
+                "known validation. fMRIPrep 25.x is the version community reports "
+                "and duckbrain's own pilot verified against FS8 recons; an older "
+                "fMRIPrep may work but has not been observed doing so. Set "
+                "[containers] fmriprep_version to 25.2.5 (the supported LTS) "
+                "unless you have a specific reason to stay, and check the outputs "
+                "closely if you do."
+            ),
+        )
+    ]
+
+
 def _configured_container(config: Config, stage: str) -> tuple[str, str]:
     """What config currently points at for *stage*: ``(filename, build_tag)``.
 
@@ -1262,8 +1305,9 @@ def check_consistency(config: Config) -> list[ConsistencyIssue]:
     """Run all provenance-consistency checks; return the flagged issues.
 
     Empty list means nothing inconsistent was found. Ordering is stable (tool
-    crash record, config-vs-provenance, version drift, mixed provenance,
-    staleness, presence, fieldmap PE direction, fieldmap intent) so the cockpit
+    crash record, config-vs-provenance, FS8/fMRIPrep pairing, version drift,
+    mixed provenance, staleness, presence, fieldmap PE direction, fieldmap
+    intent) so the cockpit
     renders deterministically. The crash record goes first because the panel
     renders in list order and does not sort errors to the top, and it is the one
     finding that says every other line below it may be describing a run that did
@@ -1273,6 +1317,7 @@ def check_consistency(config: Config) -> list[ConsistencyIssue]:
     for check in (
         _check_tool_crashes,
         _check_config_vs_provenance,
+        _check_fs8_fmriprep_pairing,
         _check_container_drift,
         _check_toolbox_drift,
         _check_matlab_drift,
