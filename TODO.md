@@ -75,7 +75,7 @@ release, which is what makes `#7.1` load-bearing rather than theoretical.
 | | |
 |---|---|
 | Datatype dirs | 87 `func`, 84 `fmap`, 79 `beh`, 9 `anat`, **6 `dwi`** |
-| Diffusion | ses-01 and ses-28 only, **four** PE directions — `AP`, `PA`, `LR`, `RL` — each a full 54-volume 3-shell run; every axis a complete opposing pair (see `#43.3`) |
+| Diffusion | ses-01 and ses-28 only; **four-way blip-up/down** (`AP`,`PA`,`LR`,`RL`), 100 unique directions × 2 repeats, every axis a complete opposing pair. sub-03/sub-05 drop to `AP`/`PA` at ses-28 — still the full 100 directions, one repeat (`#43.3`) |
 | Fieldmaps | `dir-AP`/`dir-PA` `_epi` **only**, and they are *func* fieldmaps; the three ses-01 sessions have no `fmap/` at all |
 | Physio | **766** recordings: 693 scanner (`recording-cardiac`, `-pulse`, `-respiratory`) + **73 EyeLink** (`recording-eye`, ses-19 – ses-28) |
 | Derivatives | **21 trees**, of which duckbrain knows four names |
@@ -158,11 +158,58 @@ is a capability that will be *exercised* rather than stressed.
   for the two reasons above, but not for that reason, and the wrong reason would
   have led somewhere else.
 
-  **A shape duckbrain has never emitted**, whichever way this is implemented: a
-  `dwi` file that carries `B0FieldIdentifier` *and* `B0FieldSource` — field
-  source and correction target at once. Legal BIDS. `CLAUDE.md`'s rule (the
-  fieldmap carries the identifier, the bold and sbref carry the source) is about
-  BOLD and is not contradicted, but it is not the whole vocabulary either.
+  🔴 **Second correction, 2026-08-20, from QSIPrep's own docs: `#19.10` has been
+  asking the wrong question.** That item is written around emitting
+  `B0FieldSource` on a diffusion series. **QSIPrep does not read it.** Its
+  documentation is explicit — *"QSIPrep determines if a fieldmap should be used
+  based on the `IntendedFor` fields in the JSON sidecars in the `fmap/`
+  directory"* — and the `B0FieldIdentifier`/`B0FieldSource` pair, though the
+  BIDS-preferred successor to `IntendedFor`, is **unsupported**. So the consumer
+  `#19.10` was waiting for does not consume the thing it planned to write. Check
+  this against the pinned container's docs before building; it is the kind of
+  gap that closes without announcement.
+
+  What QSIPrep *does* do makes the emission question mostly moot here anyway: it
+  detects opposing PE directions among the `dwi/` series by itself, and the
+  reverse-PE scan *"can come from the fieldmaps directory or the dwi directory"*.
+  mmmdata therefore needs **no fieldmap metadata written at all** for SDC — the
+  tool finds the pairs. Two real levers replace it:
+
+  - **`MultipartID`** is what controls merging. Absent, *"QSIPrep will group all
+    DWIs within each session"*; scans sharing a `MultipartID` merge, and it
+    *"can be specified across phase encoding directions, in which case the DWIs
+    will be merged across PEDs"*. That is the field to reach for, not
+    `B0FieldSource`, and it is a plausible thing for duckbrain to emit.
+  - **`--separate-all-dwis`** is the opposite lever — every DWI processed
+    independently.
+
+  🔴 **And the documented behaviour is written for *two* PE directions** — *"if
+  there are two PE directions detected in the DWI scans … images are combined
+  according to their PE direction"*. mmmdata's ses-01 has **four**. What QSIPrep
+  does with four is not documented; find out on one session before assuming, and
+  note this compounds §1's Trap 1 (merging breaks `surveyor._grade`'s superset
+  rule) — four inputs to one output is the worst case for that grader, not the
+  two it was reasoned about.
+
+  **The acquisition is a named design, not an idiosyncrasy.** The bvec tables
+  pair as `{AP, RL}` and `{PA, LR}` — each half a different 50-direction table —
+  so the four runs sample **100 unique directions, each twice, once per PE
+  axis**. That is the four-way blip-up/down scheme of Irfanoglu et al. 2021 (MRM)
+  and dHCP, which reports ~32% lower trace variability and ~50% in the temporal
+  lobes against two-way, at equal scan time. Reversed-PE correction generally
+  outperforms field-mapping for diffusion, so **an absent DWI fieldmap here is
+  the better arrangement, not a shortfall** — do not let any check report it as
+  one.
+
+  **Protocol heterogeneity worth declaring, not fixing.** sub-03 and sub-05 drop
+  to `AP`/`PA` at ses-28 while sub-04 keeps all four. `AP`+`PA` alone still spans
+  the **complete 100-direction scheme** — measured, not inferred — so nothing is
+  missing from q-space; what those two sessions lack is the second repeat of each
+  direction (≈√2 SNR) and the second distortion axis. Usable, and not
+  *comparable* to the four-way sessions without saying so. This is `[expected]`'s
+  job (`#16`), and it is the first real case for the `dwi` gap `#19.10` records
+  there.
+
   `pe-collinear` is the right check and already exists, orientation-free, so it
   confirms an opposing pair without a canonical tree (`#19.2`) — it is what
   measured the six-for-six above.
@@ -619,10 +666,15 @@ each because doing it now would have been a guess:
   a consumer exists is writing metadata nothing reads, in a column nothing shows.
   **This now belongs to `#7.2`**, which was scoped 2026-08-01 and is the
   consumer: QSIPrep reads `B0FieldSource`, so it is the item that can say what
-  the right binding *is*. It also now has a dataset that answers it:
-  mmmdata's DWI acquires complete opposing pairs on both axes, so the diffusion
-  is its own field estimate and names no `fmap/` entry at all — see `#7.2` and
-  `#43.3`, including why the nearest-in-time binding is ruled out. Cross-referenced from `docs/pipeline-extras.md` §9.
+  the right binding *is*. 🔴 **And that consumer turns out not to read
+  `B0FieldSource` at all** — QSIPrep keys on `IntendedFor` in `fmap/` and detects
+  opposing PE directions among the `dwi/` series itself, so this sub-item is
+  written around a field its only prospective consumer ignores. mmmdata settles
+  the rest: its DWI acquires complete opposing pairs on both axes, so the
+  diffusion is its own field estimate and needs no `fmap/` binding written for
+  it. `MultipartID` is the field that actually changes QSIPrep's behaviour. Full
+  measurement, both corrections, and the four-PE-direction unknown: `#7.2` and
+  `#43.3`. Cross-referenced from `docs/pipeline-extras.md` §9.
 - **`[expected]` cannot say how much diffusion a session should hold.**
   `expectations.py` counts anat suffixes, fieldmap pairs and task runs; a `dwi/`
   tree is invisible to it, and `checks.py`'s shortfall arithmetic is anat/func
@@ -1076,11 +1128,16 @@ other five are unstarted.
    field estimate; three of the six sessions have no `fmap/` directory at all,
    and the fieldmaps in the other three are *func* ones already claimed by a
    task-named `B0FieldIdentifier`. **"Bind to the nearest pair" is therefore ruled
-   out before the work starts** — what a diffusion series should name is a group
-   formed from the DWI runs themselves, which makes a `dwi` file both field source
-   and correction target, a shape duckbrain has never emitted. Full measurement,
-   and the correction of an earlier wrong reason for the same conclusion, at
-   `#43.3`.
+   out before the work starts**. 🔴 So is writing `B0FieldSource`: QSIPrep keys on
+   `IntendedFor` in `fmap/` and **does not support** the `B0FieldIdentifier`/
+   `B0FieldSource` pair, while detecting opposing `dwi/` PE directions by itself —
+   which means the one open decision this item inherited from `#19.10` is largely
+   dissolved rather than answered, and the field worth emitting is `MultipartID`
+   (it controls merging, including *across* PE directions, which is Trap 1's
+   territory). Note also that the documented merge behaviour is written for **two**
+   PE directions and mmmdata's ses-01 has four. Full measurement, both corrections
+   and the acquisition's provenance (a four-way Irfanoglu/dHCP scheme, 100 unique
+   directions sampled twice) at `#43.3`.
    Two smaller findings worth having
    either way: QSIPrep is **not** a forcing function for `#5b` Case 3 (it has no
    anat-reuse flag, and its ACPC/LPS+ anat is not fMRIPrep's anyway), and the QC
