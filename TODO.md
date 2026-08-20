@@ -15,10 +15,14 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#16`](#16) **next** — sanity checks (Slices A–C done; `#16.3` open) ·
+[`#43`](#43) **next** — running duckbrain on mmmdata; an ordering over five
+existing capability items, not new work of its own ·
+[`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
+[`#5b`](#5b) NORDIC Case 2 — **no longer hypothetical**, mmmdata carries two
+parallel fMRIPrep trees and duckbrain can see one of them ·
+[Licensing](#licensing-follow-ups) — `#43`'s first slice ·
 [`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
 left is two unscheduled design questions ·
-[Licensing](#licensing-follow-ups) ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
 walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
 sub-items as the blockers clear ·
@@ -26,8 +30,9 @@ sub-items as the blockers clear ·
 sub-items as fixtures appear ·
 [`#9`](#9) launch surface ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
-[`#12`](#12) mmmdata-agents · [`#5b`](#5b) NORDIC Case 2 · [`#7`](#7) extra
-stages · [`#8`](#8) branding + dark theme ·
+[`#12`](#12) mmmdata-agents · [`#7`](#7) extra stages — the four `#43` claims
+are still described there; the rest is unscheduled ·
+[`#8`](#8) branding + dark theme ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time)
 
 **Below the queue, unscheduled, and not closed either:**
@@ -35,202 +40,131 @@ stages · [`#8`](#8) branding + dark theme ·
 [Provenance residuals](#provenance--consistency-residuals) ·
 [Loose ideas](#loose-ideas-not-scheduled)
 
-**How the open items bundle into releases: [Roadmap](#roadmap)** — decided
-2026-08-06, and it is what reordered the queue above: `#20`/`#2` moved ahead of
-`#16`, which had been marked **next** since 2026-07-22. On 2026-08-11 `#2`
-moved back out of **next**: `v0.5.0` shipped its writing, and everything left
-in it is externally blocked (see the entry), so `#16` leads again. On
-2026-08-16 `#16.2` shipped, which hands the lead to `#13.1` — the last item in
-`v0.6.0`'s plan. Later the same day `#13.1` shipped too (the `[series_skip]`
-section; see the ledger), and `v0.6.0` was cut the same day — a fact this file
-kept misstating as "ready to cut" for a day afterwards; `git tag` and the
-Releases page agree it is out and published. On 2026-08-17 `#13.2` shipped —
-the plan-time schema check, taking `#19.11`'s answer with it — which closed
-`#13` outright, so `#16` led the queue and `#13.2` rides in whatever release
-comes next. On 2026-08-18 a prospective user with an already-BIDS,
-~100-subject study opened `#41` (adopt an existing BIDS dataset) and `#42`
-(scale), and Ben put both above `#16`. `#41` closed the same day — the two
-data-destroying metadata bugs first, then the declaration, the surveyor's NA
-generalization, the BIDS-tree roster, `.nii` support and `docs/external-bids.md`
-(see the ledger) — so `#42` led. On 2026-08-20 `#42`'s whole cheap tranche
-shipped, which hands the lead back to `#16`: what remains in `#42` is a
-persisted survey snapshot and cross-subject job arrays, both design questions
-rather than queued work.
+**On release bundling: [`docs/releasing.md`](docs/releasing.md).** That is where
+the rule lives — the two questions that sort finished work into releases, and why
+"ship it all at once" is the wrong default. It used to be narrated here release by
+release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
+`CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
+went stale between every read. **Currently unreleased:** `#13.2` and `#42.1`–`#42.6`,
+on top of `v0.6.0`.
 
 ---
 
-<a id="roadmap"></a>
-## Roadmap — which open items ship together, and why
+<a id="43"></a>
+## #43 — Running duckbrain on mmmdata
 
-**Decided with Ben 2026-08-06, immediately after cutting `v0.4.0`.** The question
-that produced it was whether `#16`, `#13`, `#19`, `#20` and `#2` could go out as a
-single increment. They can't, and the interesting part is *why not* — the answer
-generalizes past this one bundle, so it lives here rather than in the commit.
+**Asked for 2026-08-20: demand to run duckbrain on
+`/projects/hulacon/shared/mmmdata` is increasing.** This item holds **no work of
+its own**. It is the *order* the capabilities mmmdata needs get built in, plus
+what mmmdata measured about each — every slice below is an existing item, and no
+id moves.
 
-**The cut is by kind, not by size.** Two questions sort the queue, and neither is
-"how much work is it":
+**Adoption is not the work.** `#41` closed 2026-08-18 with external-BIDS support
+(`docs/external-bids.md`), so the downstream half — cockpit, submission, QC —
+already reads a tree duckbrain did not convert, and 88 units sit inside the
+pagination `#42.6` shipped. What follows is capability duckbrain does not have,
+not plumbing it is missing.
 
-1. **Does it change a recipe duckbrain authors?** That is `docs/releasing.md`'s
-   own minor-vs-patch test, and it has a mechanical consequence:
-   `consistency._release_line()` reduces to `major.minor`, so any minor bump makes
-   `check_duckbrain_drift()` flag every existing `converted` and `nordic`
-   derivative. A release that changes what gets *written* should flag them. A
-   release that changes only how duckbrain is *installed* should not have to.
-2. **Is it schedulable at all?** Several open items are blocked on data or on
-   another item's design settling, not on effort. Those cannot be committed to a
-   release without making the release hostage to something nobody controls.
+### What mmmdata actually holds — measured 2026-08-20, from the tree
 
-Bundling everything collapses both distinctions at once: finished, zero-risk
-packaging work would sit unreleased behind an open architectural question, and the
-whole thing would wait on fixtures that may never arrive.
+Not from its docs; the docs agreed, but the point of the check was not to trust
+them. **3 subjects × 88 sessions**, already BIDS,
+`dataset_description.json` says **`License: CC0`** — i.e. bound for public
+release, which is what makes `#7.1` load-bearing rather than theoretical.
 
-### `v0.4.0` — cut 2026-08-06 ✅
+| | |
+|---|---|
+| Datatype dirs | 87 `func`, 84 `fmap`, 79 `beh`, 9 `anat`, **6 `dwi`** |
+| Diffusion | ses-01 and ses-28 only, in **four** PE directions — `AP`, `PA`, `LR`, `RL` |
+| Fieldmaps | `dir-AP`/`dir-PA` `_epi` **only** — no LR/RL fieldmap anywhere |
+| Physio | **766** recordings: 693 scanner (`recording-cardiac`, `-pulse`, `-respiratory`) + **73 EyeLink** (`recording-eye`, ses-19 – ses-28) |
+| Derivatives | **21 trees**, of which duckbrain knows four names |
 
-88 commits and a 474-line changelog section had accumulated in the eight days
-since `v0.3.0`. The trigger was not the size but who was missing it: `#34` (host
-site-packages leaking into every container) and `#36` (MRIQC OOM at the shipped
-defaults) were both reported *by* a beta tester and both fixed only on `main`, and
-`core/updates.py` compares against published Releases, so their GUI said nothing.
-Minor rather than patch because the recipe genuinely moved — diffusion converts,
-the diffusion SBRef stopped being emitted as half a fieldmap, `dir-` widened to
-LR/RL, and the BIDS root files are written at the conversion choke point.
+**Three things that measurement changed, none of them on the original list:**
 
-### `v0.5.0` — accessibility: `#20` + `#2`'s writing — cut 2026-08-11 ✅
+- 🔴 **`derivatives/fmriprep` *and* `derivatives/fmriprep_nordic`, 535 G each** —
+  two parallel fMRIPrep trees over one BIDS root. `surveyor.py`'s
+  `_fmriprep_status` hardcodes `derivatives_dir / "fmriprep"`, so **duckbrain can
+  see one of them and does not know the other exists**. That is `#5b` Case 2,
+  which this file has called "deferred until actually needed" since it was
+  written. It is needed. See `#5b` — the fix is the parameterization already
+  scoped there, and the on-disk name is `fmriprep_nordic`, an underscore where
+  `#5b` guessed a hyphen.
+- **The anat tree is contaminated with derivatives.** `sub-03/ses-01/anat/` holds
+  `hsf_outputs/` and `*_hippocampus_seg.nii.gz` beside the T1w/T2w. Anything
+  counting anat suffixes — `expectations.py`, the surveyor's `converted` grading —
+  will count them. Cheap to find, cheaper to fix before it produces a confident
+  wrong number, and it is the first real test of `#41`'s claim that duckbrain
+  judges an external tree honestly.
+- **The sidecars are already clean of participant PII** — no `PatientName`, no
+  `PatientBirthDate`. What survives is institutional: `InstitutionName`,
+  `InstitutionAddress`, `DeviceSerialNumber`, `StationName`. So `#7.1`'s
+  sidecar-scrubbing half, which is most of what that item is written about, has
+  almost nothing to do here — and the half it barely describes, **defacing**, is
+  the one that gates a CC0 release.
 
-Shipped `#20`'s conda environment and `#2`'s writing (`QUICKSTART.md`,
-`README.md`, `docs/new-to-talapas.md` + its GUI signpost page, both launch
-routes documented as real). The order was not arbitrary: `#20` made conda the
-documented path, and `#2`'s `UNVALIDATED` new-user walk is only worth doing
-once, on whichever path new users are actually told to take — which is now the
-conda one. Invisible to `duckbrain-drift` by design: not a byte duckbrain emits
-changed, so no existing derivative gets flagged.
+### The order, decided with Ben 2026-08-20
 
-**Decided with Ben 2026-08-11: the release did *not* wait for the rest of
-`#2`.** The plan above had been "`#20` then `#2`", but everything left in `#2`
-fails this roadmap's own second sorting question — schedulability. The
-clean-account walk needs a non-maintainer account, the in-GUI guidance is gated
-on that walk, and distribution is gated on a RACS answer; none is under Ben's
-control on any timeline, and holding finished, zero-risk accessibility work
-behind them is exactly the hostage-taking the roadmap exists to prevent.
-`core/updates.py` compares against published Releases, so unreleased docs were
-invisible to the beta testers who wanted them. `#2` stays open, below `#16` in
-the queue, and its remainder rides in whatever release is current when the
-blockers clear.
+By **value, not by dependency** — deliberately, and it was the choice made
+against an alternative that led with measuring duckbrain against the tree first.
+Ordering by dependency would have put defacing behind an identity check behind a
+PII policy and shipped nothing for weeks.
 
-The cut also surfaced that **`v0.4.0`'s tag was pushed but its GitHub Release
-was never published** — the exact failure `docs/releasing.md` warns about, and
-why the GUI told nobody about `v0.4.0` for five days.
+**`#43.1` — Licensing.** First because it is the cheapest thing on the list and
+the only one that blocks *other people's* work rather than Ben's. mmmdata-agents
+has no LICENSE file at all, so there is nothing to reconcile duckbrain's GPL
+against — give it one **before** any code moves, not after. See
+[Licensing](#licensing-follow-ups) for the two independent questions (UO
+employee-IP permission, and copyleft compatibility) and why answering one leaves
+the other exactly where it was. Note what this does *not* block: running
+duckbrain on mmmdata needs no licence answer at all. Only code moving between
+the repos does.
 
-### `v0.6.0` — the expectation layer: `#16.1` ✅, `#16.2` ✅, `#13.1` ✅ — cut 2026-08-16 ✅
+**`#43.2` — Physio dud detection (`#7.5`, first half).** Most concretely
+specified thing in the queue: the ruling already exists (2026-08-17, mmmdata
+Contract A close-out), the count is now confirmed at 766 on disk, and ~50% of
+physio attempts are believed to have produced empty files that the catalog reads
+as present. Read each recording, judge real-vs-dud, hand per-run dispositions
+back across the ingest boundary so the catalog's 315 `pending` units resolve.
+Falls out of step one of any PhysIO/TAPAS work, so it is never wasted.
 
-This is the one with genuine design risk in it, which is exactly why it must not
-be bundled with the release above. That risk is now retired: `#16.2` needed
-duckbrain's *first cache*, and it shipped — `surveyor.py`'s docstring now names
-`checks.json` as the one deliberate exception to "no state store" rather than
-advertising the absence as a virtue.
+**`#43.3` — QSIPrep (`#7.2`).** Scoped 2026-08-01 with its three traps written
+down (`docs/pipeline-extras.md` §1), prerequisite `#19.1` met, two independently
+shippable slices. mmmdata sizes it honestly — **6 diffusion sessions**, so this
+is a capability that will be *exercised* rather than stressed.
 
-**`#16.1` shipped 2026-08-11** (see the ledger; decisions in
-`docs/sanity-checks.md`, Slice B). It also discharged the question it owned:
-"which series this study converts" does **not** fold into `[expected]` — the
-reasoning is recorded at `#13.1`, which therefore gets built as its own
-description-keyed section.
+  🔴 **mmmdata makes `#19.10`'s open question sharper, not easier.** The
+  diffusion is `LR`/`RL` and every fieldmap is `AP`/`PA`. A nearest-in-time
+  binding would hand a diffusion series a fieldmap that **cannot correct it** —
+  wrong axis — and say nothing. So the `B0FieldSource` decision `#7.2` inherits
+  cannot be "bind to the nearest pair"; on this dataset the opposing `LR`/`RL`
+  diffusion pair is its own field estimate. Settle that before writing any
+  binding, and note the check that would catch it — `pe-collinear`, which is
+  orientation-free — already exists (`#19.2`).
 
-**`#16.2` shipped 2026-08-16** (see the ledger; decisions — including the one
-deviation from the plan recorded here, no job id in the cache key — in
-`docs/sanity-checks.md`, Slice C).
+**`#43.4` — Defacing (`#7.1`, the half mmmdata needs).** CC0 and undefaced, so
+this is what stands between the dataset and release. Scoped down from `#7.1` by
+measurement: the sidecar scrubber has nothing much to remove here (see above),
+and whether the institutional fields also go is a policy call, not a mechanism
+one.
 
-**`#13.1` shipped 2026-08-16** (see the ledger; the design record is
-`core/series_skip.py`'s module docstring, the page mechanics are
-`docs/conversion-legibility.md` phase 9), and the release was cut the same day
-— tagged, pushed, and published on the Releases page. `#13.2` (2026-08-17)
-missed it and rides in the next release: a new refusal, not a new recipe — the
-sweep measured zero filename changes, so nothing duckbrain *writes* moved, and
-on the roadmap's own minor-vs-patch test it does not by itself force a minor.
+  🔴 **Defacing must not run on mmmdata before `#43.5` has.** Ben's constraint,
+  and it is the same shape as the identity check in Loose ideas — *derive, then
+  torch*. Every eye-destroying operation is one-way: an anat defacer removes the
+  eyes with the face, and fMRIPrep's brain extraction removes them from the
+  functional data (`#7.8` already says so). Gaze reconstructed after either one
+  is not merely worse, it is impossible, and unlike a wrong subject mapping there
+  is no way to notice afterwards that you lost it.
+  **Two things this leaves to settle, and neither is settled here:** whether
+  defacing is anat-only in duckbrain's policy — in which case it and DeepMReye
+  may not collide at all, since DeepMReye reads *functional* eyeball voxels — and
+  what the eyes-preserved path off raw/minimal BOLD looks like. Build order stays
+  as decided; what is fixed is that the *run* is gated.
 
-### `#19` — deliberately not in the version plan
-
-Take its sub-items opportunistically as fixtures appear; do not schedule the item.
-Most of what is open there is **blocked on data, not on effort**:
-
-- `#19.2` waits on an LR/RL *fieldmap*. Neither `mmmsourcedata` nor the LCNI
-  corpus holds one.
-- `#19.6` has a local oracle now (the `PHASE` token, and the phase sidecar's
-  `EchoTime1` matching the magnitude's `EchoTime`) but still no session exhibiting
-  either fragility — "no evidence available" became "no failing case available",
-  which is closer but is still not a thing to schedule.
-- `#19.7` waits on LCNI re-converting their anatomicals.
-- `#19.10` waits on `#7.2`/QSIPrep existing as a *consumer*; writing
-  `B0FieldSource` before then is metadata nothing reads.
-- `#19.12` has no fixture at all — 0 unequal ND pairings across all 166 corpus
-  sessions — so it is a policy decision whenever someone wants to make it.
-
-The one sub-item that needed no fixture, `#19.11`, rode along with `#13.2` and
-closed 2026-08-17 (see the ledger).
-
-### The cost this plan accepts, stated once
-
-Three minor bumps instead of one means a beta tester sees the `duckbrain-drift`
-note three times rather than once. Accepted deliberately: it is `note` severity,
-and two of the three releases genuinely change what duckbrain writes, so the note
-is telling the truth each time it fires. The alternative — suppressing real
-provenance drift to keep a notification quiet — is the trade this project has
-consistently refused elsewhere.
-
----
-
-<a id="42"></a>
-## #42 — Scale: ~100 subjects without the GUI going to sleep
-
-**Asked for by the same prospective user whose other question became `#41`
-(2026-08-18, closed same day — see the ledger): their study is ~100 subjects.**
-Dogfooding has been 5–40. The 2026-08-18 survey measured where it strains; the verdict is
-that nothing is architecturally wrong — SLURM polling is O(1) in cohort size
-(one `squeue` + one `sacct` per render, deliberately merged;
-`docs/pipeline-cockpit.md`), and the `checks.py` CHEAP/EXPENSIVE registry with
-its fingerprinted snapshot is exactly the right shape — but two hot paths
-re-derive the world per render, and at 100×2 units the numbers stop being
-tolerable.
-
-**The two measured offenders:**
-
-- `survey_project` runs **five times per cockpit render** — once in
-  `survey_live`, four more inside `check_consistency` — with no cache of any
-  kind, inside the 30 s auto-refresh fragment. Measured ~25 ms/unit cold on
-  GPFS → ~25 s/render at 200 units, blowing the refresh budget outright.
-  (`docs/pipeline-cockpit.md` contemplated "a survey_live cache with short ttl";
-  never built.)
-- `qc_panels` calls `qc.summarize_motion` **uncached, directly below the
-  carefully-cached `_load_metrics`** — it rglobs the fMRIPrep tree and parses
-  every confounds TSV on every widget interaction. Measured ~35 ms/file → ~42 s
-  and ~1 GB parsed per slider drag at ~1200 files. Needs ~4 columns of each.
-
-**The cheap tranche shipped 2026-08-20**, all six in value order — see `git log`
-for each (`#42.1`–`#42.6`) and `CHANGELOG.md` for the user-facing summary.
-`summarize_motion` is cached and reads one column instead of ~200; the board's
-cell and bulk popovers compute their bodies only when opened, which is also the
-unfixed half of DB-010; `check_consistency(config, matrix=…)` takes the survey
-the cockpit already has, so a render surveys once rather than five times; bulk
-submission reports per unit, refuses a batch SLURM has no room for, and stops on
-the one rejection that will refuse every remaining unit; MRIQC's flat root is
-listed once per survey rather than twice per unit; and the board paginates past
-50 units with an auto-refresh cadence that follows whether anything is queued.
-
-**What that leaves is the two design-level items below, and neither is
-scheduled.** Both are real work with a decision in front of them, which is why
-they were never in the tranche. The item stays open to hold them.
-
-**Design-level, unscheduled:**
-
-- **A persisted survey snapshot.** `surveyor.py`'s docstring already names
-  `checks.json` as the one deliberate exception to "no state store, re-derive
-  live"; the survey matrix is the second candidate, and the staleness-honesty
-  argument was already had for the first. Do not build a second, different
-  caching story — extend that one.
-- **Cross-subject job arrays** for fMRIPrep/MRIQC — one `--array=1-100` with a
-  subject-index lookup instead of 100 sbatch calls and 100 queue rows. Requires
-  rethinking the `{prefix}_{tag}` job-name join key `survey_live` matches on
-  (array tasks report as `12345_3`; `_attempt_order` already anticipates the
-  form). NORDIC's per-run array inside one unit is prior art in-repo.
+**`#43.5` — Eye-movement reconstruction (`#7.8`).** Last by value, and promoted
+in kind: mmmdata gives it the thing it never had. See `#7.8` — the 73 EyeLink
+runs are ground truth, and the item's "low demand, unique requirements" framing
+no longer describes it.
 
 ---
 
@@ -330,8 +264,50 @@ data-migration problem, not just a fix. duckbrain's shipped default partition wa
 
 ---
 
+<a id="5b"></a>
+## #5b — NORDIC Case 2: same-project raw-vs-NORDIC comparison
+
+**No longer hypothetical, 2026-08-20.** This item read "deferred until actually
+needed" from the day it was written. mmmdata is the case: it carries
+`derivatives/fmriprep` **and** `derivatives/fmriprep_nordic`, 535 G each, over
+one BIDS root. `_fmriprep_status` hardcodes `derivatives_dir / "fmriprep"`, so
+duckbrain surveys one of them and has no way to say the other is there — on a
+board whose whole job is to tell you what exists. Reached via `#43`. Case 1 (the
+`use_nordic` toggle) is validated live and is unaffected.
+
+- **The zero-code fallback does not answer it here.** Two project dirs over one
+  BIDS is still the cheapest test of the *comparison*, but mmmdata's problem is a
+  tree that already exists and is invisible; a second project dir does not make
+  the first one honest.
+- **Do not branch the pipeline.** Use distinct derivative names and parameterize
+  the hardcoded derivative dir in `_fmriprep_status` and the builder, so a variant
+  appears as an *additive extra column* only when the project opts in. Matches
+  BIDS-derivatives norms.
+  **Read the name off disk, don't impose one:** this item guessed
+  `fmriprep-nordic` and mmmdata wrote `fmriprep_nordic`. A convention duckbrain
+  invents for trees other tools produced is a convention that will be wrong.
+- **Case 3, full named-pipeline DAG: PARKED.** Only if branch counts grow (multiple
+  denoisers / fMRIPrep configs routinely). This is the complexity to avoid.
+  The forcing function `#7.7` warned about fired 2026-08-19 (external FreeSurfer
+  gives fMRIPrep a second producer) and was answered *without* un-parking this:
+  `effective_dependencies` returns a tuple of producers, `stage_runnable`
+  iterates it, and that is the whole requirement — see the `#7.7` ledger row.
+- **Candidate affordance** (ties to `#2`): the Setup page validates containers
+  exist; give NORDIC the same treatment — "toolbox not found → fetch pinned
+  version", cloning upstream at a duckbrain-pinned SHA into the user's own space.
+  Not redistribution (the user pulls from UMN) and it gives version uniformity.
+
+---
+
 <a id="licensing-follow-ups"></a>
 ## Licensing follow-ups
+
+**This is `#43.1` — first of the mmmdata slices, 2026-08-20.** Not because it is
+urgent but because it is cheap and it blocks *other people's* work rather than
+Ben's. Note the boundary precisely: running duckbrain on mmmdata needs no licence
+answer at all. Only **code moving between the repos** does — which is `#12`, the
+`surveyor.py` port, and `#7.4`'s end state where mmmdata depends on duckbrain
+instead of keeping a copy.
 
 - ⚠️ **Can Ben license duckbrain under GPL-3.0-or-later (employee-IP policy)?
   Asked; answered informally and encouragingly, but not by anyone who owns the
@@ -372,8 +348,184 @@ data-migration problem, not just a fix. duckbrain's shipped default partition wa
 
 ---
 
+<a id="42"></a>
+## #42 — Scale: ~100 subjects without the GUI going to sleep
+
+**Asked for by the same prospective user whose other question became `#41`
+(2026-08-18, closed same day — see the ledger): their study is ~100 subjects.**
+Dogfooding has been 5–40. The 2026-08-18 survey measured where it strains; the verdict is
+that nothing is architecturally wrong — SLURM polling is O(1) in cohort size
+(one `squeue` + one `sacct` per render, deliberately merged;
+`docs/pipeline-cockpit.md`), and the `checks.py` CHEAP/EXPENSIVE registry with
+its fingerprinted snapshot is exactly the right shape — but two hot paths
+re-derive the world per render, and at 100×2 units the numbers stop being
+tolerable.
+
+**The two measured offenders:**
+
+- `survey_project` runs **five times per cockpit render** — once in
+  `survey_live`, four more inside `check_consistency` — with no cache of any
+  kind, inside the 30 s auto-refresh fragment. Measured ~25 ms/unit cold on
+  GPFS → ~25 s/render at 200 units, blowing the refresh budget outright.
+  (`docs/pipeline-cockpit.md` contemplated "a survey_live cache with short ttl";
+  never built.)
+- `qc_panels` calls `qc.summarize_motion` **uncached, directly below the
+  carefully-cached `_load_metrics`** — it rglobs the fMRIPrep tree and parses
+  every confounds TSV on every widget interaction. Measured ~35 ms/file → ~42 s
+  and ~1 GB parsed per slider drag at ~1200 files. Needs ~4 columns of each.
+
+**The cheap tranche shipped 2026-08-20**, all six in value order — see `git log`
+for each (`#42.1`–`#42.6`) and `CHANGELOG.md` for the user-facing summary.
+`summarize_motion` is cached and reads one column instead of ~200; the board's
+cell and bulk popovers compute their bodies only when opened, which is also the
+unfixed half of DB-010; `check_consistency(config, matrix=…)` takes the survey
+the cockpit already has, so a render surveys once rather than five times; bulk
+submission reports per unit, refuses a batch SLURM has no room for, and stops on
+the one rejection that will refuse every remaining unit; MRIQC's flat root is
+listed once per survey rather than twice per unit; and the board paginates past
+50 units with an auto-refresh cadence that follows whether anything is queued.
+
+**What that leaves is the two design-level items below, and neither is
+scheduled.** Both are real work with a decision in front of them, which is why
+they were never in the tranche. The item stays open to hold them.
+
+**Design-level, unscheduled:**
+
+- **A persisted survey snapshot.** `surveyor.py`'s docstring already names
+  `checks.json` as the one deliberate exception to "no state store, re-derive
+  live"; the survey matrix is the second candidate, and the staleness-honesty
+  argument was already had for the first. Do not build a second, different
+  caching story — extend that one.
+- **Cross-subject job arrays** for fMRIPrep/MRIQC — one `--array=1-100` with a
+  subject-index lookup instead of 100 sbatch calls and 100 queue rows. Requires
+  rethinking the `{prefix}_{tag}` job-name join key `survey_live` matches on
+  (array tasks report as `12345_3`; `_attempt_order` already anticipates the
+  form). NORDIC's per-run array inside one unit is prior art in-repo.
+
+---
+
+<a id="2"></a>
+## #2 — Onboarding for external users
+
+**The writing shipped in `v0.5.0` (2026-08-11); the dogfooding and the
+distribution story are open — and, decided with Ben the same day, they no
+longer gate a release.** Every remaining sub-item below is blocked on someone
+other than the maintainer: the `UNVALIDATED` walk needs a non-maintainer
+account (a beta tester's time), the in-GUI guidance needs the walk to have
+happened, and distribution needs RACS. Take them as the blockers clear, and
+batch `#30`'s browser-eyeball queue into the walkthrough — it puts you in front
+of the GUI anyway. `QUICKSTART.md` and `README.md` are written and current.
+
+**2026-08-07 — Ben's three directions for this item, all landed the same day:**
+
+1. **Both launch routes are documented as real, current paths** — the
+   interactive-session + `scripts/launch.sh` route is what the beta testers
+   actually use (over an SSH tunnel, or tunnel-free from a browser inside an
+   OnDemand Interactive Desktop), and the personal OnDemand sandbox is the
+   maintainer's route. The docs previously framed launch as "unresolved,
+   neither blessed", which understated reality. The *distribution* question
+   (RACS-published shared app) stays open below — routes being real is not the
+   same as routes being one-click.
+2. **A hand-holding guide for users new to cluster computing entirely** —
+   `docs/new-to-talapas.md` (it landed as an in-app page,
+   `7_New_to_Talapas.py`, and moved to the repo the same day so it is
+   readable on GitHub *during* setup — the people who need it most are
+   exactly the people who can't launch the GUI yet). Plain-words concepts
+   (nodes, SLURM, PIRGs), canonical tutorial links (shell, RACS, Git/GitHub,
+   conda, SLURM, BIDS, fMRIPrep, MRIQC), and the PI-check list below. The
+   GUI page and `QUICKSTART.md`'s opening section are now signposts to the
+   one canonical copy; `tests/test_guide_pages.py` pins the doc's link set
+   and both signposts. Audience context that shaped it: the current
+   beta testers are tech-savvy, but users new to clusters, the command line,
+   and GitHub are coming — and the docs now clone over HTTPS for exactly that
+   reason (no GitHub account or SSH key needed).
+3. **Lab decisions are flagged as "ask your PI", in the docs and on the page** —
+   because these newcomers' PI will *not* be duckbrain's maintainer. The
+   flagged set: PIRG/SLURM account, whether the lab already has the shared
+   conda env (and at what prefix — `setup_env.sh`'s default is hulacon's) and
+   the containers, tool versions and options (output spaces, NORDIC yes/no —
+   consistency across a study is a methods-section matter), and where projects
+   live.
+
+- **`UNVALIDATED` — the new-user path on a clean account.** Flagged inline in the
+  docs too. The path to walk is the **conda** one, since 2026-08-07 that is what
+  new users are told to do (that reordering is the whole reason this item waited
+  for the environment work). Nobody has walked: fresh `git clone` →
+  `./scripts/setup_env.sh` → activate → tests pass — and on an account that is
+  not the maintainer's, which matters twice here: the shared prefix already
+  exists (their run takes the *update* path, never exercised clean) and the FSL
+  condarc landmine fires per-account. Then the three `singularity build`
+  commands actually building on Talapas
+  (and whether it's `apptainer` or `singularity` under current module policy); the
+  exact config key set the Setup page emits matching the hand-written shapes in the
+  docs; `scripts/launch.sh` srun flags under current partition/account policy; and
+  personal-OOD-sandbox registration for a *new* user.
+- **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —
+  needs a real walkthrough to know where the friction actually is.
+- **Distribution story — needs RACS.** The OOD app is a personal sandbox today.
+  Three candidates laid out but not picked in
+  `QUICKSTART.md#the-distribution-question`.
+
+### Second-user blockers, actually checked (2026-07-20)
+
+Checked on-cluster rather than inferred, and it is **less blocked than this item
+implied** — one assumed gate turned out not to exist, and the real cost is
+elsewhere.
+
+- ✅ **Getting the code is not a gate. The GitHub repo is PUBLIC** (verified
+  against the API; GPL-3.0 detected). Notes previously said "private" — wrong.
+  Which is what makes the licensing question above urgent rather than academic.
+- 🔴 **Containers are the real blocker — ~8.6 GB and unshareable as things
+  stand.** `/home/bhutch` is `drwx------`, so nobody can traverse to
+  `~/containers` even though that directory is itself world-readable. And there
+  is **no mutually-writable space** to stage copies into: `/gpfs/projects/hulacon`
+  is `0770` (invisible to a non-hulacon user) and `/projects/lcni` is not
+  writable by Ben (he is in `hulacon`/`psy607`, not `lcni`). So a second user
+  either builds their own (needs a build node and time — the long-lead item) or
+  Ben opens home traversal (`chmod o+x ~`, reversible, minimal, but it does make
+  home traversable).
+- 🔴 **OOD sandbox is NOT self-service — this likely needs RACS per user.** On
+  OnDemand ≥1.6 creating `~/ondemand/dev` is not enough: an admin must also
+  create a symlink under `/var/www/ood/apps/dev/<user>/` before the **Develop**
+  menu appears at all. Sites can opt back into "everyone a developer"
+  (`nginx_stage.yml`) or restrict it to a group, and **which Talapas does is not
+  checkable from a login node** — `/var/www/ood` lives on the OnDemand web hosts.
+  The maintainer's own sandbox working proves nothing either way (he is a PIRG
+  admin). **Ask RACS.** If it is per-user-on-request, that settles the
+  distribution question: if RACS has to touch every user anyway, publishing one
+  shared app is strictly cheaper than N tickets. Written up in `QUICKSTART.md` §4
+  Option B (with the `mkdir`/`ln -s` steps) *pending* that answer.
+- **FreeSurfer license** — free, but per-user registration; not shareable.
+- **SLURM account** — theirs, not Ben's. Feeds the OOD form's `bc_account`.
+- **NORDIC constraint that shapes all of this:** the licence forbids
+  redistribution and the PIRG root is `0770`, so every user must fetch their own
+  toolbox copy and each will sit at a different SHA. Already the config shape. See
+  `memory/nordic-versioning-and-licence`.
+- **What already works in a second user's favour:** the config layering was built
+  for exactly this — machine resources in the user config, study specifics in the
+  project config, project dir as the anchor.
+- **For a first meeting, don't do any of this.** Driving it yourself costs zero
+  setup and answers "is this worth doing / what scope should it cover". Do the
+  container prep only if hands-on-their-account is the actual goal, and *before*
+  the meeting rather than during.
+
+---
+
 <a id="19"></a>
 ## #19 — Conversion coverage: what the LCNI repository still shows missing
+
+**Deliberately not scheduled, and not in any release plan.** Take its sub-items
+opportunistically as fixtures appear; do not schedule the item. Most of what is
+open here is **blocked on data, not on effort** — `#19.2` waits on an LR/RL
+*fieldmap* (neither `mmmsourcedata`, the LCNI corpus, nor mmmdata holds one —
+mmmdata was checked 2026-08-20 and its 84 fieldmap dirs are AP/PA only, which
+makes three fixtures with the same gap); `#19.6` has a local oracle but no
+session exhibiting the fragility; `#19.7` waits on LCNI re-converting their
+anatomicals; `#19.10` waits on `#7.2`/QSIPrep existing as a *consumer*, which
+`#43.3` now schedules; and `#19.12` has no fixture at all — 0 unequal ND pairings
+across all 166 corpus sessions — so it is a policy decision whenever someone
+wants to make one. The one sub-item that needed no fixture, `#19.11`, rode along
+with `#13.2` and closed 2026-08-17.
 
 Validated against `/projects/lcni/dcm/repository` — 15 studies, 189 distinct
 series descriptions, 112 sessions paired with the BIDS the LCNI curator produced.
@@ -440,7 +592,9 @@ each because doing it now would have been a guess:
   a consumer exists is writing metadata nothing reads, in a column nothing shows.
   **This now belongs to `#7.2`**, which was scoped 2026-08-01 and is the
   consumer: QSIPrep reads `B0FieldSource`, so it is the item that can say what
-  the right binding *is*. Cross-referenced from `docs/pipeline-extras.md` §9.
+  the right binding *is*. It also now has a dataset that constrains the answer:
+  mmmdata's diffusion is `LR`/`RL` against `AP`/`PA`-only fieldmaps, so
+  nearest-in-time would bind across axes silently — see `#7.2` and `#43.3`. Cross-referenced from `docs/pipeline-extras.md` §9.
 - **`[expected]` cannot say how much diffusion a session should hold.**
   `expectations.py` counts anat suffixes, fieldmap pairs and task runs; a `dwi/`
   tree is invisible to it, and `checks.py`'s shortfall arithmetic is anat/func
@@ -706,113 +860,6 @@ carried-forward number: narrowing the guard moved nothing on the corpus.
 
 ---
 
-<a id="2"></a>
-## #2 — Onboarding for external users
-
-**The writing shipped in `v0.5.0` (2026-08-11); the dogfooding and the
-distribution story are open — and, decided with Ben the same day, they no
-longer gate a release.** Every remaining sub-item below is blocked on someone
-other than the maintainer: the `UNVALIDATED` walk needs a non-maintainer
-account (a beta tester's time), the in-GUI guidance needs the walk to have
-happened, and distribution needs RACS. Take them as the blockers clear, and
-batch `#30`'s browser-eyeball queue into the walkthrough — it puts you in front
-of the GUI anyway. `QUICKSTART.md` and `README.md` are written and current.
-
-**2026-08-07 — Ben's three directions for this item, all landed the same day:**
-
-1. **Both launch routes are documented as real, current paths** — the
-   interactive-session + `scripts/launch.sh` route is what the beta testers
-   actually use (over an SSH tunnel, or tunnel-free from a browser inside an
-   OnDemand Interactive Desktop), and the personal OnDemand sandbox is the
-   maintainer's route. The docs previously framed launch as "unresolved,
-   neither blessed", which understated reality. The *distribution* question
-   (RACS-published shared app) stays open below — routes being real is not the
-   same as routes being one-click.
-2. **A hand-holding guide for users new to cluster computing entirely** —
-   `docs/new-to-talapas.md` (it landed as an in-app page,
-   `7_New_to_Talapas.py`, and moved to the repo the same day so it is
-   readable on GitHub *during* setup — the people who need it most are
-   exactly the people who can't launch the GUI yet). Plain-words concepts
-   (nodes, SLURM, PIRGs), canonical tutorial links (shell, RACS, Git/GitHub,
-   conda, SLURM, BIDS, fMRIPrep, MRIQC), and the PI-check list below. The
-   GUI page and `QUICKSTART.md`'s opening section are now signposts to the
-   one canonical copy; `tests/test_guide_pages.py` pins the doc's link set
-   and both signposts. Audience context that shaped it: the current
-   beta testers are tech-savvy, but users new to clusters, the command line,
-   and GitHub are coming — and the docs now clone over HTTPS for exactly that
-   reason (no GitHub account or SSH key needed).
-3. **Lab decisions are flagged as "ask your PI", in the docs and on the page** —
-   because these newcomers' PI will *not* be duckbrain's maintainer. The
-   flagged set: PIRG/SLURM account, whether the lab already has the shared
-   conda env (and at what prefix — `setup_env.sh`'s default is hulacon's) and
-   the containers, tool versions and options (output spaces, NORDIC yes/no —
-   consistency across a study is a methods-section matter), and where projects
-   live.
-
-- **`UNVALIDATED` — the new-user path on a clean account.** Flagged inline in the
-  docs too. The path to walk is the **conda** one, since 2026-08-07 that is what
-  new users are told to do (that reordering is the whole reason this item waited
-  for the environment work). Nobody has walked: fresh `git clone` →
-  `./scripts/setup_env.sh` → activate → tests pass — and on an account that is
-  not the maintainer's, which matters twice here: the shared prefix already
-  exists (their run takes the *update* path, never exercised clean) and the FSL
-  condarc landmine fires per-account. Then the three `singularity build`
-  commands actually building on Talapas
-  (and whether it's `apptainer` or `singularity` under current module policy); the
-  exact config key set the Setup page emits matching the hand-written shapes in the
-  docs; `scripts/launch.sh` srun flags under current partition/account policy; and
-  personal-OOD-sandbox registration for a *new* user.
-- **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —
-  needs a real walkthrough to know where the friction actually is.
-- **Distribution story — needs RACS.** The OOD app is a personal sandbox today.
-  Three candidates laid out but not picked in
-  `QUICKSTART.md#the-distribution-question`.
-
-### Second-user blockers, actually checked (2026-07-20)
-
-Checked on-cluster rather than inferred, and it is **less blocked than this item
-implied** — one assumed gate turned out not to exist, and the real cost is
-elsewhere.
-
-- ✅ **Getting the code is not a gate. The GitHub repo is PUBLIC** (verified
-  against the API; GPL-3.0 detected). Notes previously said "private" — wrong.
-  Which is what makes the licensing question above urgent rather than academic.
-- 🔴 **Containers are the real blocker — ~8.6 GB and unshareable as things
-  stand.** `/home/bhutch` is `drwx------`, so nobody can traverse to
-  `~/containers` even though that directory is itself world-readable. And there
-  is **no mutually-writable space** to stage copies into: `/gpfs/projects/hulacon`
-  is `0770` (invisible to a non-hulacon user) and `/projects/lcni` is not
-  writable by Ben (he is in `hulacon`/`psy607`, not `lcni`). So a second user
-  either builds their own (needs a build node and time — the long-lead item) or
-  Ben opens home traversal (`chmod o+x ~`, reversible, minimal, but it does make
-  home traversable).
-- 🔴 **OOD sandbox is NOT self-service — this likely needs RACS per user.** On
-  OnDemand ≥1.6 creating `~/ondemand/dev` is not enough: an admin must also
-  create a symlink under `/var/www/ood/apps/dev/<user>/` before the **Develop**
-  menu appears at all. Sites can opt back into "everyone a developer"
-  (`nginx_stage.yml`) or restrict it to a group, and **which Talapas does is not
-  checkable from a login node** — `/var/www/ood` lives on the OnDemand web hosts.
-  The maintainer's own sandbox working proves nothing either way (he is a PIRG
-  admin). **Ask RACS.** If it is per-user-on-request, that settles the
-  distribution question: if RACS has to touch every user anyway, publishing one
-  shared app is strictly cheaper than N tickets. Written up in `QUICKSTART.md` §4
-  Option B (with the `mkdir`/`ln -s` steps) *pending* that answer.
-- **FreeSurfer license** — free, but per-user registration; not shareable.
-- **SLURM account** — theirs, not Ben's. Feeds the OOD form's `bc_account`.
-- **NORDIC constraint that shapes all of this:** the licence forbids
-  redistribution and the PIRG root is `0770`, so every user must fetch their own
-  toolbox copy and each will sit at a different SHA. Already the config shape. See
-  `memory/nordic-versioning-and-licence`.
-- **What already works in a second user's favour:** the config layering was built
-  for exactly this — machine resources in the user config, study specifics in the
-  project config, project dir as the anchor.
-- **For a first meeting, don't do any of this.** Driving it yourself costs zero
-  setup and answers "is this worth doing / what scope should it cover". Do the
-  container prep only if hands-on-their-account is the actual goal, and *before*
-  the meeting rather than during.
-
----
-
 <a id="9"></a>
 ## #9 — Launch surface: one place to run, everywhere else prepares
 
@@ -937,31 +984,6 @@ queries), a QC agent (MRIQC outliers), an orchestrator, and a tool registry unde
 
 ---
 
-<a id="5b"></a>
-## #5b — NORDIC Case 2: same-project raw-vs-NORDIC comparison
-
-Deferred until actually needed. Case 1 (the `use_nordic` toggle) is validated live.
-
-- **Try the zero-code fallback first:** two project dirs over the same BIDS, one
-  with `use_nordic` on.
-- If it needs building: **do not branch the pipeline.** Use distinct derivative
-  names (`derivatives/fmriprep/` vs `derivatives/fmriprep-nordic/`) and
-  parameterize the hardcoded derivative dir in `_fmriprep_status` and the builder,
-  so a variant appears as an *additive extra column* only when the project opts in.
-  Matches BIDS-derivatives norms.
-- **Case 3, full named-pipeline DAG: PARKED.** Only if branch counts grow (multiple
-  denoisers / fMRIPrep configs routinely). This is the complexity to avoid.
-  The forcing function `#7.7` warned about fired 2026-08-19 (external FreeSurfer
-  gives fMRIPrep a second producer) and was answered *without* un-parking this:
-  `effective_dependencies` returns a tuple of producers, `stage_runnable`
-  iterates it, and that is the whole requirement — see the `#7.7` ledger row.
-- **Candidate affordance** (ties to `#2`): the Setup page validates containers
-  exist; give NORDIC the same treatment — "toolbox not found → fetch pinned
-  version", cloning upstream at a duckbrain-pinned SHA into the user's own space.
-  Not redistribution (the user pulls from UMN) and it gives version uniformity.
-
----
-
 <a id="7"></a>
 ## #7 — Pipeline extras: candidate stages
 
@@ -978,6 +1000,22 @@ other five are unstarted.
    **Sequencing note:** an identity sanity check wants to run *immediately before*
    this — see Loose ideas. Once the headers are scrubbed, a wrong subject mapping
    can no longer be detected or proven.
+   🔴 **A second, independent thing must run before this one: gaze reconstruction
+   (`#7.8`).** Ben's constraint, 2026-08-20, and the same *derive-then-torch*
+   shape as the identity check one line up. Defacing takes the eyes with the face;
+   fMRIPrep's brain extraction takes them out of the functional data. Both are
+   one-way, and gaze derived afterwards is not degraded, it is impossible. Two
+   things left open on purpose: whether duckbrain's policy defaces **anat only**,
+   in which case it may not collide with `#7.8` at all — DeepMReye reads
+   *functional* eyeball voxels — and what the eyes-preserved path looks like.
+   Settle both before either ships. See `#43.4`.
+   **Which half mmmdata needs, measured 2026-08-20:** its sidecars already carry
+   no `PatientName` or `PatientBirthDate`, so the scrubbing half below has almost
+   nothing to remove there; what survives is institutional (`InstitutionName`,
+   `InstitutionAddress`, `DeviceSerialNumber`, `StationName`) and whether that
+   goes too is a policy call, not a mechanism one. The anatomicals are
+   **undefaced** and the dataset is `License: CC0`, so defacing is the half that
+   gates a release — the half this item spends the fewest words on.
    **The sidecar-scrubbing half has a candidate implementation, and it waits for
    this item on purpose:** `cubids remove-metadata-fields --fields PatientName`
    does exactly the BIDS-sidecar half. It **mutates sidecars in place**, so it
@@ -1003,6 +1041,15 @@ other five are unstarted.
    this item one open decision: a diffusion series carries no `B0FieldSource`,
    because nothing consumed it and the binding is keyed on `(task, run)`, which
    diffusion has neither of. QSIPrep is the consumer that makes it answerable.
+   🔴 **mmmdata makes that decision harder, not easier (measured 2026-08-20).**
+   Its diffusion runs in four PE directions including `LR`/`RL`, and every one of
+   its 84 fieldmap directories holds `dir-AP`/`dir-PA` `_epi` only. A
+   nearest-in-time binding would therefore hand a diffusion series a fieldmap on
+   the **wrong axis**, which cannot correct it, and say nothing — so "bind to the
+   nearest pair" is ruled out as the answer before the work starts. On this
+   dataset the opposing `LR`/`RL` diffusion pair is its own field estimate. The
+   check that would catch a wrong binding already exists and is orientation-free
+   (`pe-collinear`, `#19.2`). Reached as `#43.3`.
    Two smaller findings worth having
    either way: QSIPrep is **not** a forcing function for `#5b` Case 3 (it has no
    anat-reuse flag, and its ACPC/LPS+ anat is not fMRIPrep's anyway), and the QC
@@ -1046,6 +1093,12 @@ other five are unstarted.
    mmmdata-agents `docs/constellation-contracts.md` §3.2 — duckbrain
    contributes facts, the catalog ingests). Any PhysIO/TAPAS implementation
    parses every recording anyway, so dud detection falls out of step one.
+   **Counted on disk 2026-08-20 and the 766 holds** — 693 scanner
+   (`recording-cardiac`, `-pulse`, `-respiratory`, all three per bold run) plus
+   **73 EyeLink** (`recording-eye`, ses-19 – ses-28). The eye recordings are real
+   recorded data living in `func/` as `_physio`, not something to reconstruct;
+   they belong to this item, and they are also what gives `#7.8` a ground truth.
+   Reached first among the mmmdata slices — `#43.2`.
 6. **ReproIn** — **reading it is DONE** (2026-07-21): duckbrain parses the naming
    convention and trusts its entities over the heuristics, still converting with
    dcm2bids. What's left is the *social* half — recommending the convention to
@@ -1072,7 +1125,17 @@ other five are unstarted.
    use. The scoping record with both traps stays `docs/pipeline-extras.md` §9.
 8. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
    actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
-   path off raw/minimal data. Low demand, unique requirements.
+   path off raw/minimal data.
+   **"Low demand, unique requirements" no longer describes it (2026-08-20).**
+   mmmdata asks for it and hands it the thing it never had: **73 real EyeLink
+   recordings** (`recording-eye_physio`, ses-19 – ses-28, ~24 per subject) against
+   ~800 bold runs with no eyetracker at all. That is a validation set and a motive
+   in one tree — reconstruct gaze where there is none, check it where there is.
+   Sequencing is forced by `#7.5`: you cannot validate against recordings nobody
+   has judged real yet.
+   🔴 **It must precede `#7.1`'s defacing on any dataset it will run on** — see
+   the rule recorded there and at `#43.4`. Every eye-destroying step is one-way.
+   Reached last among the mmmdata slices, by value — `#43.5`.
 
 ---
 

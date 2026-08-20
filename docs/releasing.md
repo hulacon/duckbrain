@@ -30,6 +30,35 @@ the NORDIC m-file) or only the flags it passes to a container. A feature that
 leaves every existing project's emitted config byte-identical is a weaker case for
 minor than one that changes what gets written.
 
+## What ships together
+
+**The cut is by kind, not by size.** Two questions sort a queue of finished work
+into releases, and neither one is "how much is it":
+
+1. **Does it change a recipe duckbrain authors?** That is the minor-vs-patch test
+   above, with the mechanical consequence `_release_line()` gives it — a minor
+   bump flags every existing `converted` and `nordic` derivative. A release that
+   changes what duckbrain *writes* should flag them; one that changes only how
+   duckbrain is *installed* should not have to.
+2. **Is it schedulable at all?** Some open work is blocked on data, or on another
+   item's design settling, and not on effort. That cannot be committed to a
+   release without making the release hostage to something nobody controls.
+
+Bundling everything collapses both distinctions at once: finished, zero-risk
+packaging work sits unreleased behind an open architectural question, and the
+whole thing waits on fixtures that may never arrive. **Ship the schedulable
+half.** `v0.5.0` was cut exactly that way — `#2`'s writing went out while the
+rest of `#2`, which needs a non-maintainer account and an answer from an office
+outside this project, stayed open below it. `core/updates.py` compares against
+published Releases, so work held back is work the beta testers cannot see.
+
+**The cost this accepts, stated once.** Several minor bumps instead of one means
+a user sees the `duckbrain-drift` note several times rather than once. Accepted
+deliberately: it is `note` severity, and a release that genuinely changes what
+duckbrain writes is telling the truth each time it fires. The alternative —
+suppressing real provenance drift to keep a notification quiet — is the trade
+this project has consistently refused elsewhere.
+
 ## Steps
 
 1. **Bump the version.** One place only: `__version__` in

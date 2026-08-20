@@ -85,7 +85,8 @@ step is the whole announcement channel and is easy to leave undone, so check
 `git tag` against the Releases page rather than trusting a count here (this
 sentence has been wrong about both the current release and the number of them).
 The GUI is in active dogfooding. See `TODO.md` for what's open — it opens with a
-release roadmap as of 2026-08-06 — and `docs/releasing.md` to cut the next one.
+priority-ordered index, and the release-bundling rule that used to be narrated
+there now lives in `docs/releasing.md`, which is also how you cut the next one.
 
 ## Rules that bind (read before changing related code)
 
