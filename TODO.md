@@ -75,8 +75,8 @@ release, which is what makes `#7.1` load-bearing rather than theoretical.
 | | |
 |---|---|
 | Datatype dirs | 87 `func`, 84 `fmap`, 79 `beh`, 9 `anat`, **6 `dwi`** |
-| Diffusion | ses-01 and ses-28 only, in **four** PE directions — `AP`, `PA`, `LR`, `RL` |
-| Fieldmaps | `dir-AP`/`dir-PA` `_epi` **only** — no LR/RL fieldmap anywhere |
+| Diffusion | ses-01 and ses-28 only, **four** PE directions — `AP`, `PA`, `LR`, `RL` — each a full 54-volume 3-shell run; every axis a complete opposing pair (see `#43.3`) |
+| Fieldmaps | `dir-AP`/`dir-PA` `_epi` **only**, and they are *func* fieldmaps; the three ses-01 sessions have no `fmap/` at all |
 | Physio | **766** recordings: 693 scanner (`recording-cardiac`, `-pulse`, `-respiratory`) + **73 EyeLink** (`recording-eye`, ses-19 – ses-28) |
 | Derivatives | **21 trees**, of which duckbrain knows four names |
 
@@ -133,14 +133,39 @@ down (`docs/pipeline-extras.md` §1), prerequisite `#19.1` met, two independentl
 shippable slices. mmmdata sizes it honestly — **6 diffusion sessions**, so this
 is a capability that will be *exercised* rather than stressed.
 
-  🔴 **mmmdata makes `#19.10`'s open question sharper, not easier.** The
-  diffusion is `LR`/`RL` and every fieldmap is `AP`/`PA`. A nearest-in-time
-  binding would hand a diffusion series a fieldmap that **cannot correct it** —
-  wrong axis — and say nothing. So the `B0FieldSource` decision `#7.2` inherits
-  cannot be "bind to the nearest pair"; on this dataset the opposing `LR`/`RL`
-  diffusion pair is its own field estimate. Settle that before writing any
-  binding, and note the check that would catch it — `pe-collinear`, which is
-  orientation-free — already exists (`#19.2`).
+  🔴 **The diffusion is its own fieldmap, and that answers `#19.10` for this
+  dataset (measured 2026-08-20).** Every DWI run is a full 54-volume 3-shell
+  acquisition (4× b=0, 9× b=1000, 16× b=2000, 25× b=3000), and in **all six
+  sessions** the directions form *complete opposing pairs* at identical
+  `TotalReadoutTime` — `LR`=`i-` against `RL`=`i`, `AP`=`j-` against `PA`=`j`.
+  Four sessions carry both axes; sub-03 and sub-05 at ses-28 carry `AP`/`PA`
+  only. So `B0FieldSource` on a diffusion series should name a group formed from
+  **the DWI runs themselves**, not from anything in `fmap/`, and the acquisition
+  is not missing a fieldmap — it declined to need one.
+
+  Two facts rule out the `fmap/` alternative independently of any physics
+  argument: **ses-01 has no `fmap/` directory at all** (three of the six
+  sessions), and ses-28's `_epi` pairs are *func* fieldmaps — they already
+  declare `B0FieldIdentifier: B0map_encoding_…` / `B0map_retrieval_…`, named for
+  the tasks, and differ from the DWI in resolution (1.7 vs 1.8 mm), echo time
+  (40.6 vs 70 ms) and readout (0.0363 vs 0.0420 s).
+
+  **Correction to what this item claimed on 2026-08-20**, before the data was
+  read: that an `AP`/`PA` fieldmap "cannot correct" `LR`/`RL` diffusion, wrong
+  axis. Not true — a PEPOLAR pair estimates a *scalar* ΔB0 map, and displacement
+  along any PE axis is ΔB0 × readout applied along that axis, so an `AP`/`PA`-
+  derived field is applicable to `LR`/`RL` data. The binding is still wrong here,
+  for the two reasons above, but not for that reason, and the wrong reason would
+  have led somewhere else.
+
+  **A shape duckbrain has never emitted**, whichever way this is implemented: a
+  `dwi` file that carries `B0FieldIdentifier` *and* `B0FieldSource` — field
+  source and correction target at once. Legal BIDS. `CLAUDE.md`'s rule (the
+  fieldmap carries the identifier, the bold and sbref carry the source) is about
+  BOLD and is not contradicted, but it is not the whole vocabulary either.
+  `pe-collinear` is the right check and already exists, orientation-free, so it
+  confirms an opposing pair without a canonical tree (`#19.2`) — it is what
+  measured the six-for-six above.
 
 **`#43.4` — Defacing (`#7.1`, the half mmmdata needs).** CC0 and undefaced, so
 this is what stands between the dataset and release. Scoped down from `#7.1` by
@@ -519,7 +544,9 @@ opportunistically as fixtures appear; do not schedule the item. Most of what is
 open here is **blocked on data, not on effort** — `#19.2` waits on an LR/RL
 *fieldmap* (neither `mmmsourcedata`, the LCNI corpus, nor mmmdata holds one —
 mmmdata was checked 2026-08-20 and its 84 fieldmap dirs are AP/PA only, which
-makes three fixtures with the same gap); `#19.6` has a local oracle but no
+makes three fixtures with the same gap; what mmmdata *does* add is a third
+independent site measuring `LR`=`i-` / `RL`=`i` on diffusion, agreeing with
+`PE_FOR_DIR`'s two weakest rows); `#19.6` has a local oracle but no
 session exhibiting the fragility; `#19.7` waits on LCNI re-converting their
 anatomicals; `#19.10` waits on `#7.2`/QSIPrep existing as a *consumer*, which
 `#43.3` now schedules; and `#19.12` has no fixture at all — 0 unequal ND pairings
@@ -592,9 +619,10 @@ each because doing it now would have been a guess:
   a consumer exists is writing metadata nothing reads, in a column nothing shows.
   **This now belongs to `#7.2`**, which was scoped 2026-08-01 and is the
   consumer: QSIPrep reads `B0FieldSource`, so it is the item that can say what
-  the right binding *is*. It also now has a dataset that constrains the answer:
-  mmmdata's diffusion is `LR`/`RL` against `AP`/`PA`-only fieldmaps, so
-  nearest-in-time would bind across axes silently — see `#7.2` and `#43.3`. Cross-referenced from `docs/pipeline-extras.md` §9.
+  the right binding *is*. It also now has a dataset that answers it:
+  mmmdata's DWI acquires complete opposing pairs on both axes, so the diffusion
+  is its own field estimate and names no `fmap/` entry at all — see `#7.2` and
+  `#43.3`, including why the nearest-in-time binding is ruled out. Cross-referenced from `docs/pipeline-extras.md` §9.
 - **`[expected]` cannot say how much diffusion a session should hold.**
   `expectations.py` counts anat suffixes, fieldmap pairs and task runs; a `dwi/`
   tree is invisible to it, and `checks.py`'s shortfall arithmetic is anat/func
@@ -1041,15 +1069,18 @@ other five are unstarted.
    this item one open decision: a diffusion series carries no `B0FieldSource`,
    because nothing consumed it and the binding is keyed on `(task, run)`, which
    diffusion has neither of. QSIPrep is the consumer that makes it answerable.
-   🔴 **mmmdata makes that decision harder, not easier (measured 2026-08-20).**
-   Its diffusion runs in four PE directions including `LR`/`RL`, and every one of
-   its 84 fieldmap directories holds `dir-AP`/`dir-PA` `_epi` only. A
-   nearest-in-time binding would therefore hand a diffusion series a fieldmap on
-   the **wrong axis**, which cannot correct it, and say nothing — so "bind to the
-   nearest pair" is ruled out as the answer before the work starts. On this
-   dataset the opposing `LR`/`RL` diffusion pair is its own field estimate. The
-   check that would catch a wrong binding already exists and is orientation-free
-   (`pe-collinear`, `#19.2`). Reached as `#43.3`.
+   🔴 **mmmdata answers it (measured 2026-08-20) — and the answer is that no
+   `fmap/` entry is involved.** All six of its DWI sessions acquire *complete
+   opposing pairs* at one readout time (`LR`=`i-`/`RL`=`i`, `AP`=`j-`/`PA`=`j`),
+   every run a full 54-volume 3-shell acquisition, so the diffusion is its own
+   field estimate; three of the six sessions have no `fmap/` directory at all,
+   and the fieldmaps in the other three are *func* ones already claimed by a
+   task-named `B0FieldIdentifier`. **"Bind to the nearest pair" is therefore ruled
+   out before the work starts** — what a diffusion series should name is a group
+   formed from the DWI runs themselves, which makes a `dwi` file both field source
+   and correction target, a shape duckbrain has never emitted. Full measurement,
+   and the correction of an earlier wrong reason for the same conclusion, at
+   `#43.3`.
    Two smaller findings worth having
    either way: QSIPrep is **not** a forcing function for `#5b` Case 3 (it has no
    anat-reuse flag, and its ACPC/LPS+ anat is not fMRIPrep's anyway), and the QC
