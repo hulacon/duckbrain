@@ -70,8 +70,14 @@ not plumbing it is missing.
 
 Not from its docs; the docs agreed, but the point of the check was not to trust
 them. **3 subjects × 88 sessions**, already BIDS,
-`dataset_description.json` says **`License: CC0`** — i.e. bound for public
-release, which is what makes `#7.1` load-bearing rather than theoretical.
+`dataset_description.json` says **`License: CC0`**. ⚠️ **That is a metadata
+string, not a plan** — read as release intent when this item was first written
+(2026-08-20), and corrected the same day: Ben's position is that public
+*codebases* are fine and public *data* is a separate question that has not been
+decided. Nothing here is preparing the dataset for release. Treat the CC0
+declaration as unverified — quite possibly a scaffold default nobody revisited —
+and if release is ever decided, that decision will be made explicitly and will
+say so here.
 
 | | |
 |---|---|
@@ -226,9 +232,17 @@ is a capability that will be *exercised* rather than stressed.
   confirms an opposing pair without a canonical tree (`#19.2`) — it is what
   measured the six-for-six above.
 
-**`#43.4` — Defacing (`#7.1`, the half mmmdata needs).** CC0 and undefaced, so
-this is what stands between the dataset and release. Scoped down from `#7.1` by
-measurement: the sidecar scrubber has nothing much to remove here (see above),
+**`#43.4` — Defacing (`#7.1`, the half mmmdata needs).** ⚠️ **This slice's
+stated justification did not survive the day it was written.** It was placed here
+as "what stands between the dataset and release" — but that read release intent
+off a CC0 metadata string (see above), and no release is planned. What remains
+true is narrower and still worth something: the anatomicals are undefaced, so
+duckbrain has no defacing capability and mmmdata is a fixture that would exercise
+one. What is gone is the urgency. **Its position in this order is therefore
+unresolved** — the ordering was agreed with Ben on value, and this entry's value
+was argued from a premise that is false. Re-decide before starting it; do not
+treat its position as settled by the 2026-08-20 agreement. Scoped down from
+`#7.1` by measurement: the sidecar scrubber has nothing much to remove here (see above),
 and whether the institutional fields also go is a policy call, not a mechanism
 one.
 
@@ -1114,8 +1128,11 @@ other five are unstarted.
    nothing to remove there; what survives is institutional (`InstitutionName`,
    `InstitutionAddress`, `DeviceSerialNumber`, `StationName`) and whether that
    goes too is a policy call, not a mechanism one. The anatomicals are
-   **undefaced** and the dataset is `License: CC0`, so defacing is the half that
-   gates a release — the half this item spends the fewest words on.
+   **undefaced**, so defacing is the half of this item mmmdata would exercise —
+   the half it spends the fewest words on. ⚠️ This sentence claimed the dataset's
+   `License: CC0` meant defacing "gates a release"; corrected 2026-08-20 — no
+   release is planned and the CC0 string is unverified metadata, not intent.
+   See `#43.4`.
    **The sidecar-scrubbing half has a candidate implementation, and it waits for
    this item on purpose:** `cubids remove-metadata-fields --fields PatientName`
    does exactly the BIDS-sidecar half. It **mutates sidecars in place**, so it
