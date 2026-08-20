@@ -793,6 +793,79 @@ def test_presence_fmriprep_without_nordic_in_nordic_project(tmp_path):
     assert any(i.subject == "01" for i in issues if i.check == "presence")
 
 
+# ---- one survey per call (`#42.3`) ------------------------------------------
+
+
+def _counting_survey(monkeypatch):
+    """Replace the surveyor with one that counts and keeps working."""
+    import duckbrain.core.consistency as C
+
+    calls = []
+    real = C.survey_project
+    monkeypatch.setattr(C, "survey_project", lambda config: (calls.append(1), real(config))[1])
+    return calls
+
+
+def _nordic_project_with_a_presence_issue(tmp_path):
+    """The `presence` fixture above — a complete fMRIPrep unit and no NORDIC."""
+    fp = tmp_path / "derivatives" / "fmriprep"
+    (fp / "sub-01" / "anat").mkdir(parents=True)
+    (fp / "sub-01.html").write_text("report")
+    (fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz").write_text("x")
+    (tmp_path / "sub-01" / "anat").mkdir(parents=True)
+    return _config(tmp_path, use_nordic=True)
+
+
+def test_the_project_is_surveyed_once_per_call_not_once_per_check(tmp_path, monkeypatch):
+    """Four checks want the completion matrix and each used to take its own
+    survey — a full walk of the BIDS tree and every derivative, four times, on
+    top of the caller's. Counted rather than timed: a wall-clock assertion
+    measures the machine, and the cost this is about is on GPFS."""
+    calls = _counting_survey(monkeypatch)
+    cfg = _nordic_project_with_a_presence_issue(tmp_path)
+
+    assert "presence" in _codes(check_consistency(cfg))
+    assert len(calls) == 1, f"surveyed {len(calls)} times for one call"
+
+
+def test_a_supplied_matrix_is_used_and_no_survey_is_taken(tmp_path, monkeypatch):
+    """What the cockpit does: it surveyed one line earlier, so the matrix it
+    already holds is handed down instead of being rebuilt four times."""
+    import duckbrain.core.consistency as C
+
+    calls = _counting_survey(monkeypatch)
+    cfg = _nordic_project_with_a_presence_issue(tmp_path)
+    matrix = C.survey_project(cfg)
+    calls.clear()
+
+    assert "presence" in _codes(check_consistency(cfg, matrix=matrix))
+    assert calls == [], "surveyed anyway despite being handed a matrix"
+
+
+def test_the_supplied_matrix_is_what_the_checks_read(tmp_path, monkeypatch):
+    """Not merely accepted and ignored. A matrix that says no unit has fMRIPrep
+    output must silence the presence check, even though disk says otherwise —
+    which is also the reason the caller must pass a survey of *this* project."""
+    import pandas as pd
+
+    _counting_survey(monkeypatch)
+    cfg = _nordic_project_with_a_presence_issue(tmp_path)
+    empty = pd.DataFrame(
+        [{"subject": "01", "session": "", "fmriprep": "missing", "nordic": "missing"}]
+    )
+
+    assert "presence" not in _codes(check_consistency(cfg, matrix=empty))
+
+
+def test_a_project_with_nothing_to_check_is_never_surveyed(tmp_path, monkeypatch):
+    """The survey is lazy, not eager: an empty project reaches no matrix
+    consumer, and the walk that would find nothing is not taken."""
+    calls = _counting_survey(monkeypatch)
+
+    assert check_consistency(_config(tmp_path)) == []
+    assert calls == [], "surveyed a project with no derivative at all"
+
+
 # ---- tool crash records -----------------------------------------------------
 #
 # The failure these pin: an fMRIPrep run whose FreeSurfer-directory node raised,

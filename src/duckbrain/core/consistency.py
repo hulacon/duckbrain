@@ -86,10 +86,14 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import pandas as pd
 
 from .bids_metadata import duckbrain_version
 from .containers import container_build_tag
@@ -126,6 +130,41 @@ class ConsistencyIssue:
     severity: str = "warning"
     subject: str = ""
     stage: str = ""
+
+
+#: A zero-argument handle on the project survey, shared for the length of one
+#: :func:`check_consistency` call. See :func:`_survey_once` for why it exists.
+SurveyFn = Callable[[], pd.DataFrame]
+
+
+def _survey_once(config: Config, matrix: pd.DataFrame | None) -> SurveyFn:
+    """One survey per ``check_consistency`` call, taken at most once and reused.
+
+    Four checks here need the completion matrix and each used to call
+    ``survey_project`` itself, so a cockpit render surveyed the project **five**
+    times — four here plus the one ``survey_live`` had already done before
+    calling in. That is a full walk of the BIDS tree and every derivative each
+    time, inside a fragment that refreshes every 30 s: measured ~25 ms/unit
+    cold on GPFS, i.e. ~25 s a render at 100 subjects × 2 sessions, which is
+    the refresh budget several times over (`#42.3`).
+
+    A callable rather than an eager argument because the survey is the
+    expensive thing and a run of checks can finish without needing it — a
+    project with no derivative at all never reaches a matrix consumer. And a
+    per-call closure rather than a module-level cache because Streamlit serves
+    each session on its own thread: a shared one would hand another user's
+    project to this one, and a *stale* survey is exactly what the cockpit must
+    never render.
+    """
+    cached = matrix
+
+    def survey() -> pd.DataFrame:
+        nonlocal cached
+        if cached is None:
+            cached = survey_project(config)
+        return cached
+
+    return survey
 
 
 # ---- on-disk provenance readers ---------------------------------------------
@@ -346,7 +385,7 @@ def _configured_container(config: Config, stage: str) -> tuple[str, str]:
         return "", ""
 
 
-def _recorded_container(config: Config, stage: str, tool: str) -> tuple[str, str]:
+def _recorded_container(config: Config, stage: str, tool: str, survey: SurveyFn) -> tuple[str, str]:
     """What produced the derivative: ``(filename, build_tag)``, "" where unknown.
 
     On-disk provenance is authoritative (``GeneratedBy[].Container`` — ``Tag`` is
@@ -360,7 +399,7 @@ def _recorded_container(config: Config, stage: str, tool: str) -> tuple[str, str
     if on_disk_name:
         return on_disk_name, _uri_to_build_tag(prov.tool_container_uri(tool))
 
-    latest = _latest_per_subject(config, stage)
+    latest = _latest_per_subject(config, stage, survey)
 
     def _single(column: str) -> str:
         # Mixing across subjects is _check_mixed_provenance's business, not ours.
@@ -379,7 +418,7 @@ def _uri_to_build_tag(uri: str) -> str:
     return uri.split("://", 1)[1] if "://" in uri else uri
 
 
-def _check_container_drift(config: Config) -> list[ConsistencyIssue]:
+def _check_container_drift(config: Config, *, survey: SurveyFn) -> list[ConsistencyIssue]:
     """Config now points at a different container than the one that produced the
     derivative — i.e. the pin was bumped without re-running.
 
@@ -402,7 +441,7 @@ def _check_container_drift(config: Config) -> list[ConsistencyIssue]:
     for stage, tool in (("fmriprep", "fMRIPrep"), ("mriqc", "MRIQC")):
         if not read_derivative_provenance(config, stage).exists:
             continue
-        rec_name, rec_tag = _recorded_container(config, stage, tool)
+        rec_name, rec_tag = _recorded_container(config, stage, tool, survey)
         cfg_name, cfg_tag = _configured_container(config, stage)
 
         if rec_tag and cfg_tag:
@@ -428,9 +467,9 @@ def _check_container_drift(config: Config) -> list[ConsistencyIssue]:
     return issues
 
 
-def _subjects_with_output(config: Config, stage: str) -> set[str]:
+def _subjects_with_output(survey: SurveyFn, stage: str) -> set[str]:
     """Subjects that actually have *stage* output on disk (complete or partial)."""
-    matrix = survey_project(config)
+    matrix = survey()
     if matrix.empty or stage not in matrix.columns:
         return set()
     done = matrix[matrix[stage].isin(("complete", "partial"))]
@@ -692,7 +731,7 @@ def _recorded_toolbox(config: Config) -> str:
     return read_derivative_provenance(config, "nordic").tool_version("nordic")
 
 
-def _latest_per_subject(config: Config, stage: str) -> dict[str, dict[str, Any]]:
+def _latest_per_subject(config: Config, stage: str, survey: SurveyFn) -> dict[str, dict[str, Any]]:
     """Latest submission-log row per subject for *stage*, reconciled against disk.
 
     The log and the filesystem track two related but distinct things: the log
@@ -710,7 +749,7 @@ def _latest_per_subject(config: Config, stage: str) -> dict[str, dict[str, Any]]
     subs = read_submissions(config)
     if subs.empty or "stage" not in subs.columns:
         return {}
-    on_disk = _subjects_with_output(config, stage)
+    on_disk = _subjects_with_output(survey, stage)
     stage_rows = subs[subs["stage"] == stage]
     latest: dict[str, dict[str, Any]] = {}
     for _, row in stage_rows.iterrows():
@@ -737,7 +776,7 @@ def _mixed_issue(
     ]
 
 
-def _check_mixed_provenance(config: Config) -> list[ConsistencyIssue]:
+def _check_mixed_provenance(config: Config, *, survey: SurveyFn) -> list[ConsistencyIssue]:
     """Subjects (or files) produced under different variants/versions/runtimes.
 
     ``dataset_description.json`` is dataset-level and overwritten by whichever run
@@ -748,7 +787,7 @@ def _check_mixed_provenance(config: Config) -> list[ConsistencyIssue]:
     issues: list[ConsistencyIssue] = []
 
     # fMRIPrep — log overlay (duckbrain cannot write into fMRIPrep's outputs).
-    latest = _latest_per_subject(config, "fmriprep")
+    latest = _latest_per_subject(config, "fmriprep", survey)
     if latest:
         issues += _mixed_issue(
             "mixed-provenance",
@@ -848,11 +887,11 @@ def _check_staleness(config: Config) -> list[ConsistencyIssue]:
     return issues
 
 
-def _check_presence(config: Config) -> list[ConsistencyIssue]:
+def _check_presence(config: Config, *, survey: SurveyFn) -> list[ConsistencyIssue]:
     """In a NORDIC project, fMRIPrep present but its NORDIC input missing."""
     if not _use_nordic(config):
         return []
-    matrix = survey_project(config)
+    matrix = survey()
     issues: list[ConsistencyIssue] = []
     for _, r in matrix.iterrows():
         fp, nd = r.get("fmriprep", "missing"), r.get("nordic", "missing")
@@ -1301,7 +1340,9 @@ def _check_tool_crashes(config: Config) -> list[ConsistencyIssue]:
     return issues
 
 
-def check_consistency(config: Config) -> list[ConsistencyIssue]:
+def check_consistency(
+    config: Config, *, matrix: pd.DataFrame | None = None
+) -> list[ConsistencyIssue]:
     """Run all provenance-consistency checks; return the flagged issues.
 
     Empty list means nothing inconsistent was found. Ordering is stable (tool
@@ -1312,22 +1353,34 @@ def check_consistency(config: Config) -> list[ConsistencyIssue]:
     renders in list order and does not sort errors to the top, and it is the one
     finding that says every other line below it may be describing a run that did
     not happen.
+
+    Pass *matrix* when the caller has already surveyed the project — the cockpit
+    has, one line earlier, via ``survey_live``. Four checks below want the same
+    completion matrix, and handing them the one that exists is the difference
+    between one survey per render and five (`#42.3`, and :func:`_survey_once`
+    for what that cost). Anything ``survey_live`` overlaid on it is additive:
+    the base status columns these checks read are the surveyor's own, untouched.
+    Omit it and the survey is taken here, once, and only if a check asks.
     """
+    survey = _survey_once(config, matrix)
     issues: list[ConsistencyIssue] = []
-    for check in (
+    # Only the four matrix consumers name the survey; the rest keep the plain
+    # `(config)` signature that says they need nothing else.
+    checks: tuple[Callable[[Config], list[ConsistencyIssue]], ...] = (
         _check_tool_crashes,
         _check_config_vs_provenance,
         _check_fs8_fmriprep_pairing,
-        _check_container_drift,
+        partial(_check_container_drift, survey=survey),
         _check_toolbox_drift,
         _check_matlab_drift,
         _check_duckbrain_drift,
-        _check_mixed_provenance,
+        partial(_check_mixed_provenance, survey=survey),
         _check_staleness,
-        _check_presence,
+        partial(_check_presence, survey=survey),
         _check_pe_direction,
         _check_fmap_intent,
-    ):
+    )
+    for check in checks:
         try:
             issues.extend(check(config))
         except Exception:

@@ -663,7 +663,10 @@ def dashboard() -> None:
     # a reader shouldn't have to know which module noticed. It is silent unless
     # the project declares `[expected]`, so this adds nothing for projects that
     # haven't opted in.
-    issues = check_consistency(config) + run_checks(config)
+    # `matrix` and not a second survey: four of these checks want the completion
+    # matrix, and the one above is the same survey they would each go and take
+    # (`#42.3` — five surveys per 30 s refresh, ~25 s of them at 100 subjects).
+    issues = check_consistency(config, matrix=matrix) + run_checks(config)
     if issues:
         warnings = [i for i in issues if i.severity != "note"]
         st.subheader("⚠️ Warnings" if warnings else "Notes")
