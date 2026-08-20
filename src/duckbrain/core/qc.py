@@ -291,7 +291,14 @@ def summarize_motion(
 
     for tsv_path in sorted(confounds_dir.rglob("*_desc-confounds_timeseries.tsv")):
         try:
-            df = pd.read_csv(tsv_path, sep="\t")
+            # One column out of fMRIPrep's ~200: an unrestricted read parsed
+            # every CompCor and cosine regressor to compute four numbers from
+            # framewise displacement, ~1 GB across a 100-subject study's
+            # confounds files. The callable form is what tolerates the column
+            # being absent — a `usecols=[...]` list raises on a file that does
+            # not have it, and older fMRIPrep confounds are exactly that case,
+            # which the `continue` below has always handled.
+            df = pd.read_csv(tsv_path, sep="\t", usecols=lambda c: c == "framewise_displacement")
             if "framewise_displacement" not in df.columns:
                 continue
 

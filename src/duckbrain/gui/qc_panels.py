@@ -260,6 +260,26 @@ def _load_metrics(mriqc_dir: str, modality: str, fingerprint: tuple[int, float])
     return qc.load_mriqc_metrics(mriqc_dir, modality)
 
 
+@st.cache_data(show_spinner="Reading motion from fMRIPrep confounds…")
+def _load_motion(
+    fmriprep_dir: str, fd_threshold: float, fingerprint: tuple[int, float]
+) -> pd.DataFrame:
+    """Cached motion summary, keyed the same way as :func:`_load_metrics`.
+
+    This sat uncached directly below the carefully-cached load above, and the
+    asymmetry cost more than the load it sat under: ``summarize_motion`` rglobs
+    the fMRIPrep tree and parses one confounds TSV per run, so every widget
+    interaction on a QC page re-read the lot — measured ~35 ms/file, i.e. ~42 s
+    per slider drag over a 100-subject study's ~1200 confounds files.
+
+    ``fd_threshold`` is a real key and not a nuisance parameter: it decides
+    ``pct_high_motion``, so the QC settings changing it must not be served the
+    previous threshold's numbers. ``fingerprint`` carries no leading underscore
+    for the reason spelled out above.
+    """
+    return qc.summarize_motion(fmriprep_dir, fd_threshold=fd_threshold)
+
+
 def _fingerprint_of(root: Path, pattern: str) -> tuple[int, float]:
     """(count, newest mtime) of matching files — enough to invalidate the cache.
 
@@ -335,7 +355,11 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
         )
         motion_df = None
         if modality == "bold" and fmriprep_dir.is_dir():
-            motion_df = qc.summarize_motion(fmriprep_dir, fd_threshold=settings["fd_threshold"])
+            motion_df = _load_motion(
+                str(fmriprep_dir),
+                float(settings["fd_threshold"]),
+                _fingerprint_of(fmriprep_dir, qc_report.CONFOUNDS_GLOB),
+            )
         runs = qc_report.build_run_rows(
             metrics_df,
             modality,

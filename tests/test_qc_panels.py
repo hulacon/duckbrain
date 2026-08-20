@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from duckbrain.core import qc_report
 from duckbrain.core.qc_domains import get_domain
 from duckbrain.gui import qc_panels
 
@@ -443,3 +444,54 @@ class TestMetricsCache:
         assert second["tsnr"].tolist() == [41.0], (
             "served the previous MRIQC run: the fingerprint is not reaching the cache key"
         )
+
+
+class TestMotionCache:
+    """Motion sat uncached directly below the cached metrics load — `#42.1`.
+
+    Same shape as ``TestMetricsCache`` above and for the same reason: the
+    staleness reproduces in bare Python, and a page in between only adds ways to
+    pass for the wrong reason.
+    """
+
+    @staticmethod
+    def _confounds(fmriprep, fd):
+        func = fmriprep / "sub-010" / "func"
+        func.mkdir(parents=True, exist_ok=True)
+        tsv = func / "sub-010_task-rest_run-1_desc-confounds_timeseries.tsv"
+        tsv.write_text("framewise_displacement\tcsf\n" + "".join(f"{v}\t1.0\n" for v in fd))
+        return tsv
+
+    def test_a_rerun_of_fmriprep_is_not_served_the_previous_numbers(self, tmp_path):
+        fmriprep = tmp_path / "fmriprep"
+        tsv = self._confounds(fmriprep, [0.1, 0.1])
+
+        qc_panels._load_motion.clear()
+        before = qc_panels._fingerprint_of(fmriprep, qc_report.CONFOUNDS_GLOB)
+        first = qc_panels._load_motion(str(fmriprep), 0.5, before)
+        assert first["mean_fd"].tolist() == [pytest.approx(0.1)]
+
+        self._confounds(fmriprep, [0.3, 0.3])
+        moved = tsv.stat().st_mtime + 10
+        os.utime(tsv, (moved, moved))
+
+        after = qc_panels._fingerprint_of(fmriprep, qc_report.CONFOUNDS_GLOB)
+        assert after != before, "the fingerprint did not move — this tests nothing"
+        second = qc_panels._load_motion(str(fmriprep), 0.5, after)
+        assert second["mean_fd"].tolist() == [pytest.approx(0.3)], (
+            "served the previous fMRIPrep run: the fingerprint is not reaching the cache key"
+        )
+
+    def test_a_new_fd_threshold_is_not_served_the_old_percentage(self, tmp_path):
+        """``fd_threshold`` decides ``pct_high_motion``, so it is a key and not
+        a nuisance parameter — the QC settings expose it as a slider."""
+        fmriprep = tmp_path / "fmriprep"
+        self._confounds(fmriprep, [0.1, 0.9])
+
+        qc_panels._load_motion.clear()
+        fingerprint = qc_panels._fingerprint_of(fmriprep, qc_report.CONFOUNDS_GLOB)
+        lenient = qc_panels._load_motion(str(fmriprep), 0.5, fingerprint)
+        strict = qc_panels._load_motion(str(fmriprep), 0.05, fingerprint)
+
+        assert lenient["pct_high_motion"].tolist() == [50.0]
+        assert strict["pct_high_motion"].tolist() == [100.0]
