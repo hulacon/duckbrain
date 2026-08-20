@@ -31,6 +31,7 @@ Designed to port back to mmmdata, which already grew Nipoppy's shape
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from enum import StrEnum
 from pathlib import Path
@@ -67,17 +68,25 @@ RANK = {Status.MISSING: 0, Status.PARTIAL: 1, Status.COMPLETE: 2, Status.NA: 3}
 # ---- low-level glob helpers -------------------------------------------------
 
 
+def _is_evidence(path: Path) -> bool:
+    """A non-empty file, or a directory — what counts as a match on disk.
+
+    An empty file is not evidence a stage produced anything: a tool that died
+    mid-write leaves exactly that, and every grade here is meant to read
+    *partial* in such a case rather than complete.
+    """
+    try:
+        return path.is_dir() or (path.is_file() and path.stat().st_size > 0)
+    except OSError:
+        return False
+
+
 def _has_match(root: Path, pattern: str) -> bool:
     """True if any path under *root* matches the glob *pattern* (non-empty file)."""
     try:
-        for p in root.glob(pattern):
-            if p.is_file() and p.stat().st_size > 0:
-                return True
-            if p.is_dir():
-                return True
+        return any(_is_evidence(p) for p in root.glob(pattern))
     except (OSError, ValueError):
         return False
-    return False
 
 
 def _status_from(root: Path, required: list[str], subtree: str) -> Status:
@@ -432,6 +441,62 @@ def _mriqc_flat_prefix(subject: str, session: str) -> str:
     return f"sub-{subject}_ses-{session}" if session else f"sub-{subject}"
 
 
+#: One ``scandir`` of a flat MRIQC root per state of that directory:
+#: ``{root: (dir mtime_ns, {"sub-XX": [filename, …]})}``.
+_FLAT_LISTINGS: dict[str, tuple[int, dict[str, list[str]]]] = {}
+
+
+def _flat_listing(root: Path) -> dict[str, list[str]]:
+    """Filenames directly under *root*, bucketed by their leading ``sub-XX`` token.
+
+    MRIQC's flat layout puts every unit's files side by side at the derivative
+    root, so the only way to find one unit's is to match a filename prefix — and
+    ``root.glob("sub-01_ses-02_*.json")`` is a full ``scandir`` of that root each
+    time it is asked. Once per unit and twice over (the json search and the
+    subtree probe) that is O(N²) in units: ~400 scans of a directory holding
+    thousands of files, per survey, at 100 subjects × 2 sessions (`#42.5`).
+
+    Bucketing by the subject token and not by the full prefix keeps the glob's
+    exact semantics — the caller still filters on ``sub-XX_ses-YY_`` — while
+    making the per-unit share of the scan proportional to one subject's files.
+
+    Cached on the directory's own mtime, which POSIX moves whenever an entry is
+    created or removed. Deliberately **not** on the files' contents or sizes:
+    MRIQC creates a json and then fills it, so a listing that recorded "empty"
+    would keep saying so after the write landed. What is cached is the set of
+    *names*; every caller still stats the file it is about to believe in.
+    """
+    try:
+        mtime = root.stat().st_mtime_ns
+    except OSError:
+        return {}
+    key = str(root)
+    cached = _FLAT_LISTINGS.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    buckets: dict[str, list[str]] = {}
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                name = entry.name
+                if name.startswith("sub-"):
+                    buckets.setdefault(name.split("_", 1)[0], []).append(name)
+    except OSError:
+        return {}
+    _FLAT_LISTINGS[key] = (mtime, buckets)
+    return buckets
+
+
+def _flat_matches(root: Path, prefix: str, suffix: str = "") -> list[Path]:
+    """Files at *root* named ``{prefix}_…{suffix}`` — the flat glob, listed once."""
+    names = _flat_listing(root).get(prefix.split("_", 1)[0], ())
+    return [
+        root / name
+        for name in names
+        if name.startswith(f"{prefix}_") and (not suffix or name.endswith(suffix))
+    ]
+
+
 def _mriqc_expected_found(config: Config, subject: str, session: str) -> tuple[set[str], set[str]]:
     """Every image MRIQC owes this unit, and every IQM json it has written.
 
@@ -463,14 +528,11 @@ def _mriqc_expected_found(config: Config, subject: str, session: str) -> tuple[s
         for p in bids_root.glob(_fmt("{ss}/**/anat/*.nii*", subject, session)):
             if p.is_file() and p.stat().st_size > 0 and (key := _mriqc_key(p.name)):
                 expected.add(key)
-        json_patterns = (
-            _fmt("{ss}/**/*.json", subject, session),
-            f"{_mriqc_flat_prefix(subject, session)}_*.json",
-        )
-        for pattern in json_patterns:
-            for p in root.glob(pattern):
-                if p.is_file() and p.stat().st_size > 0 and (key := _mriqc_key(p.name)):
-                    found.add(key)
+        nested = root.glob(_fmt("{ss}/**/*.json", subject, session))
+        flat = _flat_matches(root, _mriqc_flat_prefix(subject, session), ".json")
+        for p in (*nested, *flat):
+            if p.is_file() and p.stat().st_size > 0 and (key := _mriqc_key(p.name)):
+                found.add(key)
     except (OSError, ValueError):
         pass
     return expected, found
@@ -489,8 +551,8 @@ def _mriqc_status(config: Config, subject: str, session: str) -> Status:
     # later. So count every rated image, and expect only what the session's own
     # BIDS tree holds — see `_mriqc_expected_found` for both halves.
     expected, found = _mriqc_expected_found(config, subject, session)
-    subtree_exists = _has_match(root, _fmt("{ss}", subject, session)) or _has_match(
-        root, f"{_mriqc_flat_prefix(subject, session)}_*"
+    subtree_exists = _has_match(root, _fmt("{ss}", subject, session)) or any(
+        _is_evidence(p) for p in _flat_matches(root, _mriqc_flat_prefix(subject, session))
     )
     return _grade(expected, found, subtree_exists)
 

@@ -707,6 +707,93 @@ def test_mriqc_flat_layout_does_not_credit_a_sibling_sessions_jsons(tmp_path):
     assert df[df.session == "02"].iloc[0]["mriqc"] == Status.MISSING
 
 
+class TestFlatLayoutIsScannedOnce:
+    """`#42.5`: MRIQC's flat layout puts every unit's files at the derivative
+    root, so finding one unit's means matching a filename prefix — and
+    ``root.glob("sub-01_ses-02_*.json")`` is a full scandir of that root every
+    time. Twice per unit (the json search and the subtree probe), i.e. O(N²) in
+    units: ~400 scans of a directory holding thousands of files, per survey, at
+    100 subjects × 2 sessions, inside a fragment that refreshes every 30 s.
+    """
+
+    @staticmethod
+    def _flat_project(tmp_path, n_subjects=4):
+        mq = tmp_path / "derivatives" / "mriqc"
+        for i in range(1, n_subjects + 1):
+            sub = f"sub-{i:02d}"
+            _seed_bold_runs(tmp_path, f"{sub}/ses-01", 1)
+            _touch(tmp_path / sub / "ses-01" / "anat" / f"{sub}_ses-01_T1w.nii.gz")
+            _touch(mq / f"{sub}_ses-01_T1w.json")
+            _touch(mq / f"{sub}_ses-01_task-rest_run-1_bold.json")
+        return mq
+
+    def _count_scans(self, monkeypatch, root):
+        import duckbrain.core.surveyor as S
+
+        scans = []
+        real = S.os.scandir
+
+        def counting(path):
+            if str(path) == str(root):
+                scans.append(str(path))
+            return real(path)
+
+        monkeypatch.setattr(S.os, "scandir", counting)
+        S._FLAT_LISTINGS.clear()
+        return scans
+
+    def test_the_root_is_listed_once_for_the_whole_survey(self, tmp_path, monkeypatch):
+        mq = self._flat_project(tmp_path)
+        scans = self._count_scans(monkeypatch, mq)
+
+        df = survey_project(_config(tmp_path))
+
+        assert (df["mriqc"] == Status.COMPLETE).all()
+        assert len(scans) == 1, f"listed the flat root {len(scans)} times for 4 units"
+
+    def test_a_json_written_after_the_listing_is_still_found(self, tmp_path, monkeypatch):
+        """The cache is keyed on the directory's mtime, which POSIX moves when an
+        entry appears — so the next survey re-lists rather than repeating the
+        answer it gave before MRIQC finished."""
+        mq = self._flat_project(tmp_path, n_subjects=1)
+        _seed_bold_runs(tmp_path, "sub-02/ses-01", 1)
+        _touch(tmp_path / "sub-02" / "ses-01" / "anat" / "sub-02_ses-01_T1w.nii.gz")
+        self._count_scans(monkeypatch, mq)
+
+        first = survey_project(_config(tmp_path))
+        assert first[first.subject == "02"].iloc[0]["mriqc"] == Status.MISSING
+
+        _touch(mq / "sub-02_ses-01_T1w.json")
+        _touch(mq / "sub-02_ses-01_task-rest_run-1_bold.json")
+
+        second = survey_project(_config(tmp_path))
+        assert second[second.subject == "02"].iloc[0]["mriqc"] == Status.COMPLETE
+
+    def test_a_json_created_empty_and_filled_later_is_found_when_it_is_filled(
+        self, tmp_path, monkeypatch
+    ):
+        """MRIQC creates a json and then writes it, and filling a file does not
+        move its directory's mtime. So the listing caches *names* only and every
+        caller stats what it is about to believe in — the alternative caches
+        "empty" and never revisits it."""
+        mq = self._flat_project(tmp_path, n_subjects=1)
+        _seed_bold_runs(tmp_path, "sub-02/ses-01", 1)
+        self._count_scans(monkeypatch, mq)
+        _touch(mq / "sub-02_ses-01_T1w.json")
+        (mq / "sub-02_ses-01_task-rest_run-1_bold.json").write_text("")
+
+        # PARTIAL: the T1w json counts, the empty bold json does not — an empty
+        # file is not evidence a stage produced anything (`_is_evidence`). The
+        # point here is what happens next, once it has content.
+        first = survey_project(_config(tmp_path))
+        assert first[first.subject == "02"].iloc[0]["mriqc"] == Status.PARTIAL
+
+        (mq / "sub-02_ses-01_task-rest_run-1_bold.json").write_text("{}")
+
+        second = survey_project(_config(tmp_path))
+        assert second[second.subject == "02"].iloc[0]["mriqc"] == Status.COMPLETE
+
+
 def test_mriqc_partial_when_anat_iqm_missing_in_an_anat_bearing_session(tmp_path):
     """The narrowed expectation must not un-catch the real failure the old anat
     requirement existed for: a session that *does* hold a T1w still owes its
