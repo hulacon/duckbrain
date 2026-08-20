@@ -1067,11 +1067,18 @@ other five are unstarted.
    use_external`, a subject-level `freesurfer` stage, stage-then-import with a
    build-stamp version gate at both ends, `--fs-no-resume` wired, and the
    `#5b` forcing question answered by `effective_dependencies` (tuple, not
-   DAG). **Not yet validated on a real subject** — the live pilot (one recon +
-   one fMRIPrep import, checked end to end) is tracked in mmmdata-agents
-   `docs/workbench/fs8-external-recon/`, along with the still-open
-   fMRIPrep-25-against-FS-8 validity ask to LCNI/nipreps. The scoping record
-   with both traps stays `docs/pipeline-extras.md` §9.
+   DAG). **Validated live 2026-08-19** on a scratch project over divatten_beta
+   sub-015: FS 8.2.0 recon in 1 h 11 m (11.9 GB peak), fMRIPrep 25.2.5 import
+   in 2 h 49 m — zero recon-all executions in the fMRIPrep log, zero crash
+   files, full outputs, board grades both stages complete; the only recon
+   files fMRIPrep touched were the two `midthickness` surfaces smriprep
+   derives additively. The pilot also caught and fixed three real gaps on the
+   way (SUBJECTS_DIR export eaten by the wrapper → `-sd`; synthseg OOM at the
+   FS7-era 16G default → 48G; FS8 writes `recon-all.done` on failure → the
+   format-reading gate). Full trail: mmmdata-agents
+   `docs/workbench/fs8-external-recon/`. Still open there: the
+   fMRIPrep-25-against-FS-8 validity ask to LCNI/nipreps before production
+   use. The scoping record with both traps stays `docs/pipeline-extras.md` §9.
 8. **Eye-movement reconstruction from BOLD** (DeepMReye-style) — a branch fMRIPrep
    actively *fights* (brain extraction removes the eyes); opt-in "preserve eyes"
    path off raw/minimal data. Low demand, unique requirements.
