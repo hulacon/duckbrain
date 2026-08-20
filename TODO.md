@@ -1235,6 +1235,17 @@ plus the `ssh -L` line it prints.
    participants button produce a table that reads right with `n/a`
    demographics.
 
+9. **The board's now-lazy cell popovers** (`#42.2`, 2026-08-20). A cell
+   popover tracks its open state and computes its body only while open, which
+   buys the board back at 100 subjects but changes two things AppTest cannot
+   judge. **Does opening one feel immediate?** Opening now costs a server
+   rerun before the content exists, where before the content was already in
+   the browser — a running cell reads its SLURM logs on that rerun. And
+   **does an open popover survive the 30 s auto-refresh** rather than snapping
+   shut mid-read, or worse, reopening a cell the operator closed. Look at a
+   project with a live job: open a running cell, read the log tail, and wait
+   out a refresh.
+
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
 is the obvious economy: the theming pass has to look at every surface anyway.

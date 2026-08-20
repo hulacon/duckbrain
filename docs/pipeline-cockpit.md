@@ -239,6 +239,17 @@ from config (fMRIPrep: spaces/nprocs/mem/flags), a Run + an "open full page"
 button. Run calls `advance_one(config, stage, sub, ses, **overrides)`, then
 `st.toast` + `st.rerun`.
 
+**Every cell popover is lazy — `on_change="rerun"` plus a `.open` check** (added
+for `#42.2`). Streamlit's default popover computes its whole body on every
+render and ships it to the browser closed, which is affordable for one cell and
+not for a board: a running cell globs and reads its SLURM logs, a runnable
+fMRIPrep cell walks the derivatives tree twice asking whether the subject has
+anatomicals to reuse, and the board redraws inside a 30 s fragment. At 100
+subjects that was ~200 cell bodies per refresh for content nobody had opened.
+The cost of the fix is one server rerun when a cell is opened, and the open flag
+lives in session state under the cell's popover key — which is also how a test
+opens one, since AppTest models no popover element (`tests/test_status_page.py`).
+
 **Layout:** `st.dataframe` is display-only; actionable cells need widgets, so
 render the matrix as a grid of `st.columns` rows (one row per unit, one column
 per stage) OR keep the dataframe overview + a compact "actions" panel for the

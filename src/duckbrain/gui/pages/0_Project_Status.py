@@ -26,6 +26,7 @@ import streamlit as st
 
 if TYPE_CHECKING:
     from streamlit.delta_generator import DeltaGenerator
+    from streamlit.elements.lib.mutable_popover_container import PopoverContainer
 
     from duckbrain.config import Config
     from duckbrain.core.pipeline import JobIndex
@@ -372,6 +373,26 @@ def _bulk_popover(stage: str, units: list[pd.Series], config: Config) -> None:
             st.rerun()
 
 
+#: Cell popover keys. Their real job is to be the *open-state* handle: a
+#: state-tracking popover parks its open/closed flag in ``st.session_state`` under
+#: this key, which is how a test opens one and how the state survives the
+#: fragment's next auto-refresh.
+def _cell_popover_key(stage: str, subject: str, session: str) -> str:
+    return f"cellpop_{stage}_{subject}_{session}"
+
+
+def _lazy_popover(
+    col: DeltaGenerator, label: str, stage: str, sub: str, ses: str
+) -> PopoverContainer:
+    """A cell popover that computes its body only while it is open."""
+    return col.popover(
+        label,
+        width="stretch",
+        on_change="rerun",
+        key=_cell_popover_key(stage, sub, ses),
+    )
+
+
 def _render_cell(
     col: DeltaGenerator,
     row: pd.Series,
@@ -389,6 +410,18 @@ def _render_cell(
       the exact SLURM job instead of being a dead badge.
     - runnable (missing, deps met) -> ▶ popover with the stage's launch params
     - otherwise (complete / gated) -> static icon, in place (never vanishes).
+
+    **The body runs only while the popover is open**, which is not Streamlit's
+    default: an ``on_change="ignore"`` popover computes its whole content on
+    every render and ships it to the browser closed. That is affordable for one
+    cell and not for a board — a running cell globs and reads its SLURM logs, a
+    runnable fMRIPrep cell walks the derivatives tree twice asking whether this
+    subject has anatomicals to reuse, and the board redraws inside a 30 s
+    fragment. At 100 subjects it was doing all of that ~200 times a refresh for
+    content nobody had asked to see. ``on_change="rerun"`` makes opening and
+    closing a state change, so ``.open`` can be read and the work deferred to
+    the one cell the operator actually clicked (`#42.2`, and the half of DB-010
+    that never shipped).
     """
     fs = row.get(stage, "")
     job = row.get(f"{stage}_job", "")
@@ -399,11 +432,15 @@ def _render_cell(
     sub, ses = str(row["subject"]), str(row["session"])
     runnable = runnable_map.get((sub, ses, stage), False)
     if job in ("running", "queued", "failed"):
-        with col.popover(_emoji(icon), use_container_width=True):
-            _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable, job)
+        pop = _lazy_popover(col, _emoji(icon), stage, sub, ses)
+        if pop.open:
+            with pop:
+                _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable, job)
     elif runnable:
-        with col.popover(f"▶ {_emoji(icon)}", use_container_width=True):
-            _run_popover(row, stage, config)
+        pop = _lazy_popover(col, f"▶ {_emoji(icon)}", stage, sub, ses)
+        if pop.open:
+            with pop:
+                _run_popover(row, stage, config)
     else:
         col.markdown(icon)
 

@@ -4,6 +4,12 @@ The board is an actionable grid: each (unit, stage) cell is a status icon that
 upgrades to a popover when it has an action — ``▶`` to launch (keys ``runbtn_*``),
 ``🔴`` to view the SLURM log + re-run a failed stage (``rerun_*`` / ``dl_*``), and a
 per-column header popover for bulk (``bulk_run_<stage>`` / ``bulk_confirm_<stage>``).
+
+A cell popover computes its body **only while open** (`#42.2`), so a test that
+wants what is inside one opens it first — :func:`_open_cell`, which writes the
+open flag Streamlit parks in session state under the popover's key. That is the
+same channel the browser uses, and it is why the flag doubles as the assertion
+that a cell offered a popover at all: a gated cell registers no key.
 """
 
 import os
@@ -30,6 +36,27 @@ def _btn_keys(at):
 
 def _markdowns(at):
     return [m.value for m in at.markdown]
+
+
+def _cell_key(stage, subject, session=""):
+    return f"cellpop_{stage}_{subject}_{session}"
+
+
+def _open_cell(at, stage, subject, session=""):
+    """Rerun with one board cell's popover open.
+
+    **Call it before every run that needs the body**, not once. A browser sends
+    the popover's open flag back with each interaction; AppTest models no
+    popover element, so the flag is a plain session-state write that survives
+    exactly one run — a click inside an open cell would otherwise land on a run
+    where the cell had closed again. So the shape for interacting is
+    ``at.button(...).click()`` followed by ``_open_cell(...)``, which supplies
+    both the flag and the rerun.
+    """
+    key = _cell_key(stage, subject, session)
+    assert key in at.session_state, f"no popover on the {stage} cell for sub-{subject}"
+    at.session_state[key] = True
+    return at.run()
 
 
 @pytest.fixture
@@ -95,10 +122,17 @@ def test_empty_project_shows_guidance(tmp_path, monkeypatch):
 def test_cells_offer_runnable_next_steps(project):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
-    keys = _btn_keys(at)
     # sub-01 is converted → fmriprep runnable; sub-02 not converted → converted runnable.
-    assert "runbtn_fmriprep_01_" in keys
-    assert "runbtn_converted_02_" in keys
+    # A runnable cell is a popover; a complete or gated one is a plain icon, so the
+    # registered keys say which cells carry an action without opening any of them.
+    assert _cell_key("fmriprep", "01") in at.session_state
+    assert _cell_key("converted", "02") in at.session_state
+    assert _cell_key("converted", "01") not in at.session_state, "complete cell offered an action"
+    # Closed, so nothing inside has run yet.
+    assert "runbtn_fmriprep_01_" not in _btn_keys(at)
+
+    _open_cell(at, "fmriprep", "01")
+    assert "runbtn_fmriprep_01_" in _btn_keys(at)
 
 
 def test_cell_run_button_invokes_advance_one(project, monkeypatch):
@@ -112,7 +146,9 @@ def test_cell_run_button_invokes_advance_one(project, monkeypatch):
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     # The sub-01 fmriprep cell's popover run button.
-    at.button(key="runbtn_fmriprep_01_").click().run()
+    _open_cell(at, "fmriprep", "01")
+    at.button(key="runbtn_fmriprep_01_").click()
+    _open_cell(at, "fmriprep", "01")
     assert not at.exception
     assert calls["stage"] == "fmriprep"
     assert calls["subject"] == "01"
@@ -207,6 +243,7 @@ def test_running_cell_links_to_job_with_detail(project, monkeypatch):
     )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
+    _open_cell(at, "fmriprep", "01")
     # The cell popover references the exact job with live detail…
     caps = [c.value for c in at.caption]
     assert any("55123" in c for c in caps)
@@ -232,11 +269,14 @@ def test_running_cell_cancel_gated_and_invokes_scancel(project, monkeypatch):
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
+    _open_cell(at, "fmriprep", "01")
     # Cancel is gated until the confirm box is ticked…
     assert at.button(key="cancel_fmriprep_01_").disabled
-    at.checkbox(key="cancelchk_fmriprep_01_").set_value(True).run()
+    at.checkbox(key="cancelchk_fmriprep_01_").set_value(True)
+    _open_cell(at, "fmriprep", "01")
     assert not at.button(key="cancel_fmriprep_01_").disabled
-    at.button(key="cancel_fmriprep_01_").click().run()
+    at.button(key="cancel_fmriprep_01_").click()
+    _open_cell(at, "fmriprep", "01")
     assert not at.exception
     assert cancelled.get("id") == "55123"
 
@@ -272,6 +312,7 @@ def test_failed_cell_exposes_log_and_rerun(project, monkeypatch):
     )
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
+    _open_cell(at, "fmriprep", "01")
     # The failed cell's popover surfaces the SLURM log tail…
     assert any("distinctive failure line" in c.value for c in at.code)
     # …and offers a re-run + a download of the log.
@@ -301,10 +342,60 @@ def test_failed_cell_shows_stderr_even_when_stdout_is_not_empty(project, monkeyp
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
+    _open_cell(at, "fmriprep", "01")
 
     rendered = [c.value for c in at.code]
     assert any("the actual reason" in c for c in rendered), "stderr was not shown"
     assert any("banner line" in c for c in rendered), "stdout was dropped instead"
+
+
+def test_a_closed_cell_reads_no_logs_and_walks_no_derivatives(project, monkeypatch):
+    """`#42.2`: the popover body is the expensive part of the board.
+
+    Streamlit's default popover computes its content on every render and ships
+    it closed, so a 100-subject board globbed and read SLURM logs for every
+    running cell and walked the derivatives tree twice for every runnable
+    fMRIPrep cell — all of it for content nobody had opened. Counted at the two
+    filesystem calls rather than at a wall-clock number, which would only
+    measure this machine.
+    """
+    import duckbrain.core.fmriprep as F
+    import duckbrain.slurm.monitor as M
+    from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
+
+    cfg = load_config(project_dir=str(project))
+    record_submission(cfg, "mriqc", "01", "", "88001")
+    monkeypatch.setattr(
+        P,
+        "job_history",
+        lambda days=7: [JobInfo(job_id="88001", name="mriqc_01", state="FAILED", partition="c")],
+    )
+
+    calls = []
+    real_job_log, real_has_anat = M.job_log, F.has_anat_derivatives
+    monkeypatch.setattr(
+        M, "job_log", lambda *a, **k: (calls.append("job_log"), real_job_log(*a, **k))[1]
+    )
+    monkeypatch.setattr(
+        F,
+        "has_anat_derivatives",
+        lambda *a, **k: (calls.append("has_anat"), real_has_anat(*a, **k))[1],
+    )
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    # Both cells are on the board — one failed (log), one runnable (anat reuse).
+    assert _cell_key("mriqc", "01") in at.session_state
+    assert _cell_key("fmriprep", "01") in at.session_state
+    assert calls == [], f"a closed popover did the work anyway: {calls}"
+
+    _open_cell(at, "fmriprep", "01")
+    assert "has_anat" in calls
+    assert "job_log" not in calls, "opening one cell ran another cell's body"
+
+    _open_cell(at, "mriqc", "01")
+    assert "job_log" in calls
 
 
 # ---- Declared expectations (TODO #16 Slice A) --------------------------------
