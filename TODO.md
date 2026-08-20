@@ -20,7 +20,8 @@ existing capability items, not new work of its own ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
 [`#5b`](#5b) NORDIC Case 2 — **no longer hypothetical**, mmmdata carries two
 parallel fMRIPrep trees and duckbrain can see one of them ·
-[Licensing](#licensing-follow-ups) — `#43`'s first slice ·
+[Licensing](#licensing-follow-ups) — `#43.1` **shipped 2026-08-20**; what is
+left is the UO employee-IP answer, which does not block anything ·
 [`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
 left is two unscheduled design questions ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
@@ -110,15 +111,26 @@ against an alternative that led with measuring duckbrain against the tree first.
 Ordering by dependency would have put defacing behind an identity check behind a
 PII policy and shipped nothing for weeks.
 
-**`#43.1` — Licensing.** First because it is the cheapest thing on the list and
-the only one that blocks *other people's* work rather than Ben's. mmmdata-agents
-has no LICENSE file at all, so there is nothing to reconcile duckbrain's GPL
-against — give it one **before** any code moves, not after. See
-[Licensing](#licensing-follow-ups) for the two independent questions (UO
-employee-IP permission, and copyleft compatibility) and why answering one leaves
-the other exactly where it was. Note what this does *not* block: running
-duckbrain on mmmdata needs no licence answer at all. Only code moving between
-the repos does.
+**`#43.1` — Licensing. Shipped 2026-08-20** — both repos are GPL-3.0-or-later
+(`mmmdata-agents@428bde1`, `mmmdata@f96f8e4`), so the copyleft half of the
+question is closed for code moving *between Ben's own repos*. Ben chose the
+licence; the reasoning is in each README and in
+[Licensing](#licensing-follow-ups). Two things the item did not know before it
+was done:
+
+- **`hulacon/mmmdata` is public on GitHub and had no LICENSE either** — the
+  worse of the two states, since public + unlicensed is all-rights-reserved by
+  default. `#43.1` named only `mmmdata-agents`; the fix covered both.
+- **The dataset licence is not the code licence, and only the dataset's was ever
+  declared.** `dataset_description.json` says CC0; both READMEs now say so
+  explicitly next to the code licence, because that is the question this repo
+  gets asked.
+
+Still open and deliberately *not* blocking: the UO employee-IP question (see
+[Licensing](#licensing-follow-ups) — it needs an office that owns IP, not RACS),
+and upstreaming into Apache-2.0 nipreps / MIT nipoppy, which the GPL choice
+forecloses as-is. Note what none of this blocks: running duckbrain on mmmdata
+needs no licence answer at all.
 
 **`#43.2` — Physio dud detection (`#7.5`, first half).** Most concretely
 specified thing in the queue: the ruling already exists (2026-08-17, mmmdata
@@ -413,10 +425,18 @@ instead of keeping a copy.
 - The `surveyor.py` → mmmdata port is **blocked on the copyleft choice** — it
   would need dual-licensing to land in Apache-2.0 nipreps / MIT nipoppy
   territory. See `memory/licensing-and-versioning`.
-- **`#12` (mmmdata-agents) hits the same wall and is the more likely one to be
-  tried first.** That repo has no LICENSE file, so today there is nothing to
-  reconcile duckbrain's GPL *against*. Give it a licence before, not after, any
-  code moves between them.
+- ✅ **Answered 2026-08-20 for Ben's own repos (`#43.1`).** `mmmdata-agents` and
+  `mmmdata` are both **GPL-3.0-or-later** now, matching duckbrain byte-for-byte
+  on the LICENSE text — so `#12` and the `surveyor.py` port need no
+  dual-licensing, and the wall they were said to hit is gone in that direction.
+  `mmmdata` turned out to be the urgent one: it is **public** on GitHub and was
+  unlicensed, i.e. all-rights-reserved to every reader of its docs site. Two
+  docs-only commits from a second contributor (47 lines) are non-blocking but
+  should hear about the relicence.
+  **What this does not answer:** upstreaming into Apache-2.0 nipreps / MIT
+  nipoppy still needs Ben to dual-license, exactly as before — choosing GPL on
+  both sides opens the path *between his repos* and closes nothing that was
+  open.
 
 ---
 
