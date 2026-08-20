@@ -346,31 +346,99 @@ def _job_popover(
                 st.error(f"Could not cancel: {e}")
 
 
-def _bulk_popover(stage: str, units: list[pd.Series], config: Config) -> None:
-    """Column-header bulk: run every currently-runnable unit for one stage (guarded)."""
+def _queue_headroom(config: Config, n: int, queued: int) -> str:
+    """Empty unless SLURM would refuse some of *n* submissions for a full queue.
+
+    A ceiling nobody has met here — Talapas allows 30001 submitted jobs — and one
+    that is ordinary at 100 or 500 elsewhere, where a 200-unit bulk run walks
+    into it halfway and reports as a pile of identical rejections. ``None`` from
+    ``submit_limit`` means the question could not be asked, which is not the same
+    as no headroom: say nothing rather than refuse a submission the cluster would
+    have taken.
+
+    *queued* comes from the render's own squeue pull rather than a fresh one —
+    the cockpit makes exactly one squeue and one sacct call per render on
+    purpose (``docs/pipeline-cockpit.md``), and this is a bulk popover per stage.
+    """
+    from duckbrain.slurm.monitor import submit_limit
+
+    limit = submit_limit(account=config.get("slurm", {}).get("account", ""))
+    if limit is None:
+        return ""
+    if queued + n <= limit:
+        return ""
+    return (
+        f"SLURM allows you {limit} submitted job(s) at once and {queued} are already "
+        f"queued, so at most {max(limit - queued, 0)} of these {n} would be accepted. "
+        "Submit in batches, or wait for the queue to drain."
+    )
+
+
+def _bulk_popover(stage: str, units: list[pd.Series], config: Config, queued: int) -> None:
+    """Column-header bulk: run every currently-runnable unit for one stage (guarded).
+
+    Submission is a blocking sequential loop — one sbatch per unit, ~0.2-1 s each
+    — so at 100 subjects the GUI would sit dead for a minute or more with nothing
+    on screen. It reports like the Conversion page's bulk path instead: a
+    progress bar while it runs and one row per unit when it is done, so a
+    submission that half-worked says *which* half (`#42.4`).
+    """
     n = len(units)
     st.markdown(f"**Run all {stage}**")
     st.caption(
         f"{n} ready: " + ", ".join(_unit_label(str(r["subject"]), str(r["session"])) for r in units)
     )
     st.caption("Bulk runs use config-default parameters. For per-unit knobs, open a cell.")
+    too_many = _queue_headroom(config, n, queued)
+    if too_many:
+        st.error(too_many)
     # Per-stage confirm key so ticking one column can't arm another.
     confirm = st.checkbox(f"Yes — submit {n} {stage} job(s)", key=f"bulk_confirm_{stage}")
     if st.button(
-        f"▶▶ Run all {n} {stage}", type="primary", disabled=not confirm, key=f"bulk_run_{stage}"
+        f"▶▶ Run all {n} {stage}",
+        type="primary",
+        disabled=not confirm or bool(too_many),
+        key=f"bulk_run_{stage}",
     ):
-        ok, errs = 0, []
-        for r in units:
-            try:
-                advance_one(config, stage, str(r["subject"]), str(r["session"]))
-                ok += 1
-            except Exception as e:
-                errs.append(f"{_unit_label(str(r['subject']), str(r['session']))}: {e}")
-        queue_toast(f"Submitted {ok}/{n} {stage} job(s)")
-        for m in errs:
-            st.error(m)
-        if ok:
-            st.rerun()
+        _bulk_submit(stage, units, config)
+
+
+def _bulk_submit(stage: str, units: list[pd.Series], config: Config) -> None:
+    """Submit every unit, reporting progress and one result row each."""
+    from duckbrain.slurm.monitor import is_submit_limit_rejection
+
+    n = len(units)
+    progress = st.progress(0.0, text=f"Submitting {n} {stage} job(s)…")
+    results: list[dict[str, str]] = []
+    ok = 0
+    for i, r in enumerate(units):
+        sub, ses = str(r["subject"]), str(r["session"])
+        label = _unit_label(sub, ses)
+        try:
+            job_id = advance_one(config, stage, sub, ses)
+            results.append({"unit": label, "job": job_id, "result": "submitted"})
+            ok += 1
+        except Exception as e:
+            results.append({"unit": label, "job": "—", "result": f"error: {e}"})
+            # A full queue rejects every job still to come, so continuing turns
+            # one fact into 200 copies of itself. Stop and say what was skipped.
+            if is_submit_limit_rejection(str(e)):
+                for skipped in units[i + 1 :]:
+                    results.append(
+                        {
+                            "unit": _unit_label(str(skipped["subject"]), str(skipped["session"])),
+                            "job": "—",
+                            "result": "not attempted — SLURM refused the one before it",
+                        }
+                    )
+                break
+        progress.progress((i + 1) / n, text=f"Submitting {stage}: {i + 1}/{n}")
+    progress.empty()
+
+    st.dataframe(pd.DataFrame(results), width="stretch", hide_index=True)
+    queue_toast(f"Submitted {ok}/{n} {stage} job(s)")
+    if ok:
+        st.rerun()
 
 
 #: Cell popover keys. Their real job is to be the *open-state* handle: a
@@ -756,8 +824,15 @@ def dashboard() -> None:
             hc = head[2 + i]
             units = runnable_by_stage.get(stage)
             if stage in SLURM_STAGES and units:
-                with hc.popover(f"{stage} ▾", use_container_width=True):
-                    _bulk_popover(stage, units, config)
+                # Lazy for the same reason as the cells (`#42.2`), and with a new
+                # one of its own: the headroom preflight below asks sacctmgr, and
+                # an eager body would ask once per stage on every 30 s refresh.
+                pop = hc.popover(
+                    f"{stage} ▾", width="stretch", on_change="rerun", key=f"bulkpop_{stage}"
+                )
+                if pop.open:
+                    with pop:
+                        _bulk_popover(stage, units, config, len(jobs["active"]))
             else:
                 hc.markdown(f"**{stage}**")
 

@@ -42,6 +42,14 @@ def _cell_key(stage, subject, session=""):
     return f"cellpop_{stage}_{subject}_{session}"
 
 
+def _open_bulk(at, stage):
+    """Rerun with a column header's bulk popover open — same rule as _open_cell."""
+    key = f"bulkpop_{stage}"
+    assert key in at.session_state, f"no bulk popover on the {stage} column"
+    at.session_state[key] = True
+    return at.run()
+
+
 def _open_cell(at, stage, subject, session=""):
     """Rerun with one board cell's popover open.
 
@@ -168,12 +176,79 @@ def test_column_bulk_run_gated_by_confirm(project, monkeypatch):
 
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     # The 'converted' column header bulk popover: only sub-02 is ready.
+    _open_bulk(at, "converted")
     assert at.button(key="bulk_run_converted").disabled  # gated until confirmed
-    at.checkbox(key="bulk_confirm_converted").set_value(True).run()
+    at.checkbox(key="bulk_confirm_converted").set_value(True)
+    _open_bulk(at, "converted")
     assert not at.button(key="bulk_run_converted").disabled
-    at.button(key="bulk_run_converted").click().run()
+    at.button(key="bulk_run_converted").click()
+    _open_bulk(at, "converted")
     assert not at.exception
     assert ("converted", "02", "") in calls
+
+
+def test_bulk_reports_one_row_per_unit_and_stops_at_a_full_queue(project, monkeypatch):
+    """`#42.4`: the loop is blocking and sequential — one sbatch per unit — so at
+    100 subjects it froze the GUI for a minute with nothing on screen, and a
+    rejection halfway rendered as a pile of separate errors saying the same
+    thing. It reports per unit now, and a full queue stops it: that rejection
+    refuses every remaining job too, so continuing only makes copies of it."""
+    import duckbrain.slurm.monitor as M
+
+    # Two units ready to convert, so there is a "remaining" to not attempt.
+    _touch(project / "sourcedata" / "sub-03" / "dicom" / "0001.dcm")
+
+    def refusing(config, stage, subject, session="", *, export_only=False, **params):
+        raise RuntimeError("sbatch: error: QOSMaxSubmitJobPerUserLimit")
+
+    monkeypatch.setattr(P, "advance_one", refusing)
+    monkeypatch.setattr(M, "submit_limit", lambda **kw: None)  # preflight can't ask
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _open_bulk(at, "converted")
+    at.checkbox(key="bulk_confirm_converted").set_value(True)
+    _open_bulk(at, "converted")
+    at.button(key="bulk_run_converted").click()
+    _open_bulk(at, "converted")
+    assert not at.exception
+
+    rows = [df.value for df in at.dataframe if "result" in getattr(df.value, "columns", [])]
+    assert rows, "no per-unit result table"
+    results = rows[0]["result"].tolist()
+    assert sum("QOSMaxSubmitJobPerUserLimit" in r for r in results) == 1, (
+        "one rejection was reported once per unit"
+    )
+    assert any("not attempted" in r for r in results)
+
+
+def test_bulk_is_refused_when_the_queue_has_no_room(project, monkeypatch):
+    """A silently-degrading option is worse than one that fails: submitting 2
+    into 1 slot of headroom means a partial run reported as an error pile."""
+    import duckbrain.slurm.monitor as M
+
+    _touch(project / "sourcedata" / "sub-03" / "dicom" / "0001.dcm")
+    monkeypatch.setattr(M, "submit_limit", lambda **kw: 1)
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _open_bulk(at, "converted")
+    assert any("at most" in e.value and "queued" in e.value for e in at.error)
+    at.checkbox(key="bulk_confirm_converted").set_value(True)
+    _open_bulk(at, "converted")
+    assert at.button(key="bulk_run_converted").disabled, "confirmed past a known-full queue"
+
+
+def test_bulk_says_nothing_when_the_limit_cannot_be_asked(project, monkeypatch):
+    """No accounting database, no SLURM, or a site that sets no limit. Unknown
+    is not zero headroom — the button must stay live."""
+    import duckbrain.slurm.monitor as M
+
+    monkeypatch.setattr(M, "submit_limit", lambda **kw: None)
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _open_bulk(at, "converted")
+    at.checkbox(key="bulk_confirm_converted").set_value(True)
+    _open_bulk(at, "converted")
+    assert not at.button(key="bulk_run_converted").disabled
 
 
 def test_submission_log_panel_renders(project):

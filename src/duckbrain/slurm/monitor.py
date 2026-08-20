@@ -68,6 +68,97 @@ def known_partitions() -> set[str]:
     return {p.strip().rstrip("*") for p in result.stdout.split() if p.strip()}
 
 
+def _sacctmgr(args: list[str]) -> list[str]:
+    """``sacctmgr -nP`` lines, or an empty list if the question can't be asked."""
+    try:
+        result = subprocess.run(
+            ["sacctmgr", "-nP", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def submit_limit(account: str = "", user: str | None = None) -> int | None:
+    """Most jobs this user may have *submitted at once*, or ``None`` if unknown.
+
+    ``None`` means "could not ask" — no SLURM here, no accounting database, or a
+    site that sets no limit — and a caller must read it as "cannot validate", the
+    same doctrine as :func:`known_partitions`. It must never be read as zero
+    headroom, which would refuse a submission the cluster would have accepted.
+
+    Two limits can bite and the effective one is the smaller: the association's
+    ``MaxSubmitJobs`` and the QOS's ``MaxSubmitJobsPerUser``. Both are counted
+    over *pending plus running* jobs, so the ceiling is on the queue as a whole
+    and not on one sbatch call. Talapas sets 30001 via the ``normal`` QOS and
+    nothing on the association, which is why nobody has hit this here — a
+    100-subject bulk run is two orders off. Sites that set it at 100 or 500 are
+    ordinary, and there the difference is a partial submission that reports as a
+    pile of identical rejections.
+
+    *account* narrows to one association when the project pins one. An account
+    with no matching row yields ``None`` rather than a limit from some other
+    account of the same user.
+    """
+    if user is None:
+        user = os.environ.get("USER", "")
+    if not user:
+        return None
+
+    limits: list[int] = []
+    qos_names: set[str] = set()
+    # `where` and `user=…` are two argv words, not one: sacctmgr parses its
+    # conditions positionally and answers "Unknown condition: where user=x" to
+    # the joined form — which `_sacctmgr` would then report as "cannot ask".
+    assoc = _sacctmgr(
+        ["show", "assoc", "where", f"user={user}", "format=Account,QOS,MaxSubmitJobs"]
+    )
+    for line in assoc:
+        fields = (line.split("|") + ["", "", ""])[:3]
+        acct, qoses, max_submit = (f.strip() for f in fields)
+        if account and acct != account:
+            continue
+        if max_submit.isdigit():
+            limits.append(int(max_submit))
+        qos_names |= {q.strip() for q in qoses.split(",") if q.strip()}
+
+    if qos_names:
+        for line in _sacctmgr(["show", "qos", "format=Name,MaxSubmitJobsPerUser"]):
+            fields = (line.split("|") + ["", ""])[:2]
+            name, per_user = (f.strip() for f in fields)
+            if name in qos_names and per_user.isdigit():
+                limits.append(int(per_user))
+
+    return min(limits) if limits else None
+
+
+#: What sbatch says when a submission is refused for exceeding a submit limit.
+#: Matched case-insensitively on the message, because the two limits above are
+#: reported under different names and a site may hit either.
+_LIMIT_REJECTIONS = (
+    "maxsubmitjob",
+    "accountingpolicy",
+    "job violates accounting/qos policy",
+)
+
+
+def is_submit_limit_rejection(message: str) -> bool:
+    """Whether a failed submission was refused for having too many jobs queued.
+
+    Worth telling apart from every other sbatch failure: it is the one that will
+    reject every *remaining* job in a bulk run too, so a caller should stop
+    rather than produce one identical error per unit.
+    """
+    lowered = message.lower()
+    return any(marker in lowered for marker in _LIMIT_REJECTIONS)
+
+
 def list_jobs(user: str | None = None) -> list[JobInfo]:
     """List pending/running jobs from squeue.
 
