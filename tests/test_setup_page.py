@@ -451,3 +451,76 @@ def test_external_bids_keeps_a_stored_dicom_source(project):
     _button(at, "Save project settings").click().run()
     assert not at.exception
     assert _load_toml(project_config_path(project))["dcm_source"]["dir"] == "/somewhere/dicoms"
+
+
+# ---- use_external (FreeSurfer) ----
+#
+# Same gate shape as use_nordic one section up: the surveyor marks the
+# freesurfer stage n/a and the cockpit refuses to offer it while use_external
+# is off — so the flag needs a control here, or a project can never say it
+# wants the external FS8 recon and the stage never appears.
+
+_USE_EXTERNAL_FS = "fMRIPrep imports an external FreeSurfer 8 recon"
+
+
+def test_use_external_fs_round_trips_on_and_off(project):
+    from duckbrain.config import _load_toml, project_config_path
+
+    at = _open(project)
+    assert not at.exception
+    assert _toggle(at, _USE_EXTERNAL_FS).value is False, "a fresh project defaults to off"
+
+    _toggle(at, _USE_EXTERNAL_FS).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+    assert load_config(project_dir=str(project))["freesurfer"]["use_external"] is True
+    assert _toggle(_open(project), _USE_EXTERNAL_FS).value is True
+
+    # Off is a statement, not an absence: it must be written, not dropped —
+    # an owned section reconciles field by field, so an omitted false would
+    # delete the key on save (use_nordic's test above says why at length).
+    at = _open(project)
+    _toggle(at, _USE_EXTERNAL_FS).set_value(False)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+    assert _load_toml(project_config_path(project))["freesurfer"]["use_external"] is False
+
+
+def test_saving_setup_keeps_the_rest_of_the_freesurfer_section(project):
+    """This page owns one key of [freesurfer]; version/install_root are machine
+    facts a project may pin by hand and are not this form's to delete."""
+    from duckbrain.config import _load_toml, project_config_path, save_project_config
+
+    save_project_config(str(project), {"freesurfer": {"version": "8.1.0"}})
+
+    at = _open(project)
+    _toggle(at, _USE_EXTERNAL_FS).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    stored = _load_toml(project_config_path(project))["freesurfer"]
+    assert stored["use_external"] is True
+    assert stored["version"] == "8.1.0"
+
+
+def test_use_external_fs_toggle_puts_the_stage_on_the_board(project):
+    """The toggle's point: it reaches the surveyor, the stage stops being n/a,
+    and fMRIPrep picks up the second dependency."""
+    from duckbrain.core.pipeline import effective_dependencies
+    from duckbrain.core.surveyor import survey_project
+
+    (project / "sub-01" / "func").mkdir(parents=True, exist_ok=True)
+
+    def _cells():
+        return list(survey_project(load_config(project_dir=str(project)))["freesurfer"])
+
+    assert _cells() == ["n/a"], "precondition: the stage is off the board"
+
+    at = _open(project)
+    _toggle(at, _USE_EXTERNAL_FS).set_value(True)
+    _button(at, "Save project settings").click().run()
+    assert not at.exception
+
+    assert _cells() and "n/a" not in _cells()
+    cfg = load_config(project_dir=str(project))
+    assert effective_dependencies(cfg, "fmriprep") == ("converted", "freesurfer")

@@ -76,6 +76,9 @@ _PROJECT_OWNED = {
     # One key of [nordic] only. The rest (magnitude_only, matlab_module,
     # excluded_nodes) is shared machine config a project may override by hand.
     "nordic": ("use_nordic",),
+    # Same shape: one key of [freesurfer]. version/install_root are machine
+    # facts (which FreeSurfer is installed where), not a project's to rewrite.
+    "freesurfer": ("use_external",),
     "slurm": ("account", "partition", "partition_long", "time"),
 }
 
@@ -294,6 +297,25 @@ st.caption(
     "here rather than only in the config file."
 )
 
+st.subheader("FreeSurfer")
+use_external_fs = st.toggle(
+    "fMRIPrep imports an external FreeSurfer 8 recon",
+    value=_get_bool("freesurfer", "use_external"),
+    help="Off: fMRIPrep reconstructs surfaces itself with the FreeSurfer bundled "
+    "in its container (7.3.2 in the 25.2 image), and the Status board marks the "
+    "freesurfer stage **n/a**. On: a per-**subject** `freesurfer` stage runs the "
+    "system FreeSurfer 8's recon-all first, and fMRIPrep waits for it, imports "
+    "the finished recon (`--fs-no-resume`), and refuses to launch until the "
+    "recon is complete and version-matched — never silently rebuilding one "
+    "with its own older FreeSurfer.",
+)
+st.caption(
+    "The FreeSurfer version and install path are machine facts "
+    "(`[freesurfer] version` / `install_root`, default 8.2.0 from "
+    "`/packages/freesurfer`), not per-project settings — this toggle only "
+    "decides whether this project's fMRIPrep consumes an external recon."
+)
+
 st.subheader("SLURM (project)")
 st.caption(
     "Every stage runs on **Default partition** except fMRIPrep, the one long "
@@ -357,6 +379,8 @@ if st.button("Save project settings"):
         # escape. Omitting it would also *delete* the key on save — an owned
         # section reconciles field by field against what it is handed.
         "nordic": {"use_nordic": use_nordic},
+        # Written even when false, for exactly use_nordic's reasons above.
+        "freesurfer": {"use_external": use_external_fs},
         "slurm": {
             "account": slurm_account,
             "partition": slurm_partition,
