@@ -166,7 +166,16 @@ branch = true
 # taken across two adjacent minors; a wider gap may not behave like a small one.
 # If a version leg ever fails on this line alone, the answer is 88 — that is a
 # measurement disagreeing with this comment, not a build to be forced green.
-fail_under = 89
+#
+# **Raised 89 -> 90 on 2026-08-20** (`#42`'s tranche, whose new tests measured
+# 91.14% locally). 90 and not 91 deliberately: the ~0.5-point local-vs-CI gap
+# above was *not* re-measured, because the documented reproduction — a PATH
+# hiding singularity/apptainer — does not work on this box, where both live in
+# `/usr/bin` alongside everything else the suite needs. So 91.14 is a local
+# figure with an unquantified CI discount, and 90 is the largest ratchet the
+# measurement actually supports. Re-measure properly before taking the last
+# point.
+fail_under = 90
 
 [tool.ruff]
 line-length = 100

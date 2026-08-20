@@ -112,6 +112,78 @@ def test_only_incomplete_filter_present_and_default_on(project):
     assert "sub-02" in _markdowns(at)
 
 
+def test_the_board_paginates_past_fifty_units(project, monkeypatch):
+    """`#42.6`: a row is a whole `st.columns` of popovers, so several hundred of
+    them per refresh is the board's own cost. The `only_incomplete` filter is no
+    help precisely mid-study, when most rows *are* incomplete."""
+    for i in range(3, 60):
+        _touch(project / "sourcedata" / f"sub-{i:02d}" / "dicom" / "0001.dcm")
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    rows = [m for m in _markdowns(at) if m.startswith("sub-")]
+    assert len(rows) == 50, f"rendered {len(rows)} unit rows"
+    assert any("of 59" in c.value for c in at.caption)
+
+    at.number_input(key="board_page").set_value(2).run()
+    rest = [m for m in _markdowns(at) if m.startswith("sub-")]
+    assert len(rest) == 9
+    assert "sub-59" in rest
+
+
+def test_a_small_project_gets_no_pagination_control(project):
+    """Every project duckbrain has been dogfooded on is this one."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not [n for n in at.number_input if n.key == "board_page"]
+
+
+def test_bulk_still_covers_every_unit_and_not_just_the_page(project, monkeypatch):
+    """`runnable_by_stage` is built from the full matrix before pagination — a
+    column's "run all" that quietly meant "run this page" is exactly the silent
+    degrade the project forbids."""
+    calls = []
+    monkeypatch.setattr(
+        P,
+        "advance_one",
+        lambda config, stage, subject, session="", **kw: calls.append(subject) or "J",
+    )
+    for i in range(3, 60):
+        _touch(project / "sourcedata" / f"sub-{i:02d}" / "dicom" / "0001.dcm")
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _open_bulk(at, "converted")
+    at.checkbox(key="bulk_confirm_converted").set_value(True)
+    _open_bulk(at, "converted")
+    at.button(key="bulk_run_converted").click()
+    _open_bulk(at, "converted")
+
+    assert len(calls) == 58, f"bulk submitted {len(calls)} of 58 runnable units"
+
+
+def test_the_refresh_cadence_follows_whether_this_project_has_jobs_queued(project, monkeypatch):
+    """`#42.6`: a refresh is a full survey plus a squeue and a sacct call, and
+    with nothing in the queue nothing it measures can change by itself. The
+    interval is fixed when the fragment is decorated, so what is asserted here is
+    the flag that selects it on the next run."""
+    from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    at.checkbox(key="auto_refresh").set_value(True).run()
+    assert at.session_state["cockpit_jobs_live"] is False
+
+    cfg = load_config(project_dir=str(project))
+    record_submission(cfg, "fmriprep", "01", "", "55123")
+    monkeypatch.setattr(
+        P,
+        "list_jobs",
+        lambda: [JobInfo(job_id="55123", name="fmriprep_01", state="RUNNING", partition="c")],
+    )
+    at.run()
+    assert at.session_state["cockpit_jobs_live"] is True
+
+
 def test_empty_project_shows_guidance(tmp_path, monkeypatch):
     proj = tmp_path / "empty"
     scaffold_project(str(proj))

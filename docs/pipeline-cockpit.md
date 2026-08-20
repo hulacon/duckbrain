@@ -261,6 +261,16 @@ next step is X"), see the dependency-valid next action, run it. Avoids fighting
 **Auto-refresh:** `st_autorefresh` (or a manual ↻ + `survey_live` cache with
 short ttl) so running jobs animate toward done.
 
+**As built, and adaptive since `#42.6`:** an opt-in `st.fragment(run_every=…)`
+at **30 s while this project has a job queued and 5 minutes when it does not** —
+a refresh is a whole survey plus a squeue and a sacct call, and with nothing in
+the queue nothing it measures can change by itself. The interval is fixed when
+the fragment is decorated, so switching cadence costs a full page rerun; the
+fragment asks for one at the moment the queue empties or fills, which is exactly
+as often as the answer changes. The board also **paginates past 50 units**, and
+the bulk lists are built from the full matrix beforehand so a column's "run all"
+never quietly means "run this page".
+
 **Safety guards:**
 - Never show run on `running`/`queued`.
 - A "run all missing in column X" bulk button (optional) MUST show a count and a

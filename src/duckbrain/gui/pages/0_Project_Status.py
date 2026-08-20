@@ -88,16 +88,38 @@ from duckbrain.gui.components import flush_toasts, queue_toast
 flush_toasts()
 
 # ---- Refresh controls ----
+#
+# Two cadences, not one (`#42.6`). A refresh is a full survey plus a squeue and a
+# sacct call, and the only thing that can change between two of them without
+# anyone touching the GUI is a job's state — so 30 s is right while something is
+# in the queue and wasteful for the hours a board spends showing a finished
+# project. The interval is fixed when the fragment is decorated, i.e. at page
+# level, so a change of cadence needs a full rerun; `dashboard` asks for one at
+# the moment the queue empties or fills, which is exactly as often as the answer
+# changes.
+_FAST_REFRESH = "30s"
+_SLOW_REFRESH = "5m"
+
+#: Whether this project had a job in the queue at the last render. Absent means
+#: "not yet known", and the fast cadence is the safe assumption there: it costs
+#: one extra refresh, where guessing idle would leave a live board stale for
+#: five minutes.
+_LIVE_KEY = "cockpit_jobs_live"
+
+
 c_refresh, c_auto = st.columns([1, 3])
 with c_refresh:
     if st.button("↻ Refresh", help="Re-scan the filesystem and re-query SLURM"):
         st.rerun()
 with c_auto:
     auto = st.checkbox(
-        "Auto-refresh every 30s",
+        "Auto-refresh",
         value=False,
-        help="Re-queries SLURM (squeue/sacct) every 30s. Off by default to avoid "
-        "load on the scheduler.",
+        key="auto_refresh",
+        help="Re-surveys the project and re-queries SLURM (squeue/sacct) every "
+        f"{_FAST_REFRESH} while this project has jobs in the queue, every "
+        f"{_SLOW_REFRESH} when it does not. Off by default to avoid load on the "
+        "scheduler.",
     )
 
 _FS_ICON = {
@@ -513,6 +535,51 @@ def _render_cell(
         col.markdown(icon)
 
 
+#: Rows per board page. A row is one `st.columns` of popovers, so the cost of a
+#: page is linear in this — and past about this many the operator is scrolling
+#: rather than reading anyway.
+_PAGE_SIZE = 50
+
+
+def _paginate(view: pd.DataFrame) -> pd.DataFrame:
+    """One page of the board, with a picker above it — or the whole thing.
+
+    Below :data:`_PAGE_SIZE` rows there is no control at all, which is every
+    project duckbrain has been dogfooded on. Above it the alternative is
+    rendering several hundred rows of widgets per refresh, and the
+    `only_incomplete` filter is no help precisely mid-study, when most rows *are*
+    incomplete (`#42.6`).
+
+    Bulk submission is unaffected by design: `runnable_by_stage` is built from
+    the full matrix before this, so a column's "run all" still means all.
+    """
+    pages = (len(view) + _PAGE_SIZE - 1) // _PAGE_SIZE
+    if pages <= 1:
+        return view
+    # Clamp before the widget exists: a remembered page above the new maximum —
+    # the filter was ticked, or a stage finished — is an error from Streamlit,
+    # not a silent fallback.
+    if int(st.session_state.get("board_page", 1)) > pages:
+        st.session_state["board_page"] = 1
+    page = int(
+        st.number_input(
+            "Page",
+            min_value=1,
+            max_value=pages,
+            step=1,
+            key="board_page",
+            help=f"{len(view)} units to show, {_PAGE_SIZE} per page.",
+        )
+    )
+    start = (page - 1) * _PAGE_SIZE
+    shown = view.iloc[start : start + _PAGE_SIZE]
+    st.caption(
+        f"Units {start + 1}–{start + len(shown)} of {len(view)} — page {page} of {pages}. "
+        "Column ▾ bulk still covers every unit, not this page."
+    )
+    return shown
+
+
 def _deep_links() -> None:
     st.caption("Need advanced params or per-session review? Open the full pages:")
     for path, label, icon in [
@@ -677,10 +744,37 @@ def _all_jobs_section(jobs: JobIndex, config: Config) -> None:
                 st.info(f"No log found for job `{jid}` in `{ld}`.")
 
 
-@st.fragment(run_every="30s" if auto else None)
+def _has_live_jobs(matrix: pd.DataFrame) -> bool:
+    """Whether any cell on the board is running or queued *for this project*.
+
+    Read off the board's own job columns rather than off squeue, deliberately:
+    the question is whether what is on screen can change by itself, and another
+    project's jobs cannot change it.
+    """
+    return any(
+        matrix[col].isin(("running", "queued")).any()
+        for stage in SLURM_STAGES
+        if (col := f"{stage}_job") in matrix.columns
+    )
+
+
+@st.fragment(
+    run_every=(_FAST_REFRESH if st.session_state.get(_LIVE_KEY, True) else _SLOW_REFRESH)
+    if auto
+    else None
+)
 def dashboard() -> None:
     with st.spinner("Surveying project & querying SLURM…"):
         matrix, jobs = survey_live(config, with_jobs=True)
+
+    # The cadence is baked into the decorator above, so switching it needs a
+    # rerun of the page and not of this fragment. Asked for only on the
+    # transition, which happens when the last job lands or the first is
+    # submitted — not every 30 s.
+    live = _has_live_jobs(matrix)
+    if auto and live != st.session_state.get(_LIVE_KEY, True):
+        st.session_state[_LIVE_KEY] = live
+        st.rerun()
 
     if matrix.empty:
         st.info(
@@ -812,6 +906,7 @@ def dashboard() -> None:
     if view.empty:
         st.success("Every subject/session is complete across all stages. 🎉")
     else:
+        view = _paginate(view)
         latest_jobs = _latest_jobs(config)
         log_dir = paths.get("log_dir", "")
         spec = [1.3, 0.8] + [1.15] * len(STAGES)

@@ -15,9 +15,9 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#42`](#42) **next** — 100-subject scale; the cheap tranche is measured and
-itemized ·
-[`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
+[`#16`](#16) **next** — sanity checks (Slices A–C done; `#16.3` open) ·
+[`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
+left is two unscheduled design questions ·
 [Licensing](#licensing-follow-ups) ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
 walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
@@ -52,7 +52,10 @@ comes next. On 2026-08-18 a prospective user with an already-BIDS,
 (scale), and Ben put both above `#16`. `#41` closed the same day — the two
 data-destroying metadata bugs first, then the declaration, the surveyor's NA
 generalization, the BIDS-tree roster, `.nii` support and `docs/external-bids.md`
-(see the ledger) — so `#42` leads.
+(see the ledger) — so `#42` led. On 2026-08-20 `#42`'s whole cheap tranche
+shipped, which hands the lead back to `#16`: what remains in `#42` is a
+persisted survey snapshot and cross-subject job arrays, both design questions
+rather than queued work.
 
 ---
 
@@ -201,32 +204,20 @@ tolerable.
   every confounds TSV on every widget interaction. Measured ~35 ms/file → ~42 s
   and ~1 GB parsed per slider drag at ~1200 files. Needs ~4 columns of each.
 
-**The cheap tranche (about a day, in value order):**
+**The cheap tranche shipped 2026-08-20**, all six in value order — see `git log`
+for each (`#42.1`–`#42.6`) and `CHANGELOG.md` for the user-facing summary.
+`summarize_motion` is cached and reads one column instead of ~200; the board's
+cell and bulk popovers compute their bodies only when opened, which is also the
+unfixed half of DB-010; `check_consistency(config, matrix=…)` takes the survey
+the cockpit already has, so a render surveys once rather than five times; bulk
+submission reports per unit, refuses a batch SLURM has no room for, and stops on
+the one rejection that will refuse every remaining unit; MRIQC's flat root is
+listed once per survey rather than twice per unit; and the board paginates past
+50 units with an auto-refresh cadence that follows whether anything is queued.
 
-- **`#42.1`** — `st.cache_data` on `summarize_motion` with a
-  `(count, newest_mtime)` fingerprint (the `_fingerprint_of` pattern next door;
-  mind the `#29` non-underscore naming rule, `tests/test_streamlit_caches.py`)
-  plus `usecols=` on the read. Biggest win per line in the repo.
-- **`#42.2`** — the cockpit popovers evaluate their bodies on every render
-  (Streamlit executes popover content eagerly unless `on_change="rerun"`), so
-  every running cell's log globbing and the fMRIPrep cells' two recursive
-  anat-derivative globs run 100× per refresh. This is the *unfixed half* of
-  DB-010 — `docs/code-review-260722.md` recommended exactly this and only the
-  stderr half shipped.
-- **`#42.3`** — stop re-deriving: thread the matrix `survey_live` already built
-  into `check_consistency(config, matrix=...)` so its four internal surveys
-  reuse it. 5× → 1× for a small refactor.
-- **`#42.4`** — bulk submission is a blocking sequential sbatch loop with no
-  progress bar and no `MaxSubmitJobs` preflight; 200 units ≈ 40–200 s frozen,
-  and a mid-loop rejection renders as a pile of separate errors. The
-  Conversion page's bulk path already does this right (`st.progress`, per-row
-  results) — mirror it.
-- **`#42.5`** — the MRIQC flat-layout globs scan the whole derivative root once
-  per unit (O(N²) in units; ~400 root scandirs per survey at 100×2). Hoist to
-  one `os.scandir` bucketed by filename prefix.
-- **`#42.6`** — board ergonomics: paginate past ~50 rows (the `only_incomplete`
-  filter helps least mid-study, when most rows are incomplete), and make the
-  fragment interval adaptive — 30 s while jobs are live, minutes otherwise.
+**What that leaves is the two design-level items below, and neither is
+scheduled.** Both are real work with a decision in front of them, which is why
+they were never in the tranche. The item stays open to hold them.
 
 **Design-level, unscheduled:**
 
@@ -1245,6 +1236,15 @@ plus the `ssh -L` line it prints.
    shut mid-read, or worse, reopening a cell the operator closed. Look at a
    project with a live job: open a running cell, read the log tail, and wait
    out a refresh.
+
+10. **The board at 100 subjects** (`#42.6`, 2026-08-20). Two looks on a
+    project big enough to paginate. Does the **Page** control read as a
+    control — it is an `st.number_input` above the grid, and its caption has to
+    make clear that a column's ▾ bulk still covers every unit rather than the
+    page in front of you. And does the **adaptive auto-refresh** behave: with
+    auto on and nothing queued the board should settle to a 5-minute beat, and
+    submitting a job should return it to 30 s within one tick (the switch costs
+    a full page rerun, which AppTest cannot judge the feel of).
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that

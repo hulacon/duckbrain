@@ -91,6 +91,25 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Changed
 
+- **The GUI holds up at ~100 subjects.** Asked for by a prospective user whose
+  study is that size, against dogfooding at 5–40. Nothing was architecturally
+  wrong — SLURM polling has always been one `squeue` and one `sacct` per render,
+  whatever the cohort — but several hot paths re-derived the world each time the
+  Status board refreshed. Now: the QC pages cache their motion summary and read
+  one column of each confounds file instead of all ~200 (a slider drag was
+  re-parsing ~1 GB); a Status board cell computes its popover's contents only
+  when you open it, rather than reading every running job's SLURM log and
+  walking the derivatives tree on every 30 s refresh; the provenance checks
+  reuse the survey the board just took instead of taking four more of their own;
+  and MRIQC's flat output layout is listed once per survey rather than once per
+  subject-session. **Bulk submission** ("run all" on a column header) now shows
+  progress and one result row per unit instead of freezing the page, refuses up
+  front when SLURM's submit limit has no room for the batch, and stops — rather
+  than producing one identical error per unit — if the queue fills mid-run.
+  **The board paginates past 50 units** (bulk still covers every unit, not the
+  page), and **auto-refresh is adaptive**: every 30 s while the project has jobs
+  in the queue, every 5 minutes when it does not.
+
 - **The GUI's top bar is reorganized around a BIDSification group** (decided
   with the 2026-08-18 eyeball pass): **Status · Setup · Preprocessing · Guide
   · BIDSification ▾ · QC ▾**. The new **Project** page (in BIDSification,
