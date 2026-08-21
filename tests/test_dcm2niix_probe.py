@@ -62,13 +62,20 @@ def test_probe_returns_nothing_when_dcm2niix_is_absent(tmp_path, monkeypatch):
     assert "not on PATH" in result.failure
 
 
-def test_probe_never_raises_on_an_empty_series_directory(tmp_path):
+def test_probe_never_raises_on_an_empty_series_directory(tmp_path, monkeypatch):
     """0.43% of the LCNI corpus is empty directories; they are a miss, not a crash.
 
     And a *miss* is what they are: ``ok`` stays true, because "dcm2niix had
     nothing to read here" is a real answer about this session and not a report
     that duckbrain couldn't look.
+
+    ``which`` is pinned because that distinction only exists when there *is* a
+    dcm2niix. With none, ``probe_unavailable_reason`` fires first and "couldn't
+    look" is the honest answer — the branch this test is about is never reached.
+    Left reading the ambient PATH it asserted about whichever machine ran it:
+    green on Talapas, where dcm2niix is installed, red on CI, where it is not.
     """
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/dcm2niix")
     empty = tmp_path / "Series_1_empty"
     empty.mkdir()
     assert probe_session([empty]) == ProbeResult()
