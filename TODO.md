@@ -235,14 +235,37 @@ capability that will be *exercised* rather than stressed.
   `docker://pennlinc/qsiprep:26.0.0`, self-reports `v26.0.0`) — that was listed
   as a real cost to confirm before committing to a date, and it is confirmed.
 
-  ⚠️ **Nothing has run on real data.** The flag set is verified against the
-  pinned container's own argparse — it accepts every flag duckbrain renders and
-  then fails on dataset content — and no further. Two things are therefore
-  claims rather than measurements, and both belong in `memory/` the day a run
-  finishes: **the merge behaviour** (Trap 1's whole premise) and **the
-  `[slurm.overrides.qsiprep]` numbers**, which are the fMRIPrep allocation's
-  shape and nothing anyone watched. eddy is hours per subject, so the first run
-  is a scheduling commitment, not a smoke test.
+  **A first real run is IN FLIGHT — pick this up before starting anything else
+  here.** Job `46465783`, submitted 2026-08-21 09:45 through `advance_one`
+  itself (so the launcher is under test, not just the template), on the pilot
+  project `/projects/hulacon/bhutch/qsiprep_pilot` — `sub-05/ses-28` **copied**
+  out of mmmdata (a copy, not a symlink: the container binds only the project
+  dir, so a link out of the tree dangles inside it). That session is the
+  smallest honest test — two DWI runs rather than `ses-01`'s four, one clean
+  T1w in the same session, and no derivative contamination in `anat/`. Delete
+  the pilot freely once the run has been read; mmmdata was not written to.
+
+  Check `sacct -j 46465783`; then the two things Slice A still cannot claim:
+  does `surveyor._qsiprep_status` grade the real tree COMPLETE, and does the
+  report land at `sub-05/ses-28/sub-05_ses-28.html` where `reports/core.py`
+  says. `[qsiprep] output_resolution = 1.8` there is the acquisition's own
+  voxel size, chosen so a pilot neither up- nor downsamples — **not** a
+  recommendation for the study.
+
+  ✅ **One of the two source-read claims is already confirmed by that run's
+  log:** QSIPrep merged `dir-AP` and `dir-PA` into one output with the `dir-`
+  entity dropped (`concatenated_bids_name: 'sub-05_ses-28'`), which is Trap 1
+  live and the whole premise of `_covers`/`_grade_merged`. It also found the
+  reverse-PE pair inside `dwi/` with no `fmap/` entry (`'suffix':
+  'rpe_series'`, *"Using single-stage SDC, TOPUP-only"*) — `#43.3`'s central
+  claim, and what keeps `#19.10` dissolved. See
+  `memory/qsiprep-merges-opposing-pe-runs`.
+
+  ⚠️ **Still claims rather than measurements:** the **figures-directory level**
+  (session vs subject), which Slice B needs, and the
+  **`[slurm.overrides.qsiprep]` numbers**, which are the fMRIPrep allocation's
+  shape and nothing anyone watched. eddy is hours per subject, so any further
+  run is a scheduling commitment, not a smoke test.
 
   🔴 **A fourth trap the three scoped ones missed, found reading QSIPrep's report
   code rather than its docs:** a **sessionless** subject run with
