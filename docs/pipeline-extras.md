@@ -21,9 +21,39 @@ Ordered roughly producer → orthogonal → consumer, not by priority.
 ## 1. DTI/DWI preprocessing — QSIPrep
 
 **Scoped 2026-08-01** at Ben's request ("how heavy a lift?"), in §9's voice: what
-it costs, what it breaks, and what isn't ours to settle. Nothing is built. The
+it costs, what it breaks, and what isn't ours to settle. The
 facts below were read from `PennLINC/qsiprep@master` rather than the published
 docs, **which are stale on two points that matter** — both flagged inline.
+
+✅ **Slice A shipped 2026-08-21** — a launchable, tracked `qsiprep` stage
+(`core/qsiprep.py`, `templates/sbatch/qsiprep.sbatch.j2`, a tracker, a cockpit
+arm, a fourth Preprocessing tab, `tests/test_qsiprep.py`). Slice B (QC dashboard)
+is untouched. **Nothing has run on real data yet**: the flag set is verified
+against the pinned container's own argparse — every flag below is accepted by
+`qsiprep-26.0.0.sif`, and the invocation then fails on dataset content rather
+than on arguments — and the `[slurm.overrides.qsiprep]` numbers are the shape of
+the fMRIPrep allocation rather than anything anyone watched. Say so when
+re-measuring them.
+
+🔴 **The container now exists on Talapas**, which this section listed as a real
+cost to confirm before committing to a date:
+`/projects/hulacon/shared/containers/qsiprep-26.0.0.sif`, pulled 2026-08-21 from
+`docker://pennlinc/qsiprep:26.0.0`, 10.6 G, self-reporting `QSIPrep v26.0.0`.
+Symlinked into `~/containers` beside `fmriprep-25.2.5.sif`.
+
+🔴 **A fourth trap, found the same day and absent from the three below because it
+only appears when you read the report code:** a **sessionless** subject run with
+`--subject-anatomical-reference sessionwise` gets **no HTML report at all**.
+`parser.py` puts such a subject in the processing group `[subject, []]` and
+merely warns; `reports/core.py` then takes the sessionwise branch, which loops
+over that empty session list and writes nothing. So Trap 2's fix — force
+`sessionwise` — is exactly wrong for a sessionless project, and a tracker that
+requires the report would have pinned every such unit at PARTIAL forever.
+duckbrain passes `first-lex` there instead (`qsiprep.SESSIONLESS_REFERENCE`):
+with no sessions the four choices are otherwise indistinguishable, so nothing is
+lost by overriding a configured value. Trap 2 below still says "sessionless
+projects are unaffected"; that was true of the clobber it is about and false of
+this.
 
 - **What:** A diffusion-MRI preprocessing branch (denoise, Gibbs, eddy/topup
   distortion + motion correction, tensor/other model fitting).
@@ -78,7 +108,11 @@ completely successful run grades PARTIAL, which `stage_runnable` then reads as
 result. This is the one piece of genuinely new logic the feature needs — a
 `_covers`/`_grade_merged` sibling that treats a found key as satisfying an
 expected one when its entities are *coarser but never contradictory*
-(`core/qc.py:parse_entities` is already public and does the parsing).
+(`core/qc.py:parse_entities` is already public and does the parsing). **Built as
+`surveyor._covers` / `surveyor._grade_merged` 2026-08-21**, off the surveyor's
+own `_entity_key` rather than `parse_entities` — it already strips
+representation entities (`space-`, `desc-`) that the identity test must ignore,
+so reaching for the other parser would have needed that filtering rebuilt.
 
 **The honest cost of that fix, which must be written down wherever it lands:**
 coarsening means **a genuinely dropped run inside a merged group cannot be
@@ -107,7 +141,10 @@ multi-session project sets it to anything else, rather than letting the run
 proceed and clobber. Sessionless projects are unaffected. Note the knock-on for
 whoever writes the tracker: the report path is then *conditional*
 (`<out>/sub-XX.html` vs `<out>/sub-XX/ses-YY/sub-XX_ses-YY.html`), and so is the
-figures directory — see Slice B.
+figures directory — see Slice B. **Both shapes verified against
+`reports/core.py` 2026-08-21**, and `surveyor._qsiprep_report_present` asks for
+either rather than picking one: duckbrain controls which shape its own projects
+produce, but an externally-run tree is not duckbrain's to predict.
 
 ### 🔴 Trap 3: `--output-resolution` has no defensible default
 
@@ -210,8 +247,8 @@ about what it measured — so it is Slice B's first task, not a footnote.
   guess, invisible in the Conversion page's `fieldmap` column. QSIPrep is the
   consumer that makes the question real, and the answer belongs here rather than
   in the emitter.
-- **A container must be built or pulled** for `pennlinc/qsiprep` — one more
-  instance of `#2`. Confirm one exists on Talapas before committing to a date.
+- ~~**A container must be built or pulled** for `pennlinc/qsiprep`~~ — **done
+  2026-08-21**, see the note under the heading. Was one more instance of `#2`.
 - **eddy is hours per subject.** This is a scheduling change, not just a stage.
 - **Fixture:** `/projects/hulacon/shared/mmmsourcedata` is the DWI-bearing tree —
   diffusion SBRefs and LR/RL phase encoding, neither of which the LCNI corpus has

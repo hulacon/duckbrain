@@ -520,6 +520,95 @@ def _build_mriqc(
     return "mriqc", ctx
 
 
+def _build_qsiprep(
+    config: Config, subject: str, session: str, log_dir: str, params: JobParams
+) -> tuple[str, TemplateContext]:
+    """The diffusion branch. ``docs/pipeline-extras.md`` §1 is the design record.
+
+    **Why there is no anat-reuse arm here, unlike ``_build_fmriprep``:** QSIPrep
+    has no precomputed-anat flag of any kind, and its anatomical is LPS+ and
+    AC-PC realigned where fMRIPrep's is RAS+ in the original orientation —
+    sharing between them is not merely unsupported, it is wrong. That is why
+    this stage's ``depends_on`` is the plain string ``"converted"`` and
+    ``effective_dependencies`` needs no new arm.
+
+    No BIDS filter file either: ``--session-id`` is native to QSIPrep.
+    ``fmriprep.write_session_filter`` exists only because fMRIPrep must leave
+    anat *unfiltered*, and QSIPrep answers that with
+    ``--subject-anatomical-reference`` instead.
+    """
+    from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
+    from .fmriprep import find_fs_license
+    from .qsiprep import (
+        QsiprepConfigError,
+        anatomical_reference,
+        get_container_path,
+        get_dwi_runs,
+        output_resolution,
+        parse_output_resolution,
+    )
+
+    paths = config["paths"]
+    qp_cfg = config.get("qsiprep", {})
+
+    # Config errors first, before anything touches the filesystem — reporting one
+    # behind a missing container or licence would bury it. Both of these come out
+    # of core.qsiprep as QsiprepConfigError and are re-raised here as the
+    # user-facing PipelineError every launcher already renders.
+    try:
+        resolution = params.get("output_resolution") or output_resolution(config)
+        if resolution in (None, ""):
+            raise PipelineError(
+                "[qsiprep] output_resolution is not set. It is the isotropic voxel size "
+                "in mm everything is resampled to, in a single interpolation — a "
+                "study-level scientific choice with no defensible default, so duckbrain "
+                "refuses to guess one. Set it in the project's code/duckbrain.toml."
+            )
+        # Through the same parser as the config path, so the GUI's free text
+        # fails with the sentence that names the key rather than a bare
+        # "could not convert string to float".
+        resolution = parse_output_resolution(resolution)
+        anat_ref = anatomical_reference(config, session)
+    except QsiprepConfigError as exc:
+        raise PipelineError(str(exc)) from exc
+
+    if not get_dwi_runs(paths["bids_dir"], subject, session):
+        raise PipelineError(
+            f"No diffusion data for sub-{subject}"
+            f"{('/ses-' + session) if session else ''} — nothing for QSIPrep to run on."
+        )
+
+    fs_license = find_fs_license(config)
+    if not fs_license:
+        raise PipelineError("FreeSurfer license not found. Set it in Project Setup.")
+
+    qp_slurm = get_slurm_resources(config, "qsiprep")
+    cpus = int(params.get("nprocs", qp_slurm["cpus"]))
+    alloc_gb = int(params.get("mem_gb", parse_mem_gb(qp_slurm["memory"])))
+
+    ctx = build_context(
+        config,
+        "qsiprep",
+        subject=subject,
+        session=session,
+        bids_dir=paths["bids_dir"],
+        # Passed as the output dir ITSELF, not its parent: QSIPrep's
+        # DerivativesDataSink sets out_path_base='' and writes straight into what
+        # it is given, so duckbrain's one-dir-per-stage convention holds by naming
+        # the stage dir here. The `<out>/qsiprep/…` in the published docs is stale.
+        output_dir=f"{paths['derivatives_dir']}/qsiprep",
+        container_path=str(get_container_path(config)),
+        fs_license=str(fs_license),
+        fs_license_dir=str(fs_license.parent),
+        output_resolution=resolution,
+        anatomical_reference=anat_ref,
+        extra_flags=str(params.get("extra_flags", qp_cfg.get("extra_flags", ""))).strip(),
+        mem_gb=tool_mem_gb(config, "qsiprep", alloc_gb=alloc_gb),
+    )
+    ctx["slurm"] = {**ctx["slurm"], "cpus": str(cpus), "memory": f"{alloc_gb}G"}
+    return "qsiprep", ctx
+
+
 # ---- stage registry ---------------------------------------------------------
 
 
@@ -562,6 +651,7 @@ STAGE_SPECS: dict[str, StageSpec] = {
         "freesurfer", "freesurfer", "converted", build=_build_freesurfer, unit="subject"
     ),
     "mriqc": StageSpec("mriqc", "mriqc", "converted", build=_build_mriqc),
+    "qsiprep": StageSpec("qsiprep", "qsiprep", "converted", build=_build_qsiprep),
 }
 
 # SLURM-launchable stages, in pipeline order (cockpit iterates these).
@@ -812,6 +902,7 @@ _STAGE_TOOL = {
     "mriqc": ("mriqc", "mriqc_version"),
     "nordic": ("nordic", None),
     "freesurfer": ("freesurfer", None),
+    "qsiprep": ("qsiprep", "qsiprep_version"),
 }
 
 
@@ -846,6 +937,8 @@ def resolve_container(config: Config, stage: str) -> Path | None:
         from .fmriprep import get_container_path
     elif stage == "mriqc":
         from .mriqc import get_container_path
+    elif stage == "qsiprep":
+        from .qsiprep import get_container_path
     else:
         return None
     return get_container_path(config)
@@ -919,7 +1012,7 @@ def run_provenance(config: Config, stage: str) -> dict[str, str]:
 
     if stage == "fmriprep":
         input_variant = "nordic" if _use_nordic(config) else "raw"
-    elif stage in ("mriqc", "nordic", "freesurfer"):
+    elif stage in ("mriqc", "nordic", "freesurfer", "qsiprep"):
         input_variant = "raw"
     else:
         input_variant = ""

@@ -1,4 +1,4 @@
-"""Page 4: Preprocessing — fMRIPrep, NORDIC, MRIQC submission."""
+"""Page 4: Preprocessing — fMRIPrep, NORDIC, MRIQC, QSIPrep submission."""
 
 from pathlib import Path
 
@@ -43,7 +43,9 @@ if not subjects:
     st.stop()
 
 # ---- Tabs ----
-tab_fmriprep, tab_nordic, tab_mriqc = st.tabs(["fMRIPrep", "NORDIC", "MRIQC"])
+tab_fmriprep, tab_nordic, tab_mriqc, tab_qsiprep = st.tabs(
+    ["fMRIPrep", "NORDIC", "MRIQC", "QSIPrep"]
+)
 
 # ============================================================
 # fMRIPrep Tab
@@ -265,4 +267,91 @@ with tab_mriqc:
             export=mq_export,
             nprocs=mq_nprocs,
             mem_gb=mq_mem,
+        )
+
+
+# ============================================================
+# QSIPrep Tab
+# ============================================================
+with tab_qsiprep:
+    st.subheader("QSIPrep")
+    st.caption(
+        "The diffusion branch — orthogonal to the BOLD pipeline, sharing only BIDS. "
+        "It runs on units that have `dwi/` data; a session without diffusion has "
+        "nothing here to run and reads **n/a** on the Project Status board."
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        qp_subjects = st.multiselect("Subjects", subjects, key="qp_subjects")
+    with col2:
+        qp_study_sessions, qp_sessions = preproc_panels.session_picker(
+            bids_path, qp_subjects, "qp_sessions"
+        )
+
+    st.markdown("**Options**")
+    qp_cfg = config.get("qsiprep", {})
+    _configured_res = qp_cfg.get("output_resolution")
+    qp_resolution = st.text_input(
+        "Output resolution (mm)",
+        value="" if _configured_res in (None, "") else str(_configured_res),
+        key="qp_resolution",
+        help="The isotropic voxel size everything is resampled to, in one "
+        "interpolation. QSIPrep requires it and ships no default, and neither does "
+        "duckbrain: a wrong value produces data that looks entirely usable and is "
+        "wrongly sampled, so it is refused rather than guessed. Set "
+        "[qsiprep] output_resolution in the project's code/duckbrain.toml to stop "
+        "retyping it.",
+    )
+
+    qp_slurm = get_slurm_resources(config, "qsiprep")
+    col1, col2 = st.columns(2)
+    with col1:
+        qp_nprocs = st.number_input(
+            "CPUs",
+            value=int(qp_slurm["cpus"]),
+            min_value=1,
+            key="qp_nprocs",
+            help="The SLURM allocation for each job, and QSIPrep's --nprocs — one "
+            "number, since --nprocs is the budget across all its processes.",
+        )
+    with col2:
+        qp_mem = st.number_input(
+            "Memory (GB)",
+            value=parse_mem_gb(qp_slurm["memory"]),
+            min_value=1,
+            key="qp_mem",
+            help="The SLURM allocation for each job. QSIPrep's own --mem-mb is "
+            f"derived from it, {MEM_HEADROOM_GB} GB lower. These defaults are "
+            "unmeasured — no real run has been watched yet — so raise this if a job "
+            "is killed for memory rather than assuming the number was chosen.",
+        )
+
+    qp_flags = st.text_input(
+        "Custom QSIPrep flags", value=qp_cfg.get("extra_flags", ""), key="qp_flags"
+    )
+
+    with st.expander("SLURM Resources"):
+        st.json({**qp_slurm, "cpus": str(qp_nprocs), "memory": f"{qp_mem}G"})
+
+    col1, col2 = st.columns(2)
+    with col1:
+        qp_submit = st.button("Submit QSIPrep Jobs", type="primary", key="qp_submit")
+    with col2:
+        qp_export = st.button("Export Scripts", key="qp_export")
+
+    if qp_submit or qp_export:
+        preproc_panels.run_batch(
+            config,
+            "qsiprep",
+            bids_path,
+            qp_subjects,
+            qp_sessions,
+            qp_study_sessions,
+            submit=qp_submit,
+            export=qp_export,
+            output_resolution=qp_resolution,
+            nprocs=qp_nprocs,
+            mem_gb=qp_mem,
+            extra_flags=qp_flags,
         )

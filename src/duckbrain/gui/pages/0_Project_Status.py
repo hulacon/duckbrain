@@ -233,6 +233,43 @@ def _stage_params(
         params["extra_flags"] = st.text_input(
             "Custom fMRIPrep flags", value=fp.get("extra_flags", ""), key=f"{key_prefix}_flags"
         )
+    elif stage == "qsiprep":
+        from duckbrain.config import MEM_HEADROOM_GB, get_slurm_resources, parse_mem_gb
+        from duckbrain.core.qsiprep import output_resolution
+
+        qp = config.get("qsiprep", {})
+        # No default, on purpose: --output-resolution is a single interpolation
+        # and a study-level scientific choice, so an unset project gets an empty
+        # box and a submission that refuses rather than a number nobody chose.
+        # See config/base.toml's [qsiprep].
+        resolution = output_resolution(config)
+        params["output_resolution"] = st.text_input(
+            "Output resolution (mm)",
+            value="" if resolution is None else str(resolution),
+            key=f"{key_prefix}_res",
+            help="The isotropic voxel size everything is resampled to. QSIPrep "
+            "requires it and has no default — a wrong value gives data that looks "
+            "usable and is wrongly sampled, so duckbrain will not guess one. Set it "
+            "once in the project's code/duckbrain.toml to stop retyping it.",
+        )
+        qp_slurm = get_slurm_resources(config, "qsiprep")
+        params["nprocs"] = st.number_input(
+            "CPUs",
+            value=int(qp_slurm["cpus"]),
+            min_value=1,
+            key=f"{key_prefix}_nprocs",
+            help="The SLURM allocation, and QSIPrep's --nprocs — one number.",
+        )
+        params["mem_gb"] = st.number_input(
+            "Memory (GB)",
+            value=parse_mem_gb(qp_slurm["memory"]),
+            min_value=1,
+            key=f"{key_prefix}_mem",
+            help=f"The SLURM allocation. QSIPrep is told {MEM_HEADROOM_GB} GB less.",
+        )
+        params["extra_flags"] = st.text_input(
+            "Custom QSIPrep flags", value=qp.get("extra_flags", ""), key=f"{key_prefix}_flags"
+        )
     elif stage == "converted":
         params["force"] = st.checkbox(
             "Force re-convert (dcm2bids --force)", key=f"{key_prefix}_force"

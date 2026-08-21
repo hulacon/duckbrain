@@ -12,6 +12,42 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **Diffusion preprocessing — a QSIPrep stage.** A new `qsiprep` stage runs
+  QSIPrep 26.0.0 per `(subject, session)` on a unit's `dwi/` data, with its own
+  Preprocessing tab, its own column on the Status board, and the same launch,
+  log-tail, cancel and re-run controls every other stage has. It is orthogonal
+  to the BOLD pipeline — it depends only on conversion, shares nothing with
+  fMRIPrep (QSIPrep has no anat-reuse flag, and its AC-PC/LPS+ anatomical is
+  not fMRIPrep's to reuse anyway), and a session **without** diffusion reads
+  *n/a* rather than being billed forever for work it will never have.
+
+  Three things it refuses rather than guesses, because each one silently
+  degrades a run otherwise. `--output-resolution` — the isotropic voxel size
+  everything is resampled to, in a single interpolation — has **no default**:
+  set `[qsiprep] output_resolution` in the project's `code/duckbrain.toml` or
+  the submission is refused, because a wrong value produces data that looks
+  entirely usable and is wrongly sampled. `--subject-anatomical-reference` is
+  forced to `sessionwise` for a session-scoped unit; pinning anything else is
+  refused, since every other value writes one anatomical reference and one
+  report at the *subject* level, where the second session launched overwrites
+  the first's with nothing said. And a unit with no diffusion refuses to
+  launch instead of spending a walltime slot to discover the same thing.
+
+  Completion is graded against the unit's own DWI runs **allowing for QSIPrep's
+  merging**: it concatenates scans sharing a warped space before head-motion
+  correction, so several inputs become one output, and a grader demanding one
+  output per input would have read a completely successful run as *partial*
+  forever and invited a re-run that changed nothing. The honest cost, worth
+  knowing: a run genuinely dropped inside a merged group cannot be detected from
+  filenames — that is what a project's `[expected]` section is for.
+
+  You need the container: `qsiprep-26.0.0.sif` in your containers directory
+  (`apptainer pull docker://pennlinc/qsiprep:26.0.0`), plus the FreeSurfer
+  licence QSIPrep uses for SynthStrip/SynthSeg. **eddy is hours per subject**,
+  and the shipped SLURM defaults (48 h, 48 G, 8 CPUs, long partition) are the
+  shape of the fMRIPrep allocation rather than measured numbers — raise them if
+  a job is killed rather than assuming they were chosen for this tool.
+
 - **External FreeSurfer recon stage feeding fMRIPrep** (`docs/pipeline-extras.md`
   §9; asked for by LCNI). Set `[freesurfer] use_external = true` in a project's
   `code/duckbrain.toml` and the new `freesurfer` stage runs the pinned system

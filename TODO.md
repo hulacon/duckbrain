@@ -16,7 +16,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 
 **Open items, in priority order:**
 [`#43`](#43) — running duckbrain on mmmdata; an ordering over five
-existing capability items, not new work of its own ·
+existing capability items, not new work of its own. `#43.1` and `#43.2`'s
+reading pass shipped 2026-08-20, `#43.3` Slice A 2026-08-21 ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
 [`#5b`](#5b) NORDIC Case 2 — **no longer hypothetical**, mmmdata carries two
 parallel fMRIPrep trees and duckbrain can see one of them ·
@@ -47,8 +48,8 @@ the rule lives — the two questions that sort finished work into releases, and 
 "ship it all at once" is the wrong default. It used to be narrated here release by
 release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
-went stale between every read. **Currently unreleased:** `#13.2`, `#42.1`–`#42.6` and `#44`,
-on top of `v0.6.0`.
+went stale between every read. **Currently unreleased:** `#13.2`, `#42.1`–`#42.6`, `#44`,
+`#43.1`–`#43.2` and `#43.3` Slice A, on top of `v0.6.0`.
 
 ---
 
@@ -220,10 +221,39 @@ them. That is a naming/conversion question, not a dud question — it belongs
 near `#16` or the catalog's schema_version 2 backlog, and it is recorded here
 only because this is where it was found.
 
-**`#43.3` — QSIPrep (`#7.2`).** Scoped 2026-08-01 with its three traps written
-down (`docs/pipeline-extras.md` §1), prerequisite `#19.1` met, two independently
-shippable slices. mmmdata sizes it honestly — **6 diffusion sessions**, so this
-is a capability that will be *exercised* rather than stressed.
+**`#43.3` — QSIPrep (`#7.2`). Slice A shipped 2026-08-21**; Slice B (QC
+dashboard) is what remains, plus the first real run. Scoped 2026-08-01 with its
+three traps written down (`docs/pipeline-extras.md` §1), prerequisite `#19.1`
+met. mmmdata sizes it honestly — **6 diffusion sessions**, so this is a
+capability that will be *exercised* rather than stressed.
+
+  **What Slice A is:** a launchable, tracked `qsiprep` stage — `core/qsiprep.py`,
+  `templates/sbatch/qsiprep.sbatch.j2`, a `_qsiprep_status` tracker with the
+  merge-tolerant grader Trap 1 asked for, a cockpit arm, a fourth Preprocessing
+  tab, and `tests/test_qsiprep.py`. **The container now exists on Talapas**
+  (`/projects/hulacon/shared/containers/qsiprep-26.0.0.sif`, pulled from
+  `docker://pennlinc/qsiprep:26.0.0`, self-reports `v26.0.0`) — that was listed
+  as a real cost to confirm before committing to a date, and it is confirmed.
+
+  ⚠️ **Nothing has run on real data.** The flag set is verified against the
+  pinned container's own argparse — it accepts every flag duckbrain renders and
+  then fails on dataset content — and no further. Two things are therefore
+  claims rather than measurements, and both belong in `memory/` the day a run
+  finishes: **the merge behaviour** (Trap 1's whole premise) and **the
+  `[slurm.overrides.qsiprep]` numbers**, which are the fMRIPrep allocation's
+  shape and nothing anyone watched. eddy is hours per subject, so the first run
+  is a scheduling commitment, not a smoke test.
+
+  🔴 **A fourth trap the three scoped ones missed, found reading QSIPrep's report
+  code rather than its docs:** a **sessionless** subject run with
+  `--subject-anatomical-reference sessionwise` gets **no HTML report at all** —
+  `parser.py` groups it as `[subject, []]` and merely warns, and
+  `reports/core.py`'s sessionwise branch then loops over that empty list. Trap
+  2's fix (force `sessionwise`) is exactly wrong there, and a tracker requiring
+  the report would have pinned every sessionless unit at PARTIAL forever.
+  duckbrain passes `first-lex` for those units instead. Worth knowing generally:
+  this is the third time a claim in `docs/` that was read from source rather than
+  observed turned out to need a second read.
 
   🔴 **The diffusion is its own fieldmap, and that answers `#19.10` for this
   dataset (measured 2026-08-20).** Every DWI run is a full 54-volume 3-shell

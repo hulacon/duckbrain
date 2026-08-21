@@ -48,6 +48,18 @@ _TEMPLATE_DEFAULTS = {
         mem_gb=40,
     ),
     "mriqc": dict(subject="04", session="01", container_path="/x.sif", mem_gb=8),
+    "qsiprep": dict(
+        subject="04",
+        session="01",
+        bids_dir="/b",
+        output_dir="/projects/study/derivatives/qsiprep",
+        container_path="/x.sif",
+        fs_license="/l",
+        fs_license_dir="/",
+        output_resolution=2.0,
+        anatomical_reference="sessionwise",
+        mem_gb=40,
+    ),
     "nordic_denoise": dict(subject="04", session="01", bold_count=2, scripts_dir="/s"),
     "nordic_bids_input": dict(subject="04", session="01", python_cmd="/usr/bin/python3"),
     "freesurfer_recon": dict(
@@ -149,6 +161,21 @@ def test_dcm2bids_includes_session_flag_when_multi_session():
             ),
         ),
         ("mriqc", dict(subject="04", session="", container_path="/x", mem_gb=8)),
+        (
+            "qsiprep",
+            dict(
+                subject="04",
+                session="",
+                bids_dir="/b",
+                output_dir="/o",
+                container_path="/x",
+                fs_license="/l",
+                fs_license_dir="/",
+                output_resolution=2.0,
+                anatomical_reference="first-lex",
+                mem_gb=40,
+            ),
+        ),
     ],
 )
 def test_logs_go_to_shared_log_dir_not_tmp(step, ctx_extra):
@@ -353,6 +380,11 @@ def _flag_lines_outside_a_command(script):
         ("fmriprep", dict(derivatives="", extra_flags="--use-syn-sdc")),
         ("fmriprep", dict(derivatives="/d", extra_flags="--use-syn-sdc")),
         ("mriqc", {}),
+        # Both sides of qsiprep's two mid-command branches (session, extra_flags).
+        ("qsiprep", {}),
+        ("qsiprep", dict(session="")),
+        ("qsiprep", dict(extra_flags="--separate-all-dwis")),
+        ("qsiprep", dict(session="", extra_flags="--dwi-only")),
         ("nordic_denoise", {}),
         ("nordic_bids_input", {}),
         # Both sides of the recon template's T2 branch, which sits mid-command.
@@ -411,6 +443,21 @@ def test_no_comment_breaks_a_line_continuation(step, extra):
             ),
         ),
         ("mriqc", dict(subject="04", session="01", container_path=NASTY, mem_gb=8)),
+        (
+            "qsiprep",
+            dict(
+                subject="04",
+                session="01",
+                bids_dir=NASTY,
+                output_dir=NASTY,
+                container_path=NASTY,
+                fs_license=NASTY,
+                fs_license_dir=NASTY,
+                output_resolution=2.0,
+                anatomical_reference="sessionwise",
+                mem_gb=40,
+            ),
+        ),
         ("nordic_denoise", dict(subject="04", session="01", bold_count=2, scripts_dir=NASTY)),
         ("nordic_bids_input", dict(subject="04", session="01", python_cmd="/usr/bin/python3")),
         (
@@ -657,7 +704,7 @@ def _run_rendered(script, tmp_path, *, exit_code=0, crash=None):
 #: The two nipype stages that keep a work dir. Both are exercised, because the
 #: cleanup guard is duplicated in both templates and a shell conjunction that
 #: drifts in one of them fails silently in the direction of never cleaning up.
-NIPYPE_STAGES = ["fmriprep", "mriqc"]
+NIPYPE_STAGES = ["fmriprep", "mriqc", "qsiprep"]
 
 
 def _stage_script(tmp_path, stage):
@@ -681,6 +728,15 @@ def _stage_script(tmp_path, stage):
             filter_file="",
             anat_only=False,
             derivatives="",
+        )
+    elif stage == "qsiprep":
+        extra.update(
+            bids_dir="/b",
+            output_dir=out,
+            fs_license="/l",
+            fs_license_dir="/",
+            output_resolution=2.0,
+            anatomical_reference="sessionwise",
         )
     return render_sbatch(stage, build_context(cfg, stage, **extra)), out
 

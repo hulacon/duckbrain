@@ -44,7 +44,7 @@ from .ingestion import sub_ses_relpath
 if TYPE_CHECKING:
     from ..config import Config
 
-STAGES = ("ingested", "converted", "nordic", "freesurfer", "fmriprep", "mriqc")
+STAGES = ("ingested", "converted", "nordic", "freesurfer", "fmriprep", "mriqc", "qsiprep")
 
 
 class Status(StrEnum):
@@ -196,6 +196,58 @@ def _grade(expected: set[str], found: set[str], subtree_exists: bool) -> Status:
     between what a tool writes and what we predicted.
     """
     if expected and expected <= found:
+        return Status.COMPLETE
+    if found or subtree_exists:
+        return Status.PARTIAL
+    return Status.MISSING
+
+
+def _entities(key: str) -> dict[str, str]:
+    """The ``entity: value`` pairs of an :func:`_entity_key`."""
+    pairs = (token.partition("-") for token in key.split("_"))
+    return {entity: value for entity, sep, value in pairs if sep}
+
+
+def _covers(found: str, expected: str) -> bool:
+    """Whether a *found* key accounts for an *expected* one, allowing for merging.
+
+    True when every entity the found key names has the same value in the expected
+    key. So a coarser output covers a finer input — ``sub-01_ses-01_acq-multishell``
+    covers ``sub-01_ses-01_acq-multishell_dir-AP_run-1`` — while a contradiction
+    never does: a found ``dir-AP`` does not cover an expected ``dir-PA``.
+
+    Exact equality is the special case where the two key sets match, so this is a
+    strict widening of the identity test the other stages use.
+    """
+    e = _entities(expected)
+    return all(e.get(entity) == value for entity, value in _entities(found).items())
+
+
+def _grade_merged(expected: set[str], found: set[str], subtree_exists: bool) -> Status:
+    """:func:`_grade` for a stage whose outputs may be **coarser** than its inputs.
+
+    QSIPrep concatenates DWI scans that share a warped space before head-motion
+    correction, dropping the entity that distinguished them: three inputs
+    ``…run-{1,2,3}`` become one ``…desc-preproc_dwi.nii.gz``. Superset semantics
+    (``expected <= found``) is correct for every other stage duckbrain has,
+    because all of them are one-output-per-input; against a merged output it is
+    false *forever* — a completely successful run grades PARTIAL, which
+    ``pipeline.stage_runnable`` reads as "not done", so the cockpit invites a
+    re-run that produces exactly the same result.
+
+    **The honest cost, which is a real limit on what the board can claim rather
+    than a bug to paper over:** coarsening means a genuinely dropped run inside a
+    merged group cannot be detected from filenames. There is no per-input
+    artifact to fall back on — QSIPrep's ``desc-confounds_timeseries.tsv`` and
+    ``desc-image_qc.tsv`` are per-*output* and merge too. Declaring the runs a
+    session should have is what ``[expected]`` is for (``#16``).
+
+    **The rejected alternative, recorded so it is not re-proposed:** forcing
+    ``--separate-all-dwis`` to restore 1:1 tracking. That trades preprocessing
+    quality — less data for head-motion correction — for the convenience of a
+    status column. The tail wagging the dog, and a silent science change at that.
+    """
+    if expected and all(any(_covers(f, e) for f in found) for e in expected):
         return Status.COMPLETE
     if found or subtree_exists:
         return Status.PARTIAL
@@ -660,6 +712,76 @@ def _freesurfer_status(config: Config, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
+def _qsiprep_dwi_keys(root: Path, subject: str, session: str) -> set[str]:
+    """Acquisition keys of the preprocessed DWI images QSIPrep wrote for this unit.
+
+    ``space-``/``desc-`` are representation, not identity, so ``_entity_key``
+    strips them and ``sub-01_ses-01_space-ACPC_desc-preproc_dwi.nii.gz`` keys to
+    the acquisition it came from — coarsened by any merge, which
+    :func:`_grade_merged` is what handles.
+    """
+    return _found_keys(
+        root, _fmt("{ss}/**/dwi/sub-{sub}*_desc-preproc_dwi.nii.gz", subject, session)
+    )
+
+
+def _qsiprep_report_present(root: Path, subject: str, session: str) -> bool:
+    """Whether this unit's QSIPrep HTML report exists — in either of its two shapes.
+
+    The path is **conditional on ``--subject-anatomical-reference``**, which is
+    why both are asked for rather than one being picked. Read out of QSIPrep
+    26.0.0's ``reports/core.py``: the sessionwise branch writes
+    ``sub-XX/ses-YY/sub-XX_ses-YY.html``, every other value writes ``sub-XX.html``
+    at the derivative root. duckbrain forces sessionwise for a session-scoped unit
+    and ``qsiprep.SESSIONLESS_REFERENCE`` for a sessionless one, so in practice a
+    project sees one shape — but an externally-run tree is not duckbrain's to
+    predict, and the surveyor judges the tree against the tree.
+
+    Subject-scoped in the second shape, so in a multi-session project every row
+    of a subject grades together on it. Same widening ``_fmriprep_status``
+    applies to its anat half, and for the same reason: one artifact covering
+    several rows must not leave all but one of them PARTIAL forever.
+    """
+    return _has_match(root, f"sub-{subject}.html") or _has_match(
+        root, _fmt("{ss}/sub-{sub}*.html", subject, session)
+    )
+
+
+def _qsiprep_status(config: Config, subject: str, session: str) -> Status:
+    """QSIPrep, graded against the unit's own diffusion runs.
+
+    **NA when the unit has no DWI**, and that is a different shape from NORDIC's
+    NA: NORDIC's is a project-level config question (``use_nordic``), QSIPrep's
+    is per-unit *data* — one session can have diffusion and the next not, which
+    is exactly what mmmdata looks like (6 diffusion sessions out of 88). Without
+    it the rollup, the bulk "run all", and the all-complete message are each
+    poisoned by rows that will never have anything to run (``#17.4``'s lesson).
+    Deliberately decided here rather than in ``survey_project``'s ``applies``
+    map, which can only answer per *project*.
+
+    COMPLETE needs the report as well as the images: the images can land while
+    the workflow is still running, and the report is the only per-unit artifact
+    QSIPrep writes at the end.
+    """
+    from .qsiprep import get_dwi_runs
+
+    paths = config["paths"]
+    expected = {_entity_key(p.name) for p in get_dwi_runs(paths["bids_dir"], subject, session)}
+    if not expected:
+        return Status.NA
+
+    root = Path(paths["derivatives_dir"]) / "qsiprep"
+    if not root.is_dir():
+        return Status.MISSING
+
+    found = _qsiprep_dwi_keys(root, subject, session)
+    subtree_exists = _has_match(root, _fmt("{ss}", subject, session))
+    grade = _grade_merged(expected, found, subtree_exists)
+    if grade is Status.COMPLETE and not _qsiprep_report_present(root, subject, session):
+        return Status.PARTIAL
+    return grade
+
+
 _TRACKERS = {
     "ingested": _ingested_status,
     "converted": _converted_status,
@@ -667,6 +789,7 @@ _TRACKERS = {
     "freesurfer": _freesurfer_status,
     "fmriprep": _fmriprep_status,
     "mriqc": _mriqc_status,
+    "qsiprep": _qsiprep_status,
 }
 
 
@@ -767,6 +890,18 @@ def run_progress(config: Config, stage: str, subject: str, session: str) -> tupl
         found = _fmriprep_func_keys(Path(paths["derivatives_dir"]) / "fmriprep", subject, session)
     elif stage == "mriqc":
         expected, found = _mriqc_expected_found(config, subject, session)
+    elif stage == "qsiprep":
+        # Counted through `_covers`, not set intersection, for the same reason
+        # `_qsiprep_status` grades through `_grade_merged` — a merged output is
+        # coarser than the runs it covers, so an identity count would report 0/4
+        # beside a COMPLETE cell.
+        from .qsiprep import get_dwi_runs
+
+        expected = {_entity_key(p.name) for p in get_dwi_runs(paths["bids_dir"], subject, session)}
+        found = _qsiprep_dwi_keys(Path(paths["derivatives_dir"]) / "qsiprep", subject, session)
+        if not expected:
+            return None
+        return sum(any(_covers(f, e) for f in found) for e in expected), len(expected)
     else:
         return None
 

@@ -438,7 +438,7 @@ def _check_container_drift(config: Config, *, survey: SurveyFn) -> list[Consiste
     neither side is knowable.
     """
     issues: list[ConsistencyIssue] = []
-    for stage, tool in (("fmriprep", "fMRIPrep"), ("mriqc", "MRIQC")):
+    for stage, tool in (("fmriprep", "fMRIPrep"), ("mriqc", "MRIQC"), ("qsiprep", "QSIPrep")):
         if not read_derivative_provenance(config, stage).exists:
             continue
         rec_name, rec_tag = _recorded_container(config, stage, tool, survey)

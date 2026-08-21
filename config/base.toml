@@ -108,6 +108,9 @@ nd_duplicates = "corrected"
 dcm2bids_version = "3.2.0"
 fmriprep_version = "25.2.5"
 mriqc_version = "24.0.2"
+# QSIPrep moved to CalVer at its "Adopt NiPreps-style packaging" release, so
+# 1.1.1 was followed by 26.0.0 — a version that looks like a year is not a typo.
+qsiprep_version = "26.0.0"
 
 [fmriprep]
 # No resource keys here on purpose. --nprocs is the SLURM allocation's cpus and
@@ -124,6 +127,38 @@ excluded_nodes = ""
 # `converted`. Set in a project's code/duckbrain.toml. NORDIC still runs as a
 # pure producer regardless; this only redirects fMRIPrep's input.
 use_nordic = false
+
+[qsiprep]
+# The diffusion branch (docs/pipeline-extras.md §1). Orthogonal to the BOLD
+# pipeline: it reads raw dwi/ and shares nothing with fMRIPrep — not even the
+# anatomical, which QSIPrep produces in LPS+ AC-PC-realigned space where
+# fMRIPrep's is RAS+ in the original orientation. There is no anat-reuse flag to
+# offer and reusing one would be wrong; see core/qsiprep.py.
+#
+# No resource keys here, for the same reason [fmriprep] has none: --nprocs is the
+# SLURM allocation's cpus and --mem-mb is derived from its memory.
+#
+# output_resolution — the isotropic voxel size in mm everything is resampled to.
+# REQUIRED by QSIPrep, with no default, and shipped commented out here on
+# purpose (the [expected] precedent): it is a single interpolation and a
+# study-level scientific choice, so a wrong value yields data that looks
+# entirely usable and is wrongly sampled. duckbrain raises when it is unset
+# rather than guessing — a 2.0 default would be a guess dressed as a setting.
+# Set it in the PROJECT's code/duckbrain.toml.
+#
+# output_resolution = 2.0
+#
+# anatomical_reference — how QSIPrep defines the subject's anatomical space.
+# duckbrain's unit is (subject, session) and it launches one session at a time,
+# so the only value it accepts for a session-scoped unit is "sessionwise";
+# anything else builds ONE reference per subject and writes it at the subject
+# level, where the second session launched overwrites the first's anat and
+# report with nothing said. Pinning another value is refused at submission
+# rather than honoured. A sessionless unit is given "first-lex" instead — with
+# no sessions the choices are equivalent, except that QSIPrep's sessionwise
+# report branch loops over an empty session list and writes no report at all.
+#
+# anatomical_reference = "sessionwise"
 
 [freesurfer]
 # External FreeSurfer recon stage (docs/pipeline-extras.md §9). When
@@ -216,6 +251,17 @@ time = "36:00:00"
 # philosophy as fMRIPrep's allocation; re-measure before trimming.
 memory = "48G"
 cpus = "4"
+long = true
+
+[slurm.overrides.qsiprep]
+# UNMEASURED starting points, unlike the mriqc and freesurfer blocks above —
+# nothing has run this stage on real data yet, so these are the shape of the
+# fMRIPrep allocation rather than a number anyone watched. eddy is hours per
+# subject, which is why this takes the long partition role; re-measure and say so
+# here once a real run has finished (see TODO #43.3).
+time = "48:00:00"
+memory = "48G"
+cpus = "8"
 long = true
 
 [slurm.overrides.fmriprep]

@@ -84,7 +84,7 @@ _PROJECT_OWNED = {
 
 _USER_OWNED = {
     "paths": _SHARED_PATH_KEYS,
-    "containers": ("dcm2bids_version", "fmriprep_version", "mriqc_version"),
+    "containers": ("dcm2bids_version", "fmriprep_version", "mriqc_version", "qsiprep_version"),
     "slurm": ("email",),
 }
 
@@ -421,6 +421,11 @@ with c2:
     mriqc_ver = st.text_input(
         "MRIQC version", value=_get_user("containers", "mriqc_version") or "24.0.2"
     )
+    # 26.0.0 rather than a 1.x: QSIPrep adopted CalVer at its NiPreps-packaging
+    # release, so a version that looks like a year is the real one.
+    qsiprep_ver = st.text_input(
+        "QSIPrep version", value=_get_user("containers", "qsiprep_version") or "26.0.0"
+    )
 
 # A project may pin a different value on top of any of these. The fields above are
 # the shared ones (that is what they save), so say plainly where this project
@@ -434,6 +439,7 @@ _overridden = {
         ("dcm2bids version", _project_overrides("containers", "dcm2bids_version")),
         ("fMRIPrep version", _project_overrides("containers", "fmriprep_version")),
         ("MRIQC version", _project_overrides("containers", "mriqc_version")),
+        ("QSIPrep version", _project_overrides("containers", "qsiprep_version")),
     )
     if value is not None
 }
@@ -455,6 +461,13 @@ elif containers_dir:
     _needed = [("fmriprep", fmriprep_ver), ("mriqc", mriqc_ver)]
     if not external_bids:
         _needed.insert(0, ("dcm2bids", dcm2bids_ver))
+    # QSIPrep only where there is diffusion to run it on — the stage's whole
+    # applicability is per-unit data (surveyor._qsiprep_status), so warning about
+    # a missing image in a study that has no dwi/ at all would be noise on every
+    # BOLD-only project. Same "don't warn about a container this project will
+    # never launch" rule the dcm2bids line above follows.
+    if any(Path(paths.get("bids_dir") or "/nonexistent").glob("sub-*/**/dwi")):
+        _needed.append(("qsiprep", qsiprep_ver))
     for name, ver in _needed:
         if not any(
             (Path(containers_dir) / f"{name}-{ver}.{ext}").exists() for ext in ("sif", "simg")
@@ -478,6 +491,7 @@ if st.button("Save shared resources"):
             "dcm2bids_version": dcm2bids_ver,
             "fmriprep_version": fmriprep_ver,
             "mriqc_version": mriqc_ver,
+            "qsiprep_version": qsiprep_ver,
         },
         "slurm": {"email": slurm_email},
     }

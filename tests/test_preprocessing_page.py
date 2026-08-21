@@ -156,19 +156,20 @@ def test_render_creates_the_log_dir(project):
     assert logs.is_dir(), "log_dir must exist before any job writes a script into it"
 
 
-def test_all_three_tabs_render(project):
+def test_every_tab_renders(project):
     """Pins the get_slurm_resources import being above the tabs.
 
-    It used to be imported inside the fMRIPrep tab and read by the other two, so
-    an early exit there turned NORDIC and MRIQC into a NameError.
+    It used to be imported inside the fMRIPrep tab and read by the other three, so
+    an early exit there turned NORDIC, MRIQC and QSIPrep into a NameError.
     """
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
-    assert len(at.tabs) == 3
+    assert len(at.tabs) == 4
     assert {b.label for b in at.button} >= {
         "Submit fMRIPrep Jobs",
         "Submit NORDIC Jobs",
         "Submit MRIQC Jobs",
+        "Submit QSIPrep Jobs",
     }
 
 

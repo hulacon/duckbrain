@@ -65,7 +65,14 @@ def test_tag_for_sessionless_and_multisession():
 
 
 def test_slurm_stages_all_have_builders():
-    assert set(SLURM_STAGES) == {"converted", "fmriprep", "nordic", "freesurfer", "mriqc"}
+    assert set(SLURM_STAGES) == {
+        "converted",
+        "fmriprep",
+        "nordic",
+        "freesurfer",
+        "mriqc",
+        "qsiprep",
+    }
     for stage in SLURM_STAGES:
         assert STAGE_SPECS[stage].build is not None
 
@@ -75,6 +82,10 @@ def test_dependency_chain():
     assert STAGE_SPECS["fmriprep"].depends_on == "converted"
     assert STAGE_SPECS["mriqc"].depends_on == "converted"
     assert STAGE_SPECS["freesurfer"].depends_on == "converted"
+    # QSIPrep depends on plain `converted` and always will: it has no anat-reuse
+    # flag, and its ACPC/LPS+ anatomical is not fMRIPrep's to reuse anyway. See
+    # core/qsiprep.py's module docstring.
+    assert STAGE_SPECS["qsiprep"].depends_on == "converted"
 
 
 def test_stage_units_and_job_tags():

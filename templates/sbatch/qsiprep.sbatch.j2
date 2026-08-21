@@ -1,0 +1,97 @@
+#!/bin/bash
+#SBATCH --job-name=qsiprep_{{ subject }}{% if session %}_{{ session }}{% endif %}
+#SBATCH --partition={{ slurm.partition }}
+#SBATCH --time={{ slurm.time }}
+#SBATCH --cpus-per-task={{ slurm.cpus }}
+#SBATCH --mem={{ slurm.memory }}
+#SBATCH --output={{ paths.log_dir }}/qsiprep_%j.out
+{% if slurm.email %}#SBATCH --mail-user={{ slurm.email }}
+#SBATCH --mail-type={{ slurm.mail_type }}
+{% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
+{% endif %}
+echo "=== QSIPrep: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif %} ==="
+echo "Started: $(date)"
+echo "Node: $(hostname)"
+
+{# Paths carry `| sh` — one interpolation, one shell argument. Expansions of the
+   variables assigned here need their own quotes ("$WORK_DIR"); the filter only
+   protects the assignment, not every later use of it.
+
+   Modelled on fmriprep.sbatch.j2 rather than mriqc.sbatch.j2, and the two
+   differences are the reason: QSIPrep needs the FreeSurfer-license bind
+   (SynthStrip/SynthSeg) and the per-job TemplateFlow home that exists to avoid
+   the #21 race.
+
+   Neither resource number below is a config value of its own. `--nprocs` reads
+   the same `slurm.cpus` as the `#SBATCH --cpus-per-task` directive above, and
+   `mem_gb` is derived from `#SBATCH --mem` by config.tool_mem_gb. Nothing here
+   may spell a ceiling of its own — two independently-set numbers on one script
+   is the bug both rules exist to prevent.
+
+   `--session-id` is native to QSIPrep (it strips the `ses-` prefix itself), so a
+   session-scoped run needs no BIDS filter file. `core/fmriprep.py:write_session_filter`
+   exists only because fMRIPrep must leave anat *unfiltered*; QSIPrep addresses the
+   same concern with --subject-anatomical-reference. Don't port the filter here.
+
+   Output lands directly in the directory passed as `output_dir`, NOT in an
+   `output_dir/qsiprep/` subdirectory — QSIPrep's DerivativesDataSink sets
+   `out_path_base = ''` and the `<out>/qsiprep/…` in its published docs is stale.
+   duckbrain's one-derivative-dir-per-stage convention therefore holds by passing
+   <derivatives>/qsiprep as output_dir itself. Worth knowing before someone
+   "fixes" a path that is already right.
+
+   Every note about the command belongs HERE, above it: a Jinja comment parked
+   between two `\`-continued lines still emits its own newline and silently ends
+   the command there. Pinned by test_no_comment_breaks_a_line_continuation. #}
+# WORK_DIR is qualified by project, step and unit (config.unit_work_dir): it is
+# node-local, and every study's subject labels restart at 01, so a bare
+# /tmp/sub-<label> is one nipype cache shared by every project with that label
+# that lands on this node. It is stable across attempts on purpose — a re-run
+# after a walltime kill resumes from what the killed attempt left.
+WORK_DIR={{ work_dir | sh }}
+OUTPUT_DIR={{ output_dir | sh }}
+
+# TemplateFlow home and tmpdir are per-job (under WORK_DIR): a shared home on the
+# node-local FS races when two jobs land on the same node and both initialize the
+# skeleton cache (FileExistsError on tpl-* extraction).
+export SINGULARITYENV_TEMPLATEFLOW_HOME="$WORK_DIR/templateflow"
+export SINGULARITY_TMPDIR="$WORK_DIR/tmp"
+mkdir -p "$WORK_DIR" "$SINGULARITYENV_TEMPLATEFLOW_HOME" "$SINGULARITY_TMPDIR" "$OUTPUT_DIR"
+
+# Marks when THIS attempt began, so the cleanup below can tell a crash this run
+# wrote from one an earlier attempt left in the same derivative.
+ATTEMPT_STAMP="$WORK_DIR/.duckbrain-attempt"
+touch "$ATTEMPT_STAMP"
+
+singularity run {{ container_flags }} \
+  -B {{ (bids_dir ~ ":" ~ bids_dir ~ ":ro") | sh }} \
+  -B "$OUTPUT_DIR:$OUTPUT_DIR" \
+  -B "$WORK_DIR:$WORK_DIR" \
+  -B {{ (fs_license_dir ~ ":" ~ fs_license_dir ~ ":ro") | sh }} \
+  {{ container_path | sh }} \
+  {{ bids_dir | sh }} "$OUTPUT_DIR" participant \
+  --participant-label {{ subject | sh }} \
+{% if session %}  --session-id {{ session | sh }} \
+{% endif %}  --output-resolution {{ output_resolution }} \
+  --subject-anatomical-reference {{ anatomical_reference | sh }} \
+  --fs-license-file {{ fs_license | sh }} \
+  --nprocs {{ slurm.cpus }} \
+  --mem-mb {{ mem_gb * 1024 }} \
+  -w "$WORK_DIR" \
+{% if extra_flags is defined and extra_flags %}  {{ extra_flags }} \
+{% endif %}  --skip-bids-validation --notrack
+
+EXIT_CODE=$?
+echo "Finished: $(date)"
+echo "Exit code: $EXIT_CODE"
+
+# Same rule as fmriprep.sbatch.j2, and for the same reason — that template
+# carries the full account. Clear node-local scratch only when the run looks
+# finished, and judge that from the crash record nipype writes rather than from
+# an exit code a master-thread crash never reaches.
+if [ "$EXIT_CODE" -eq 0 ] &&
+   [ -z "$(find "$OUTPUT_DIR" -maxdepth 2 -name 'crash-*' -newer "$ATTEMPT_STAMP" 2>/dev/null)" ]; then
+  rm -rf "$WORK_DIR"
+fi
+
+exit $EXIT_CODE
