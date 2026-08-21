@@ -380,6 +380,29 @@ file, `docs/`, and source comments, so they never get renumbered; a closed id
 keeps its line in the ledger, and a sub-id like `#17.4` resolves to its parent's
 row, so old references still land.
 
+**Never read `TODO.md` whole — read the index, then slice the one item you want.**
+The file is ~52k tokens; the index is under 800 and a median item is ~800, so the
+whole-file read costs roughly ten times the slice and buys nothing. **About half
+the file is the closed-item ledger** — under 100 lines, but every row is a dense
+paragraph, and it is almost never what you want at launch. Every item begins
+`<a id="N"></a>` on the line above its `##` heading, so this slices one:
+
+```bash
+awk -v want='"43"' '/^<a id=/{f=index($0,want)>0} /^# Closed/{f=0} f' TODO.md
+```
+
+The quoting is load-bearing and the naive form is *silently* wrong, which is why
+it is written out here: `/^<a id="43">/,/^<a id=/` closes the range on the line
+it opened and returns one line, and an unquoted `43` matches `#43` inside other
+anchors the way an unquoted `5` would match `#5b`. Verified against `#43`, `#19`,
+`#5` and the last item, which has to stop at `# Closed` instead of an anchor.
+
+A slice is complete as *text* but not as *context*: bodies cross-refer by id (105
+references across the 16 open items, all of them live), so read the `#NN`
+references your slice makes and pull those spans too. Sub-ids mostly aren't
+addressable — only `#16.3` and seven under `#19` have their own heading; the rest,
+`#7.1` and `#43.3` among them, live in prose inside the parent section.
+
 `docs/handoff-cluster-session.md` is **fully discharged** as of 2026-07-21 — keep
 it as the record of what was asked and how each hypothesis resolved, but don't
 start from it. Its caution earned itself twice over: both the mmmdata nesting it
