@@ -20,9 +20,13 @@ it was `~/code/duckbrain` before that. Canonical means dev happens here *and*
 the OnDemand app serves from here: the two were split across checkouts, and
 every session ended with a pull into the serving copy that was easy to forget,
 so the GUI kept announcing work it didn't have (Ben asked for the repoint after
-`#16.2` shipped with exactly that caveat). `~/code/duckbrain` still exists as a
-secondary personal copy — treat it as *behind* until pulled, and never dev in
-both at once. Distribution to other users is unchanged: `git clone` from
+`#16.2` shipped with exactly that caveat). `~/code/duckbrain` is a **symlink to this
+directory** (verified 2026-08-20), not a second checkout — so there is nothing
+to pull and no way to dev in the wrong one. This file used to warn that it was a
+separate copy that could fall behind; that stopped being true when the symlink
+was made on 2026-08-10, and the warning outlived the hazard. Expect tracebacks
+to print the `~/code/duckbrain` path when a test is reached through it: same
+files, same git. Distribution to other users is unchanged: `git clone` from
 `git@github.com:hulacon/duckbrain.git`.
 
 ## Working convention: stay on `main`
