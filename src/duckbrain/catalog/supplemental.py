@@ -119,9 +119,7 @@ def _ext_of(path: pathlib.Path) -> str | None:
     return "".join(path.suffixes[-2:]) if path.name.endswith(".gz") else (path.suffix or None)
 
 
-def _pairs_with_a_companion(
-    stem: str, indexed_stems: set[str], walked_stems: set[str]
-) -> bool:
+def _pairs_with_a_companion(stem: str, indexed_stems: set[str], walked_stems: set[str]) -> bool:
     """Whether a .json stem names a data file beside it.
 
     Tries the stem as-is, then with one secondary suffix removed so
@@ -195,9 +193,7 @@ def run_supplemental(
                 continue
             if f.name in METADATA_NAMES:
                 category = "metadata"
-            elif fp.endswith(".json") and _pairs_with_a_companion(
-                fp[:-5], ds_stems, walked_stems
-            ):
+            elif fp.endswith(".json") and _pairs_with_a_companion(fp[:-5], ds_stems, walked_stems):
                 category = "sidecar"
             else:
                 category = "dark"
