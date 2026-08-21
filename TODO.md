@@ -371,6 +371,18 @@ treat its position as settled by the 2026-08-20 agreement. Scoped down from
 and whether the institutional fields also go is a policy call, not a mechanism
 one.
 
+  ✅ **NARROWED 2026-08-21 by measurement — the two items are orthogonal.**
+  DeepMReye reads **no anatomical image at all**: `preprocess.py` registers the
+  *functional* series to a group eye template shipped with the package. So
+  anat-only defacing cannot harm `#43.5`, and the ordering constraint below is
+  not what protects the gaze signal — *a defacer or anat-derived mask applied to
+  the EPI* is the only thing that would. Related: fMRIPrep's `desc-preproc_bold`
+  turns out **not** to be brain-extracted either, so it does not destroy the
+  eyes; see the correction in `docs/pipeline-extras.md` §3 and the measurement
+  in `mmmdata-agents/docs/workbench/reprocessing-campaign/log.md`. Keep the
+  constraint as policy (it is cheap), but do not let it *sequence* the two
+  items.
+
   🔴 **Defacing must not run on mmmdata before `#43.5` has.** Ben's constraint,
   and it is the same shape as the identity check in Loose ideas — *derive, then
   torch*. Every eye-destroying operation is one-way: an anat defacer removes the

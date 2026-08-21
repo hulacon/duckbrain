@@ -341,6 +341,34 @@ That's a **producer** for fMRIPrep. Revisit only if that need arises.
   demand but real requirements. Reference: DeepMReye
   (https://github.com/DeepMReye/DeepMReye).
 
+🔴 **CORRECTION 2026-08-21 — the two claims above about fMRIPrep are wrong, and
+one open question is answered.** Measured against mmmdata, recorded in
+`mmmdata-agents/docs/workbench/reprocessing-campaign/log.md`.
+
+- **"fMRIPrep's brain extraction removes the orbits" is false for the output
+  that matters.** `desc-preproc_bold` is **not** brain-extracted — fMRIPrep
+  ships the brain mask as a *separate file* and does not apply it. In
+  `sub-03_ses-02_task-auditory` (MNI152NLin2009cAsym, mean of 20 volumes) the
+  orbital boxes carry mean 1224 / 746 with **temporal SD 200 / 103** — the same
+  order as occipital cortex at 218 — while being **0.5-0.7% inside the brain
+  mask**. An air box in the same run is exactly 0.0. Replicated over 6 runs x 3
+  subjects: orbital SD 112-206, every run. This is why bidsMReye can run on
+  fMRIPrep derivatives at all.
+- **"orthogonal branch that fMRIPrep actively fights" therefore overstates it.**
+  Normalization does warp the FOV, and that part stands; brain extraction
+  destroying the eyes does not.
+- **Answered: DeepMReye needs no anatomical image.** `preprocess.py` registers
+  the *functional* series to a group template shipped with the package
+  (`register_to_eye_masks(dme_template, func, ...)`, `fixed=dme_template`,
+  `moving=ants.get_average_of_timeseries(func)`). No T1w/T2w anywhere. So
+  **`#7.1` defacing and `#7.8` are orthogonal as long as defacing stays
+  anat-only** — the hazard is a defacer or anat-derived mask applied to the EPI,
+  not the ordering of the two items.
+- **What replaces the retracted worry:** the orbital boxes are 56-62% nonzero,
+  so **partial EPI FOV coverage of the orbits** is the live risk to `#7.8` on
+  this dataset, and it is an acquisition property no pipeline flag can fix.
+  Check it before committing to the item.
+
 ## 4. Physiological data as BOLD regressors
 - **What:** Cardiac/respiratory recordings → nuisance regressors (RETROICOR,
   RVT, HRV, respiration) for BOLD denoising.
