@@ -15,7 +15,9 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#43`](#43) **next** — running duckbrain on mmmdata; an ordering over five
+[`#44`](#44) 🔴 **CI has been red on `main` since 2026-08-20** — Python 3.12
+only, and it is a real half-finished optimization rather than a flaky test ·
+[`#43`](#43) — running duckbrain on mmmdata; an ordering over five
 existing capability items, not new work of its own ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
 [`#5b`](#5b) NORDIC Case 2 — **no longer hypothetical**, mmmdata carries two
@@ -34,7 +36,8 @@ sub-items as fixtures appear ·
 [`#12`](#12) mmmdata-agents · [`#7`](#7) extra stages — the four `#43` claims
 are still described there; the rest is unscheduled ·
 [`#8`](#8) branding + dark theme ·
-[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time)
+[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
+[`#45`](#45) — `dcm2niix_probe` cannot say "couldn't look"
 
 **Below the queue, unscheduled, and not closed either:**
 [`#5`](#5) standing config / mapping decisions ·
@@ -48,6 +51,84 @@ release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` 
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
 went stale between every read. **Currently unreleased:** `#13.2` and `#42.1`–`#42.6`,
 on top of `v0.6.0`.
+
+---
+
+<a id="44"></a>
+## #44 — CI is red on 3.12: the flat-root listing is only cached once of three
+
+🔴 **Red on `main` since 2026-08-20, run #130 (`bb7078a9`), and still red at
+#136.** Seven consecutive failures. Found 2026-08-20 while looking at something
+else; it predates that session's commits and none of them caused it.
+
+**One test, one leg.** `test (3.11)` and `types` pass; `test (3.12)` fails on
+`tests/test_surveyor.py::TestFlatLayoutIsScannedOnce::test_the_root_is_listed_once_for_the_whole_survey`
+— *"listed the flat root 9 times for 4 units"*.
+
+**It is not a flaky test, and relaxing it would be the wrong fix.** The count is
+exactly `1 + 2×4`, which is the whole diagnosis:
+
+- `_flat_listing`'s cache works. That is the 1, for the whole survey, as `#42.5`
+  intended.
+- `_mriqc_expected_found` still calls `root.glob("{ss}/**/*.json")` and
+  `_mriqc_status` still calls `_has_match(root, "{ss}")` — **twice per unit**,
+  neither routed through the cache.
+- On 3.11 those two cost nothing: `pathlib._PreciseSelector` resolves a literal
+  path component with `exists()`/`is_dir()` on the *child* and never lists the
+  parent. On 3.12's rewritten pathlib they scandir the root like any other
+  component.
+
+So on 3.12 `#42.5`'s O(N²) is two-thirds unfixed, and at the 100-subject scale
+`#42` is about that is ~400 listings of a directory holding thousands of files,
+per survey — the exact cost `#42.5` was written to remove. **The 3.11 leg is
+green for an implementation-detail reason, not because the code is right.**
+
+**What the fix has to decide**, and why this is not a one-liner: the two
+remaining calls ask different questions of the same root. The nested glob wants
+`root/sub-XX/ses-YY/**/*.json`, which on a flat root does not exist at all; the
+subtree probe wants "is there anything here for this unit". Both could be
+answered from a cached listing, but the listing currently buckets *names*
+without recording whether a `sub-XX` entry is a file or a directory, and that
+distinction is exactly what separates the two layouts. Extend the cache to carry
+it, then let both callers ask the cache.
+
+**Do not "fix" this by loosening the assertion to a range.** The assertion is the
+only thing that noticed, and it noticed correctly.
+
+---
+
+<a id="45"></a>
+## #45 — `dcm2niix_probe` returns `{}` when it could not look
+
+Found 2026-08-20, incidentally, and it is small but it is the
+silently-degrading-option rule (`CLAUDE.md`) inside `core/`.
+
+`probe_session`'s docstring promises the caller can distinguish *"nothing to
+say"* from *"couldn't look"* by asking `probe_unavailable_reason` first. In the
+case that surfaced it could not: `probe_unavailable_reason()` returned `""`
+(dcm2niix is on `PATH`), the subprocess then exited 1, and `probe_session`
+swallowed it and returned `{}` — indistinguishable from a session whose series
+all legitimately yield nothing.
+
+**The trigger was an environment quirk, and that is the point.** `dcm2niix` here
+is a pip console-script shim in `~/.local/bin` whose first line is
+`from dcm2niix import main`; running the suite with `PYTHONNOUSERSITE=1` (which
+`memory/pythonnousersite-for-test-runs` recommends, for good reasons) makes that
+module unimportable and the process exit 1. So availability was real, and
+usability was not — a distinction `probe_unavailable_reason` cannot draw because
+it checks for the binary rather than trying it.
+
+The failure mode is worse than the trigger: **any** reason dcm2niix exits
+non-zero reads as "this session has no probeable series". The conversion plan
+then quietly loses the fields only the probe can supply — signed phase encoding
+and `ShimSetting`, neither of which any raw tag carries.
+
+Not urgent and nothing is known to be wrong in production, where dcm2niix is a
+real binary. Worth an hour: have `probe_session` distinguish a non-zero exit
+from an empty result, and either raise or report it upward, rather than
+returning the same `{}` for both. `tests/test_dcm2niix_probe.py` is the natural
+home for the pin, and the shim above is a ready-made way to reproduce a
+non-zero exit without breaking anything.
 
 ---
 
