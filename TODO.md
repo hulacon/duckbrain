@@ -225,11 +225,30 @@ capability that will be *exercised* rather than stressed.
   claim, and what keeps `#19.10` dissolved. See
   `memory/qsiprep-merges-opposing-pe-runs`.
 
-  ⚠️ **Still claims rather than measurements:** the **figures-directory level**
-  (session vs subject), which Slice B needs, and the
-  **`[slurm.overrides.qsiprep]` numbers**, which are the fMRIPrep allocation's
-  shape and nothing anyone watched. eddy is hours per subject, so any further
-  run is a scheduling commitment, not a smoke test.
+  ✅ **The figures-directory level is measured, 2026-08-21: session-level.**
+  `derivatives/qsiprep/sub-05/ses-28/figures/`, with no `sub-05/figures/` — read
+  off the live pilot mid-eddy, so it needed no completed run. That is the one
+  thing Slice B was actually blocked on. Note the reportlets keep the `dir-AP`/
+  `dir-PA` entity that the *data* outputs drop, so the figures tree is not merged
+  the way the data tree is. See `memory/qsiprep-figures-are-session-level`.
+
+  ⚠️ **Still claims rather than measurements:** the **report path**, which
+  QSIPrep writes only at the end and which `_qsiprep_status` requires before it
+  will grade COMPLETE, and the **`[slurm.overrides.qsiprep]` numbers**, which are
+  the fMRIPrep allocation's shape and nothing anyone watched. On the allocation,
+  one provisional reading from the pilot at 2h59m, *while eddy was still running
+  and therefore not a final peak*: **MaxRSS 11.5 G against 48 G requested**, with
+  AveCPU implying ~4.7 of the 8 allocated cores. Do not resize anything on that
+  number until the run lands. eddy is hours per subject, so any further run is a
+  scheduling commitment, not a smoke test.
+
+  ✅ **The grader was exercised against the real tree mid-run, 2026-08-21**, and
+  the one false-positive worth worrying about does not happen:
+  `_qsiprep_report_present` globs `{ss}/sub-{sub}*.html`, and five reportlets
+  named `sub-05_ses-28_*.html` already sit in `figures/` — but `Path.glob`'s `*`
+  does not cross a separator, so the probe returns False and the unit grades
+  PARTIAL, which is correct for a run still in eddy. Confirmed by running the
+  tracker, not by reading it.
 
   🔴 **A fourth trap the three scoped ones missed, found reading QSIPrep's report
   code rather than its docs:** a **sessionless** subject run with
