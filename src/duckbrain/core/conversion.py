@@ -307,17 +307,25 @@ def generate_session_config(
     probes: dict[int, SeriesProbe] = {}
     if container:
         runtime = probe_runtime(container)
+        # Two ways the checks don't happen and one warning for both: no runnable
+        # dcm2niix, and a dcm2niix that ran and failed. The second used to be
+        # indistinguishable from a session with nothing to probe, so a bulk
+        # convert lost the phase-encoding checks without a word. Pinned by
+        # tests/test_conversion_bulk.py::test_a_probe_that_ran_and_failed_warns_the_same_way.
+        unchecked = runtime.reason
         if runtime.available:
             # 10 s, not the module's 120: this runs inline in a bulk loop over
             # every unconverted session, and a cold probe is 0.7 s — anything
             # slower is already pathological and should not stall the batch.
             dirs = [s.path for s in series_list if s.path]
-            probes = by_series_number(probe_session(dirs, runtime.container, timeout_s=10))
-        else:
+            result = probe_session(dirs, runtime.container, timeout_s=10)
+            probes = by_series_number(result.probes)
+            unchecked = result.failure
+        if unchecked:
             warnings.warn(
                 f"Phase-encoding checks skipped for sub-{subject}"
                 + (f"/ses-{session}" if session else "")
-                + f": {runtime.reason}",
+                + f": {unchecked}",
                 stacklevel=2,
             )
 

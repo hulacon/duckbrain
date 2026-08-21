@@ -183,6 +183,21 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **A dcm2niix probe that fails now says so instead of reading as a clean
+  session.** The Conversion page's preflight asks dcm2niix about each series to
+  check the phase-encoding direction its `dir-` label claims — the one field no
+  raw DICOM tag carries. Checking that dcm2niix is *installed* is not the same
+  as checking that it *runs*, and it was the only check being made: a dcm2niix
+  that exited non-zero returned the same empty result as a session with nothing
+  to probe, so the panel said "dcm2niix ran but read none of these series" —
+  false, and naming nothing anyone could act on — while a bulk convert lost the
+  check for every session without a word. A run that did not complete now
+  carries its own reason (the exit code and dcm2niix's last line, a timeout, or
+  an exec error): the preflight caption prints it, the green tick stays off, and
+  the bulk path warns per session as it already did for a missing dcm2niix.
+  Found on a dev box whose `dcm2niix` is a pip console-script shim; nothing is
+  known to have been wrong in production, where it is a real binary.
+
 - **The BIDS-metadata buttons no longer destroy what an imported dataset
   brought with it.** Both fixes matter most for a project pointed at a BIDS
   tree duckbrain didn't convert (heudiconv output, an OpenNeuro download):

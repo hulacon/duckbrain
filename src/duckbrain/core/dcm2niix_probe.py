@@ -36,8 +36,20 @@ build that will do the conversion, so a preview taken through it cannot disagree
 with the result for a reason duckbrain can't see. A host dcm2niix is the
 fallback, and *no* dcm2niix is not an error — it means the probe returns nothing
 and every caller keeps the behaviour it had before. That degradation is
-reportable (:func:`probe_unavailable_reason`) rather than silent, per
-``CLAUDE.md``: a check that can't run must say so, not pass.
+reportable rather than silent, per ``CLAUDE.md``: a check that can't run must
+say so, not pass.
+
+**Which is why the probe returns a** :class:`ProbeResult` **and not a map.**
+:func:`probe_unavailable_reason` answers "is there a dcm2niix" and cannot answer
+"does it work" — it looks for the binary rather than trying it. So availability
+was reportable and *usability* was not: dcm2niix on ``PATH`` here is a pip
+console-script shim that a test run with user site-packages disabled makes
+unimportable (``memory/pythonnousersite-for-test-runs``), the process exited 1,
+and the probe returned the same empty map as a session whose series
+all legitimately yield nothing. The trigger was environmental; the failure mode
+was not, since **any** non-zero exit read as "nothing to probe here" and the plan
+then quietly lost the two fields only the probe supplies. A run that did not
+complete now says so in :attr:`ProbeResult.failure`.
 """
 
 from __future__ import annotations
@@ -117,6 +129,37 @@ def by_series_number(probes: dict[str, SeriesProbe]) -> dict[int, SeriesProbe]:
     dropped — the alternative is a ``None`` key nothing can look up.
     """
     return {p.series_number: p for p in probes.values() if p.series_number is not None}
+
+
+@dataclass(frozen=True)
+class ProbeResult:
+    """What a session probe read, and whether the run behind it can be believed.
+
+    The two empty cases are different answers and must not render the same way:
+
+    * ``probes`` empty, ``failure`` empty — dcm2niix ran and declined every
+      series. A legitimate miss: empty directories, a Phoenix report, anything
+      it doesn't recognise.
+    * ``failure`` set — the run did not complete (a non-zero exit, a timeout, no
+      runnable dcm2niix at all). Whatever is in ``probes`` is what survived, and
+      may be partial: dcm2niix can write sidecars and *then* fail.
+
+    Conflating them is the silently-degrading-option rule (``CLAUDE.md``) inside
+    ``core/``, and it is what this class exists to stop.
+    """
+
+    probes: dict[str, SeriesProbe] = field(default_factory=dict)
+    failure: str = ""
+
+    @property
+    def ok(self) -> bool:
+        """Whether the run completed. ``ok`` and empty is a real "nothing here"."""
+        return not self.failure
+
+    @property
+    def by_number(self) -> dict[int, SeriesProbe]:
+        """:func:`by_series_number` over :attr:`probes`, for plan-shaped callers."""
+        return by_series_number(self.probes)
 
 
 def probe_unavailable_reason(container: str | Path | None = None) -> str:
@@ -226,6 +269,24 @@ def _as_floats(value: Any) -> tuple[float, ...]:
         return ()
 
 
+def _exit_failure(completed: subprocess.CompletedProcess[str]) -> str:
+    """Why a *finished* dcm2niix run can't be believed, or ``""`` when it can.
+
+    dcm2niix is chatty on both streams and says the useful thing last, so the
+    last non-empty line is the one worth carrying up — the whole log would not
+    fit in the caption that renders it.
+    """
+    if completed.returncode == 0:
+        return ""
+    detail = ""
+    for stream in (completed.stderr, completed.stdout):
+        lines = [line.strip() for line in (stream or "").splitlines() if line.strip()]
+        if lines:
+            detail = lines[-1][:200]
+            break
+    return f"dcm2niix exited {completed.returncode}" + (f": {detail}" if detail else "")
+
+
 def _to_probe(sidecar: dict[str, Any]) -> SeriesProbe:
     number = sidecar.get("SeriesNumber")
     multiband = sidecar.get("MultibandAccelerationFactor")
@@ -250,21 +311,28 @@ def probe_session(
     series_dirs: Sequence[str | Path],
     container: str | Path | None = None,
     timeout_s: int = _TIMEOUT_S,
-) -> dict[str, SeriesProbe]:
+) -> ProbeResult:
     """Probe every series in one session with a single dcm2niix call.
 
-    Returns a map keyed on each series directory's **name** (``Series_7_fieldmap1``),
-    holding only the series that produced a sidecar. A series that yields nothing
-    is absent rather than empty — an empty directory, a Phoenix report, or
-    anything else dcm2niix declines is a legitimate miss and not a failure.
+    :attr:`ProbeResult.probes` is keyed on each series directory's **name**
+    (``Series_7_fieldmap1``) and holds only the series that produced a sidecar. A
+    series that yields nothing is absent rather than empty — an empty directory,
+    a Phoenix report, or anything else dcm2niix declines is a legitimate miss and
+    not a failure.
 
-    Never raises: a missing dcm2niix, a timeout or a malformed sidecar all return
-    what was read so far. Ask :func:`probe_unavailable_reason` first if you need
-    to distinguish "nothing to say" from "couldn't look".
+    Never raises: a missing dcm2niix, a non-zero exit, a timeout or a malformed
+    sidecar all return what was read so far. But they are no longer *silent* —
+    everything except the malformed sidecar sets :attr:`ProbeResult.failure`, so
+    the caller can tell "nothing to say" from "couldn't look" without having to
+    know to ask something else first. It used to have to, and in the case that
+    found this it would have been told the wrong thing anyway.
     """
     paths = [Path(d) for d in series_dirs]
-    if not paths or probe_unavailable_reason(container):
-        return {}
+    if not paths:
+        return ProbeResult()
+    unavailable = probe_unavailable_reason(container)
+    if unavailable:
+        return ProbeResult(failure=unavailable)
 
     probes: dict[str, SeriesProbe] = {}
     with tempfile.TemporaryDirectory(prefix="duckbrain-probe-") as tmp:
@@ -288,18 +356,20 @@ def probe_session(
             if parent not in sources:
                 sources.append(parent)
         if not staged:
-            return {}
+            return ProbeResult()
 
         try:
-            subprocess.run(
+            completed = subprocess.run(
                 _command(stage, out, container, sources),
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
                 check=False,
             )
-        except (OSError, subprocess.SubprocessError):
-            return {}
+        except subprocess.TimeoutExpired:
+            return ProbeResult(failure=f"dcm2niix did not finish within {timeout_s}s")
+        except (OSError, subprocess.SubprocessError) as exc:
+            return ProbeResult(failure=f"dcm2niix could not be run: {exc}")
 
         # Map each sidecar back by longest matching staged name: dcm2niix may
         # have appended '_e2_ph' or similar, and a plain equality test would
@@ -318,4 +388,7 @@ def probe_session(
             except (OSError, ValueError):
                 continue
 
-    return probes
+    # Outside the `with`, and deliberately after the parse: a non-zero exit does
+    # not mean nothing was read, so report both rather than discarding whichever
+    # is inconvenient.
+    return ProbeResult(probes=probes, failure=_exit_failure(completed))

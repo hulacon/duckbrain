@@ -131,7 +131,9 @@ def output_resolution(config: Config) -> float | None:
 
     "Unset" and "set to something that is not a number" are kept apart, and a
     caller must be able to tell them apart from the answer alone — the same
-    distinction ``#45`` is filed about elsewhere in ``core/``. Collapsing both to
+    distinction :class:`~duckbrain.core.dcm2niix_probe.ProbeResult` draws
+    elsewhere in ``core/``, between a probe that read nothing and one that could
+    not look. Collapsing both to
     ``None`` made a project that had written ``output_resolution = "two"`` read
     back as one that had never declared it, and the launcher then told its owner
     to set a key they had already set.

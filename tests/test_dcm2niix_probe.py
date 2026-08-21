@@ -16,6 +16,7 @@ import pytest
 
 from duckbrain.core.dcm2niix_probe import (
     PE_FOR_DIR,
+    ProbeResult,
     SeriesProbe,
     by_series_number,
     probe_runtime,
@@ -53,15 +54,145 @@ def test_probe_returns_nothing_when_dcm2niix_is_absent(tmp_path, monkeypatch):
     series.mkdir()
     (series / "0001.dcm").write_bytes(b"not really a dicom")
     monkeypatch.setattr("shutil.which", lambda _: None)
-    assert probe_session([series]) == {}
+
+    result = probe_session([series])
+    assert result.probes == {}
+    # Not merely empty — the caller is told, without having to know to ask
+    # something else first.
+    assert "not on PATH" in result.failure
 
 
 def test_probe_never_raises_on_an_empty_series_directory(tmp_path):
-    """0.43% of the LCNI corpus is empty directories; they are a miss, not a crash."""
+    """0.43% of the LCNI corpus is empty directories; they are a miss, not a crash.
+
+    And a *miss* is what they are: ``ok`` stays true, because "dcm2niix had
+    nothing to read here" is a real answer about this session and not a report
+    that duckbrain couldn't look.
+    """
     empty = tmp_path / "Series_1_empty"
     empty.mkdir()
-    assert probe_session([empty]) == {}
-    assert probe_session([]) == {}
+    assert probe_session([empty]) == ProbeResult()
+    assert probe_session([]) == ProbeResult()
+    assert probe_session([empty]).ok
+
+
+# ---- a run that did not complete ----
+#
+# Found 2026-08-20: `probe_unavailable_reason` says whether dcm2niix
+# *exists*, not whether it *works*, and everything below is the gap between
+# those two questions. Every one of these used to return the same bare `{}` a
+# session of empty directories returns, so the conversion plan silently lost the
+# only two fields the probe supplies — signed phase encoding and ShimSetting.
+
+
+def _fake_dcm2niix(monkeypatch, returncode, stderr="", sidecars=()):
+    """A dcm2niix that writes *sidecars* and then exits *returncode*."""
+    import subprocess
+
+    from duckbrain.core import dcm2niix_probe
+
+    def fake_run(cmd, **kwargs):
+        out = Path(cmd[cmd.index("-o") + 1])
+        for name, payload in sidecars:
+            (out / name).write_text(json.dumps(payload))
+        return subprocess.CompletedProcess(cmd, returncode, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(dcm2niix_probe.shutil, "which", lambda _: "/usr/bin/dcm2niix")
+    monkeypatch.setattr(dcm2niix_probe.subprocess, "run", fake_run)
+    return dcm2niix_probe
+
+
+def _one_series(tmp_path, name="Series_8_fieldmap1"):
+    series = tmp_path / name
+    series.mkdir()
+    (series / "0001.dcm").write_bytes(b"x")
+    return series
+
+
+def test_a_non_zero_exit_is_not_the_same_answer_as_an_empty_session(tmp_path, monkeypatch):
+    """The exact case that found this, reproduced.
+
+    ``dcm2niix`` on the dev box is a pip console-script shim whose first line is
+    ``from dcm2niix import main``; running the suite with ``PYTHONNOUSERSITE=1``
+    (which ``memory/pythonnousersite-for-test-runs`` recommends, for good
+    reasons) makes that module unimportable and the process exit 1. So
+    availability was real and usability was not — and the empty map that came
+    back was indistinguishable from a session whose series all legitimately
+    yield nothing.
+    """
+    shim_traceback = (
+        "Traceback (most recent call last):\n"
+        '  File "/home/bhutch/.local/bin/dcm2niix", line 5, in <module>\n'
+        "    from dcm2niix import main\n"
+        "ModuleNotFoundError: No module named 'dcm2niix'\n"
+    )
+    probe = _fake_dcm2niix(monkeypatch, 1, stderr=shim_traceback)
+
+    result = probe.probe_session([_one_series(tmp_path)])
+    assert not result.ok
+    assert "exited 1" in result.failure
+    # The last line, not the whole traceback: this renders in a caption.
+    assert "No module named 'dcm2niix'" in result.failure
+    assert "Traceback" not in result.failure
+
+
+def test_a_failed_run_that_read_something_reports_both(tmp_path, monkeypatch):
+    """dcm2niix can write sidecars and *then* fail, so this is not either/or.
+
+    Discarding the partial read would throw away real answers; reporting only
+    the partial read would claim the session was fully checked. Both, and the
+    caller decides.
+    """
+    probe = _fake_dcm2niix(
+        monkeypatch,
+        2,
+        stderr="Error: Check sorted order\n",
+        sidecars=[("Series_8_fieldmap1.json", {"SeriesNumber": 8, "PhaseEncodingDirection": "j-"})],
+    )
+
+    result = probe.probe_session([_one_series(tmp_path)])
+    assert result.by_number[8].phase_encoding_direction == "j-"
+    assert not result.ok
+    assert "Check sorted order" in result.failure
+
+
+def test_a_silent_non_zero_exit_still_names_the_code(tmp_path, monkeypatch):
+    """Nothing on either stream is no excuse for saying nothing."""
+    probe = _fake_dcm2niix(monkeypatch, 9)
+
+    result = probe.probe_session([_one_series(tmp_path)])
+    assert result.failure == "dcm2niix exited 9"
+
+
+def test_a_timeout_says_what_the_budget_was(tmp_path, monkeypatch):
+    """The page probes with 10 s, the module with 120 — 'timed out' alone is not enough."""
+    import subprocess
+
+    from duckbrain.core import dcm2niix_probe
+
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 0))
+
+    monkeypatch.setattr(dcm2niix_probe.shutil, "which", lambda _: "/usr/bin/dcm2niix")
+    monkeypatch.setattr(dcm2niix_probe.subprocess, "run", fake_run)
+
+    result = dcm2niix_probe.probe_session([_one_series(tmp_path)], timeout_s=10)
+    assert "did not finish within 10s" in result.failure
+
+
+def test_a_dcm2niix_that_cannot_be_executed_reports_the_os_error(tmp_path, monkeypatch):
+    """`which` found it; exec is where a broken interpreter line or a mode bit shows up."""
+    from duckbrain.core import dcm2niix_probe
+
+    def fake_run(cmd, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(dcm2niix_probe.shutil, "which", lambda _: "/usr/bin/dcm2niix")
+    monkeypatch.setattr(dcm2niix_probe.subprocess, "run", fake_run)
+
+    result = dcm2niix_probe.probe_session([_one_series(tmp_path)])
+    assert not result.ok
+    assert "Permission denied" in result.failure
 
 
 # ---- which dcm2niix would run ----
@@ -276,7 +407,15 @@ def test_probe_reads_a_real_dicom_when_dcm2niix_is_available(tmp_path):
         pytest.skip("LCNI repository corpus not mounted")
 
     series_dirs = sorted(p for p in corpus.iterdir() if p.is_dir())
-    probes = by_series_number(probe_session(series_dirs))
+    result = probe_session(series_dirs)
+    # The guard above asks whether dcm2niix *exists*; this asks whether it
+    # works, which is the distinction that matters here. On this dev box the two
+    # disagree — `dcm2niix` on PATH is a pip console-script shim that
+    # PYTHONNOUSERSITE=1 makes unimportable — and a machine whose dcm2niix
+    # cannot run is a machine this test has nothing to say about.
+    if not result.ok:
+        pytest.skip(f"dcm2niix on PATH could not run: {result.failure}")
+    probes = result.by_number
 
     # The BOLD runs: signed phase encoding, which no raw tag carries.
     assert probes[9].phase_encoding_direction == "j-"
@@ -315,6 +454,7 @@ def test_sidecar_suffixes_still_map_back_to_their_series(tmp_path, monkeypatch):
     monkeypatch.setattr(dcm2niix_probe.shutil, "which", lambda _: "/usr/bin/dcm2niix")
     monkeypatch.setattr(dcm2niix_probe.subprocess, "run", fake_run)
 
-    probes = dcm2niix_probe.probe_session([series])
-    assert set(probes) == {"Series_8_fieldmap1"}
-    assert probes["Series_8_fieldmap1"].phase_encoding_direction == "i"
+    result = dcm2niix_probe.probe_session([series])
+    assert set(result.probes) == {"Series_8_fieldmap1"}
+    assert result.probes["Series_8_fieldmap1"].phase_encoding_direction == "i"
+    assert result.ok

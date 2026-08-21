@@ -1035,7 +1035,8 @@ effective_df["becomes"] = [
 # nothing. Ask for a host dcm2niix instead by passing None.
 _probe_container = get_container_path(config) if paths.get("containers_dir") else None
 _runtime = probe_runtime(_probe_container)
-_probes = session_probes(series_list, _runtime)
+_probe_result = session_probes(series_list, _runtime)
+_probes = _probe_result.by_number
 
 findings = plan_warnings(plan, fieldmaps, probes=_probes)
 _blocking = [finding for finding in findings if finding.severity == "error"]
@@ -1060,11 +1061,12 @@ with st.container(border=True):
     # Hence a *replacement*, not a caveat appended underneath: an st.success with
     # a warning under it still reads as a pass.
     #
-    # The gate is `_probes`, not `_runtime.available`: `probe_session` also
-    # returns nothing on a timeout, an exec failure or a malformed sidecar, all
-    # with a perfectly available runtime.
+    # The gate is the probe result, not `_runtime.available`: a probe can time
+    # out, exit non-zero or read a malformed sidecar with a perfectly available
+    # runtime — and the first two used to return a bare empty map, which is
+    # why the gate is `.ok` and not just "did anything come back".
     _clean = not _blocking and not _suspect and not _override_error
-    if _clean and _probes:
+    if _clean and _probes and _probe_result.ok:
         st.success(
             f"{len(plan.files)} file(s) will be written, every filename is legal "
             "BIDS, nothing collides, every series is accounted for, and the "
@@ -1081,7 +1083,7 @@ with st.container(border=True):
     # Unconditional, not folded into the clean branch: a session that also has a
     # collision must still say the phase encoding went unchecked, or the user
     # fixes the collision, reruns, and gets green from a check that never ran.
-    if _probe_note := probe_note(_runtime, _probes):
+    if _probe_note := probe_note(_runtime, _probe_result):
         st.caption(_probe_note)
     for finding in _notes:
         st.caption(f"ℹ️ {finding.message}")

@@ -9,10 +9,15 @@ Two things the page needs and shouldn't have to know about:
 fine once and not fine on every Streamlit rerun, and a rerun happens on every
 widget touch. So it is keyed on what would change the answer.
 
-**Honesty about absence.** ``probe_session`` returns ``{}`` for "ran and read
-nothing" and for "couldn't look", and those must not render the same way. The
-runtime is resolved *first* (:func:`~duckbrain.core.dcm2niix_probe.probe_runtime`)
-so the page can say which happened.
+**Honesty about absence.** "Ran and read nothing" and "couldn't look" must not
+render the same way. Two things separate them, because there are two ways to be
+unable to look: the runtime is resolved *first*
+(:func:`~duckbrain.core.dcm2niix_probe.probe_runtime`), which answers whether
+there was anything to run, and the probe reports its own exit
+(:class:`~duckbrain.core.dcm2niix_probe.ProbeResult`), which answers whether
+running it worked. Only the first of those existed at first, and a dcm2niix
+that ran and exited 1 came back as an empty map and read as a clean session;
+``tests/test_conversion_panels.py`` pins both halves of the caption.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ import streamlit as st
 # keep the suite off whatever dcm2niix happens to be on the developer's PATH,
 # and a from-import would bind the real one here at import time.
 from duckbrain.core import dcm2niix_probe
-from duckbrain.core.dcm2niix_probe import ProbeRuntime, SeriesProbe
+from duckbrain.core.dcm2niix_probe import ProbeResult, ProbeRuntime
 
 if TYPE_CHECKING:
     from duckbrain.core.dicom_inspect import SeriesInfo
@@ -70,32 +75,36 @@ def probe_fingerprint(series_list: list[SeriesInfo], container: Path | None) -> 
 @st.cache_data(show_spinner="Asking dcm2niix what these series are…")
 def _probe_cached(
     series_dirs: list[str], container: str, fingerprint: ProbeFingerprint
-) -> dict[int, SeriesProbe]:
-    """Probe one session, keyed as ``plan_warnings`` wants it.
+) -> ProbeResult:
+    """Probe one session, cached on what would change the answer.
 
     ``fingerprint`` has **no leading underscore, and that is load-bearing**:
     Streamlit excludes underscore-prefixed arguments from the cache key, so this
     would key on the paths alone and never invalidate. The rule, why the
     convention exists, and its one escape hatch are in
     ``tests/test_streamlit_caches.py``, which enforces it over every cache here.
+
+    Caches the whole :class:`ProbeResult` rather than the numbered map, so a
+    rerun that hits the cache re-renders the *same* honesty about what happened,
+    not a clean panel over a remembered empty map.
     """
-    return dcm2niix_probe.by_series_number(
-        dcm2niix_probe.probe_session(series_dirs, container or None, timeout_s=_TIMEOUT_S)
-    )
+    return dcm2niix_probe.probe_session(series_dirs, container or None, timeout_s=_TIMEOUT_S)
 
 
-def session_probes(series_list: list[SeriesInfo], runtime: ProbeRuntime) -> dict[int, SeriesProbe]:
-    """What dcm2niix says about this session, or ``{}`` when it couldn't be asked.
+def session_probes(series_list: list[SeriesInfo], runtime: ProbeRuntime) -> ProbeResult:
+    """What dcm2niix says about this session, and whether it got to say it.
 
-    An empty result is ambiguous by design — it is also what a timeout, an exec
-    failure or a session of empty directories produces — so the caller must have
-    *runtime* in hand and report from that, not from the emptiness of this.
+    Emptiness alone stays ambiguous — a session of empty directories reads the
+    same as a probe that never ran — so this returns the result object rather
+    than its map, and carries ``runtime.reason`` into it when there was nothing
+    runnable to begin with. That is the one failure the probe itself cannot
+    report, because it is never called.
     """
     if not runtime.available:
-        return {}
+        return ProbeResult(failure=runtime.reason)
     dirs = [str(s.path) for s in series_list if s.path]
     if not dirs:
-        return {}
+        return ProbeResult()
     return _probe_cached(
         dirs,
         str(runtime.container or ""),
@@ -103,17 +112,19 @@ def session_probes(series_list: list[SeriesInfo], runtime: ProbeRuntime) -> dict
     )
 
 
-def probe_note(runtime: ProbeRuntime, probes: dict[int, SeriesProbe]) -> str:
+def probe_note(runtime: ProbeRuntime, result: ProbeResult) -> str:
     """One line for the preflight panel, or ``""`` when there is nothing to add.
 
-    Prefixed with the severity marker the caption should carry. Gating on
-    *probes* rather than ``runtime.available`` is the point: a runtime can be
-    perfectly available and still return nothing, and a panel that says "checked"
-    because the binary existed is the failure this whole item exists to prevent.
+    Prefixed with the severity marker the caption should carry. Gating on the
+    *result* rather than ``runtime.available`` is the point: a runtime can be
+    perfectly available and the probe still fail or read nothing, and a panel
+    that says "checked" because the binary existed is the failure this whole
+    feature exists to prevent.
     """
-    if not probes:
-        reason = runtime.reason or "dcm2niix ran but read none of these series"
-        return f"⚠️ Phase encoding was not checked: {reason}."
+    if result.failure:
+        return f"⚠️ Phase encoding was not checked: {result.failure}."
+    if not result.probes:
+        return "⚠️ Phase encoding was not checked: dcm2niix ran but read none of these series."
     if runtime.fallback:
         return (
             "ℹ️ Phase encoding was read with a host `dcm2niix` rather than the "

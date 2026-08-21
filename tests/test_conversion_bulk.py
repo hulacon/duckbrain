@@ -204,7 +204,7 @@ def _pepolar_session(root):
 def _pin_probe(monkeypatch, tmp_path, directions):
     """A resolvable image, a container runtime on PATH, and a scripted dcm2niix."""
     from duckbrain.core import dcm2niix_probe
-    from duckbrain.core.dcm2niix_probe import SeriesProbe
+    from duckbrain.core.dcm2niix_probe import ProbeResult, SeriesProbe
 
     sif = tmp_path / "dcm2bids-3.2.0.sif"
     sif.write_bytes(b"")
@@ -214,10 +214,12 @@ def _pin_probe(monkeypatch, tmp_path, directions):
     monkeypatch.setattr(
         dcm2niix_probe,
         "probe_session",
-        lambda dirs, container=None, **kw: {
-            f"Series_{n}": SeriesProbe(series_number=n, phase_encoding_direction=d)
-            for n, d in directions.items()
-        },
+        lambda dirs, container=None, **kw: ProbeResult(
+            probes={
+                f"Series_{n}": SeriesProbe(series_number=n, phase_encoding_direction=d)
+                for n, d in directions.items()
+            }
+        ),
     )
     return sif
 
@@ -294,5 +296,34 @@ def test_a_probe_that_cannot_run_warns_rather_than_refusing(tmp_path, monkeypatc
     with pytest.warns(UserWarning, match="Phase-encoding checks skipped"):
         config = generate_session_config(
             tmp_path / "dicom", "01", "", series_list=series, container=tmp_path / "missing.sif"
+        )
+    assert config["descriptions"]
+
+
+def test_a_probe_that_ran_and_failed_warns_the_same_way(tmp_path, monkeypatch):
+    """The other way the checks don't happen, and it used to be silent here.
+
+    A dcm2niix that exits non-zero returned the same empty map as a session with
+    nothing to probe, so a bulk convert of 95 sessions lost the phase-encoding
+    checks without a word. The refuse-vs-warn decision above is
+    unchanged: this still converts, it just says what it didn't check.
+    """
+    import pytest
+
+    from duckbrain.core import dcm2niix_probe
+    from duckbrain.core.conversion import generate_session_config
+    from duckbrain.core.dcm2niix_probe import ProbeResult
+
+    series = _pepolar_session(tmp_path / "dicom")
+    sif = _pin_probe(monkeypatch, tmp_path, {})
+    monkeypatch.setattr(
+        dcm2niix_probe,
+        "probe_session",
+        lambda dirs, container=None, **kw: ProbeResult(failure="dcm2niix exited 1"),
+    )
+
+    with pytest.warns(UserWarning, match="dcm2niix exited 1"):
+        config = generate_session_config(
+            tmp_path / "dicom", "01", "", series_list=series, container=sif
         )
     assert config["descriptions"]

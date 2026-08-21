@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from duckbrain.core.dcm2niix_probe import ProbeRuntime, SeriesProbe
+from duckbrain.core.dcm2niix_probe import ProbeResult, ProbeRuntime, SeriesProbe
 from duckbrain.core.dicom_inspect import SeriesInfo
 from duckbrain.gui.conversion_panels import probe_fingerprint, probe_note, session_probes
 
@@ -82,7 +82,11 @@ def test_no_probing_happens_when_the_runtime_cannot_run(monkeypatch):
         raise AssertionError("probe_session must not be called")
 
     monkeypatch.setattr(panels.dcm2niix_probe, "probe_session", _boom)
-    assert session_probes([_series(3)], ProbeRuntime(reason="nothing on PATH")) == {}
+    result = session_probes([_series(3)], ProbeRuntime(reason="nothing on PATH"))
+    assert result.probes == {}
+    # Carried into the result, because this is the one failure the probe itself
+    # can never report — it is never called.
+    assert result.failure == "nothing on PATH"
 
 
 def test_a_session_with_no_readable_series_directories_probes_nothing(monkeypatch):
@@ -94,33 +98,65 @@ def test_a_session_with_no_readable_series_directories_probes_nothing(monkeypatc
 
     monkeypatch.setattr(panels.dcm2niix_probe, "probe_session", _boom)
     pathless = SeriesInfo(series_number=3, description="thing", path=None, file_count=3)
-    assert session_probes([pathless], ProbeRuntime(container=Path("/x.sif"))) == {}
+    result = session_probes([pathless], ProbeRuntime(container=Path("/x.sif")))
+    assert result.probes == {}
+    # Nothing failed here: there was simply nothing to hand dcm2niix.
+    assert result.ok
+
+
+def _read(*numbers):
+    return ProbeResult(probes={f"Series_{n}": SeriesProbe(n) for n in numbers})
 
 
 def test_a_probe_that_could_not_run_is_reported_as_unchecked():
-    note = probe_note(ProbeRuntime(reason="dcm2niix is not on PATH"), {})
+    runtime = ProbeRuntime(reason="dcm2niix is not on PATH")
+    note = probe_note(runtime, ProbeResult(failure=runtime.reason))
     assert "not checked" in note
     assert "dcm2niix is not on PATH" in note
 
 
+def test_a_probe_that_ran_and_failed_says_why_rather_than_reading_as_empty():
+    """The other way to be unable to look: available runtime, non-zero exit.
+
+    Before, this rendered the same "dcm2niix ran but read none of these series"
+    a genuinely empty session gets — a sentence that is *false* here and names
+    nothing anyone could act on.
+    """
+    note = probe_note(
+        ProbeRuntime(container=Path("/x.sif")),
+        ProbeResult(failure="dcm2niix exited 1: No module named 'dcm2niix'"),
+    )
+    assert "not checked" in note
+    assert "exited 1" in note
+    assert "read none of these series" not in note
+
+
+def test_a_run_that_read_something_and_then_failed_is_still_unchecked():
+    """Partial is not checked. The caveat outranks the fallback note below it."""
+    result = ProbeResult(probes=_read(3).probes, failure="dcm2niix exited 2")
+    note = probe_note(ProbeRuntime(fallback="container image not found: /x.sif"), result)
+    assert "not checked" in note
+    assert "exited 2" in note
+
+
 def test_an_available_runtime_that_read_nothing_still_reads_as_unchecked():
-    """`probe_session` returns {} on a timeout or an exec failure too.
+    """A completed probe can still have read nothing — empty directories.
 
     Gating the panel on runtime availability rather than on the probes would
     print the green tick after a probe that read nothing.
     """
-    note = probe_note(ProbeRuntime(container=Path("/x.sif")), {})
+    note = probe_note(ProbeRuntime(container=Path("/x.sif")), ProbeResult())
     assert "not checked" in note
     assert "read none of these series" in note
 
 
 def test_a_host_fallback_says_it_may_not_be_the_build_that_converts():
     runtime = ProbeRuntime(fallback="container image not found: /x.sif")
-    note = probe_note(runtime, {3: SeriesProbe(3)})
+    note = probe_note(runtime, _read(3))
     assert "host" in note
     assert "build that converts" in note
 
 
 def test_a_probe_through_the_pinned_image_adds_no_caveat():
     """Silence is the signal here — the success message already says it ran."""
-    assert probe_note(ProbeRuntime(container=Path("/x.sif")), {3: SeriesProbe(3)}) == ""
+    assert probe_note(ProbeRuntime(container=Path("/x.sif")), _read(3)) == ""

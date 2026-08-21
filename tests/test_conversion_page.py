@@ -15,7 +15,7 @@ from streamlit.testing.v1 import AppTest
 from conftest import page_path
 from duckbrain.config import save_project_config, scaffold_project
 from duckbrain.core import dcm2niix_probe
-from duckbrain.core.dcm2niix_probe import SeriesProbe
+from duckbrain.core.dcm2niix_probe import ProbeResult, SeriesProbe
 from duckbrain.gui.conversion_panels import _probe_cached
 
 PAGE = page_path("src/duckbrain/gui/pages/3_BIDS_Conversion.py")
@@ -84,10 +84,12 @@ def probed(project, tmp_path, monkeypatch):
         monkeypatch.setattr(
             dcm2niix_probe,
             "probe_session",
-            lambda dirs, container=None, **kw: {
-                f"Series_{n:02d}_x": SeriesProbe(series_number=n, phase_encoding_direction=d)
-                for n, d in directions.items()
-            },
+            lambda dirs, container=None, **kw: ProbeResult(
+                probes={
+                    f"Series_{n:02d}_x": SeriesProbe(series_number=n, phase_encoding_direction=d)
+                    for n, d in directions.items()
+                }
+            ),
         )
         _probe_cached.clear()
 
@@ -168,6 +170,32 @@ def test_the_panel_says_when_the_phase_encoding_could_not_be_checked(project, mo
     # learn a check won't run for a batch of 95 sessions — after submitting is
     # too late, and per-session is 95 identical notices.
     assert any("will not run for these sessions" in c for c in captions)
+
+
+def test_a_probe_that_ran_and_failed_does_not_render_as_a_pass(probed, monkeypatch):
+    """Same panel, the other way to be unable to look.
+
+    The runtime is fine here — image present, apptainer on PATH — and dcm2niix
+    exits 1 anyway. That used to come back as an empty map, which the page could
+    only describe as "ran but read none of these series"; now the caption names
+    the exit, and the green tick still has to stay off.
+    """
+    probed({3: "j-", 4: "j"})
+    monkeypatch.setattr(
+        dcm2niix_probe,
+        "probe_session",
+        lambda dirs, container=None, **kw: ProbeResult(
+            failure="dcm2niix exited 1: No module named 'dcm2niix'"
+        ),
+    )
+    _probe_cached.clear()
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+
+    assert not [s for s in at.success if "will be written" in s.value]
+    assert any("as far as duckbrain could look" in i.value for i in at.info)
+    assert any("exited 1" in c.value for c in at.caption)
 
 
 def test_a_contradicting_phase_encoding_is_reported_before_conversion(probed):

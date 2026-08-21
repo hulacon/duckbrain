@@ -35,8 +35,7 @@ sub-items as fixtures appear ·
 [`#12`](#12) mmmdata-agents · [`#7`](#7) extra stages — the four `#43` claims
 are still described there; the rest is unscheduled ·
 [`#8`](#8) branding + dark theme ·
-[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
-[`#45`](#45) — `dcm2niix_probe` cannot say "couldn't look"
+[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time)
 
 **Below the queue, unscheduled, and not closed either:**
 [`#5`](#5) standing config / mapping decisions ·
@@ -49,42 +48,7 @@ the rule lives — the two questions that sort finished work into releases, and 
 release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
 went stale between every read. **Currently unreleased:** `#13.2`, `#42.1`–`#42.6`, `#44`,
-`#43.1`–`#43.2` and `#43.3` Slice A, on top of `v0.6.0`.
-
----
-
-<a id="45"></a>
-## #45 — `dcm2niix_probe` returns `{}` when it could not look
-
-Found 2026-08-20, incidentally, and it is small but it is the
-silently-degrading-option rule (`CLAUDE.md`) inside `core/`.
-
-`probe_session`'s docstring promises the caller can distinguish *"nothing to
-say"* from *"couldn't look"* by asking `probe_unavailable_reason` first. In the
-case that surfaced it could not: `probe_unavailable_reason()` returned `""`
-(dcm2niix is on `PATH`), the subprocess then exited 1, and `probe_session`
-swallowed it and returned `{}` — indistinguishable from a session whose series
-all legitimately yield nothing.
-
-**The trigger was an environment quirk, and that is the point.** `dcm2niix` here
-is a pip console-script shim in `~/.local/bin` whose first line is
-`from dcm2niix import main`; running the suite with `PYTHONNOUSERSITE=1` (which
-`memory/pythonnousersite-for-test-runs` recommends, for good reasons) makes that
-module unimportable and the process exit 1. So availability was real, and
-usability was not — a distinction `probe_unavailable_reason` cannot draw because
-it checks for the binary rather than trying it.
-
-The failure mode is worse than the trigger: **any** reason dcm2niix exits
-non-zero reads as "this session has no probeable series". The conversion plan
-then quietly loses the fields only the probe can supply — signed phase encoding
-and `ShimSetting`, neither of which any raw tag carries.
-
-Not urgent and nothing is known to be wrong in production, where dcm2niix is a
-real binary. Worth an hour: have `probe_session` distinguish a non-zero exit
-from an empty result, and either raise or report it upward, rather than
-returning the same `{}` for both. `tests/test_dcm2niix_probe.py` is the natural
-home for the pin, and the shim above is a ready-made way to reproduce a
-non-zero exit without breaking anything.
+`#43.1`–`#43.2`, `#43.3` Slice A and `#45`, on top of `v0.6.0`.
 
 ---
 
@@ -795,8 +759,10 @@ absence skips both silently, by design. So a harness that calls `plan_warnings`
 the old way is not measuring the same thing the GUI and the bulk path now
 measure, and a diff against the frozen baseline will look clean for the two
 dimensions most likely to move. Pass the container:
-`by_series_number(probe_session([s.path for s in series], sif))` at ~0.5 s per
-session, which is noise against the header reads the sweep already pays for. The
+`probe_session([s.path for s in series], sif).by_number` at ~0.5 s per session,
+which is noise against the header reads the sweep already pays for — and check
+`.ok` while you are there, since a probe that failed would otherwise read as a
+session with nothing to probe. The
 baseline itself predates the probe, so the first sweep that turns it on should
 expect new warnings and triage them rather than read them as a regression.
 
@@ -1745,6 +1711,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-21 | `#45` | **The dcm2niix probe can say "couldn't look", and a failed run no longer reads as a clean session.** `probe_session` returned a bare map, so a non-zero exit was indistinguishable from a session whose series all legitimately yield nothing — the silently-degrading-option rule inside `core/`. It now returns a `ProbeResult` carrying the probes *and* a `failure` string, set on a non-zero exit (code plus dcm2niix's last line, not the whole log — it renders in a caption), a timeout naming its budget, an exec error, or no runnable dcm2niix at all. **Both fields, not either/or:** dcm2niix can write sidecars and then fail, so discarding the partial read throws away real answers while reporting only the partial read claims the session was checked. `probe_unavailable_reason` is untouched and still cannot answer this — it looks for the binary rather than trying it, which is exactly the gap (availability was reportable, usability was not). Consumers: the preflight caption prints the reason and the green tick is gated on `result.ok` as well as on having probes; the bulk path warns per session, the same warning a missing dcm2niix already got. `session_probes` carries `runtime.reason` into the result, since a probe that is never called is the one failure it cannot report itself, and `_probe_cached` caches the whole result so a Streamlit rerun re-renders the same honesty rather than a clean panel over a remembered empty map. **Validated both ways against the real binary:** the guarded corpus test passes on the LCNI repository normally, and under the pip console-script shim that triggered this it now *skips* naming `dcm2niix exited 1: ModuleNotFoundError…` where it previously read as an empty session. Five new pins in `tests/test_dcm2niix_probe.py` plus one each at the panel, the page and the bulk path. |
 | 2026-08-20 | `#44` | **CI is green again: the flat-root listing now answers all three questions, not one of three.** The 3.12 leg failed `TestFlatLayoutIsScannedOnce` at `1 + 2×4` scans, and the arithmetic was the diagnosis — the cache worked, and the two calls it never covered (`_mriqc_expected_found`'s nested `sub-XX/**/*.json` glob and `_mriqc_status`'s `{ss}` subtree probe) ran once per unit each. **The 3.11 leg was green for an implementation-detail reason, not because the code was right:** 3.11 resolved a literal leading component by statting the named child, 3.12 removed that path and listed the parent like any other component, and 3.13 put a literal fast path back — so the same code costs 1 scan, 9 scans, and 1 scan on three consecutive Pythons. Two fixes, both aimed at *not globbing the root* rather than at making the glob cheap, which is the only form that holds on all three. `_has_match` answers a wildcard-free pattern with one stat, which is every stage's `{ss}` probe, not just MRIQC's. The listing gained the entry *type* alongside the name (`_FlatListing`, `subdirs`) — the distinction that tells the flat layout from the nested one — so `_mriqc_nested_jsons` can skip the nested search where no `sub-XX` directory exists and, where one does, glob from the subject's own directory instead of from the root. Caching the type is safe for the same reason caching the name is: an entry cannot become a directory without being created, and that moves the parent's mtime. **The assertion was not loosened**, and the pin that replaces the version lottery is `test_the_flat_root_is_never_globbed_at_all`, which counts *calls* rather than scans — it fails on 3.11 too, at exactly the 8 globs that were 8 scans on 3.12. One new defensive branch is pinned by `test_a_listing_keeps_the_names_it_cannot_type`: an entry whose type won't stat must not empty the whole listing, since an empty listing reads as "MRIQC wrote nothing here" and grades every unit MISSING. Also makes an unreleased `CHANGELOG.md` sentence true — "listed once per survey rather than once per subject-session" was a claim about 3.11 only. |
 | 2026-08-19 | `#7.7` | **External FreeSurfer recon stage feeding fMRIPrep — built, with the `#5b` forcing question settled on the way.** New `core/freesurfer.py` + `templates/sbatch/freesurfer_recon.sbatch.j2` + `[freesurfer]` config; opt-in per project (`use_external`), NA otherwise (`#17.4`'s rule). The stage is duckbrain's first **subject-level** one — recon-all takes every session's T1w at once, matching fMRIPrep 25's default subject-level anatomical reference — carried by `StageSpec.unit` so `advance_one` drops the session in one place and the job name, submission record, cockpit overlay, and bulk-run dedupe all follow. §9's two traps are closed structurally: the recon runs under a dot-prefixed per-subject staging `SUBJECTS_DIR` and only a finished recon is atomically renamed into `<derivatives>/fmriprep/sourcedata/freesurfer/` (never a second writer in the `#21` battleground, never a partial tree at the import path); version identity is the recon's own `build-stamp.txt` against the `[freesurfer]` pin, required by the surveyor tracker, the recon launcher, and the fMRIPrep gate — so fMRIPrep refuses to submit (rather than silently FS7-resuming) until the recon is complete and version-matched, then passes `--fs-no-resume`. **The `#5b` Case 3 decision: parked stays parked.** `effective_depends_on` became `effective_dependencies` returning a tuple — fMRIPrep is the one stage with two config-conditional producers, and that is the whole requirement; the named-pipeline DAG still waits for branch counts to actually grow. `_DUCKBRAIN_RECIPE_STAGES` deliberately does NOT gain a row: the recon lands in a FreeSurfer SUBJECTS_DIR that is not ours to stamp, and its identity question is answered by the build-stamp gates (comment at the dict says so). Not yet validated live — pilot + the LCNI/nipreps validity ask tracked in mmmdata-agents `docs/workbench/fs8-external-recon/`. Tests: `test_freesurfer.py`, freesurfer sections of `test_pipeline.py` / `test_surveyor.py` / `test_sbatch_templates.py`. |
 | 2026-08-18 | `#41` | **Adopt an existing BIDS dataset — no DICOM conversion.** Asked for by a prospective user; the downstream half already worked by design (the surveyor's external branches, consistency's un-stamped-provenance stance, submission builders reading only `bids_dir`), so the item was the gap between working and *supported*. Shipped in two commits, bugs first: the metadata buttons stopped destroying imported data (`participants.json` written only when absent; `GeneratedBy` merged by `Name`; the dcm2bids entry claimed only at the choke point or with a saved conversion config as evidence — `tests/test_bids_metadata.py`). Then the feature: a Setup toggle writing `[project] external_bids` (`config.external_bids`, the only independent statement — an empty sourcedata is equally true of a project that hasn't started); `survey_project`'s NORDIC special case generalized to a per-stage applicability map so `ingested` grades NA (`converted` deliberately keeps grading — `stage_runnable` gates on it, and presence is real information); participants rostered from the BIDS tree with the file's own column order respected (`generate_participants_from_bids` — the our-order-under-their-header append silently misaligned every row); `.nii` seen everywhere `.nii.gz` is via `ingestion.nii_glob` (dedup prefers `.gz`; the NORDIC template's bash glob, skip-check and staging exclusions widened to match); `docs/external-bids.md` + a QUICKSTART pointer say it out loud. Residual caveats (validator needs the dcm2bids container; phasediff pairs read 0, `#19.6`; DataLad broken symlinks grade MISSING) are recorded in the doc. The three GUI surfaces are a `#30` entry. |
