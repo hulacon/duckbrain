@@ -138,13 +138,51 @@ and upstreaming into Apache-2.0 nipreps / MIT nipoppy, which the GPL choice
 forecloses as-is. Note what none of this blocks: running duckbrain on mmmdata
 needs no licence answer at all.
 
-**`#43.2` — Physio dud detection (`#7.5`, first half).** Most concretely
-specified thing in the queue: the ruling already exists (2026-08-17, mmmdata
-Contract A close-out), the count is now confirmed at 766 on disk, and ~50% of
-physio attempts are believed to have produced empty files that the catalog reads
-as present. Read each recording, judge real-vs-dud, hand per-run dispositions
-back across the ingest boundary so the catalog's 315 `pending` units resolve.
-Falls out of step one of any PhysIO/TAPAS work, so it is never wasted.
+**`#43.2` — Physio dud detection (`#7.5`, first half). Reading pass shipped
+2026-08-20**; the ingest half is what remains. `core/physio.py` measures and
+judges every raw recording, `python -m duckbrain.core.physio --root <bids>`
+writes `derivatives/duckbrain/physio/physio_reality.tsv` plus a sidecar stamping
+the rules it applied, and `tests/test_physio.py` pins the rules against the gaps
+that set them.
+
+**Measured over all 766 mmmdata recordings: 527 usable, 228 trigger-only, 11
+flat.** So 31% carry no physiology, not the ~50% the acquisition notes led this
+item to expect — and the shortfall is *not* where anyone was looking:
+
+- 🔴 **228 of 231 `recording-cardiac` files hold the scanner's volume trigger,
+  not a heartbeat** — two levels switching every 1.500 s, which is the TR, with
+  an inter-onset IQR of exactly zero. Nothing is empty, so an emptiness check
+  finds all 231 present. Anyone writing RETROICOR against `recording-cardiac`
+  gets a square wave.
+- **The cardiac data is there under another name.** `recording-pulse` is
+  pulse-oximetry, 230 of 231 usable, dominant frequency 60–95 bpm and moving
+  session to session. They recorded PPG rather than ECG — ordinary, and what
+  RETROICOR wants anyway. So this redirects the downstream half of `#7.5`; it
+  does not block it.
+- **All 73 EyeLink recordings are real** (median 39% `n/a`, which is blinks and
+  track loss). `#7.8`'s ground truth survives contact with the data — worth
+  knowing before `#43.5` is planned around it.
+- **The rules reproduce the dataset's own declared answer.** sub-04/ses-16
+  carries the exception "no respiratory data (battery dead)"; nine files were
+  written for it anyway and the pass flags all nine, with nothing else in the
+  dataset near them. That agreement is the only external check these thresholds
+  get, and it is why the flat-run rule is calibrated to 0.12 rather than the 0.2
+  a first pass chose — 0.2 cleared the three obvious cases and missed the fourth
+  by three percent.
+
+**What is left of `#43.2`:** the ingest half — turn the artifact into per-run
+dispositions so the catalog's 315 `pending` physio/eye units resolve
+(`expectations/dataset.toml`'s two blanket exceptions are what hold them). That
+is a catalog tier and a dataset-side declaration change, so it crosses the §3.2
+boundary and is the dataset's half of the work, not duckbrain's.
+
+🔴 **A separate finding this pass turned up, with no home yet: 17 physio files
+across 7 units name a `run` their bold does not have** (e.g.
+`sub-05_ses-26_task-NATretrieval_run-01_recording-*` against a bold called
+`task-NATretrieval`). Any join from physio to bold on entities silently drops
+them. That is a naming/conversion question, not a dud question — it belongs
+near `#16` or the catalog's schema_version 2 backlog, and it is recorded here
+only because this is where it was found.
 
 **`#43.3` — QSIPrep (`#7.2`).** Scoped 2026-08-01 with its three traps written
 down (`docs/pipeline-extras.md` §1), prerequisite `#19.1` met, two independently
@@ -1208,11 +1246,22 @@ other five are unstarted.
    only untested module in `core/`.
 5. **Physiological data as BOLD regressors** — downstream consumer (PhysIO/TAPAS →
    confounds); fMRIPrep ingests physio but doesn't compute RETROICOR.
+   🔴 **The consumer half now has a constraint the reading pass found
+   (2026-08-20): for mmmdata, cardiac phase must come from `recording-pulse`,
+   not `recording-cardiac`.** 228 of the 231 cardiac-named files hold the
+   scanner's 1.500 s volume trigger; the pulse-oximetry channel holds the actual
+   heartbeat and is 230-of-231 usable. PhysIO/TAPAS pointed at the obvious
+   channel name would model a square wave at the TR — not merely useless but
+   locked to the acquisition it is meant to regress out. See `#43.2`.
+
    **Dud detection is this item's first half** (ruled 2026-08-17, mmmdata
    Contract A close-out): MMMData's catalog declares physio/eyetracking per
    bold unit, and per the acquisition notes ~50% of physio attempts produced
-   empty files — the catalog sees presence, not emptiness. The pass this item
-   owns: read each recording (766 across sub-03/04/05), judge real-vs-dud, and
+   empty files — the catalog sees presence, not emptiness. **The reading pass
+   shipped 2026-08-20** — `core/physio.py`, 31% not-usable measured, and the
+   emptiness framing turned out to be the wrong lens entirely (`#43.2`). The
+   pass this item owns: read each recording (766 across sub-03/04/05), judge
+   real-vs-dud, and
    hand per-run dispositions back across the ingest boundary so the catalog's
    315 `pending` physio/eye units resolve (engine/contributor split:
    mmmdata-agents `docs/constellation-contracts.md` §3.2 — duckbrain
