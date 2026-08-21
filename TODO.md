@@ -232,15 +232,30 @@ capability that will be *exercised* rather than stressed.
   `dir-PA` entity that the *data* outputs drop, so the figures tree is not merged
   the way the data tree is. See `memory/qsiprep-figures-are-session-level`.
 
-  ⚠️ **Still claims rather than measurements:** the **report path**, which
-  QSIPrep writes only at the end and which `_qsiprep_status` requires before it
-  will grade COMPLETE, and the **`[slurm.overrides.qsiprep]` numbers**, which are
-  the fMRIPrep allocation's shape and nothing anyone watched. On the allocation,
-  one provisional reading from the pilot at 2h59m, *while eddy was still running
-  and therefore not a final peak*: **MaxRSS 11.5 G against 48 G requested**, with
-  AveCPU implying ~4.7 of the 8 allocated cores. Do not resize anything on that
-  number until the run lands. eddy is hours per subject, so any further run is a
-  scheduling commitment, not a smoke test.
+  ✅ **The pilot landed 2026-08-21 and both remaining claims PASS.** Job
+  `46465783` COMPLETED, exit 0:0, **3h17m** wall. `_qsiprep_status` grades the
+  real tree **COMPLETE**, and the report is at
+  `sub-05/ses-28/sub-05_ses-28.html` exactly where `reports/core.py` said, with
+  no `sub-05.html` at the derivative root. So Slice A is verified end to end
+  against real data, not just rendered text.
+
+  **The merge concatenates across PE directions, and keeps everything.** The one
+  output is **108 volumes** (89×109×95×108) at the requested 1.8 mm — the two
+  54-volume inputs joined, which for this session is the complete 100-direction
+  scheme plus 8 b0s. So `dir-AP` was used *both* as the reverse-PE fieldmap
+  source and as data; nothing was spent on distortion correction. Worth stating
+  next to `_grade_merged`, which only ever claimed the entity gets coarser.
+
+  **Allocation, now measured to completion:** **MaxRSS 11.5 G against 48 G
+  requested** (the mid-run reading turned out to be the peak), ~4.7 of 8 cores,
+  3h17m against a 48 h limit. eddy alone was **2h24m** — 8648 s, and the single
+  dominant node; the next largest was `anat_nlin_normalization` at 21 m. The
+  `[slurm.overrides.qsiprep]` block is therefore ~4× over on memory and roughly
+  right on time for a two-run session. **Do not resize on one session**: ses-01
+  has four DWI runs rather than two, and eddy scales with volumes.
+
+  ⚠️ eddy is hours per subject, so any further run is a scheduling commitment,
+  not a smoke test.
 
   ✅ **The grader was exercised against the real tree mid-run, 2026-08-21**, and
   the one false-positive worth worrying about does not happen:
