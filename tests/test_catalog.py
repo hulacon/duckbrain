@@ -150,6 +150,24 @@ def _build_tree(root: Path) -> None:
         json.dumps({"Name": "skipme", "BIDSVersion": "1.8.0"}),
     )
 
+    # a derivative keyed by stimulus, not by BIDS entities: bids2table indexes
+    # nothing here, so its sidecars have no *indexed* stem to pair with
+    stimfeat = root / "derivatives" / "stimfeat"
+    _write(
+        stimfeat / "dataset_description.json",
+        json.dumps({"Name": "stimfeat", "DatasetType": "derivative"}),
+    )
+    _write(stimfeat / "shared1000" / "clip.csv", "stimulus_id,f0\nimg0001,0.5\n")
+    _write(stimfeat / "shared1000" / "clip.json", json.dumps({"schema_version": "1"}))
+    _write(stimfeat / "shared1000" / "orphan.json", json.dumps({"no": "companion"}))
+    # Contract B's actual shape: a `.meta.json` sidecar, and a prefix family
+    # whose sidecar names no file exactly
+    _write(stimfeat / "shared1000" / "aesthetics.csv", "stimulus_id,f0\nimg0001,0.5\n")
+    _write(stimfeat / "shared1000" / "aesthetics.meta.json", json.dumps({"schema_version": "1"}))
+    _write(stimfeat / "shared1000" / "clap_text_words.csv", "stimulus_id,f0\nw1,0.5\n")
+    _write(stimfeat / "shared1000" / "clap_text_chunks.csv", "stimulus_id,f0\nc1,0.5\n")
+    _write(stimfeat / "shared1000" / "clap_text.meta.json", json.dumps({"schema_version": "1"}))
+
     # QC decisions: legacy location + schema (latest/history) ...
     _write(
         root
@@ -448,6 +466,34 @@ def test_supplemental_categorizes_sidecar_metadata_dark(
         " WHERE dataset_relpath = 'derivatives/preprocessing_qc'"
     ).fetchall()
     assert qc_cats == [("dark",)]
+
+
+def test_sidecar_pairs_with_an_unindexed_companion(
+    con: duckdb.DuckDBPyConnection,
+) -> None:
+    """A derivative bids2table cannot index still has real sidecars.
+
+    Pairing a .json only against *indexed* stems made every sidecar in a
+    stimulus-keyed tree `dark`, because such a tree has no indexed rows at all.
+    The companion is what makes a .json a sidecar, not whether bids2table
+    understood the companion.
+    """
+    cats = dict(
+        con.execute(
+            "SELECT path, category FROM files_supplemental"
+            " WHERE dataset_relpath = 'derivatives/stimfeat'"
+        ).fetchall()
+    )
+    assert cats["shared1000/clip.csv"] == "dark"
+    assert cats["shared1000/clip.json"] == "sidecar"
+    # a .json with no companion is still dark -- and two JSONs sharing a stem
+    # must not talk each other into being sidecars
+    assert cats["shared1000/orphan.json"] == "dark"
+    # one secondary suffix is stripped, so `.meta.json` finds its companion
+    assert cats["shared1000/aesthetics.meta.json"] == "sidecar"
+    # but a sidecar covering a prefix *family* names no file exactly, and the
+    # engine does not guess: that convention is the dataset's to declare
+    assert cats["shared1000/clap_text.meta.json"] == "dark"
 
 
 def test_supplemental_never_walks_internal_or_excluded_datasets(
