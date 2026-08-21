@@ -35,7 +35,7 @@ import os
 from collections.abc import Iterator
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import pandas as pd
 
@@ -84,6 +84,17 @@ def _is_evidence(path: Path) -> bool:
 def _has_match(root: Path, pattern: str) -> bool:
     """True if any path under *root* matches the glob *pattern* (non-empty file)."""
     try:
+        if not any(c in pattern for c in "*?["):
+            # A pattern with no wildcards names exactly one path, so answer it
+            # with one stat. `Path.glob` is not free here: Python 3.12 rewrote
+            # pathlib to resolve *every* component by listing its parent, where
+            # 3.11 statted the named child and never read the directory. Each
+            # subtree probe below is a literal `{ss}`, so on 3.12 it cost a full
+            # listing of the stage's derivative root — on MRIQC's flat layout,
+            # thousands of entries, once per unit. That is why
+            # `tests/test_surveyor.py::TestFlatLayoutIsScannedOnce` was red on
+            # the 3.12 leg alone while the code looked fine on 3.11.
+            return _is_evidence(root / pattern)
         return any(_is_evidence(p) for p in root.glob(pattern))
     except (OSError, ValueError):
         return False
@@ -441,13 +452,31 @@ def _mriqc_flat_prefix(subject: str, session: str) -> str:
     return f"sub-{subject}_ses-{session}" if session else f"sub-{subject}"
 
 
+class _FlatListing(NamedTuple):
+    """One reading of a derivative root: what is named there, and what is a directory.
+
+    ``by_subject`` buckets entry *names* under their leading ``sub-XX`` token.
+    ``subdirs`` holds the names that are directories — which is exactly what
+    tells MRIQC's two layouts apart, since a flat root holds
+    ``sub-01_ses-02_T1w.json`` files where a nested one holds a ``sub-01``
+    directory. Carrying both means one reading answers every question about
+    this root, rather than a caller going back to the filesystem to ask which
+    layout it is looking at.
+    """
+
+    by_subject: dict[str, list[str]]
+    subdirs: frozenset[str]
+
+
+_EMPTY_LISTING = _FlatListing({}, frozenset())
+
 #: One ``scandir`` of a flat MRIQC root per state of that directory:
-#: ``{root: (dir mtime_ns, {"sub-XX": [filename, …]})}``.
-_FLAT_LISTINGS: dict[str, tuple[int, dict[str, list[str]]]] = {}
+#: ``{root: (dir mtime_ns, listing)}``.
+_FLAT_LISTINGS: dict[str, tuple[int, _FlatListing]] = {}
 
 
-def _flat_listing(root: Path) -> dict[str, list[str]]:
-    """Filenames directly under *root*, bucketed by their leading ``sub-XX`` token.
+def _flat_listing(root: Path) -> _FlatListing:
+    """Entries directly under *root*, bucketed by their leading ``sub-XX`` token.
 
     MRIQC's flat layout puts every unit's files side by side at the derivative
     root, so the only way to find one unit's is to match a filename prefix — and
@@ -463,38 +492,69 @@ def _flat_listing(root: Path) -> dict[str, list[str]]:
     Cached on the directory's own mtime, which POSIX moves whenever an entry is
     created or removed. Deliberately **not** on the files' contents or sizes:
     MRIQC creates a json and then fills it, so a listing that recorded "empty"
-    would keep saying so after the write landed. What is cached is the set of
-    *names*; every caller still stats the file it is about to believe in.
+    would keep saying so after the write landed. What is cached is each entry's
+    *name and type*; every caller still stats the file it is about to believe
+    in. The type is safe to cache for the same reason the name is — an entry
+    cannot become a directory without being created, and creating it moves this
+    directory's mtime.
     """
     try:
         mtime = root.stat().st_mtime_ns
     except OSError:
-        return {}
+        return _EMPTY_LISTING
     key = str(root)
     cached = _FLAT_LISTINGS.get(key)
     if cached is not None and cached[0] == mtime:
         return cached[1]
     buckets: dict[str, list[str]] = {}
+    subdirs: set[str] = set()
     try:
         with os.scandir(root) as entries:
             for entry in entries:
                 name = entry.name
-                if name.startswith("sub-"):
-                    buckets.setdefault(name.split("_", 1)[0], []).append(name)
+                if not name.startswith("sub-"):
+                    continue
+                buckets.setdefault(name.split("_", 1)[0], []).append(name)
+                try:
+                    if entry.is_dir():
+                        subdirs.add(name)
+                except OSError:  # a symlink to nowhere is not a subtree
+                    pass
     except OSError:
-        return {}
-    _FLAT_LISTINGS[key] = (mtime, buckets)
-    return buckets
+        return _EMPTY_LISTING
+    listing = _FlatListing(buckets, frozenset(subdirs))
+    _FLAT_LISTINGS[key] = (mtime, listing)
+    return listing
 
 
 def _flat_matches(root: Path, prefix: str, suffix: str = "") -> list[Path]:
     """Files at *root* named ``{prefix}_…{suffix}`` — the flat glob, listed once."""
-    names = _flat_listing(root).get(prefix.split("_", 1)[0], ())
+    names = _flat_listing(root).by_subject.get(prefix.split("_", 1)[0], ())
     return [
         root / name
         for name in names
         if name.startswith(f"{prefix}_") and (not suffix or name.endswith(suffix))
     ]
+
+
+def _mriqc_nested_jsons(root: Path, subject: str, session: str) -> list[Path]:
+    """This unit's IQM jsons in MRIQC's *nested* layout — nothing when *root* is flat.
+
+    Globbed from the subject's own directory rather than from *root*, because a
+    pattern starting ``sub-XX/`` makes Python 3.12's pathlib list *root* to
+    resolve that first component (3.11 statted the child instead). On a flat
+    root that is a scan of thousands of files which can only ever match
+    nothing — and it ran once per unit, which is the third of the three scans
+    `tests/test_surveyor.py::TestFlatLayoutIsScannedOnce` counts.
+
+    The cached listing already knows whether a ``sub-XX`` *directory* exists
+    here, so the nested search runs only where a nested layout does, and asking
+    which layout this is costs no filesystem call of its own.
+    """
+    sub, *rest = sub_ses_relpath(subject, session).parts
+    if sub not in _flat_listing(root).subdirs:
+        return []
+    return list((root / sub).glob("/".join((*rest, "**", "*.json"))))
 
 
 def _mriqc_expected_found(config: Config, subject: str, session: str) -> tuple[set[str], set[str]]:
@@ -528,7 +588,7 @@ def _mriqc_expected_found(config: Config, subject: str, session: str) -> tuple[s
         for p in bids_root.glob(_fmt("{ss}/**/anat/*.nii*", subject, session)):
             if p.is_file() and p.stat().st_size > 0 and (key := _mriqc_key(p.name)):
                 expected.add(key)
-        nested = root.glob(_fmt("{ss}/**/*.json", subject, session))
+        nested = _mriqc_nested_jsons(root, subject, session)
         flat = _flat_matches(root, _mriqc_flat_prefix(subject, session), ".json")
         for p in (*nested, *flat):
             if p.is_file() and p.stat().st_size > 0 and (key := _mriqc_key(p.name)):

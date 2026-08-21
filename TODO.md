@@ -15,8 +15,6 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 `#17.1`–`#17.10`. `★` is the provenance/consistency item, closed 2026-07-16.
 
 **Open items, in priority order:**
-[`#44`](#44) 🔴 **CI has been red on `main` since 2026-08-20** — Python 3.12
-only, and it is a real half-finished optimization rather than a flaky test ·
 [`#43`](#43) — running duckbrain on mmmdata; an ordering over five
 existing capability items, not new work of its own ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
@@ -49,51 +47,8 @@ the rule lives — the two questions that sort finished work into releases, and 
 "ship it all at once" is the wrong default. It used to be narrated here release by
 release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
-went stale between every read. **Currently unreleased:** `#13.2` and `#42.1`–`#42.6`,
+went stale between every read. **Currently unreleased:** `#13.2`, `#42.1`–`#42.6` and `#44`,
 on top of `v0.6.0`.
-
----
-
-<a id="44"></a>
-## #44 — CI is red on 3.12: the flat-root listing is only cached once of three
-
-🔴 **Red on `main` since 2026-08-20, run #130 (`bb7078a9`), and still red at
-#136.** Seven consecutive failures. Found 2026-08-20 while looking at something
-else; it predates that session's commits and none of them caused it.
-
-**One test, one leg.** `test (3.11)` and `types` pass; `test (3.12)` fails on
-`tests/test_surveyor.py::TestFlatLayoutIsScannedOnce::test_the_root_is_listed_once_for_the_whole_survey`
-— *"listed the flat root 9 times for 4 units"*.
-
-**It is not a flaky test, and relaxing it would be the wrong fix.** The count is
-exactly `1 + 2×4`, which is the whole diagnosis:
-
-- `_flat_listing`'s cache works. That is the 1, for the whole survey, as `#42.5`
-  intended.
-- `_mriqc_expected_found` still calls `root.glob("{ss}/**/*.json")` and
-  `_mriqc_status` still calls `_has_match(root, "{ss}")` — **twice per unit**,
-  neither routed through the cache.
-- On 3.11 those two cost nothing: `pathlib._PreciseSelector` resolves a literal
-  path component with `exists()`/`is_dir()` on the *child* and never lists the
-  parent. On 3.12's rewritten pathlib they scandir the root like any other
-  component.
-
-So on 3.12 `#42.5`'s O(N²) is two-thirds unfixed, and at the 100-subject scale
-`#42` is about that is ~400 listings of a directory holding thousands of files,
-per survey — the exact cost `#42.5` was written to remove. **The 3.11 leg is
-green for an implementation-detail reason, not because the code is right.**
-
-**What the fix has to decide**, and why this is not a one-liner: the two
-remaining calls ask different questions of the same root. The nested glob wants
-`root/sub-XX/ses-YY/**/*.json`, which on a flat root does not exist at all; the
-subtree probe wants "is there anything here for this unit". Both could be
-answered from a cached listing, but the listing currently buckets *names*
-without recording whether a `sub-XX` entry is a file or a directory, and that
-distinction is exactly what separates the two layouts. Extend the cache to carry
-it, then let both callers ask the cache.
-
-**Do not "fix" this by loosening the assertion to a range.** The assertion is the
-only thing that noticed, and it noticed correctly.
 
 ---
 
@@ -1727,6 +1682,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-08-20 | `#44` | **CI is green again: the flat-root listing now answers all three questions, not one of three.** The 3.12 leg failed `TestFlatLayoutIsScannedOnce` at `1 + 2×4` scans, and the arithmetic was the diagnosis — the cache worked, and the two calls it never covered (`_mriqc_expected_found`'s nested `sub-XX/**/*.json` glob and `_mriqc_status`'s `{ss}` subtree probe) ran once per unit each. **The 3.11 leg was green for an implementation-detail reason, not because the code was right:** 3.11 resolved a literal leading component by statting the named child, 3.12 removed that path and listed the parent like any other component, and 3.13 put a literal fast path back — so the same code costs 1 scan, 9 scans, and 1 scan on three consecutive Pythons. Two fixes, both aimed at *not globbing the root* rather than at making the glob cheap, which is the only form that holds on all three. `_has_match` answers a wildcard-free pattern with one stat, which is every stage's `{ss}` probe, not just MRIQC's. The listing gained the entry *type* alongside the name (`_FlatListing`, `subdirs`) — the distinction that tells the flat layout from the nested one — so `_mriqc_nested_jsons` can skip the nested search where no `sub-XX` directory exists and, where one does, glob from the subject's own directory instead of from the root. Caching the type is safe for the same reason caching the name is: an entry cannot become a directory without being created, and that moves the parent's mtime. **The assertion was not loosened**, and the pin that replaces the version lottery is `test_the_flat_root_is_never_globbed_at_all`, which counts *calls* rather than scans — it fails on 3.11 too, at exactly the 8 globs that were 8 scans on 3.12. One new defensive branch is pinned by `test_a_listing_keeps_the_names_it_cannot_type`: an entry whose type won't stat must not empty the whole listing, since an empty listing reads as "MRIQC wrote nothing here" and grades every unit MISSING. Also makes an unreleased `CHANGELOG.md` sentence true — "listed once per survey rather than once per subject-session" was a claim about 3.11 only. |
 | 2026-08-19 | `#7.7` | **External FreeSurfer recon stage feeding fMRIPrep — built, with the `#5b` forcing question settled on the way.** New `core/freesurfer.py` + `templates/sbatch/freesurfer_recon.sbatch.j2` + `[freesurfer]` config; opt-in per project (`use_external`), NA otherwise (`#17.4`'s rule). The stage is duckbrain's first **subject-level** one — recon-all takes every session's T1w at once, matching fMRIPrep 25's default subject-level anatomical reference — carried by `StageSpec.unit` so `advance_one` drops the session in one place and the job name, submission record, cockpit overlay, and bulk-run dedupe all follow. §9's two traps are closed structurally: the recon runs under a dot-prefixed per-subject staging `SUBJECTS_DIR` and only a finished recon is atomically renamed into `<derivatives>/fmriprep/sourcedata/freesurfer/` (never a second writer in the `#21` battleground, never a partial tree at the import path); version identity is the recon's own `build-stamp.txt` against the `[freesurfer]` pin, required by the surveyor tracker, the recon launcher, and the fMRIPrep gate — so fMRIPrep refuses to submit (rather than silently FS7-resuming) until the recon is complete and version-matched, then passes `--fs-no-resume`. **The `#5b` Case 3 decision: parked stays parked.** `effective_depends_on` became `effective_dependencies` returning a tuple — fMRIPrep is the one stage with two config-conditional producers, and that is the whole requirement; the named-pipeline DAG still waits for branch counts to actually grow. `_DUCKBRAIN_RECIPE_STAGES` deliberately does NOT gain a row: the recon lands in a FreeSurfer SUBJECTS_DIR that is not ours to stamp, and its identity question is answered by the build-stamp gates (comment at the dict says so). Not yet validated live — pilot + the LCNI/nipreps validity ask tracked in mmmdata-agents `docs/workbench/fs8-external-recon/`. Tests: `test_freesurfer.py`, freesurfer sections of `test_pipeline.py` / `test_surveyor.py` / `test_sbatch_templates.py`. |
 | 2026-08-18 | `#41` | **Adopt an existing BIDS dataset — no DICOM conversion.** Asked for by a prospective user; the downstream half already worked by design (the surveyor's external branches, consistency's un-stamped-provenance stance, submission builders reading only `bids_dir`), so the item was the gap between working and *supported*. Shipped in two commits, bugs first: the metadata buttons stopped destroying imported data (`participants.json` written only when absent; `GeneratedBy` merged by `Name`; the dcm2bids entry claimed only at the choke point or with a saved conversion config as evidence — `tests/test_bids_metadata.py`). Then the feature: a Setup toggle writing `[project] external_bids` (`config.external_bids`, the only independent statement — an empty sourcedata is equally true of a project that hasn't started); `survey_project`'s NORDIC special case generalized to a per-stage applicability map so `ingested` grades NA (`converted` deliberately keeps grading — `stage_runnable` gates on it, and presence is real information); participants rostered from the BIDS tree with the file's own column order respected (`generate_participants_from_bids` — the our-order-under-their-header append silently misaligned every row); `.nii` seen everywhere `.nii.gz` is via `ingestion.nii_glob` (dedup prefers `.gz`; the NORDIC template's bash glob, skip-check and staging exclusions widened to match); `docs/external-bids.md` + a QUICKSTART pointer say it out loud. Residual caveats (validator needs the dcm2bids container; phasediff pairs read 0, `#19.6`; DataLad broken symlinks grade MISSING) are recorded in the doc. The three GUI surfaces are a `#30` entry. |
 | 2026-08-18 | `#39` | **The exported dashboard's IQR strip plots render live under the Overview run table, click-to-inspect.** One figure builder for both delivery paths (`qc_report.build_iqm_figure`; the export's `_render_iqm_charts` wraps it in HTML, the Overview hands it to `st.plotly_chart`). The points moved from the box trace's `boxpoints` to scatter markers carrying the run key in `customdata` — box points do not reliably emit click events in plotly.js — with the jitter recomputed deterministically so the strip look survived; a clicked point opens its run on the Inspect page through the same session-state channel as the table's row-click (`_open_in_inspector`). The item's caption-hint half had already shipped with the row-click itself (`87d6da7`). The rendered strips and the point-click are a `#30` entry. |

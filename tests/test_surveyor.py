@@ -707,6 +707,61 @@ def test_mriqc_flat_layout_does_not_credit_a_sibling_sessions_jsons(tmp_path):
     assert df[df.session == "02"].iloc[0]["mriqc"] == Status.MISSING
 
 
+def test_a_listing_keeps_the_names_it_cannot_type(tmp_path, monkeypatch):
+    """An entry whose type can't be read must not empty the whole listing.
+
+    `_flat_listing` asks each entry whether it is a directory — a stat, which
+    can fail on an entry the caller has no permission to follow. Letting that
+    reach the loop's own handler would return an empty listing for the root:
+    indistinguishable from "MRIQC has written nothing here", so every unit
+    would grade MISSING because one sibling was unreadable. The name is still
+    good even when the type is not, and the names are what the flat layout is
+    matched on.
+    """
+    import duckbrain.core.surveyor as S
+
+    mq = tmp_path / "derivatives" / "mriqc"
+    _seed_bold_runs(tmp_path, "sub-01/ses-01", 1)
+    _touch(tmp_path / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_T1w.nii.gz")
+    _touch(mq / "sub-01_ses-01_T1w.json")
+    _touch(mq / "sub-01_ses-01_task-rest_run-1_bold.json")
+
+    class _Untypable:
+        def __init__(self, name):
+            self.name = name
+
+        def is_dir(self):
+            raise PermissionError(self.name)
+
+    class _Blinded:
+        def __init__(self, entries):
+            self._entries = entries
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def __iter__(self):
+            return iter(self._entries)
+
+    real = S.os.scandir
+
+    def blinding(path):
+        with real(path) as entries:
+            names = [e.name for e in entries]
+        if str(path) == str(mq):
+            return _Blinded([_Untypable(n) for n in names])
+        return real(path)
+
+    S._FLAT_LISTINGS.clear()
+    monkeypatch.setattr(S.os, "scandir", blinding)
+
+    df = survey_project(_config(tmp_path))
+    assert df.loc[0, "mriqc"] == Status.COMPLETE
+
+
 class TestFlatLayoutIsScannedOnce:
     """`#42.5`: MRIQC's flat layout puts every unit's files at the derivative
     root, so finding one unit's means matching a filename prefix — and
@@ -750,6 +805,46 @@ class TestFlatLayoutIsScannedOnce:
 
         assert (df["mriqc"] == Status.COMPLETE).all()
         assert len(scans) == 1, f"listed the flat root {len(scans)} times for 4 units"
+
+    def _count_root_globs(self, monkeypatch, root):
+        from pathlib import Path
+
+        globs = []
+        real = Path.glob
+
+        def counting(self, pattern, *args, **kwargs):
+            if str(self) == str(root):
+                globs.append(pattern)
+            return real(self, pattern, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "glob", counting)
+        return globs
+
+    def test_the_flat_root_is_never_globbed_at_all(self, tmp_path, monkeypatch):
+        """The version-independent half of the assertion above.
+
+        What a glob of the root *costs* is a pathlib implementation detail:
+        3.11 resolved a literal leading component by statting the named child,
+        3.12 removed that path and listed the parent like any other component,
+        and 3.13 put a literal fast path back. So the sibling test's scan count
+        was 1 on 3.11 and 9 on 3.12 for the same code — green for a reason that
+        had nothing to do with the code being right, which is how two of the
+        three scans survived `#42.5` unnoticed.
+
+        Counting *calls* instead of scans holds on every version: the two
+        remaining callers ask the cached listing which layout this root is, and
+        a flat root's answer means neither of them globs it.
+        """
+        mq = self._flat_project(tmp_path)
+        import duckbrain.core.surveyor as S
+
+        S._FLAT_LISTINGS.clear()
+        globs = self._count_root_globs(monkeypatch, mq)
+
+        df = survey_project(_config(tmp_path))
+
+        assert (df["mriqc"] == Status.COMPLETE).all()
+        assert globs == [], f"globbed the flat root {len(globs)} times: {globs}"
 
     def test_a_json_written_after_the_listing_is_still_found(self, tmp_path, monkeypatch):
         """The cache is keyed on the directory's mtime, which POSIX moves when an
