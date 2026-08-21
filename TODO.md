@@ -1443,6 +1443,16 @@ plus the `ssh -L` line it prints.
 
 ### Open
 
+1. **The QSIPrep launch popover on the Status board.** `_stage_params`' new
+   `qsiprep` arm renders inside a cell popover, which is on this item's
+   don't-bother-with-AppTest list. The thing to look at is the **Output
+   resolution** box: it ships **empty** for a project that has not declared one,
+   and the submission is refused if it stays empty — deliberately, since there
+   is no defensible default. Check that the empty box reads as "you must choose"
+   rather than as a bug, that the refusal message is legible in the popover's
+   width, and that the help text is reachable. Also check the fourth
+   **QSIPrep** tab on the Preprocessing page renders beside the other three
+   (AppTest counts the tabs but does not model their contents).
 1. **[OOD] Do the *exported* dashboard's report links navigate?** The oldest
    entry and the highest value. mmmdata's shipped dashboard carried 837 absolute
    `href="file:///gpfs/…"` links; a browser blocks `file://` navigation from an
