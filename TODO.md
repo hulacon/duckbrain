@@ -19,12 +19,15 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 existing capability items, not new work of its own. `#43.1` and `#43.2`'s
 reading pass shipped 2026-08-20, `#43.3` Slice A 2026-08-21 ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
-[`#5b`](#5b) NORDIC — **Case 2 SHIPPED 2026-08-21**; what is left is Case 3,
-which stays parked ·
+[`#5b`](#5b) NORDIC — **Case 2 SHIPPED 2026-08-21**, its *reporting* half; the
+clobber guard is the one piece worth building (a data-loss path in shipped
+code), the variant-aware branch is **not** wanted now that mmmdata punted its
+second arm, and Case 3 stays parked ·
 [Licensing](#licensing-follow-ups) — `#43.1` **shipped 2026-08-20**; what is
 left is the UO employee-IP answer, which does not block anything ·
 [`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
-left is two unscheduled design questions ·
+left is three unscheduled design questions, of which `#42.7` (stage-scoped
+filter) is wanted by the mmmdata campaign ·
 [`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
 walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
 sub-items as the blockers clear ·
@@ -536,6 +539,50 @@ lesson, worth more than either fix:** a hardcoded name and a hardcoded artifact
 spelling are the same mistake, and the tree duckbrain could not see was the only
 reason nobody had noticed the one it could see was being graded wrong.
 
+**Case 2 shipped the reporting half. The launching half is not built** (added
+2026-08-21 from mmmdata-agents' `reprocessing-campaign` charter). **The campaign
+that would have forced it punted instead** — same day, charter `D14`: mmmdata
+now re-preprocesses one arm, having concluded that producing a second one is a
+duckbrain capability rather than a toggle. So this is **no longer urgent as
+capability**, and item (1) below is the exception: it is a live data-loss path
+in shipped code whether or not anyone is running a campaign. "Do not branch the
+pipeline" stays the right call for a board that *reports*. Three hardcodes name
+the canonical tree, in decreasing order of how much they hurt:
+
+1. **`pipeline.py:229` — `output_dir = f"{derivatives_dir}/fmriprep"`, and there
+   is no override.** Flipping `use_nordic` and pressing the cockpit's run button
+   does not produce a second arm; it **overwrites the first**, 535 G of it, with
+   no warning anywhere in the GUI. That is a data-loss path, not a display gap,
+   and it is the only part of this item that is urgent.
+2. **`surveyor.py:556` — `_expected_bold_keys(_fmriprep_input_dir(config), ...)`
+   ignores the `tree` parameter it sits inside.** `_fmriprep_input_dir` reads the
+   project-level `use_nordic`, so one boolean picks the grading input for *every*
+   fMRIPrep column at once. Today this is **latent, not wrong**: with
+   `use_nordic=false` both arms are graded against raw BIDS, which is the correct
+   expectation for both (the same-expectation choice `_fmriprep_status` documents
+   is sound — both arms preprocess the same units). Turning the toggle on to
+   produce the NORDIC arm is what activates it, because then the raw arm is
+   graded against `derivatives/nordic/bids_format` too. The expectation is
+   per-tree; the input dir it is derived from is per-project.
+3. **`fmriprep.py:57` — `find_anat_derivatives` always reads `fmriprep/`.** Anat
+   reuse sources the raw arm for a NORDIC run, silently.
+
+`use_nordic` is one project-level boolean (`pipeline.py:661`) driving four things
+at once: the dependency edge (`:709`), fMRIPrep's input (`:236`), the grading
+input (`surveyor.py:275`), and the provenance stamp (`:1014`). Two *concurrent*
+arms need it to be a per-run choice — which is Case 3's shape. So mmmdata has
+walked the forcing function up to Case 3's door without opening it.
+
+**Do not un-park Case 3 for this, and do not build the branch either.** With
+mmmdata down to one arm there is no consumer waiting on variant-aware output.
+**Build the guard alone:** refuse to launch fMRIPrep when a variant tree exists
+and the run would clobber it, or at minimum say so out loud. That is worth doing
+on its own merits — mmmdata still holds a 24.1.1 `fmriprep_nordic` tree that a
+mis-set `use_nordic` would silently destroy, and duckbrain ships this behaviour
+to everyone, not just to the project that happened to notice. (2) and (3) can
+wait for whoever revives a second arm; mmmdata's parked item to do exactly that
+is "Restore the NORDIC fMRIPrep arm".
+
 - **The zero-code fallback does not answer it here.** Two project dirs over one
   BIDS is still the cheapest test of the *comparison*, but mmmdata's problem is a
   tree that already exists and is invisible; a second project dir does not make
@@ -654,9 +701,9 @@ the one rejection that will refuse every remaining unit; MRIQC's flat root is
 listed once per survey rather than twice per unit; and the board paginates past
 50 units with an auto-refresh cadence that follows whether anything is queued.
 
-**What that leaves is the two design-level items below, and neither is
-scheduled.** Both are real work with a decision in front of them, which is why
-they were never in the tranche. The item stays open to hold them.
+**What that leaves is the three design-level items below, and none is
+scheduled.** All three are real work with a decision in front of them, which is
+why they were never in the tranche. The item stays open to hold them.
 
 **Design-level, unscheduled:**
 
@@ -670,6 +717,21 @@ they were never in the tranche. The item stays open to hold them.
   rethinking the `{prefix}_{tag}` job-name join key `survey_live` matches on
   (array tasks report as `12345_3`; `_attempt_order` already anticipates the
   form). NORDIC's per-run array inside one unit is prior art in-repo.
+- **`#42.7` — a stage-scoped board filter.** `only_incomplete`
+  (`0_Project_Status.py:909`) is all-or-nothing across every stage column: it
+  hides a unit only when *every* stage is COMPLETE or NA. `_paginate`'s own
+  docstring already names the failure (`:587`) — "no help precisely mid-study,
+  when most rows *are* incomplete". mmmdata is about to be the worst case: a
+  re-preprocessing campaign makes the `fmriprep` column incomplete for ~209 units
+  *by construction*, so the default filter hides nothing and the board is five
+  pages of scrolling on every render. What is wanted is "hide the units whose
+  `converted` is done" / "show only rows where stage X needs work". The mask is a
+  one-line change (the `any(v not in _done ...)` comprehension already takes a
+  column list); the design question is the control. A stage multiselect is the
+  obvious shape and composes with the existing checkbox — a per-cell status
+  filter is more power than anyone has asked for. This reduces what `_paginate`
+  receives; do not add a second pagination story beside it.
+
 
 ---
 
