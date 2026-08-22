@@ -1332,7 +1332,9 @@ Each is its own focused effort. Full annotated backlog — candidate tools, ties
 existing duckbrain/mmmdata work, open questions per item — in
 **`docs/pipeline-extras.md`**. Items 4 and 6 are **partly built** and say so
 below, item 2 is **scoped but unstarted** (`docs/pipeline-extras.md` §1); the
-other five are unstarted.
+other six are unstarted. Item 9 (added 2026-08-22) carries the ownership rule
+for this whole section: scanner-produced data (MR, physio) is duckbrain's,
+everything else is the user's repo.
 
 1. **De-identification for sharing — highest value.** Defacing **+** metadata/header
    PII scrubbing (DICOM headers *and* BIDS sidecars), "derive-then-torch" policy
@@ -1499,6 +1501,48 @@ other five are unstarted.
    🔴 **It must precede `#7.1`'s defacing on any dataset it will run on** — see
    the rule recorded there and at `#43.4`. Every eye-destroying step is one-way.
    Reached last among the mmmdata slices, by value — `#43.5`.
+9. **Preprocess physio — produce the BIDS physio, don't just consume it.**
+   Requested by Ben 2026-08-22, and it comes with the ownership rule that
+   settles where this kind of work lives: **what comes off the LCNI scanner (MR
+   data, physio) is duckbrain's purview; everything else — events, eyetracking,
+   behavioral — belongs to the user's own repo** (for MMMData, `mmmdata`). That
+   line is why this is a duckbrain item while `localizer_events.py` and the
+   behavioral converters are not, and it is worth reading with
+   mmmdata-agents `docs/constellation-contracts.md` §2, which currently assigns
+   mmmdata "behavioral/events conversion" without saying where physio sits.
+
+   Distinct from `#7.5`, which is the **consumer** half (PhysIO/TAPAS
+   regressors, real-vs-dud judgement). This is the **producer** half: Siemens
+   PMU `*_PhysioLog` DICOM → `*_recording-*_physio.tsv.gz`. Today that lives in
+   `mmmdata/src/python/raw2bids_converters/physio_dcm.py`, gated by a
+   `physio_triage.csv` table.
+
+   🔴 **Three findings from the mmmdata side, 2026-08-21/22, that this item
+   should inherit rather than rediscover:**
+   - **The channel→BIDS-name mapping is a production decision and it is
+     currently wrong.** `#7.5` records that 228 of 231 `recording-cardiac`
+     files hold the 1.500 s volume trigger rather than a heartbeat. That is not
+     a consumer problem to work around — it is the producer naming the PMU
+     `ECG` section `cardiac` without checking what the section contains.
+   - **Cohorts differ in which channels exist at all.** sub-03/04/05 record
+     `ECG,EXT,PULS,RESP` on every one of 232 usable recordings; **sub-06/07
+     record no ECG whatsoever** (96 `EXT,PULS,RESP` + 10 `PULS,RESP`), so they
+     get no `recording-cardiac` file. Any stage must treat channel presence as
+     data, not as a fixed schema.
+   - **Status triage is mechanical and reproducible.** No waveform sections →
+     `INFO_ONLY`; else recorded/expected duration ≥0.9 `COMPLETE`, ≥0.5
+     `PARTIAL`, below `TRUNCATED`. Verified 2026-08-22 to reproduce a
+     hand-maintained 611-row table with **zero** status disagreements
+     (`mmmdata/src/python/raw2bids_converters/generate_physio_triage.py`), so
+     duckbrain can compute this rather than import a curated CSV. Note how thin
+     the real coverage is: **372 of 611** sub-03/04/05 recordings are
+     `INFO_ONLY` — no waveform at all — against **106 of 106 COMPLETE** for
+     sub-06/07.
+
+   Not scheduled, and it does **not** block the mmmdata re-preprocessing
+   campaign — that campaign's physio is already converted and verified
+   (106/106 runs carry pulse + respiratory). This is about where the capability
+   should live next time, not about unblocking anything.
 
 ---
 
