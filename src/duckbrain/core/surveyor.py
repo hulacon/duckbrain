@@ -529,11 +529,23 @@ def _fmriprep_status(
     # the anatomical is acquired once and fMRIPrep writes it under the session it
     # came from, so every *other* session's cell would sit at PARTIAL forever
     # with its func complete and nothing missing.
-    anat_required = [
-        f"sub-{subject}.html",
-        f"sub-{subject}/**/anat/sub-{subject}*_desc-preproc_T1w.nii.gz",
-    ]
-    anat_ok = all(_has_match(root, p) for p in anat_required)
+    #
+    # **The report has two shapes**, and asking only for the combined one is a
+    # false negative on every densely-sampled study. `--aggregate-session-reports`
+    # (default 4) splits the report once a subject exceeds that many sessions:
+    # fMRIPrep then writes `sub-XX_anat.html` plus one `sub-XX_ses-YY_func.html`
+    # per session and **no** `sub-XX.html` at all. mmmdata's raw arm is split at
+    # 29 sessions and its NORDIC arm is not, so requiring the combined name alone
+    # graded a finished tree PARTIAL beside a full run count — the "4/4 beside
+    # PARTIAL" contradiction this module exists to prevent. Same principle as
+    # `_qsiprep_report_present`: judge the tree against the tree, because an
+    # externally-run one is not duckbrain's to predict.
+    report_ok = _has_match(root, f"sub-{subject}.html") or _has_match(
+        root, f"sub-{subject}_anat.html"
+    )
+    anat_ok = report_ok and _has_match(
+        root, f"sub-{subject}/**/anat/sub-{subject}*_desc-preproc_T1w.nii.gz"
+    )
 
     # Func is one preprocessed BOLD *and* one confounds TSV per input BOLD; see
     # `_fmriprep_func_keys` for why the confounds file is part of the

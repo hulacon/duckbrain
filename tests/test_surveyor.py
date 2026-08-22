@@ -132,6 +132,32 @@ def test_fmriprep_partial_when_dir_but_no_report(tmp_path):
     assert df.loc[0, "fmriprep"] == Status.PARTIAL
 
 
+def test_fmriprep_complete_with_split_session_reports(tmp_path):
+    """`--aggregate-session-reports` (default 4) splits the report once a subject
+    exceeds that many sessions: fMRIPrep writes `sub-XX_anat.html` + per-session
+    func reports and no combined `sub-XX.html`. Requiring the combined name alone
+    graded mmmdata's 29-session raw arm PARTIAL on a *full* run count."""
+    _bids_anat_func(tmp_path)
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01_anat.html")  # no sub-01.html — the split shape
+    _touch(fp / "sub-01_ses-01_func.html")
+    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
+    _touch(fp / "sub-01" / "func" / "sub-01_task-rest_desc-preproc_bold.nii.gz")
+    _touch(fp / "sub-01" / "func" / "sub-01_task-rest_desc-confounds_timeseries.tsv")
+    assert survey_project(_config(tmp_path)).loc[0, "fmriprep"] == Status.COMPLETE
+
+
+def test_fmriprep_partial_when_neither_report_shape_is_present(tmp_path):
+    """Widening to two report shapes must not widen to none: an anat image with
+    no report at all is still an unfinished workflow."""
+    _bids_anat_func(tmp_path)
+    fp = tmp_path / "derivatives" / "fmriprep"
+    _touch(fp / "sub-01" / "anat" / "sub-01_desc-preproc_T1w.nii.gz")
+    _touch(fp / "sub-01" / "func" / "sub-01_task-rest_desc-preproc_bold.nii.gz")
+    _touch(fp / "sub-01" / "func" / "sub-01_task-rest_desc-confounds_timeseries.tsv")
+    assert survey_project(_config(tmp_path)).loc[0, "fmriprep"] == Status.PARTIAL
+
+
 def test_fmriprep_missing_when_no_derivative(tmp_path):
     _bids_anat_func(tmp_path)
     df = survey_project(_config(tmp_path))
