@@ -19,8 +19,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 existing capability items, not new work of its own. `#43.1` and `#43.2`'s
 reading pass shipped 2026-08-20, `#43.3` Slice A 2026-08-21 ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
-[`#5b`](#5b) NORDIC Case 2 — **no longer hypothetical**, mmmdata carries two
-parallel fMRIPrep trees and duckbrain can see one of them ·
+[`#5b`](#5b) NORDIC — **Case 2 SHIPPED 2026-08-21**; what is left is Case 3,
+which stays parked ·
 [Licensing](#licensing-follow-ups) — `#43.1` **shipped 2026-08-20**; what is
 left is the UO employee-IP answer, which does not block anything ·
 [`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
@@ -90,14 +90,18 @@ say so here.
 
 **Three things that measurement changed, none of them on the original list:**
 
-- 🔴 **`derivatives/fmriprep` *and* `derivatives/fmriprep_nordic`, 535 G each** —
-  two parallel fMRIPrep trees over one BIDS root. `surveyor.py`'s
-  `_fmriprep_status` hardcodes `derivatives_dir / "fmriprep"`, so **duckbrain can
-  see one of them and does not know the other exists**. That is `#5b` Case 2,
-  which this file has called "deferred until actually needed" since it was
-  written. It is needed. See `#5b` — the fix is the parameterization already
-  scoped there, and the on-disk name is `fmriprep_nordic`, an underscore where
-  `#5b` guessed a hyphen.
+- ✅ **`derivatives/fmriprep` *and* `derivatives/fmriprep_nordic`, 535 G each —
+  FIXED 2026-08-21.** Two parallel fMRIPrep trees over one BIDS root, of which
+  `_fmriprep_status`'s hardcoded `derivatives_dir / "fmriprep"` could see one.
+  That was `#5b` Case 2, deferred "until actually needed" since the day it was
+  written; it was needed. Shipped as the parameterization scoped there — and the
+  on-disk name is `fmriprep_nordic`, an underscore where `#5b` guessed a hyphen,
+  which is why the name is now read off disk rather than declared. See `#5b`.
+  **Surveying the tree turned up a second, larger defect** the first one was
+  hiding: fMRIPrep splits its report above `--aggregate-session-reports` (default
+  4), so a 29-session subject gets `sub-XX_anat.html` and no `sub-XX.html`, and
+  every session of the raw arm read PARTIAL beside a *full* run count. Both fixed
+  and validated against mmmdata.
 - **The anat tree is contaminated with derivatives.** `sub-03/ses-01/anat/` holds
   `hsf_outputs/` and `*_hippocampus_seg.nii.gz` beside the T1w/T2w. Anything
   counting anat suffixes — `expectations.py`, the surveyor's `converted` grading —
@@ -502,13 +506,35 @@ data-migration problem, not just a fix. duckbrain's shipped default partition wa
 <a id="5b"></a>
 ## #5b — NORDIC Case 2: same-project raw-vs-NORDIC comparison
 
-**No longer hypothetical, 2026-08-20.** This item read "deferred until actually
-needed" from the day it was written. mmmdata is the case: it carries
+**Case 2 SHIPPED 2026-08-21.** This item read "deferred until actually needed"
+from the day it was written. mmmdata was the case: it carries
 `derivatives/fmriprep` **and** `derivatives/fmriprep_nordic`, 535 G each, over
-one BIDS root. `_fmriprep_status` hardcodes `derivatives_dir / "fmriprep"`, so
-duckbrain surveys one of them and has no way to say the other is there — on a
-board whose whole job is to tell you what exists. Reached via `#43`. Case 1 (the
-`use_nordic` toggle) is validated live and is unaffected.
+one BIDS root, and `_fmriprep_status` hardcoded `derivatives_dir / "fmriprep"`,
+so duckbrain surveyed one of them and had no way to say the other was there — on
+a board whose whole job is to tell you what exists. Reached via `#43`. Case 1
+(the `use_nordic` toggle) is validated live and was unaffected. Case 3 stays
+parked; nothing below is reopened by this.
+
+**What shipped:** `fmriprep_variants` finds the extra trees, the same tracker
+grades each with its derivative dir bound through `partial`, and `stage_columns`
+splices them in right after `fmriprep`. `summarize` counts by matrix column
+instead of by `STAGES` so variants reach the rollup, and the cockpit lays out
+`stage_columns(config)` — laying out `STAGES` there is precisely how a surveyed
+variant goes undrawn. No `STAGE_SPECS` entry, so a variant is reported and never
+launched, and a test pins that.
+
+**The bug the invisible tree was hiding, and it was the bigger one.**
+`_fmriprep_status` required `sub-XX.html`, which fMRIPrep does not write once a
+subject exceeds `--aggregate-session-reports` (default **4**): above that it
+writes `sub-XX_anat.html` plus per-session func reports and no combined file.
+mmmdata's subjects have 29 sessions, so every session of the raw arm graded
+PARTIAL beside a *full* run count — `sub-05 ses-03 fmriprep partial (9, 9)`, the
+"4/4 beside PARTIAL" contradiction the module docstring exists to prevent, with
+nothing whatever wrong with the data. Both report shapes are now accepted, the
+way `_qsiprep_report_present` already handled the same problem. **The general
+lesson, worth more than either fix:** a hardcoded name and a hardcoded artifact
+spelling are the same mistake, and the tree duckbrain could not see was the only
+reason nobody had noticed the one it could see was being graded wrong.
 
 - **The zero-code fallback does not answer it here.** Two project dirs over one
   BIDS is still the cheapest test of the *comparison*, but mmmdata's problem is a
