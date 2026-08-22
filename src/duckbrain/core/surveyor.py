@@ -34,6 +34,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -45,6 +46,11 @@ if TYPE_CHECKING:
     from ..config import Config
 
 STAGES = ("ingested", "converted", "nordic", "freesurfer", "fmriprep", "mriqc", "qsiprep")
+
+#: The canonical fMRIPrep derivative name, and the stem every variant tree shares.
+#: A project may preprocess one BIDS root more than once (``#5b`` Case 2); the
+#: extra trees are found by :func:`fmriprep_variants` and become additive columns.
+FMRIPREP_STAGE = "fmriprep"
 
 
 class Status(StrEnum):
@@ -271,6 +277,77 @@ def _fmriprep_input_dir(config: Config) -> str:
     return str(paths["bids_dir"])
 
 
+def fmriprep_variants(paths: dict[str, str]) -> tuple[str, ...]:
+    """Extra ``derivatives/fmriprep*`` trees beside the canonical one, named as on disk.
+
+    A project may preprocess one BIDS root more than once — mmmdata carries
+    ``fmriprep`` (raw) and ``fmriprep_nordic`` (denoised), 535 G each. The
+    surveyor hardcoded ``derivatives/fmriprep``, so it graded one of them and had
+    no way to say the other was there, on a board whose whole job is to report
+    what exists. That is ``#5b`` Case 2.
+
+    **The name is read, never imposed.** ``#5b`` itself guessed
+    ``fmriprep-nordic``; what mmmdata wrote is ``fmriprep_nordic``. A convention
+    duckbrain invents for trees other tools produced is a convention that will be
+    wrong. A directory qualifies when its name is ``fmriprep`` joined by ``_`` or
+    ``-`` to a suffix **and** it holds at least one ``sub-*`` directory — the
+    second half is what keeps scratch and work dirs off the board, since only an
+    output tree has subjects in it.
+
+    Reporting only: a variant carries no ``STAGE_SPECS`` entry, so it is not in
+    ``SLURM_STAGES``, the cockpit draws it as plain status, and ``stage_runnable``
+    refuses it. That is ``#5b``'s "do not branch the pipeline" holding at the one
+    place it could leak.
+    """
+    root = Path(paths["derivatives_dir"])
+    stem = FMRIPREP_STAGE
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:  # no derivatives dir yet, or unreadable — nothing to report
+        return ()
+
+    out: list[str] = []
+    for path in entries:
+        name = path.name
+        if name == stem or not name.startswith(stem) or name[len(stem)] not in "_-":
+            continue
+        if not path.is_dir():
+            continue
+        try:
+            has_subjects = any(c.name.startswith("sub-") and c.is_dir() for c in path.iterdir())
+        except OSError:
+            continue
+        if has_subjects:
+            out.append(name)
+    return tuple(out)
+
+
+def _stage_columns(variants: tuple[str, ...]) -> tuple[str, ...]:
+    """:data:`STAGES` with *variants* spliced in directly after ``fmriprep``.
+
+    Order matters on the board: column order mirrors pipeline order, so a variant
+    belongs beside the stage it varies rather than appended after ``qsiprep``.
+    """
+    if not variants:
+        return STAGES
+    cut = STAGES.index(FMRIPREP_STAGE) + 1
+    return (*STAGES[:cut], *variants, *STAGES[cut:])
+
+
+def stage_columns(config: Config) -> tuple[str, ...]:
+    """The stage columns :func:`survey_project` will produce for this project.
+
+    :data:`STAGES` plus one column per extra fMRIPrep tree on disk. A project with
+    a single fMRIPrep tree — every project duckbrain produced itself — gets
+    :data:`STAGES` unchanged, so the extra column is additive and opted into by
+    the only signal that cannot be stale: the tree being there.
+
+    **Anything laying out stage columns must call this, not** :data:`STAGES`, or
+    the board surveys a variant and then declines to draw it.
+    """
+    return _stage_columns(fmriprep_variants(config["paths"]))
+
+
 def _fmriprep_func_keys(root: Path, subject: str, session: str) -> set[str]:
     """Runs fMRIPrep actually **finished**: a preproc BOLD *and* its confounds.
 
@@ -428,9 +505,17 @@ def _converted_status(config: Config, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _fmriprep_status(config: Config, subject: str, session: str) -> Status:
+def _fmriprep_status(
+    config: Config, subject: str, session: str, tree: str = FMRIPREP_STAGE
+) -> Status:
+    # *tree* is the derivative dir to grade: ``fmriprep`` normally, or one of
+    # `fmriprep_variants`' extra trees, which `survey_project` binds via partial.
+    # The expectation is the same for every tree, deliberately — they preprocess
+    # the same BIDS units, so a variant short of the runs the raw tree has really
+    # is incomplete and should read PARTIAL. What duckbrain must not do is invent
+    # a *different* expectation for a tree it did not produce and cannot ask.
     paths = config["paths"]
-    root = Path(paths["derivatives_dir"]) / "fmriprep"
+    root = Path(paths["derivatives_dir"]) / tree
     if not root.is_dir():
         return Status.MISSING
 
@@ -800,7 +885,8 @@ def survey_project(config: Config) -> pd.DataFrame:
     """Build the pipeline status matrix for a project.
 
     Rows are ``(subject, session)`` units; columns are the pipeline stages
-    (:data:`STAGES`) holding a :class:`Status` value each. Presence is *not*
+    holding a :class:`Status` value each — :data:`STAGES`, plus one per extra
+    fMRIPrep tree the project carries (:func:`stage_columns`). Presence is *not*
     completion — see the module docstring.
 
     Parameters
@@ -812,19 +898,28 @@ def survey_project(config: Config) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        Columns: ``subject``, ``session``, then one per stage. Empty (with the
-        right columns) when the project has no subjects yet.
+        Columns: ``subject``, ``session``, then one per stage — see
+        :func:`stage_columns`, which callers should use to lay them out. Empty
+        (with the right columns) when the project has no subjects yet.
     """
     from ..config import external_bids
 
     paths = config["paths"]
     units = discover_units(paths)
 
+    # Extra fMRIPrep trees grade through the *same* tracker with a different
+    # derivative dir bound (`#5b` Case 2): one tracker, N trees, no second code
+    # path to keep in step with the first.
+    variants = fmriprep_variants(paths)
+    trackers = dict(_TRACKERS)
+    for variant in variants:
+        trackers[variant] = partial(_fmriprep_status, tree=variant)
+
     # Per-stage applicability. A stage that cannot apply to this project grades
     # NA — the enum member exists for exactly this — because graded MISSING it
     # presents permanent unfinished work: the rollup reads "0/N", the cockpit
     # offers a one-click "run all", and "every stage complete" is unreachable.
-    applies = dict.fromkeys(_TRACKERS, True)
+    applies = dict.fromkeys(trackers, True)
     # NORDIC is opt-in per project. Without use_nordic nothing consumes its
     # output — fMRIPrep reads the raw BIDS tree — so it doesn't apply (TODO
     # #17.4, the first instance of the failure mode above). Launching NORDIC
@@ -846,17 +941,24 @@ def survey_project(config: Config) -> pd.DataFrame:
     # data" is real information on a board whose rows may include hand-dropped
     # partial subjects.
     applies["ingested"] = not external_bids(config)
+    # Variants are absent from `applies` overrides on purpose: a variant column
+    # exists *because* its tree was found on disk, so it always applies. There is
+    # no config toggle to disagree with — which is the point of reading the name
+    # off disk rather than declaring it.
 
     rows = []
     for subject, session in units:
         row = {"subject": subject, "session": session}
-        for stage, tracker in _TRACKERS.items():
+        for stage, tracker in trackers.items():
             row[stage] = (
                 tracker(config, subject, session).value if applies[stage] else Status.NA.value
             )
         rows.append(row)
 
-    columns = ["subject", "session", *STAGES]
+    # `_stage_columns` reuses the `variants` read above rather than re-scanning:
+    # a tree appearing mid-survey would otherwise give the frame a column no row
+    # has a key for.
+    columns = ["subject", "session", *_stage_columns(variants)]
     if not rows:
         return pd.DataFrame(columns=columns)
     return pd.DataFrame(rows, columns=columns)
@@ -885,9 +987,12 @@ def run_progress(config: Config, stage: str, subject: str, session: str) -> tupl
             Path(paths["derivatives_dir"]) / "nordic",
             _fmt("{ss}/**/func/sub-{sub}*_bold.nii.gz", subject, session),
         )
-    elif stage == "fmriprep":
+    elif stage == FMRIPREP_STAGE or stage in fmriprep_variants(paths):
+        # For a variant the stage name *is* the derivative dir name (`#5b` Case
+        # 2), so one branch counts every fMRIPrep tree and the number shown cannot
+        # drift from the status the same-named tracker produced.
         expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
-        found = _fmriprep_func_keys(Path(paths["derivatives_dir"]) / "fmriprep", subject, session)
+        found = _fmriprep_func_keys(Path(paths["derivatives_dir"]) / stage, subject, session)
     elif stage == "mriqc":
         expected, found = _mriqc_expected_found(config, subject, session)
     elif stage == "qsiprep":
@@ -917,8 +1022,12 @@ def summarize(matrix: pd.DataFrame) -> dict[str, dict[str, int]]:
     "12 complete / 3 partial / 5 missing" per stage.
     """
     out: dict[str, dict[str, int]] = {}
-    for stage in STAGES:
-        if stage not in matrix.columns:
+    for stage in matrix.columns:
+        # Driven by the matrix's own columns rather than by STAGES, so a project's
+        # fMRIPrep variants (`#5b` Case 2) are counted in the rollup instead of
+        # being dropped from it. `_job` columns are the overlay `pipeline_matrix`
+        # adds, not stages, and carry SLURM state rather than a Status.
+        if stage in ("subject", "session") or stage.endswith("_job"):
             continue
         counts = matrix[stage].value_counts().to_dict()
         out[stage] = {s.value: int(counts.get(s.value, 0)) for s in Status}

@@ -80,7 +80,7 @@ from duckbrain.core.pipeline import (
     stage_runnable,
     survey_live,
 )
-from duckbrain.core.surveyor import STAGES, Status, summarize
+from duckbrain.core.surveyor import Status, stage_columns, summarize
 from duckbrain.gui.components import flush_toasts, queue_toast
 
 # A launch or cancel on the previous run confirms itself here; see
@@ -820,11 +820,17 @@ def dashboard() -> None:
         )
         return
 
+    # Stage columns are per-project: one carrying more than one fMRIPrep tree
+    # gets a column per variant (`#5b` Case 2). Taken from the surveyor rather
+    # than laid out from STAGES here, so the board draws exactly what was graded
+    # — the two lists disagreeing is how a surveyed variant goes undrawn.
+    stages = stage_columns(config)
+
     # ---- Per-stage rollup ----
     summary = summarize(matrix)
     st.subheader("Overview")
-    cols = st.columns(len(STAGES))
-    for col, stage in zip(cols, STAGES, strict=True):
+    cols = st.columns(len(stages))
+    for col, stage in zip(cols, stages, strict=True):
         counts = summary[stage]
         # A stage that applies to no unit reads "—", not "0/N": 0-of-N is a
         # progress claim, and it was the headline number telling a finished
@@ -937,7 +943,7 @@ def dashboard() -> None:
         # the board — that is what made this filter hide nothing, ever, and the
         # all-complete message unreachable (TODO #17.4).
         _done = (Status.COMPLETE.value, Status.NA.value)
-        mask = matrix[list(STAGES)].apply(lambda r: any(v not in _done for v in r), axis=1)
+        mask = matrix[list(stages)].apply(lambda r: any(v not in _done for v in r), axis=1)
         view = matrix[mask.values]
 
     if view.empty:
@@ -946,13 +952,13 @@ def dashboard() -> None:
         view = _paginate(view)
         latest_jobs = _latest_jobs(config)
         log_dir = paths.get("log_dir", "")
-        spec = [1.3, 0.8] + [1.15] * len(STAGES)
+        spec = [1.3, 0.8] + [1.15] * len(stages)
 
         # Header: labels + a per-column bulk popover where the stage has runnable units.
         head = st.columns(spec)
         head[0].markdown("**sub**")
         head[1].markdown("**ses**")
-        for i, stage in enumerate(STAGES):
+        for i, stage in enumerate(stages):
             hc = head[2 + i]
             units = runnable_by_stage.get(stage)
             if stage in SLURM_STAGES and units:
@@ -973,7 +979,7 @@ def dashboard() -> None:
             rc = st.columns(spec)
             rc[0].markdown(f"sub-{row['subject']}")
             rc[1].markdown(row["session"] or "—")
-            for i, stage in enumerate(STAGES):
+            for i, stage in enumerate(stages):
                 _render_cell(
                     rc[2 + i], row, stage, config, runnable_map, latest_jobs, log_dir, jobs["by_id"]
                 )

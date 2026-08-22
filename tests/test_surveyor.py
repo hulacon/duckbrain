@@ -10,6 +10,8 @@ from duckbrain.core.surveyor import (
     STAGES,
     Status,
     discover_units,
+    fmriprep_variants,
+    stage_columns,
     summarize,
     survey_project,
 )
@@ -1069,3 +1071,129 @@ def test_freesurfer_staging_dir_never_flips_the_cell(tmp_path):
     )
     _touch(staging / "build-stamp.txt", FS8_STAMP)
     assert survey_project(cfg).loc[0, "freesurfer"] == Status.MISSING
+
+
+# ---- #5b Case 2: more than one fMRIPrep tree over one BIDS root -------------
+#
+# mmmdata carries `derivatives/fmriprep` and `derivatives/fmriprep_nordic`, 535 G
+# each. `_fmriprep_status` hardcoded the first, so duckbrain graded one and could
+# not say the other was there. These pin the fix: the extra tree is discovered by
+# name, graded by the same tracker, drawn beside the stage it varies, and never
+# launchable.
+
+
+def _fmriprep_tree(root, name="fmriprep", sub="01", func=True):
+    """A finished fMRIPrep output tree; ``func=False`` leaves it anat-only."""
+    fp = root / "derivatives" / name
+    _touch(fp / f"sub-{sub}.html")
+    _touch(fp / f"sub-{sub}" / "anat" / f"sub-{sub}_desc-preproc_T1w.nii.gz")
+    if func:
+        _touch(fp / f"sub-{sub}" / "func" / f"sub-{sub}_task-rest_desc-preproc_bold.nii.gz")
+        _touch(fp / f"sub-{sub}" / "func" / f"sub-{sub}_task-rest_desc-confounds_timeseries.tsv")
+    return fp
+
+
+def test_no_variant_column_when_there_is_only_one_fmriprep_tree(tmp_path):
+    """The column is additive: every project duckbrain produced itself has one
+    fMRIPrep tree and must see exactly the stages it always saw."""
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    config = _config(tmp_path)
+    assert fmriprep_variants(config["paths"]) == ()
+    assert stage_columns(config) == STAGES
+    assert list(survey_project(config).columns) == ["subject", "session", *STAGES]
+
+
+def test_variant_tree_gets_its_own_column_beside_fmriprep(tmp_path):
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    _fmriprep_tree(tmp_path, "fmriprep_nordic")
+    config = _config(tmp_path)
+    assert fmriprep_variants(config["paths"]) == ("fmriprep_nordic",)
+    cols = list(survey_project(config).columns)
+    # Beside what it varies, not appended after qsiprep — board column order
+    # mirrors pipeline order.
+    assert cols[cols.index("fmriprep") + 1] == "fmriprep_nordic"
+    assert cols[cols.index("fmriprep_nordic") + 1] == "mriqc"
+
+
+def test_variant_is_graded_independently_of_the_canonical_tree(tmp_path):
+    """The point of the item: a second tree that is half-finished must be
+    distinguishable from a finished one *and* from one that isn't there."""
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    _fmriprep_tree(tmp_path, "fmriprep_nordic", func=False)
+    row = survey_project(_config(tmp_path)).loc[0]
+    assert row["fmriprep"] == Status.COMPLETE
+    assert row["fmriprep_nordic"] == Status.PARTIAL
+
+
+def test_variant_name_is_read_off_disk_not_guessed(tmp_path):
+    """`#5b` guessed `fmriprep-nordic`; mmmdata wrote `fmriprep_nordic`. Both
+    separators are accepted and no spelling is imposed on a tree duckbrain did
+    not produce."""
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    _fmriprep_tree(tmp_path, "fmriprep-nordic")
+    _fmriprep_tree(tmp_path, "fmriprep_denoised")
+    assert fmriprep_variants(_paths(tmp_path)) == ("fmriprep-nordic", "fmriprep_denoised")
+
+
+def test_scratch_and_unseparated_dirs_are_not_variants(tmp_path):
+    """A work dir holds no subjects, and `fmriprep25_pilot` is a different version
+    of the tool rather than a variant of this tree — neither is an output tree, so
+    neither earns a column."""
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    _touch(tmp_path / "derivatives" / "fmriprep_work" / "fmriprep_wf" / "node.pklz")
+    _fmriprep_tree(tmp_path, "fmriprep25_pilot")
+    assert fmriprep_variants(_paths(tmp_path)) == ()
+
+
+def test_run_progress_counts_the_variant_tree(tmp_path):
+    """A PARTIAL cell with no number is its own silent degrade — the variant cell
+    must carry a count like every other fMRIPrep cell."""
+    from duckbrain.core.surveyor import run_progress
+
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    _fmriprep_tree(tmp_path, "fmriprep_nordic", func=False)
+    config = _config(tmp_path)
+    assert run_progress(config, "fmriprep", "01", "") == (1, 1)
+    assert run_progress(config, "fmriprep_nordic", "01", "") == (0, 1)
+
+
+def test_summarize_counts_the_variant_column(tmp_path):
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    _fmriprep_tree(tmp_path, "fmriprep_nordic", func=False)
+    summary = summarize(survey_project(_config(tmp_path)))
+    assert summary["fmriprep"][Status.COMPLETE.value] == 1
+    assert summary["fmriprep_nordic"][Status.PARTIAL.value] == 1
+
+
+def test_summarize_ignores_the_slurm_overlay_columns(tmp_path):
+    """`pipeline_matrix` adds `<stage>_job` columns holding SLURM state, not a
+    Status. Summarizing by matrix column rather than by STAGES must not turn them
+    into phantom stages."""
+    _bids_anat_func(tmp_path)
+    matrix = survey_project(_config(tmp_path))
+    matrix["fmriprep_job"] = ["running"] * len(matrix)
+    summary = summarize(matrix)
+    assert "fmriprep_job" not in summary
+    assert "fmriprep" in summary
+
+
+def test_variant_is_reported_never_launched(tmp_path):
+    """`#5b`: do not branch the pipeline. A variant is a status column and nothing
+    more — no STAGE_SPECS entry, so the cockpit cannot offer to run it and no
+    second submission path exists to keep in step with the first."""
+    from duckbrain.core.pipeline import SLURM_STAGES, stage_runnable
+
+    _bids_anat_func(tmp_path)
+    _fmriprep_tree(tmp_path)
+    _fmriprep_tree(tmp_path, "fmriprep_nordic", func=False)
+    config = _config(tmp_path)
+    row = survey_project(config).loc[0]
+    assert "fmriprep_nordic" not in SLURM_STAGES
+    assert not stage_runnable(row, "fmriprep_nordic", config)
