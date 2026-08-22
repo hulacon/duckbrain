@@ -457,7 +457,9 @@ def _expected_conversion_counts(
     """
     import json
 
-    cfg = Path(paths["sourcedata_dir"]) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
+    from .conversion import resolve_dcm2bids_config_path
+
+    cfg = resolve_dcm2bids_config_path(paths, subject, session)
     try:
         descriptions = json.loads(cfg.read_text()).get("descriptions", [])
     except (OSError, ValueError):

@@ -19,6 +19,20 @@ use_sessions = "auto"
 [paths]
 bids_dir = ""              # Root BIDS dataset directory
 sourcedata_dir = ""        # Where organized DICOMs live (usually <bids_dir>/sourcedata)
+# Where per-session reviewed `dcm2bids_config.json` files live, as
+# <dcm2bids_config_dir>/sub-XX/[ses-YY]/dcm2bids_config.json.
+# Empty (the default) means sourcedata_dir — the historical location.
+#
+# Set this when sourcedata_dir is NOT writable by whoever runs duckbrain, which
+# is the normal case for a shared tree owned by another user: duckbrain saves a
+# generated config beside the DICOMs, so an unwritable sourcedata made
+# conversion fail at build time. dcm2bids itself only READS the config (the
+# sbatch template bind-mounts its directory :ro and passes it to -c), so it does
+# not have to sit beside the DICOMs at all.
+#
+# Reads fall back to sourcedata_dir when nothing is here, so setting this never
+# hides reviews already saved beside the DICOMs; saving migrates them here.
+dcm2bids_config_dir = ""
 derivatives_dir = ""       # Usually <bids_dir>/derivatives
 # Scratch for fMRIPrep/MRIQC intermediates — node-local, outside the BIDS tree.
 # The BASE only: each job gets <work_dir>/duckbrain-<user>-<project>-<hash>/<step>_<unit>,

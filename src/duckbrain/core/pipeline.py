@@ -105,12 +105,13 @@ def _build_dcm2bids(
         ensure_readme,
     )
     from .conversion import (
+        dcm2bids_config_write_path,
         generate_session_config,
         get_container_path,
+        resolve_dcm2bids_config_path,
         resolve_dicom_dir,
         save_dcm2bids_config,
     )
-    from .ingestion import sub_ses_relpath
 
     sourcedata_dir = config["paths"]["sourcedata_dir"]
     bids_dir = config["paths"]["bids_dir"]
@@ -146,11 +147,14 @@ def _build_dcm2bids(
     force = bool(params.get("force", False))
     container_path = get_container_path(config)
     dicom_dir = resolve_dicom_dir(sourcedata_dir, subject, session)
-    cfg_path = Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
+    cfg_path = resolve_dcm2bids_config_path(config["paths"], subject, session)
     # Reuse a previously reviewed/saved config; only auto-generate when absent.
     # Auto-generation inherits the project-wide task/run mapping (if any), so a
     # bulk/cockpit convert honors the study's once-defined task labels.
     if not cfg_path.exists():
+        # Nothing reviewed anywhere, so this generates one — and it must land
+        # somewhere writable, which the read resolver does not promise.
+        cfg_path = dcm2bids_config_write_path(config["paths"], subject, session)
         from .dcm2bids_config import fmap_rules_from_config, task_rules_from_config
         from .dicom_inspect import nd_policy_from_config
         from .series_skip import skip_descriptions_from_config

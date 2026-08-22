@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from pathlib import Path
@@ -146,6 +146,63 @@ def run_dcm2bids(
     return result
 
 
+def dcm2bids_config_dir(paths: Mapping[str, str]) -> Path:
+    """Root under which per-session ``dcm2bids_config.json`` files live.
+
+    ``[paths] dcm2bids_config_dir`` when set, else ``sourcedata_dir`` — which is
+    the historical location and stays the default, so an unset key changes
+    nothing.
+
+    The override exists because the config's home has to be **writable** while
+    the DICOMs it describes need only be readable. dcm2bids itself never writes
+    the config: ``templates/sbatch/dcm2bids.sbatch.j2`` bind-mounts the
+    directory ``:ro`` and passes the file to ``-c``. duckbrain is the only thing
+    that writes there, and it does so beside DICOMs it may not own — a shared
+    PIRG tree owned by another user is read-only to us by default, which made
+    ``_build_dcm2bids`` raise ``PermissionError`` at build time rather than
+    submit a job.
+    """
+    return Path(paths.get("dcm2bids_config_dir") or paths["sourcedata_dir"])
+
+
+def resolve_dcm2bids_config_path(paths: Mapping[str, str], subject: str, session: str) -> Path:
+    """Path to a session's reviewed ``dcm2bids_config.json``.
+
+    Writes always go to :func:`dcm2bids_config_dir`. Reads prefer it too, but
+    fall back to the ``sourcedata_dir`` location when the override holds no file
+    and the legacy one does — so pointing a project at a new config dir does not
+    hide reviews already saved beside its DICOMs. Without that fallback the
+    override would silently re-open every skip decision a project had reviewed,
+    which is the exact failure the override was added to prevent.
+    """
+    from .ingestion import sub_ses_relpath
+
+    relpath = sub_ses_relpath(subject, session)
+    primary = dcm2bids_config_dir(paths) / relpath / "dcm2bids_config.json"
+    if primary.exists():
+        return primary
+    legacy = Path(paths["sourcedata_dir"]) / relpath / "dcm2bids_config.json"
+    if legacy.exists():
+        return legacy
+    return primary
+
+
+def dcm2bids_config_write_path(paths: Mapping[str, str], subject: str, session: str) -> Path:
+    """Where a *newly saved* config for this session goes.
+
+    Always :func:`dcm2bids_config_dir` — never the legacy fallback that
+    :func:`resolve_dcm2bids_config_path` may return for reads. A project sets
+    the override precisely because the legacy location is not writable, so
+    saving a review back to where it was read from would fail on the first
+    project that needed the override. Writing to the override instead migrates
+    the review to its writable home, and the read resolver prefers the override,
+    so the newly saved copy is the one every later read sees.
+    """
+    from .ingestion import sub_ses_relpath
+
+    return dcm2bids_config_dir(paths) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
+
+
 def save_dcm2bids_config(config_dict: Dcm2BidsConfig, output_path: str | Path) -> Path:
     """Write a dcm2bids config dict to a JSON file.
 
@@ -162,9 +219,23 @@ def save_dcm2bids_config(config_dict: Dcm2BidsConfig, output_path: str | Path) -
         The written file path.
     """
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        json.dump(config_dict, f, indent=2)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            json.dump(config_dict, f, indent=2)
+    except PermissionError as exc:
+        # Names the fix, because the cause is never obvious from the traceback:
+        # the caller asked to convert, not to write here, and the directory is
+        # usually one duckbrain derived rather than one the user chose.
+        raise PermissionError(
+            f"Cannot write the dcm2bids config to {output_path}: permission "
+            f"denied on {output_path.parent}.\n"
+            "dcm2bids only ever READS this file (the sbatch template mounts its "
+            "directory read-only), so it does not have to live beside the "
+            "DICOMs. If that tree is owned by someone else, point "
+            "[paths] dcm2bids_config_dir at a directory you can write; reviewed "
+            "configs already saved under sourcedata_dir are still honored."
+        ) from exc
     return output_path
 
 

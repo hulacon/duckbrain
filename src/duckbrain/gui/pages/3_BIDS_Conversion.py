@@ -50,7 +50,9 @@ for s in ingested:
 # ---- Bulk conversion (skips per-session review) ----
 bids_dir = paths.get("bids_dir", "")
 from duckbrain.core.conversion import (
+    dcm2bids_config_write_path,
     get_container_path,
+    resolve_dcm2bids_config_path,
     save_dcm2bids_config,
     session_bids_exists,
 )
@@ -454,9 +456,7 @@ from duckbrain.gui.conversion_panels import probe_note, session_probes
 # it and never read it, so a reviewed session reopened showing heuristic values
 # with nothing to say a saved review existed, and submitting overwrote it without
 # a word (TODO #17.6).
-_saved_config_path = (
-    Path(sourcedata_dir) / sub_ses_relpath(subject, session) / "dcm2bids_config.json"
-)
+_saved_config_path = resolve_dcm2bids_config_path(paths, subject, session)
 if _saved_config_path.exists():
     _saved_when = datetime.fromtimestamp(_saved_config_path.stat().st_mtime).strftime(
         "%Y-%m-%d %H:%M"
@@ -1470,7 +1470,10 @@ if parsed_config is None and (save_config_btn or convert_btn or export_btn):
     st.stop()
 
 # Save config (same file the "already reviewed" notice above reports on).
-config_json_path = _saved_config_path
+# Read from wherever the review actually is; save to where we can write.
+# These differ only when [paths] dcm2bids_config_dir is set and a legacy config
+# still sits beside the DICOMs, in which case saving migrates it.
+config_json_path = dcm2bids_config_write_path(paths, subject, session)
 
 if save_config_btn and parsed_config:
     from duckbrain.core.conversion import save_dcm2bids_config
