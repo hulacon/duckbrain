@@ -1872,6 +1872,20 @@ The item is closed and shipping; these are the accepted edges.
     than values is the likely shape. **The mechanism gets decided when the formal
     anonymization layer of `#7.1` is built**, so it falls out of that layer's PII
     policy rather than being fixed early by a check that has to live alongside it.
+- **Investigate ENIGMA QC, and find the LCNI review script for it.** From a
+  colleague conversation (Ben, 2026-08-25); not urgent, recorded so it isn't
+  lost. Two halves: (a) what the ENIGMA consortium's QC protocols actually are
+  for MR/fMRI analysis — best known for standardized FreeSurfer-based
+  **parcel-level volumetric QC** (per-region outlier flagging against norms plus
+  generated visual-review pages), which is a different axis from MRIQC's
+  whole-image IQMs; (b) LCNI reportedly wrote a script that facilitates *human
+  review* of ENIGMA QC output (believed parcel-level volumetric info) — track it
+  down before reinventing it. Plausible landing spots if it earns a place:
+  the `#7.4` quality-norms dashboard (the `#16` "fold them together" note
+  applies), the `#30` eyeball queue for its human-review half, and it would give
+  the `#7.7` external-recon stage a QC consumer for its FreeSurfer outputs.
+  Verify the current state of ENIGMA tooling before building anything — the
+  protocols circulate as shell/R script bundles of varying vintage.
 
 ---
 
