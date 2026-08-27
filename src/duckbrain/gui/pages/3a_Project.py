@@ -20,6 +20,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from duckbrain.gui.components import show_error
+
 st.set_page_config(page_title="Project — duckbrain", layout="wide")
 st.title("Project")
 st.caption(
@@ -110,7 +112,7 @@ with col1:
                     st.success(f"Written: `{tsv_path}` ({len(participants_df)} subjects)")
                     st.dataframe(participants_df, width="stretch", hide_index=True)
         except Exception as e:
-            st.error(f"Error: {e}")
+            show_error("Error", e)
 
 with col2:
     if st.button("Generate dataset_description.json"):
@@ -138,7 +140,7 @@ with col2:
             )
             st.success(f"Written: `{desc_path}`")
         except Exception as e:
-            st.error(f"Error: {e}")
+            show_error("Error", e)
 
 #: Where the panel parks its last result. Not `st.cache_data`: a cache keyed on
 #: the dataset path would serve a stale "clean" after a bad conversion, which is

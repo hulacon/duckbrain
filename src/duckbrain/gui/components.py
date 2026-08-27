@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import traceback
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -47,6 +48,29 @@ def flush_toasts() -> None:
     """
     for message, icon in st.session_state.pop(_TOAST_QUEUE, []):
         st.toast(message, icon=icon)
+
+
+def show_error(prefix: str, exc: Exception) -> None:
+    """Render *exc* as an ``st.error``, plus the traceback when it would help.
+
+    A ``PipelineError`` message is written for a human and names its own remedy,
+    so the message is the whole story. Anything else reaching a page's catch-all
+    is a bug, and its one useful artifact is the traceback — which otherwise goes
+    only to the Streamlit server's stdout, a stream a browser user cannot see
+    (under OnDemand it is buried in the session's ``output.log``). Surfacing it
+    here, stamped with the serving checkout's version, makes a pasted report
+    diagnosable by someone with no shell access to the tree that produced it.
+    """
+    st.error(f"{prefix}: {exc}")
+    from duckbrain.core.pipeline import PipelineError
+
+    if isinstance(exc, PipelineError):
+        return
+    from duckbrain.core.bids_metadata import duckbrain_version
+
+    with st.expander("Details for a bug report"):
+        trace = "".join(traceback.format_exception(exc))
+        st.code(f"duckbrain {duckbrain_version()}\n\n{trace}", language="text")
 
 
 def _nearest_dir(path: str) -> Path:

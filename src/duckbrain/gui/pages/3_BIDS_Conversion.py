@@ -374,7 +374,7 @@ if _reproin_count:
 # plan table, the grouped relation view). That shared colour is the whole point:
 # which pair corrects which run is a *relation* spanning three surfaces, and one
 # stable token per group is what lets the eye join them. See TODO #13.
-from duckbrain.gui.components import fmap_badge, fmap_swatches, fmap_token
+from duckbrain.gui.components import fmap_badge, fmap_swatches, fmap_token, show_error
 
 fieldmaps = detect_fieldmaps(series_list)
 # Acquisition time per series, for the nearest-in-time fieldmap binding — so the
@@ -1512,4 +1512,4 @@ if (convert_btn or export_btn) and parsed_config:
             with st.expander("View script"):
                 st.code(Path(export_path).read_text(), language="bash")
     except Exception as e:
-        st.error(f"{'Submission' if convert_btn else 'Export'} failed: {e}")
+        show_error(f"{'Submission' if convert_btn else 'Export'} failed", e)

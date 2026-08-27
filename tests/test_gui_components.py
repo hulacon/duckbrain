@@ -243,3 +243,44 @@ def test_a_flushed_toast_is_not_shown_twice():
 
     at.run()
     assert not at.toast
+
+
+# ---- show_error -------------------------------------------------------------
+
+
+def _error_app(kind="unexpected"):
+    from duckbrain.core.pipeline import PipelineError
+    from duckbrain.gui.components import show_error
+
+    exc: Exception
+    if kind == "pipeline":
+        exc = PipelineError("no anat derivatives to reuse for sub-01")
+    else:
+        try:
+            raise ValueError("boom")
+        except ValueError as caught:
+            exc = caught
+    show_error("Could not launch", exc)
+
+
+def test_show_error_keeps_a_pipeline_error_to_its_message():
+    """A PipelineError is written for a human and names its own remedy; a
+    traceback under it would only bury the sentence that matters."""
+    at = AppTest.from_function(_error_app, kwargs={"kind": "pipeline"}, default_timeout=60).run()
+    assert not at.exception
+    assert any("Could not launch: no anat derivatives" in e.value for e in at.error)
+    assert not at.code
+
+
+def test_show_error_surfaces_a_traceback_for_an_unexpected_exception():
+    """An unexpected exception's traceback otherwise reaches only the server's
+    stdout — under OnDemand, a file a browser user never finds. The expander is
+    what makes a pasted bug report diagnosable, and the version stamp says
+    which checkout produced it."""
+    at = AppTest.from_function(_error_app, kwargs={"kind": "unexpected"}, default_timeout=60).run()
+    assert not at.exception
+    assert any("Could not launch: boom" in e.value for e in at.error)
+    body = at.code[0].value
+    assert "duckbrain " in body
+    assert "ValueError: boom" in body
+    assert "Traceback" in body

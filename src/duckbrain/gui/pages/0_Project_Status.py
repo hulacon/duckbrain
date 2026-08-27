@@ -81,7 +81,7 @@ from duckbrain.core.pipeline import (
     survey_live,
 )
 from duckbrain.core.surveyor import Status, stage_columns, summarize
-from duckbrain.gui.components import flush_toasts, queue_toast
+from duckbrain.gui.components import flush_toasts, queue_toast, show_error
 
 # A launch or cancel on the previous run confirms itself here; see
 # `components.queue_toast` for why it cannot confirm itself at the call site.
@@ -292,7 +292,7 @@ def _launch(
         queue_toast(f"{verb} {stage} for {_unit_label(sub, ses)} — job {job_id}")
         st.rerun()
     except Exception as e:
-        st.error(f"Could not launch: {e}")
+        show_error("Could not launch", e)
 
 
 def _run_popover(row: pd.Series, stage: str, config: Config) -> None:
@@ -402,7 +402,7 @@ def _job_popover(
                 queue_toast(f"Cancelled job {job_id} — {stage} {_unit_label(sub, ses)}", icon="🛑")
                 st.rerun()
             except Exception as e:
-                st.error(f"Could not cancel: {e}")
+                show_error("Could not cancel", e)
 
 
 def _queue_headroom(config: Config, n: int, queued: int) -> str:
