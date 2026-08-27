@@ -14,7 +14,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from conftest import page_path
-from duckbrain.config import USER_CONFIG_ENV, load_config, scaffold_project
+from duckbrain.config import USER_CONFIG_ENV, load_config, remember_project, scaffold_project
 
 PAGE = page_path("src/duckbrain/gui/pages/1_Project_Setup.py")
 
@@ -524,3 +524,47 @@ def test_use_external_fs_toggle_puts_the_stage_on_the_board(project):
     assert _cells() and "n/a" not in _cells()
     cfg = load_config(project_dir=str(project))
     assert effective_dependencies(cfg, "fmriprep") == ("converted", "freesurfer")
+
+
+# ---- Opening a project ------------------------------------------------------
+
+
+def _no_active_project(tmp_path, monkeypatch):
+    """Page state for the *opening* flow: nothing active, recents from a tmp
+    user config (the env var would otherwise pre-open a project and hide the
+    clicked one from the recents list)."""
+    monkeypatch.delenv("DUCKBRAIN_PROJECT_DIR", raising=False)
+    monkeypatch.setenv(USER_CONFIG_ENV, str(tmp_path / "user_config.toml"))
+
+
+def test_a_recents_click_opens_the_project(tmp_path, monkeypatch):
+    _no_active_project(tmp_path, monkeypatch)
+    proj = tmp_path / "proj"
+    scaffold_project(proj)
+    remember_project(proj)
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _button(at, str(proj)).click().run()
+    assert not at.exception
+    assert at.session_state["project_dir"] == str(proj)
+
+
+def test_an_unwritable_project_root_reports_instead_of_crashing(tmp_path, monkeypatch):
+    """Adopting an existing BIDS tree starts with a scaffold write; on a root
+    the operator cannot write, that used to die as a raw PermissionError — the
+    first thing a new lab pointing duckbrain at a colleague's dataset would
+    see. It must render as an error that names the fix, and must not
+    half-activate the project."""
+    _no_active_project(tmp_path, monkeypatch)
+    locked = tmp_path / "locked_bids"
+    locked.mkdir()
+    remember_project(locked)
+    locked.chmod(0o555)
+    try:
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
+        _button(at, str(locked)).click().run()
+        assert not at.exception
+        assert any("write access" in e.value for e in at.error)
+        assert "project_dir" not in at.session_state
+    finally:
+        locked.chmod(0o755)

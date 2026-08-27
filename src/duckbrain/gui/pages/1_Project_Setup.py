@@ -98,12 +98,30 @@ st.markdown(
 current_project = st.session_state.get("project_dir") or os.environ.get(PROJECT_ENV, "")
 
 
-def _open_project(path: str) -> None:
-    """Make *path* active for this session and record it as most-recently-used."""
-    scaffold_project(path)  # idempotent: makes sourcedata/derivatives/code
+def _open_project(path: str) -> bool:
+    """Make *path* active for this session and record it as most-recently-used.
+
+    Returns False, after an ``st.error``, when the directory cannot be
+    scaffolded. Adopting an existing BIDS tree is the case that hits this: the
+    root may belong to another lab member, and the scaffold is the first write
+    duckbrain attempts — without the catch, "Open" died in a raw
+    ``PermissionError`` as the adopter's first duckbrain experience.
+    """
+    try:
+        scaffold_project(path)  # idempotent: makes sourcedata/derivatives/code
+    except OSError as e:
+        st.error(
+            f"Cannot open `{path}` — duckbrain needs write access to the "
+            "project root (it keeps `sourcedata/`, `derivatives/`, `code/logs/` "
+            f"and `.bidsignore` there), and creating them failed: {e}. "
+            "If this dataset belongs to someone else, ask its owner to make "
+            "the root group-writable, then reopen."
+        )
+        return False
     st.session_state["project_dir"] = path
     os.environ[PROJECT_ENV] = path  # visible to other pages this session
     remember_project(path)
+    return True
 
 
 # Re-picking the same directory every session was the main friction with the
@@ -115,8 +133,9 @@ if _recents:
     for _path in _recents:
         _open_col, _drop_col = st.columns([12, 1], vertical_alignment="center")
         with _open_col:
-            if st.button(_path, key=f"open_recent_{_path}", width="stretch"):
-                _open_project(_path)
+            if st.button(_path, key=f"open_recent_{_path}", width="stretch") and _open_project(
+                _path
+            ):
                 st.rerun()
         with _drop_col:
             if st.button("✕", key=f"drop_recent_{_path}", help="Forget this project"):
@@ -137,8 +156,8 @@ project_dir = directory_picker(
 col_open, col_info = st.columns([1, 2])
 with col_open:
     if st.button("Open / Create Project", type="primary", disabled=not project_dir):
-        _open_project(project_dir)
-        st.success(f"Active project: `{project_dir}`")
+        if _open_project(project_dir):
+            st.success(f"Active project: `{project_dir}`")
 
 active_project = st.session_state.get("project_dir")
 if not active_project:
