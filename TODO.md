@@ -38,7 +38,9 @@ sub-items as fixtures appear ·
 [`#12`](#12) mmmdata-agents · [`#7`](#7) extra stages — the four `#43` claims
 are still described there; the rest is unscheduled ·
 [`#8`](#8) branding + dark theme ·
-[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time)
+[`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
+[`#46`](#46) — tree comparator (conversion validation + duplicate audit, one
+digest core) — **not scheduled**; shape to be decided after the OSL meeting
 
 **Below the queue, unscheduled, and not closed either:**
 [`#5`](#5) standing config / mapping decisions ·
@@ -50,8 +52,8 @@ the rule lives — the two questions that sort finished work into releases, and 
 "ship it all at once" is the wrong default. It used to be narrated here release by
 release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
-went stale between every read. **Currently unreleased:** `#13.2`, `#42.1`–`#42.6`, `#44`,
-`#43.1`–`#43.2`, `#43.3` Slice A and `#45`, on top of `v0.6.0`.
+went stale between every read. **Currently unreleased:** nothing — `v0.7.0`
+(2026-08-27) shipped the whole queue.
 
 ---
 
@@ -1753,6 +1755,63 @@ not motion — the same figures sat frozen on their "before" frame until the
 2026-08-10 hover fix, whose flicker eyeball the 2026-08-18 pass cleared. The
 hover-gated ones travel as srcdoc iframes; still URL-free, so still not entry
 1's problem.)
+
+---
+
+<a id="46"></a>
+## #46 — A tree comparator: conversion validation and duplicate audit, one core
+
+**Filed 2026-08-27, the day of the OSL adoption meeting; deliberately
+unscheduled — Ben wants to think on the shape, and the meeting may change it.**
+Two use cases turned out to share one engine, which is what makes this a tool
+rather than two scripts:
+
+1. **Validation for an adopting lab.** Convert one *already-converted*
+   subject's DICOMs through duckbrain and diff against the lab's existing
+   tree. The procedure that survived discussion: a **scratch project**
+   (DICOMs symlink-ingested, deleted after), **keeping the real subject
+   label** — a `sub-999` relabel poisons the very diff it serves, because the
+   label is embedded in every filename and in sidecar path references. Never
+   inside the production project: `external_bids` hides the conversion path
+   there, and a test subject in a live dataset is pollution someone has to
+   remember to remove.
+2. **Duplicate audit within one tree.** The clerical failure class — the same
+   acquisition sitting under two subject labels, a session ingested twice, a
+   test subject never cleaned up — shows up as exact digest collisions across
+   different filenames. Same-person-scanned-twice-under-two-IDs is
+   **out of scope**: different acquisitions, fuzzy-biometric territory, not v1.
+
+**The shared core:** a canonical per-file digest of the *decompressed voxel
+array* (nibabel — never file bytes; gzip embeds a timestamp, so identical data
+hashes differently as files), paired with an acquisition fingerprint from the
+sidecar (`AcquisitionTime`, `SeriesNumber`, `SeriesDescription` where present).
+Compare-two-trees mode matches runs, compares digests plus the
+acquisition-relevant sidecar fields (TR, `PhaseEncodingDirection`,
+`TotalReadoutTime`/EES, `SliceTiming`, TEs), and emits a **triage table** —
+the standard is a triaged list of "differs, why, does it matter", not byte
+identity: converter provenance, JSON formatting, entity naming, and
+`IntendedFor`-vs-`B0Field*` wiring all legitimately differ between converters.
+Within-tree mode reports digest collisions.
+
+**Boundaries settled when this was filed, so they aren't re-derived:**
+- Determinism ends at conversion. dcm2niix voxel data is stable given the same
+  input; fMRIPrep is **not** (multithreaded ANTs/FreeSurfer float-reduction
+  order; `--random-seed` does not rescue a multithreaded run). So fMRIPrep
+  "validation" is *orchestration* validation — version, flags, the report's
+  own "Susceptibility distortion correction" line, recon imported rather than
+  rebuilt — never voxel equality. Numeric reassurance, if wanted, is
+  "correlates >0.99 with the old run", framed as expected-similar.
+- "Matches the existing tree" is not a correctness argument on its own —
+  `#19`'s standing lesson. A substantive disagreement (a PE direction, a
+  fieldmap binding) means read the DICOM header before deciding which tree is
+  wrong; that species of disagreement once found a real bug in a canonical tree.
+
+**The open decision, and why this is parked rather than built:** a `scripts/`
+utility fits the paste-mediated support workflow today; `python -m
+duckbrain.compare` (the `duckbrain.catalog` precedent) makes it a durable
+capability every adopting lab gets. Lean module — the audit half is an
+adoption-era need, not an OSL-specific one — but decide after the meeting
+shows what OSL actually asks for.
 
 ---
 
