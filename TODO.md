@@ -41,7 +41,10 @@ are still described there; the rest is unscheduled ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
 [`#46`](#46) — tree comparator (conversion validation + duplicate audit, one
 digest core) — **not scheduled**; shape to be decided once the first
-adopting lab's needs are clear
+adopting lab's needs are clear ·
+[`#47`](#47) — "Bundle a bug report" button — one-click assembly of version +
+traceback + log tail into a downloadable file; email delivery deliberately
+deferred
 
 **Below the queue, unscheduled, and not closed either:**
 [`#5`](#5) standing config / mapping decisions ·
@@ -1813,6 +1816,56 @@ duckbrain.compare` (the `duckbrain.catalog` precedent) makes it a durable
 capability every adopting lab gets. Lean module — the audit half is an
 adoption-era need, not specific to one lab — but decide after the meeting
 shows what the adopting lab actually asks for.
+
+---
+
+<a id="47"></a>
+## #47 — "Bundle a bug report": one-click assembly, deliberately no auto-send
+
+**Asked for by Ben 2026-08-27, preparing to support the first adopting lab
+live.** The support loop is paste-mediated — the maintainer cannot read the
+lab's PIRG, so the report *is* the visibility — and the current protocol (the
+onboarding doc's "when something breaks" checklist) depends on the reporter
+executing four steps correctly: `git describe`, full error via the
+`v0.7.0` "Details for a bug report" expander, the log tail, what they clicked.
+The observed failure mode of such protocols is not unwillingness but
+incompleteness — version missing, wrong log, error paraphrased.
+
+**Build the assembly half:** a **"Bundle a bug report"** button that gathers,
+at click time, `git describe` of the running checkout (the provenance rule's
+"what ran" answer), the current traceback if the expander is showing one, the
+newest log tail(s) from the derived `log_dir`, a sanitized config summary, and
+a free-text "what did you click" box — written to **one downloadable text
+file** the user sends themselves. Download-and-send is a feature, not a
+fallback: the bundle auto-scrapes logs from a tree whose paths and subject
+labels belong to the lab, so the user's eyes stay on exactly what leaves
+their PIRG before it leaves.
+
+**The email half is deliberately deferred, three reasons measured 2026-08-27:**
+
+1. **Transport is unproven.** The GUI runs on an OnDemand compute node.
+   SLURM's `--mail-user` works because *slurmctld* sends it — that is no
+   evidence arbitrary SMTP from a compute node works here. Cheap to test
+   (`echo test | mail -s test …` from a Desktop session) and worth doing
+   before designing anything; but a dependency on cluster mail config fails
+   precisely when the user is already stuck.
+2. **The recipient does not generalize.** A baked-in address in a public
+   general-purpose tool routes every future adopter's bugs to one person
+   forever. It would have to be a `support_email` config field defaulting to
+   unset — at which point the button degrades to "download the bundle" for
+   most users anyway, so the bundle is the feature and email is sugar on top
+   *if* the transport test passes.
+3. Auto-sending removes the user's eyes from the content — the wrong
+   direction given the privacy point above.
+
+**No report cache.** The logs are already on shared FS in `log_dir` and the
+expander already holds the live traceback; bundle from what exists at click
+time. A cache of report material is a second state store with a staleness
+story, against the surveyor's re-derive-live rule for no payoff.
+
+Ties to `#2` (onboarding: this compresses the doc's report checklist to "click
+the button, send the file") and shares `#46`'s adoption-era origin: shape the
+bundle's contents after live support shows what reports actually lack.
 
 ---
 
