@@ -10,6 +10,8 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-08-27
+
 ### Added
 
 - **Diffusion preprocessing — a QSIPrep stage.** A new `qsiprep` stage runs
@@ -124,6 +126,14 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   fMRIPrep and MRIQC would silently ignore. Generated configs are unaffected:
   measured across 268 real sessions, duckbrain's own plans produce zero
   findings.
+
+- **Unexpected GUI errors now carry a "Details for a bug report" expander** —
+  the full traceback, stamped with the running checkout's `git describe`, so a
+  pasted report identifies its version by itself. Expected refusals (a
+  `PipelineError`, whose message names its own remedy) stay one line.
+  Previously the traceback reached only the Streamlit server's stdout, which a
+  browser user cannot see — under OnDemand it is buried in the session's
+  `output.log` — so a remote helper got `Error: 'NoneType' …` and nothing more.
 
 ### Changed
 
@@ -1718,11 +1728,26 @@ Notable bugs caught by live validation rather than unit tests:
   log, Job Monitor, and every log-overlay check on the next launch. The header now
   migrates atomically before appending.
 
+- **Opening a project on a BIDS root you cannot write reports the problem
+  instead of crashing.** The first open scaffolds `code/logs/` and friends in
+  the root; on an unwritable one — adopting a dataset a colleague owns — that
+  died in a raw `PermissionError` as the first thing a new user saw. It now
+  says what duckbrain needed to write and how to fix the permissions, and
+  declines to half-activate the project.
+
+- **`setup_env.sh` derives its shared prefix from the clone's own PIRG**, as
+  the README has claimed all along: a clone under `/projects/osl/…` now
+  defaults to `/projects/osl/shared/envs/duckbrain` instead of failing against
+  hulacon's hardcoded path — and only after the multi-minute solve. An
+  unwritable prefix is refused up front, and a clone outside `/projects`
+  (no PIRG to share with) must say `--personal` or `--prefix`.
+
 ### Licensing
 - Released under **GPL-3.0-or-later**. Supersedes an unbacked `license = "MIT"`
   claim in `pyproject.toml` (no `LICENSE` file had ever existed).
 
-[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/hulacon/duckbrain/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hulacon/duckbrain/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hulacon/duckbrain/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hulacon/duckbrain/compare/v0.3.0...v0.4.0
