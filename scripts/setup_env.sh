@@ -18,12 +18,26 @@
 # The default prefix is shared: one build under /projects/<pirg>/shared/envs
 # serves the whole PIRG instead of each user growing a private copy under
 # ~/.conda (invisible to everyone else — /home dirs here are drwx------ — and
-# ~1.2 G each). Users in another PIRG: pass
-# `--prefix /projects/<your-pirg>/shared/envs/duckbrain`.
+# ~1.2 G each). The PIRG is read off this checkout's own physical path, so a
+# clone under /projects/osl/... defaults to /projects/osl/shared/envs/duckbrain
+# — this used to hardcode hulacon's prefix, which made the README's "shared by
+# default" promise a permission error for every other PIRG. A clone outside
+# /projects has no PIRG to share with: pass --personal or --prefix there.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SHARED_PREFIX=/projects/hulacon/shared/envs/duckbrain
+# Physical path, not the invoked one: a clone reached through a $HOME symlink
+# still belongs to the PIRG whose filesystem holds it.
+case "$(cd "$REPO" && pwd -P)" in
+  /projects/*|/gpfs/projects/*)
+    pirg="$(cd "$REPO" && pwd -P)"
+    pirg="${pirg#/gpfs}"; pirg="${pirg#/projects/}"; pirg="${pirg%%/*}"
+    SHARED_PREFIX="/projects/${pirg}/shared/envs/duckbrain"
+    ;;
+  *)
+    SHARED_PREFIX=""
+    ;;
+esac
 PREFIX="$SHARED_PREFIX"
 CONDA_MODULE=miniconda3/20260319
 DRY=""
@@ -33,10 +47,29 @@ while [[ $# -gt 0 ]]; do
     --personal) PREFIX="$HOME/.conda/envs/duckbrain"; shift ;;
     --prefix)   PREFIX="${2:?--prefix needs a path}"; shift 2 ;;
     --dry-run)  DRY="--dry-run"; shift ;;
-    -h|--help)  sed -n '2,22p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)  sed -n '2,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+if [[ -z "$PREFIX" ]]; then
+  echo "error: this clone is outside /projects, so there is no PIRG to share an env with." >&2
+  echo "       Pass --personal, or --prefix /projects/<your-pirg>/shared/envs/duckbrain." >&2
+  exit 2
+fi
+
+# Refuse an unwritable prefix now, not after the multi-minute solve — conda's
+# own permission error arrives at install time with the work already done.
+# (--dry-run is exempt: solving against a prefix you can only read is legal.)
+if [[ -z "$DRY" ]]; then
+  probe="$PREFIX"
+  while [[ ! -d "$probe" ]]; do probe="$(dirname "$probe")"; done
+  if [[ ! -w "$probe" ]]; then
+    echo "error: $PREFIX is not writable by you (nearest existing dir: $probe)." >&2
+    echo "       Use --personal, or --prefix somewhere your account can write." >&2
+    exit 2
+  fi
+fi
 
 # 1. conda itself. A bare `conda` on $PATH here is FSL's (6.0.7.9, conda
 #    23.11), not a module's, so load the module explicitly. NB: `module` is a

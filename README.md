@@ -60,10 +60,11 @@ conda env create -f environment.yml
 python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
 ```
 
-The setup script defaults to a shared prefix
-(`/projects/<pirg>/shared/envs/duckbrain`) so one build serves your whole
-PIRG rather than each user growing a private copy; `--personal` and
-`--prefix` override it.
+The setup script defaults to a shared prefix in the PIRG that holds your
+clone (`/projects/<pirg>/shared/envs/duckbrain`) so one build serves your
+whole PIRG rather than each user growing a private copy; `--personal` and
+`--prefix` override it, and one of them is required for a clone outside
+`/projects` (e.g. in `$HOME`), which has no PIRG to share with.
 
 ### Container Setup
 

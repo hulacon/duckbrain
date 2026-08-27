@@ -63,6 +63,9 @@ echo ""
 echo "  Access via SSH tunnel:"
 echo "    ssh -L ${PORT}:$(hostname):${PORT} $(whoami)@talapas-login.uoregon.edu"
 echo "  Then open: http://localhost:${PORT}"
+echo ""
+echo "  (From an OnDemand Desktop running on this node, skip the tunnel:"
+echo "   open http://localhost:${PORT} in the desktop's own browser.)"
 echo "============================================"
 
 streamlit run "$PROJECT_DIR/src/duckbrain/gui/app.py" \
