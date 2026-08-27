@@ -40,7 +40,8 @@ are still described there; the rest is unscheduled ·
 [`#8`](#8) branding + dark theme ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
 [`#46`](#46) — tree comparator (conversion validation + duplicate audit, one
-digest core) — **not scheduled**; shape to be decided after the OSL meeting
+digest core) — **not scheduled**; shape to be decided once the first
+adopting lab's needs are clear
 
 **Below the queue, unscheduled, and not closed either:**
 [`#5`](#5) standing config / mapping decisions ·
@@ -1761,7 +1762,7 @@ hover-gated ones travel as srcdoc iframes; still URL-free, so still not entry
 <a id="46"></a>
 ## #46 — A tree comparator: conversion validation and duplicate audit, one core
 
-**Filed 2026-08-27, the day of the OSL adoption meeting; deliberately
+**Filed 2026-08-27, the day of a new lab's adoption meeting; deliberately
 unscheduled — Ben wants to think on the shape, and the meeting may change it.**
 Two use cases turned out to share one engine, which is what makes this a tool
 rather than two scripts:
@@ -1810,8 +1811,8 @@ Within-tree mode reports digest collisions.
 utility fits the paste-mediated support workflow today; `python -m
 duckbrain.compare` (the `duckbrain.catalog` precedent) makes it a durable
 capability every adopting lab gets. Lean module — the audit half is an
-adoption-era need, not an OSL-specific one — but decide after the meeting
-shows what OSL actually asks for.
+adoption-era need, not specific to one lab — but decide after the meeting
+shows what the adopting lab actually asks for.
 
 ---
 
