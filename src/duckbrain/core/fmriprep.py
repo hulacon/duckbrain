@@ -93,6 +93,57 @@ def anat_derivative_session(derivatives_dir: str | Path, subject: str) -> str:
     return ses[4:] if ses.startswith("ses-") else ""
 
 
+def output_arm_conflict(config: Config) -> str:
+    """Why launching fMRIPrep now would overwrite a tree built from the *other* input.
+
+    Returns the refusal text, or ``""`` when the launch is safe.
+
+    fMRIPrep has one output directory here, ``<derivatives>/fmriprep``, whether
+    or not ``use_nordic`` is set (``pipeline._build_fmriprep``; TODO ``#5b``
+    item 1). The toggle changes only the *input*. So flipping it on a project
+    whose tree was built from raw data does not produce a second arm beside the
+    first — it writes NORDIC-derived outputs into the raw tree, and fMRIPrep
+    rewrites the tree-level ``dataset_description.json`` on every run, so the
+    whole tree's recorded provenance flips to the new input while every subject
+    not re-run is still the old one. Nothing in the GUI said so. mmmdata holds
+    a 535 G raw arm this would have destroyed on one mis-set toggle.
+
+    The tree is judged by what it records, not by config: ``DatasetLinks.raw``,
+    which fMRIPrep writes itself (``qc_report.fmriprep_input_variant``). A tree
+    that records no link — absent, empty, or written by something that did not
+    record its input — cannot be judged and is not refused; the cost of guessing
+    wrong there is a rename, but the cost of refusing an externally-run tree
+    that is fine would be a stage nobody can launch. The submission log is
+    deliberately not consulted: it records *submissions*, cancelled and failed
+    ones included, so it can claim an input the tree never received.
+    """
+    from .qc_report import fmriprep_input_variant, resolve_fmriprep_dir
+
+    on_disk = fmriprep_input_variant(config)
+    if on_disk == "unknown":
+        return ""
+    want_nordic = bool(config.get("nordic", {}).get("use_nordic", False))
+    wanted = "nordic" if want_nordic else "raw"
+    if on_disk == wanted:
+        return ""
+    tree = resolve_fmriprep_dir(config)
+    described = {
+        "raw": "raw BIDS data",
+        "nordic": "the NORDIC-denoised tree",
+    }
+    return (
+        f"Refusing to launch fMRIPrep: {tree} was built from {described[on_disk]}, "
+        f"but use_nordic is {'on' if want_nordic else 'off'}, so this run would feed "
+        f"it {described[wanted]}. fMRIPrep writes to that one directory whichever "
+        "input it reads, overwriting the subject's outputs and the tree's own "
+        "provenance record — the two arms cannot share it. Either set use_nordic "
+        "to match the tree in Project Setup, or move the existing tree aside first "
+        f"(e.g. rename it to {tree.name}_{on_disk}; the Status board reports every "
+        "fmriprep_* tree beside the canonical one) and launch into an empty "
+        f"{tree.name}."
+    )
+
+
 def build_fmriprep_command(
     bids_dir: str | Path,
     output_dir: str | Path,

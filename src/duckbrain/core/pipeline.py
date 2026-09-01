@@ -202,6 +202,7 @@ def _build_fmriprep(
         find_fs_license,
         get_container_path,
         has_anat_derivatives,
+        output_arm_conflict,
         write_session_filter,
     )
 
@@ -231,6 +232,15 @@ def _build_fmriprep(
         raise PipelineError("FreeSurfer license not found. Set it in Project Setup.")
 
     output_dir = f"{derivatives_dir}/fmriprep"
+
+    # One output directory serves both input variants, so a launch whose input
+    # disagrees with what the tree already holds is a clobber, not a second arm
+    # (TODO #5b item 1). Refused before anything is assembled or written: the
+    # NORDIC input tree below is built on disk, and an exported script is one
+    # the user will sbatch by hand, so the check has to precede both.
+    conflict = output_arm_conflict(config)
+    if conflict:
+        raise PipelineError(conflict)
 
     # Input source is the only variable between with- and without-NORDIC runs
     # (TODO #5b Case 1). Default: raw BIDS. When use_nordic, assemble the unit's

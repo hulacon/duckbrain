@@ -10,6 +10,22 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **fMRIPrep refuses to overwrite a tree built from the other input.** fMRIPrep
+  has one output directory, `derivatives/fmriprep`, whether `use_nordic` is on
+  or off; the toggle only changes what it reads. Flipping it on a project whose
+  tree was preprocessed from raw data therefore never produced a second arm —
+  it wrote NORDIC-derived outputs into the raw one, and rewrote the tree's
+  `dataset_description.json` so its recorded provenance flipped for every
+  subject, re-run or not. Nothing in the GUI said so. Launch and export now
+  read the tree's own `DatasetLinks.raw` and refuse when it disagrees with the
+  toggle, naming the tree, both inputs, and the two ways out: set `use_nordic`
+  to match, or move the tree aside (`fmriprep_raw`, say — the Status board
+  already reports every `fmriprep_*` tree beside the canonical one) and launch
+  into an empty directory. A tree that records no input is not refused, since
+  it cannot be judged. (TODO `#5b` item 1.)
+
 ## [0.7.0] — 2026-08-27
 
 ### Added

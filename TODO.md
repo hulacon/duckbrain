@@ -19,10 +19,10 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 existing capability items, not new work of its own. `#43.1` and `#43.2`'s
 reading pass shipped 2026-08-20, `#43.3` Slice A 2026-08-21 ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
-[`#5b`](#5b) NORDIC — **Case 2 SHIPPED 2026-08-21**, its *reporting* half; the
-clobber guard is the one piece worth building (a data-loss path in shipped
-code), the variant-aware branch is **not** wanted now that mmmdata punted its
-second arm, and Case 3 stays parked ·
+[`#5b`](#5b) NORDIC — **Case 2 SHIPPED 2026-08-21**, its *reporting* half;
+the **clobber guard SHIPPED 2026-09-01** (the data-loss path in shipped code),
+the variant-aware branch is **not** wanted now that mmmdata punted its second
+arm, and Case 3 stays parked ·
 [Licensing](#licensing-follow-ups) — `#43.1` **shipped 2026-08-20**; what is
 left is the UO employee-IP answer, which does not block anything ·
 [`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
@@ -555,11 +555,21 @@ in shipped code whether or not anyone is running a campaign. "Do not branch the
 pipeline" stays the right call for a board that *reports*. Three hardcodes name
 the canonical tree, in decreasing order of how much they hurt:
 
-1. **`pipeline.py:229` — `output_dir = f"{derivatives_dir}/fmriprep"`, and there
+1. ~~**`pipeline.py:229` — `output_dir = f"{derivatives_dir}/fmriprep"`, and there
    is no override.** Flipping `use_nordic` and pressing the cockpit's run button
    does not produce a second arm; it **overwrites the first**, 535 G of it, with
    no warning anywhere in the GUI. That is a data-loss path, not a display gap,
-   and it is the only part of this item that is urgent.
+   and it is the only part of this item that is urgent.~~ **GUARDED 2026-09-01.**
+   `fmriprep.output_arm_conflict` reads the tree's own `DatasetLinks.raw` (the
+   same source `qc_report.fmriprep_input_variant` and the `config-vs-provenance`
+   check already trust) and `_build_fmriprep` refuses — before the NORDIC input
+   tree is assembled and before export, since an exported script is one the user
+   sbatches by hand — whenever the toggle disagrees with what the tree records.
+   The refusal names the tree, both inputs, and both remedies (match the toggle;
+   or move the tree aside as `fmriprep_<input>` and let the board report it as a
+   variant). A tree recording no link is *not* refused: it cannot be judged, and
+   refusing it would leave a stage nobody can launch. The output dir is still
+   hardcoded — that was never the defect; writing the other arm into it was.
 2. **`surveyor.py:556` — `_expected_bold_keys(_fmriprep_input_dir(config), ...)`
    ignores the `tree` parameter it sits inside.** `_fmriprep_input_dir` reads the
    project-level `use_nordic`, so one boolean picks the grading input for *every*
@@ -581,10 +591,9 @@ walked the forcing function up to Case 3's door without opening it.
 
 **Do not un-park Case 3 for this, and do not build the branch either.** With
 mmmdata down to one arm there is no consumer waiting on variant-aware output.
-**Build the guard alone:** refuse to launch fMRIPrep when a variant tree exists
-and the run would clobber it, or at minimum say so out loud. That is worth doing
-on its own merits — mmmdata still holds a 24.1.1 `fmriprep_nordic` tree that a
-mis-set `use_nordic` would silently destroy, and duckbrain ships this behaviour
+**Build the guard alone** — done, item (1) above. It was worth doing on its own
+merits: mmmdata still holds a 24.1.1 `fmriprep_nordic` tree that a mis-set
+`use_nordic` would silently have destroyed, and duckbrain ships this behaviour
 to everyone, not just to the project that happened to notice. (2) and (3) can
 wait for whoever revives a second arm; mmmdata's parked item to do exactly that
 is "Restore the NORDIC fMRIPrep arm".

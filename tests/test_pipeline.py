@@ -1678,3 +1678,92 @@ def test_fmriprep_with_complete_recon_passes_fs_no_resume(monkeypatch, tmp_path)
 
 def test_fmriprep_without_external_fs_never_passes_fs_no_resume(monkeypatch, tmp_path):
     assert "--fs-no-resume" not in _fmriprep_script(monkeypatch, tmp_path, _config(tmp_path))
+
+
+# ---- one output directory, two possible inputs: the clobber guard -----------
+#
+# fMRIPrep writes to derivatives/fmriprep whether use_nordic is on or off; the
+# toggle only changes what it reads. So a launch whose input disagrees with what
+# the tree already records is not a second arm, it is an overwrite of the first
+# — and fMRIPrep rewrites the tree-level dataset_description on every run, so the
+# whole tree's provenance flips with it (TODO #5b item 1). The tree is judged by
+# the DatasetLinks.raw fMRIPrep itself writes, never by config.
+
+
+def _write_fmriprep_desc(root, raw_link):
+    """A fMRIPrep-written dataset_description.json, with or without its input link."""
+    import json
+
+    deriv = Path(root) / "derivatives" / "fmriprep"
+    deriv.mkdir(parents=True, exist_ok=True)
+    desc = {
+        "Name": "fMRIPrep - fMRI PREProcessing workflow",
+        "BIDSVersion": "1.9.0",
+        "DatasetType": "derivative",
+        "GeneratedBy": [{"Name": "fMRIPrep", "Version": "25.2.5"}],
+    }
+    if raw_link is not None:
+        desc["DatasetLinks"] = {"raw": raw_link}
+    (deriv / "dataset_description.json").write_text(json.dumps(desc))
+
+
+def _nordic_config(root, use_nordic):
+    cfg = _config(root)
+    cfg["nordic"] = {"use_nordic": use_nordic}
+    return cfg
+
+
+@pytest.mark.parametrize("export_only", [False, True])
+def test_fmriprep_refuses_to_feed_nordic_into_a_raw_tree(monkeypatch, tmp_path, export_only):
+    cap = {}
+    _patch_fmriprep(monkeypatch, tmp_path, cap)
+    _write_fmriprep_desc(tmp_path, raw_link=str(tmp_path))
+    with pytest.raises(PipelineError, match="built from raw BIDS data.*use_nordic is on"):
+        advance_one(_nordic_config(tmp_path, True), "fmriprep", "008", "", export_only=export_only)
+    assert not cap  # nothing rendered, submitted, or exported
+    # Refused before the NORDIC input tree was assembled on disk.
+    assert not (tmp_path / "derivatives" / "nordic").exists()
+
+
+def test_fmriprep_refuses_to_feed_raw_into_a_nordic_tree(monkeypatch, tmp_path):
+    cap = {}
+    _patch_fmriprep(monkeypatch, tmp_path, cap)
+    _write_fmriprep_desc(tmp_path, raw_link=str(tmp_path / "derivatives/nordic/bids_format"))
+    with pytest.raises(
+        PipelineError, match="built from the NORDIC-denoised tree.*use_nordic is off"
+    ):
+        advance_one(_nordic_config(tmp_path, False), "fmriprep", "008", "")
+    assert not cap
+
+
+def test_fmriprep_refusal_names_the_tree_and_both_remedies(monkeypatch, tmp_path):
+    _patch_fmriprep(monkeypatch, tmp_path, {})
+    _write_fmriprep_desc(tmp_path, raw_link=str(tmp_path))
+    with pytest.raises(PipelineError) as excinfo:
+        advance_one(_nordic_config(tmp_path, True), "fmriprep", "008", "")
+    msg = str(excinfo.value)
+    assert str(tmp_path / "derivatives" / "fmriprep") in msg
+    assert "Project Setup" in msg  # remedy 1: make the toggle match the tree
+    assert "fmriprep_raw" in msg  # remedy 2: move the tree aside, named for what it holds
+
+
+def test_fmriprep_launches_when_the_tree_matches_the_toggle(monkeypatch, tmp_path):
+    cap = {}
+    _patch_fmriprep(monkeypatch, tmp_path, cap)
+    _write_fmriprep_desc(tmp_path, raw_link=str(tmp_path))
+    advance_one(_nordic_config(tmp_path, False), "fmriprep", "008", "")
+    assert cap["ctx"]["output_dir"] == str(tmp_path / "derivatives" / "fmriprep")
+
+
+def test_fmriprep_launches_into_a_tree_that_records_no_input(monkeypatch, tmp_path):
+    # An externally-run tree with no DatasetLinks cannot be judged, and refusing
+    # it would leave a stage nobody can launch; a missing tree is the normal
+    # first run. Neither is a clobber the guard can establish.
+    cap = {}
+    _patch_fmriprep(monkeypatch, tmp_path, cap)
+    _write_fmriprep_desc(tmp_path, raw_link=None)
+    advance_one(_nordic_config(tmp_path, False), "fmriprep", "008", "")
+    assert cap
+    cap.clear()
+    advance_one(_nordic_config(tmp_path / "fresh", False), "fmriprep", "008", "")
+    assert cap
