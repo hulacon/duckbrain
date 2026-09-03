@@ -1223,3 +1223,107 @@ def test_variant_is_reported_never_launched(tmp_path):
     row = survey_project(config).loc[0]
     assert "fmriprep_nordic" not in SLURM_STAGES
     assert not stage_runnable(row, "fmriprep_nordic", config)
+
+
+# ---- #5b item 2: each fMRIPrep tree is graded against its *own* input --------
+#
+# `_fmriprep_status` derived every tree's expectation from the project-level
+# `use_nordic`, so one boolean picked the grading input for every fMRIPrep column
+# at once. Latent while the toggle is off (both arms graded against raw BIDS,
+# which is right for both) and wrong the moment it is on: the raw arm would be
+# graded against `derivatives/nordic/bids_format` too. A tree records what it was
+# built from in its own `DatasetLinks.raw` — the same field the launch guard
+# trusts — so the expectation is read off the tree and the toggle is only the
+# fallback for a tree that records nothing.
+
+
+def _seed_nordic_runs(root, ss, n, task="rest"):
+    """NORDIC's own outputs plus the assembled `bids_format` tree fMRIPrep reads."""
+    nordic = root / "derivatives" / "nordic"
+    for i in range(1, n + 1):
+        name = f"{ss}_task-{task}_run-{i}_bold.nii.gz"
+        _touch(nordic / ss / "func" / name)
+        _touch(nordic / "bids_format" / ss / "func" / name)
+
+
+def _fmriprep_runs(root, name, ss, runs, task="rest", raw_link=None):
+    """A fMRIPrep tree with `runs` finished BOLDs and, optionally, a recorded input."""
+    import json
+
+    fp = root / "derivatives" / name
+    sub = ss.split("_")[0]
+    _touch(fp / f"{sub}.html")
+    _touch(fp / sub / "anat" / f"{sub}_desc-preproc_T1w.nii.gz")
+    for i in runs:
+        _touch(fp / ss / "func" / f"{ss}_task-{task}_run-{i}_desc-preproc_bold.nii.gz")
+        _touch(fp / ss / "func" / f"{ss}_task-{task}_run-{i}_desc-confounds_timeseries.tsv")
+    if raw_link is not None:
+        desc = {
+            "Name": "fMRIPrep - fMRI PREProcessing workflow",
+            "BIDSVersion": "1.9.0",
+            "DatasetType": "derivative",
+            "GeneratedBy": [{"Name": "fMRIPrep", "Version": "25.2.5"}],
+            "DatasetLinks": {"raw": raw_link},
+        }
+        _touch(fp / "dataset_description.json", json.dumps(desc))
+    return fp
+
+
+def test_raw_arm_is_not_graded_against_the_nordic_tree_when_use_nordic_is_on(tmp_path):
+    """The case the toggle gets wrong: with use_nordic on, a raw-built variant
+    that is short one raw run must read PARTIAL — not COMPLETE because NORDIC
+    happened to produce fewer runs than raw has."""
+    from duckbrain.core.surveyor import run_progress
+
+    _seed_bold_runs(tmp_path, "sub-01", 4)  # raw has 4
+    _seed_nordic_runs(tmp_path, "sub-01", 3)  # NORDIC produced 3
+    nordic_link = str(tmp_path / "derivatives" / "nordic" / "bids_format")
+    _fmriprep_runs(tmp_path, "fmriprep", "sub-01", (1, 2, 3), raw_link=nordic_link)
+    _fmriprep_runs(tmp_path, "fmriprep_raw", "sub-01", (1, 2, 3), raw_link=str(tmp_path))
+
+    config = _nordic_config(tmp_path)
+    row = survey_project(config).loc[0]
+    assert row["fmriprep"] == Status.COMPLETE  # 3 of the 3 it was given
+    assert row["fmriprep_raw"] == Status.PARTIAL  # 3 of the 4 raw BIDS holds
+    assert run_progress(config, "fmriprep", "01", "") == (3, 3)
+    assert run_progress(config, "fmriprep_raw", "01", "") == (3, 4)
+
+
+def test_nordic_arm_is_graded_against_what_nordic_produced_when_use_nordic_is_off(tmp_path):
+    """The mirror case: a NORDIC-built variant beside a raw canonical tree, in a
+    project whose toggle is off, is complete when it covers every denoised run —
+    not pinned at PARTIAL for raw runs NORDIC never produced."""
+    from duckbrain.core.surveyor import run_progress
+
+    _seed_bold_runs(tmp_path, "sub-01", 4)
+    _seed_nordic_runs(tmp_path, "sub-01", 3)
+    nordic_link = str(tmp_path / "derivatives" / "nordic" / "bids_format")
+    _fmriprep_runs(tmp_path, "fmriprep", "sub-01", (1, 2, 3, 4), raw_link=str(tmp_path))
+    _fmriprep_runs(tmp_path, "fmriprep_nordic", "sub-01", (1, 2, 3), raw_link=nordic_link)
+
+    config = _config(tmp_path)  # use_nordic off
+    row = survey_project(config).loc[0]
+    assert row["fmriprep"] == Status.COMPLETE
+    assert row["fmriprep_nordic"] == Status.COMPLETE
+    assert run_progress(config, "fmriprep_nordic", "01", "") == (3, 3)
+
+
+def test_tree_recording_no_input_falls_back_to_the_toggle(tmp_path):
+    """An externally-run tree with no DatasetLinks cannot say what it read; the
+    project toggle is the only statement left, and it is what the canonical tree
+    will be given on its next launch."""
+    _seed_bold_runs(tmp_path, "sub-01", 4)
+    _seed_nordic_runs(tmp_path, "sub-01", 3)
+    _fmriprep_runs(tmp_path, "fmriprep", "sub-01", (1, 2, 3))  # no description at all
+
+    assert survey_project(_nordic_config(tmp_path)).loc[0, "fmriprep"] == Status.COMPLETE
+    assert survey_project(_config(tmp_path)).loc[0, "fmriprep"] == Status.PARTIAL
+
+
+def test_tree_recording_a_raw_input_is_graded_against_the_project_bids_dir(tmp_path):
+    """The recorded raw link is a *classification*, not a path to read: fMRIPrep
+    saw a container-visible or relocated path, and the project's own bids_dir is
+    the same dataset by construction."""
+    _seed_bold_runs(tmp_path, "sub-01", 2)
+    _fmriprep_runs(tmp_path, "fmriprep", "sub-01", (1, 2), raw_link="/data/bids")
+    assert survey_project(_nordic_config(tmp_path)).loc[0, "fmriprep"] == Status.COMPLETE

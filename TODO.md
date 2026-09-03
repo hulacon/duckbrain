@@ -21,8 +21,9 @@ reading pass shipped 2026-08-20, `#43.3` Slice A 2026-08-21 ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
 [`#5b`](#5b) NORDIC — **Case 2 SHIPPED 2026-08-21**, its *reporting* half;
 the **clobber guard SHIPPED 2026-09-01** (the data-loss path in shipped code),
-the variant-aware branch is **not** wanted now that mmmdata punted its second
-arm, and Case 3 stays parked ·
+the **per-tree grading input SHIPPED 2026-09-03** (item 2), the variant-aware
+branch is **not** wanted now that mmmdata punted its second arm, and Case 3
+stays parked ·
 [Licensing](#licensing-follow-ups) — `#43.1` **shipped 2026-08-20**; what is
 left is the UO employee-IP answer, which does not block anything ·
 [`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
@@ -570,8 +571,18 @@ the canonical tree, in decreasing order of how much they hurt:
    variant). A tree recording no link is *not* refused: it cannot be judged, and
    refusing it would leave a stage nobody can launch. The output dir is still
    hardcoded — that was never the defect; writing the other arm into it was.
-2. **`surveyor.py:556` — `_expected_bold_keys(_fmriprep_input_dir(config), ...)`
-   ignores the `tree` parameter it sits inside.** `_fmriprep_input_dir` reads the
+2. ~~**`surveyor.py:556` — `_expected_bold_keys(_fmriprep_input_dir(config), ...)`
+   ignores the `tree` parameter it sits inside.**~~ **FIXED 2026-09-03.**
+   `_fmriprep_tree_input_dir(config, tree)` reads the tree's own
+   `DatasetLinks.raw` — the field the clobber guard already trusts — and
+   classifies it (raw → the project `bids_dir`; NORDIC → the assembled
+   `bids_format` tree), falling back to the toggle only for a tree that records
+   nothing. `_fmriprep_status` and `run_progress` grade through it, so the
+   status and the count on a variant cell come from the same expectation. Pinned
+   in `tests/test_surveyor.py` (`#5b item 2` block). `checks.py`'s outcome-sdc
+   still keys the *canonical* tree's input on the toggle; that tree cannot hold
+   the other arm once the guard is in place, and `config-vs-provenance` flags a
+   pre-existing mismatch. *Original text follows.* `_fmriprep_input_dir` reads the
    project-level `use_nordic`, so one boolean picks the grading input for *every*
    fMRIPrep column at once. Today this is **latent, not wrong**: with
    `use_nordic=false` both arms are graded against raw BIDS, which is the correct

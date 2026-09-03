@@ -12,6 +12,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Every fMRIPrep tree on the Status board is graded against the input it
+  records, not the project toggle.** `use_nordic` picked the grading input for
+  *every* `fmriprep*` column at once, so with the toggle on a raw-built variant
+  was graded against the NORDIC tree (and could read COMPLETE while short of
+  raw runs), and with it off a NORDIC-built variant was pinned at PARTIAL for
+  raw runs NORDIC never produced. Each tree's own `DatasetLinks.raw` now decides,
+  the same field the launch guard trusts; a tree that records no input falls
+  back to the toggle as before. The count on a variant cell follows the same
+  rule, so status and number cannot disagree. (TODO `#5b` item 2.)
 - **fMRIPrep refuses to overwrite a tree built from the other input.** fMRIPrep
   has one output directory, `derivatives/fmriprep`, whether `use_nordic` is on
   or off; the toggle only changes what it reads. Flipping it on a project whose

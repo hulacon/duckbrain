@@ -277,6 +277,40 @@ def _fmriprep_input_dir(config: Config) -> str:
     return str(paths["bids_dir"])
 
 
+def _fmriprep_tree_input_dir(config: Config, tree: str) -> str:
+    """The BIDS root *this* fMRIPrep tree was built from, read off the tree.
+
+    ``_fmriprep_input_dir`` answers a project-level question — what the next
+    launch of the canonical tree will read — from the project-level
+    ``use_nordic``. Grading every ``fmriprep*`` column from it made one boolean
+    pick the expectation for all of them at once (``#5b`` item 2): harmless
+    while the toggle is off, since both arms are then graded against raw BIDS,
+    which is right for both; wrong the moment it is on, because the raw arm is
+    then graded against ``derivatives/nordic/bids_format`` too. The expectation
+    is per tree, so its source has to be.
+
+    Each tree says what it read in its own ``DatasetLinks.raw`` — fMRIPrep
+    writes it, and ``fmriprep.output_arm_conflict`` already trusts it over
+    config. The link is a *classification*, not a path to read: fMRIPrep saw a
+    container-visible or since-relocated path, and the project's own
+    ``bids_dir`` (or its assembled NORDIC tree) is the same dataset by
+    construction. A tree that records nothing — absent, empty, or written by
+    something that did not record its input — falls back to the toggle, which
+    is the only statement left and is what the canonical tree will be given
+    next.
+    """
+    from .consistency import _links_to_nordic, read_provenance_at
+    from .nordic import nordic_bids_input_dir
+
+    paths = config["paths"]
+    prov = read_provenance_at(Path(paths["derivatives_dir"]) / tree)
+    if not prov.raw_link:
+        return _fmriprep_input_dir(config)
+    if _links_to_nordic(prov.raw_link):
+        return str(nordic_bids_input_dir(paths["derivatives_dir"]))
+    return str(paths["bids_dir"])
+
+
 def fmriprep_variants(paths: dict[str, str]) -> tuple[str, ...]:
     """Extra ``derivatives/fmriprep*`` trees beside the canonical one, named as on disk.
 
@@ -425,8 +459,9 @@ def discover_units(paths: dict[str, str]) -> list[tuple[str, str]]:
 # multi-session layouts alike.
 #
 # They take the whole *config*, not just ``config["paths"]``: fMRIPrep's
-# expectation depends on ``use_nordic`` (see :func:`_fmriprep_input_dir`), and a
-# tracker that could only see paths had no way to ask.
+# expectation depends on ``use_nordic`` when a tree records no input of its own
+# (see :func:`_fmriprep_tree_input_dir`), and a tracker that could only see
+# paths had no way to ask.
 
 
 def _fmt(pattern: str, subject: str, session: str) -> str:
@@ -512,10 +547,13 @@ def _fmriprep_status(
 ) -> Status:
     # *tree* is the derivative dir to grade: ``fmriprep`` normally, or one of
     # `fmriprep_variants`' extra trees, which `survey_project` binds via partial.
-    # The expectation is the same for every tree, deliberately — they preprocess
-    # the same BIDS units, so a variant short of the runs the raw tree has really
-    # is incomplete and should read PARTIAL. What duckbrain must not do is invent
-    # a *different* expectation for a tree it did not produce and cannot ask.
+    # Each tree is graded against the input *it* records (`_fmriprep_tree_input_dir`,
+    # `#5b` item 2): the arms preprocess the same BIDS units, so a raw-built
+    # variant short of the runs raw BIDS holds really is incomplete and reads
+    # PARTIAL — but a NORDIC-built one owes only the runs NORDIC produced, and
+    # grading it against raw would pin it at PARTIAL for work it was never
+    # given. What duckbrain must not do is *invent* an expectation for a tree it
+    # did not produce; reading the tree's own record is not inventing.
     paths = config["paths"]
     root = Path(paths["derivatives_dir"]) / tree
     if not root.is_dir():
@@ -554,7 +592,7 @@ def _fmriprep_status(
     # requirement. An anat-only unit has an empty expected set and so carries no
     # func requirement at all — the expectation *is* the list of files the input
     # tree holds.
-    expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
+    expected = _expected_bold_keys(_fmriprep_tree_input_dir(config, tree), subject, session)
     found = _fmriprep_func_keys(root, subject, session)
     subtree_exists = _has_match(root, _fmt("{ss}", subject, session))
 
@@ -1005,7 +1043,7 @@ def run_progress(config: Config, stage: str, subject: str, session: str) -> tupl
         # For a variant the stage name *is* the derivative dir name (`#5b` Case
         # 2), so one branch counts every fMRIPrep tree and the number shown cannot
         # drift from the status the same-named tracker produced.
-        expected = _expected_bold_keys(_fmriprep_input_dir(config), subject, session)
+        expected = _expected_bold_keys(_fmriprep_tree_input_dir(config, stage), subject, session)
         found = _fmriprep_func_keys(Path(paths["derivatives_dir"]) / stage, subject, session)
     elif stage == "mriqc":
         expected, found = _mriqc_expected_found(config, subject, session)
