@@ -76,7 +76,7 @@ with tab_fmriprep:
             "Output spaces",
             value=" ".join(
                 config.get("fmriprep", {}).get(
-                    "output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
+                    "output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]
                 )
             ),
             key="fp_spaces",

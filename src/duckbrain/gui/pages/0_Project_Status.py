@@ -180,7 +180,7 @@ def _stage_params(
         params["output_spaces"] = st.text_input(
             "Output spaces",
             value=" ".join(
-                fp.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"])
+                fp.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"])
             ),
             key=f"{key_prefix}_spaces",
         )

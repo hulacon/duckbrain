@@ -277,7 +277,7 @@ def _build_fmriprep(
 
     spaces = params.get(
         "output_spaces",
-        fp_cfg.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]),
+        fp_cfg.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]),
     )
     if isinstance(spaces, str):
         spaces = spaces.split()
@@ -757,7 +757,7 @@ def _fsaverage_preflight(config: Config, stage: str, params: JobParams) -> None:
     fp_cfg = config.get("fmriprep", {})
     spaces = params.get(
         "output_spaces",
-        fp_cfg.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]),
+        fp_cfg.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]),
     )
     extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", "")))
     try:

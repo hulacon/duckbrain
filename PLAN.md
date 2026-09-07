@@ -91,7 +91,7 @@ fmriprep_version = "25.2.5"
 mriqc_version = "24.1.0"
 
 [fmriprep]
-output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
+output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]
 nprocs = 8
 mem_gb = 32
 

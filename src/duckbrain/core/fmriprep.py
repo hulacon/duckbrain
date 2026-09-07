@@ -179,7 +179,8 @@ def build_fmriprep_command(
     session : str, optional
         Session label to restrict processing.
     output_spaces : list[str], optional
-        Output spaces. Defaults to MNI152NLin2009cAsym:res-2, fsaverage6, func.
+        Output spaces. Defaults to MNI152NLin2009cAsym:res-2, fsaverage6, func,
+        T1w, fsnative — the mmmdata public-tree set since 2026-09-07.
     nprocs : int
         Number of processors.
     mem_gb : int
@@ -205,7 +206,7 @@ def build_fmriprep_command(
     fs_license = Path(fs_license)
 
     if output_spaces is None:
-        output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
+        output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]
 
     # Session-isolated work dir to prevent race conditions
     if session:

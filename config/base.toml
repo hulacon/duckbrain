@@ -130,7 +130,12 @@ qsiprep_version = "26.0.0"
 # No resource keys here on purpose. --nprocs is the SLURM allocation's cpus and
 # --mem-mb is derived from its memory (config.tool_mem_gb); a second,
 # independently-set copy of either is refused at submission rather than ignored.
-output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func"]
+# Five spaces since 2026-09-07: T1w (subject-native volume at BOLD resolution)
+# and fsnative (subject-native surface) were added so every new session lands
+# with the full public-tree set; the 2026-08 campaign tree was backfilled for
+# both via --derivatives reuse (mmmdata/scripts/fmriprep_t1w_backfill.sbatch).
+# `func` is the per-run scanner grid and is NOT a single subject space.
+output_spaces = ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]
 
 [nordic]
 magnitude_only = true
