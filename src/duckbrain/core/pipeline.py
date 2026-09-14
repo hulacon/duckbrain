@@ -59,6 +59,17 @@ if TYPE_CHECKING:
 #: makes ``dict[str, Any]`` the description rather than the shrug.
 JobParams = dict[str, Any]
 
+#: fMRIPrep's default ``--output-spaces``: the five-space public-tree set
+#: (T1w + fsnative joined it 2026-09-08). One list, imported by the GUI pages
+#: that surface it; ``[fmriprep].output_spaces`` in config overrides.
+DEFAULT_OUTPUT_SPACES = [
+    "MNI152NLin2009cAsym:res-2",
+    "fsaverage6",
+    "func",
+    "T1w",
+    "fsnative",
+]
+
 
 class PipelineError(RuntimeError):
     """A stage could not be launched (misconfig, missing inputs, etc.).
@@ -277,7 +288,7 @@ def _build_fmriprep(
 
     spaces = params.get(
         "output_spaces",
-        fp_cfg.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]),
+        fp_cfg.get("output_spaces", DEFAULT_OUTPUT_SPACES),
     )
     if isinstance(spaces, str):
         spaces = spaces.split()
@@ -757,7 +768,7 @@ def _fsaverage_preflight(config: Config, stage: str, params: JobParams) -> None:
     fp_cfg = config.get("fmriprep", {})
     spaces = params.get(
         "output_spaces",
-        fp_cfg.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]),
+        fp_cfg.get("output_spaces", DEFAULT_OUTPUT_SPACES),
     )
     extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", "")))
     try:

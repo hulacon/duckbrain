@@ -13,6 +13,7 @@ try:
     # tabs read it, and a tab body that returns early would leave the others
     # with a NameError.
     from duckbrain.config import MEM_HEADROOM_GB, get_slurm_resources, load_config, parse_mem_gb
+    from duckbrain.core.pipeline import DEFAULT_OUTPUT_SPACES
     from duckbrain.gui import preproc_panels
 
     config = load_config()
@@ -74,11 +75,7 @@ with tab_fmriprep:
     with col1:
         fp_spaces = st.text_input(
             "Output spaces",
-            value=" ".join(
-                config.get("fmriprep", {}).get(
-                    "output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"]
-                )
-            ),
+            value=" ".join(config.get("fmriprep", {}).get("output_spaces", DEFAULT_OUTPUT_SPACES)),
             key="fp_spaces",
         )
     with col2:

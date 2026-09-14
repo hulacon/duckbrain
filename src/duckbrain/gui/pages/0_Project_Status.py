@@ -73,6 +73,7 @@ if config.get("freesurfer", {}).get("use_external", False):
 from duckbrain.core.checks import run_checks
 from duckbrain.core.consistency import check_consistency
 from duckbrain.core.pipeline import (
+    DEFAULT_OUTPUT_SPACES,
     SLURM_STAGES,
     STAGE_SPECS,
     advance_one,
@@ -179,9 +180,7 @@ def _stage_params(
         fp = config.get("fmriprep", {})
         params["output_spaces"] = st.text_input(
             "Output spaces",
-            value=" ".join(
-                fp.get("output_spaces", ["MNI152NLin2009cAsym:res-2", "fsaverage6", "func", "T1w", "fsnative"])
-            ),
+            value=" ".join(fp.get("output_spaces", DEFAULT_OUTPUT_SPACES)),
             key=f"{key_prefix}_spaces",
         )
         # Both knobs name the SLURM allocation, not the fMRIPrep flags: --nprocs is
