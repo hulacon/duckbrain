@@ -202,8 +202,28 @@ only because this is where it was found.
 **`#43.3` — QSIPrep (`#7.2`). Slice A shipped 2026-08-21**; Slice B (QC
 dashboard) is what remains, plus the first real run. Scoped 2026-08-01 with its
 three traps written down (`docs/pipeline-extras.md` §1), prerequisite `#19.1`
-met. mmmdata sizes it honestly — **6 diffusion sessions**, so this is a
-capability that will be *exercised* rather than stressed.
+met. mmmdata sizes it honestly — **6 diffusion sessions** (8 since two more
+participants' first sessions were converted), so this is a capability that will
+be *exercised* rather than stressed.
+
+  **Slice B started 2026-09-23 — the verdict unit is the session.** QSIPrep
+  merges a session's diffusion runs into one output with one
+  `desc-image_qc.tsv`, so a diffusion verdict is filed per session
+  (`sub-XX_ses-YY_dwi`, which `build_run_key` already produces for a `dir-`
+  file). Landed: `core/qc_dwi.py` — one row per session from QSIPrep's
+  `image_qc` plus MRIQC's per-run IQMs reduced to the worst run, outliers judged
+  within a phase-encoding set only, NDC by DSI Studio's MAD rule plus the
+  within-subject 0.1 drop (the IQR fence missed two collapsed sessions of six on
+  real data); and `fd_*` untagged from `dwi` in the guidance registry, because
+  MRIQC's diffusion FD reads cross-shell contrast as millimetres of motion.
+  **Remaining:** guidance entries for the `qc_dwi.MEASURE_KEYS` and their domain
+  assignment; `gsr_x`/`gsr_y`/`snr` are still tagged `dwi` though MRIQC writes
+  none of them for diffusion; `dwi` in `qc_panels.MODALITIES` reading
+  `qc_dwi` instead of `load_mriqc_metrics`; QSIPrep's session-level figures as
+  an evidence source (`qc_evidence` reads fMRIPrep's tree only); eddy outlier
+  counts and between-run FD jumps from the confounds file, which `mean_fd` and
+  `max_*` zero out. Open: whether a four-direction session yields one QSIPrep
+  output or two.
 
   **What Slice A is:** a launchable, tracked `qsiprep` stage — `core/qsiprep.py`,
   `templates/sbatch/qsiprep.sbatch.j2`, a `_qsiprep_status` tracker with the
