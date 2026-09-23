@@ -210,12 +210,14 @@ class TestModalityProjection:
             ("bold", "alignment"),
             ("dwi", "alignment"),
             ("dwi", "temporal"),
+            ("dwi", "signal"),
+            ("dwi", "artifact"),
         ],
     )
     def test_an_empty_projection_explains_itself(self, modality, domain_key):
         """The silent-degradation rule, as an assertion.
 
-        These five pairs are the ones with no measures. Each must state why in a
+        These seven pairs are the ones with no measures. Each must state why in a
         sentence a reviewer can act on, not render blank.
         """
         assert measures_for(modality, domain_key) == []

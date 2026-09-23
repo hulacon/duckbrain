@@ -217,8 +217,9 @@ be *exercised* rather than stressed.
   real data); and `fd_*` untagged from `dwi` in the guidance registry, because
   MRIQC's diffusion FD reads cross-shell contrast as millimetres of motion.
   **Remaining:** guidance entries for the `qc_dwi.MEASURE_KEYS` and their domain
-  assignment; `gsr_x`/`gsr_y`/`snr` are still tagged `dwi` though MRIQC writes
-  none of them for diffusion; `dwi` in `qc_panels.MODALITIES` reading
+  assignment (no registry entry applies to `dwi` any more — `gsr_x`/`gsr_y`/
+  `snr`/`efc`/`fber`/`fwhm_avg` untagged, since MRIQC writes none of those keys
+  for diffusion); `dwi` in `qc_panels.MODALITIES` reading
   `qc_dwi` instead of `load_mriqc_metrics`; QSIPrep's session-level figures as
   an evidence source (`qc_evidence` reads fMRIPrep's tree only); eddy outlier
   counts and between-run FD jumps from the confounds file, which `mean_fd` and

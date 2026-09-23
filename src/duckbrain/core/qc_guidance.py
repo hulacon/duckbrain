@@ -357,7 +357,10 @@ _IQR_FLAG = (
     "Flagged when outside the 1.5x IQR fence of the runs in scope. No absolute cutoff is applied."
 )
 
-_ALL_MODALITIES = ("bold", "T1w", "T2w", "dwi")
+#: Every modality except diffusion. MRIQC writes diffusion EFC and FBER per
+#: shell (``efc_shell01`` ...) and no FWHM at all, so the plain keys below never
+#: appear for ``dwi``; ``core/qc_dwi.py`` reduces the per-shell ones itself.
+_BOLD_AND_ANAT = ("bold", "T1w", "T2w")
 
 MEASURE_GUIDANCE: dict[str, MeasureGuidance] = {}
 
@@ -839,7 +842,7 @@ _register(
     MeasureGuidance(
         key="gsr_x",
         label="Ghost-to-signal ratio (x)",
-        modalities=("bold", "dwi"),
+        modalities=("bold",),
         direction="lower_better",
         why=(
             "Quantifies Nyquist (N/2) ghosting, the replica of the brain that EPI "
@@ -885,7 +888,7 @@ _register(
     MeasureGuidance(
         key="gsr_y",
         label="Ghost-to-signal ratio (y)",
-        modalities=("bold", "dwi"),
+        modalities=("bold",),
         direction="lower_better",
         why=(
             "As gsr_x, for the other in-plane axis. Which of the two carries the "
@@ -920,7 +923,7 @@ _register(
     MeasureGuidance(
         key="efc",
         label="Entropy focus criterion",
-        modalities=_ALL_MODALITIES,
+        modalities=_BOLD_AND_ANAT,
         direction="lower_better",
         why=(
             "Measures the Shannon entropy of voxel intensities as a proxy for "
@@ -958,7 +961,7 @@ _register(
     MeasureGuidance(
         key="fber",
         label="Foreground-background energy ratio",
-        modalities=_ALL_MODALITIES,
+        modalities=_BOLD_AND_ANAT,
         direction="higher_better",
         why=(
             "The ratio of mean energy inside the head to mean energy outside it. "
@@ -993,7 +996,7 @@ _register(
     MeasureGuidance(
         key="snr",
         label="Signal-to-noise ratio",
-        modalities=("bold", "dwi"),
+        modalities=("bold",),
         direction="higher_better",
         why=(
             "A static, single-volume estimate of signal against background noise. "
@@ -1024,7 +1027,7 @@ _register(
     MeasureGuidance(
         key="fwhm_avg",
         label="Estimated smoothness (average FWHM)",
-        modalities=_ALL_MODALITIES,
+        modalities=_BOLD_AND_ANAT,
         direction="lower_better",
         units="voxels",
         why=(

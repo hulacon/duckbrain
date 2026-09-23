@@ -37,8 +37,10 @@ from duckbrain.core.qc_guidance import MEASURE_GUIDANCE
 #: normalization and surface reconstruction once per *subject*.
 VALID_SCOPES = {"run", "subject"}
 
-#: Modalities the taxonomy projects onto. Matches the guidance registry, which
-#: documents ``dwi`` even though no duckbrain page offers it as a choice yet.
+#: Modalities the taxonomy projects onto. ``dwi`` is listed although no MRIQC
+#: measure in the guidance registry applies to it — its measures are built per
+#: session by ``core/qc_dwi.py`` — so every domain carries a ``dwi`` sentence
+#: saying why it is empty rather than rendering blank.
 MODALITIES = ("bold", "T1w", "T2w", "dwi")
 
 
@@ -246,6 +248,15 @@ _register(
             "reliably; they do not transfer to another scanner or protocol as "
             "absolute numbers."
         ),
+        not_applicable={
+            "dwi": (
+                "MRIQC writes none of this section's measures for diffusion data. "
+                "Diffusion signal is judged per shell — SNR, eddy CNR and "
+                "neighbouring-volume correlation, reduced to one row per session "
+                "by `core/qc_dwi.py` — and those measures have no guidance entries "
+                "on this page yet."
+            ),
+        },
     )
 )
 
@@ -515,6 +526,14 @@ _register(
             "That is a sentinel, not a catastrophic score, and it will sort to the "
             "extreme of any ranking and can trip the outlier fence on its own."
         ),
+        not_applicable={
+            "dwi": (
+                "MRIQC writes none of this section's measures for diffusion data: its "
+                "diffusion EFC and FBER come per shell, and are reduced to a worst "
+                "shell per session by `core/qc_dwi.py`, whose measures have no "
+                "guidance entries on this page yet."
+            ),
+        },
     )
 )
 
