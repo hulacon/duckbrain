@@ -321,6 +321,12 @@ _register(
                 "during the acquisition — shows up as ringing and ghosting instead, "
                 "and is graded under Artifacts & inhomogeneity as `efc`."
             ),
+            "dwi": (
+                "MRIQC's diffusion framewise displacement is not shown: it registers "
+                "volumes across shells, so the contrast between b-values reads as "
+                "millimetres of motion. Diffusion motion comes from QSIPrep's "
+                "eddy-based estimates, which duckbrain does not read yet."
+            ),
         },
     )
 )

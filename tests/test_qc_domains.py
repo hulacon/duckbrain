@@ -204,12 +204,18 @@ class TestModalityProjection:
 
     @pytest.mark.parametrize(
         "modality,domain_key",
-        [("T1w", "temporal"), ("T2w", "temporal"), ("bold", "alignment"), ("dwi", "alignment")],
+        [
+            ("T1w", "temporal"),
+            ("T2w", "temporal"),
+            ("bold", "alignment"),
+            ("dwi", "alignment"),
+            ("dwi", "temporal"),
+        ],
     )
     def test_an_empty_projection_explains_itself(self, modality, domain_key):
         """The silent-degradation rule, as an assertion.
 
-        These four pairs are the ones with no measures. Each must state why in a
+        These five pairs are the ones with no measures. Each must state why in a
         sentence a reviewer can act on, not render blank.
         """
         assert measures_for(modality, domain_key) == []

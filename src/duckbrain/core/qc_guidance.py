@@ -369,13 +369,20 @@ def _register(g: MeasureGuidance) -> None:
     MEASURE_GUIDANCE[g.key] = g
 
 
-# --- Motion (BOLD and DWI) -------------------------------------------------
+# --- Motion (BOLD) ---------------------------------------------------------
+#
+# BOLD only, though MRIQC writes fd_* for diffusion too. Its diffusion FD
+# registers volumes across shells, where contrast differences between b-values
+# read as displacement — on a real multi-shell dataset every run reported a mean
+# FD of several millimetres — so the guidance below would describe a number
+# that does not mean head motion. Diffusion motion is QSIPrep's; see
+# core/qc_dwi.py.
 
 _register(
     MeasureGuidance(
         key="fd_mean",
         label="Mean framewise displacement",
-        modalities=("bold", "dwi"),
+        modalities=("bold",),
         direction="lower_better",
         units="mm",
         why=(
@@ -423,7 +430,7 @@ _register(
     MeasureGuidance(
         key="fd_num",
         label="Number of high-motion frames",
-        modalities=("bold", "dwi"),
+        modalities=("bold",),
         direction="lower_better",
         units="volumes",
         why=(
@@ -452,7 +459,7 @@ _register(
     MeasureGuidance(
         key="fd_perc",
         label="Percent of high-motion frames",
-        modalities=("bold", "dwi"),
+        modalities=("bold",),
         direction="lower_better",
         units="%",
         why=(
