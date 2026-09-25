@@ -60,6 +60,14 @@ SESSIONWISE = "sessionwise"
 SESSIONLESS_REFERENCE = "first-lex"
 
 
+#: Where each pinned image keeps the ``qsiprep`` package. A bind-mounted patch
+#: must land exactly on the file it replaces, so this is read out of the image
+#: once per version and pinned, never derived. See ``patches/qsiprep/README.md``.
+QSIPREP_PACKAGE_DIRS = {
+    "26.0.0": "/app/.pixi/envs/qsiprep/lib/python3.10/site-packages/qsiprep",
+}
+
+
 class QsiprepConfigError(ValueError):
     """A ``[qsiprep]`` setting cannot do what it says.
 
@@ -163,6 +171,59 @@ def parse_output_resolution(value: object) -> float:
         raise QsiprepConfigError(
             f"[qsiprep] output_resolution must be a number of millimetres, not {value!r}."
         ) from exc
+
+
+def _patches_dir() -> Path:
+    """Locate ``patches/qsiprep/`` the way ``slurm.templates`` locates its templates."""
+    current = Path(__file__).resolve().parent
+    for _ in range(10):
+        candidate = current / "patches" / "qsiprep"
+        if candidate.is_dir():
+            return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+    raise FileNotFoundError("Cannot find patches/qsiprep/ directory")
+
+
+def grouping_patch_binds(config: Config) -> list[str]:
+    """Bind specs that mount duckbrain's ``grouping.py`` over the image's, or ``[]``.
+
+    Opt-in through ``[qsiprep] patch_grouping = true``. The patch exists because
+    QSIPrep 26.0.0 gives both eddy groups of a session with opposing-PE pairs on
+    two axes (AP/PA and LR/RL) the same name, and one of them is then dropped
+    without an error — ``patches/qsiprep/README.md`` has the account. A project
+    without that acquisition never needs it, and one that has it must say so.
+
+    A patch is a copy of one file from one release, so it is keyed on the pinned
+    ``qsiprep_version``: a version with no patch is **refused**, because mounting
+    26.0.0's file into another release would run that release with one module
+    silently swapped for an older one.
+
+    Raises
+    ------
+    QsiprepConfigError
+        ``patch_grouping`` is not a boolean, or no patch exists for the pinned
+        version.
+    """
+    enabled = config.get("qsiprep", {}).get("patch_grouping", False)
+    if not isinstance(enabled, bool):
+        raise QsiprepConfigError(
+            f"[qsiprep] patch_grouping must be true or false, not {enabled!r}."
+        )
+    if not enabled:
+        return []
+    version = str(config.get("containers", {}).get("qsiprep_version", ""))
+    patch = _patches_dir() / version / "qsiprep" / "utils" / "grouping.py"
+    package_dir = QSIPREP_PACKAGE_DIRS.get(version)
+    if package_dir is None or not patch.is_file():
+        raise QsiprepConfigError(
+            f"[qsiprep] patch_grouping is set, but duckbrain has no grouping patch for "
+            f"QSIPrep {version!r} (looked for {patch}). Check whether that release "
+            "still collides eddy-group names; if it does, port the patch and pin its "
+            "package path in QSIPREP_PACKAGE_DIRS, and if it does not, unset the key."
+        )
+    return [f"{patch}:{package_dir}/utils/grouping.py:ro"]
 
 
 def anatomical_reference(config: Config, session: str) -> str:

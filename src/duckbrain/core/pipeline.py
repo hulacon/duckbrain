@@ -569,6 +569,7 @@ def _build_qsiprep(
         anatomical_reference,
         get_container_path,
         get_dwi_runs,
+        grouping_patch_binds,
         output_resolution,
         parse_output_resolution,
     )
@@ -594,6 +595,7 @@ def _build_qsiprep(
         # "could not convert string to float".
         resolution = parse_output_resolution(resolution)
         anat_ref = anatomical_reference(config, session)
+        patch_binds = grouping_patch_binds(config)
     except QsiprepConfigError as exc:
         raise PipelineError(str(exc)) from exc
 
@@ -627,6 +629,7 @@ def _build_qsiprep(
         fs_license_dir=str(fs_license.parent),
         output_resolution=resolution,
         anatomical_reference=anat_ref,
+        patch_binds=patch_binds,
         extra_flags=str(params.get("extra_flags", qp_cfg.get("extra_flags", ""))).strip(),
         mem_gb=tool_mem_gb(config, "qsiprep", alloc_gb=alloc_gb),
     )

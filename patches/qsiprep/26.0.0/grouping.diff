@@ -1,0 +1,67 @@
+--- a/qsiprep/utils/grouping.py
++++ b/qsiprep/utils/grouping.py
+@@ -1159,10 +1159,60 @@
+         f'{pprint.pformat(eddy_dwi_groups, indent=2, width=120)}'
+     )
+ 
+-    return eddy_dwi_groups, {
+-        group['concatenated_bids_name']: group['concatenated_bids_name']
+-        for group in eddy_dwi_groups
+-    }
++    # duckbrain patch (patches/qsiprep/README.md): a session with opposing-PE
++    # pairs on two axes (AP/PA and LR/RL) yields two eddy groups whose names both
++    # reduce to the session name, because get_concatenated_bids_name keeps only
++    # the entities common to a group and each pair has two dir- values.
++    # workflows/base.py keys a dict on that name, so the second group overwrote
++    # the first and one pair was never preprocessed, silently. Give each
++    # colliding group a distinct name and map it to the shared name, which is
++    # the destination --distortion-group-merge reads. Non-colliding groups are
++    # returned exactly as before.
++    name_counts = defaultdict(int)
++    for group in eddy_dwi_groups:
++        name_counts[group['concatenated_bids_name']] += 1
++
++    concatenation_grouping = {}
++    for group in eddy_dwi_groups:
++        shared_name = group['concatenated_bids_name']
++        if name_counts[shared_name] > 1:
++            group['concatenated_bids_name'] = _distinct_group_name(group, shared_name)
++        concatenation_grouping[group['concatenated_bids_name']] = shared_name
++
++    if len(concatenation_grouping) != len(eddy_dwi_groups):
++        raise ValueError(
++            'duckbrain grouping patch could not give every eddy group a distinct name: '
++            f'{sorted(g["concatenated_bids_name"] for g in eddy_dwi_groups)}'
++        )
++    if concatenation_grouping != {name: name for name in concatenation_grouping}:
++        config.loggers.workflow.info(
++            'duckbrain grouping patch: colliding eddy groups renamed:\n'
++            f'{pprint.pformat(concatenation_grouping, indent=2, width=120)}'
++        )
++    return eddy_dwi_groups, concatenation_grouping
++
++
++def _distinct_group_name(dwi_group, shared_name):
++    """``shared_name`` plus a ``dir-`` label built from every PE direction in the group.
++
++    duckbrain patch. A group from merge_dwi_groups holds one pair, e.g. PA with
++    AP as its ``rpe_series``, so this gives ``..._dir-PAAP``: alphanumeric, so
++    still a valid BIDS label, and it names what the group contains.
++    """
++    files = list(dwi_group['dwi_series']) + list(
++        dwi_group.get('fieldmap_info', {}).get('rpe_series', [])
++    )
++    labels = []
++    for fname in files:
++        for token in split_filename(fname)[1].split('_'):
++            if token.startswith('dir-') and token[4:] not in labels:
++                labels.append(token[4:])
++    if not labels:
++        raise ValueError(
++            f'duckbrain grouping patch: cannot name eddy group {shared_name!r}; '
++            f'none of its files carries a dir- entity: {files}'
++        )
++    return f'{shared_name}_dir-{"".join(labels)}'
+ 
+ 
+ def get_concatenated_bids_name(dwi_group):

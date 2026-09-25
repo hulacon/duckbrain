@@ -12,7 +12,8 @@
 echo "=== QSIPrep: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif %} ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"
-
+{% for bind in patch_binds | default([]) %}echo "duckbrain patch mounted: {{ bind }}"
+{% endfor %}
 {# Paths carry `| sh` — one interpolation, one shell argument. Expansions of the
    variables assigned here need their own quotes ("$WORK_DIR"); the filter only
    protects the assignment, not every later use of it.
@@ -68,7 +69,8 @@ singularity run {{ container_flags }} \
   -B "$OUTPUT_DIR:$OUTPUT_DIR" \
   -B "$WORK_DIR:$WORK_DIR" \
   -B {{ (fs_license_dir ~ ":" ~ fs_license_dir ~ ":ro") | sh }} \
-  {{ container_path | sh }} \
+{% for bind in patch_binds | default([]) %}  -B {{ bind | sh }} \
+{% endfor %}  {{ container_path | sh }} \
   {{ bids_dir | sh }} "$OUTPUT_DIR" participant \
   --participant-label {{ subject | sh }} \
 {% if session %}  --session-id {{ session | sh }} \

@@ -194,6 +194,10 @@ line-length = 100
 # a CI runner is the exact failure that cost this repo four red commits
 # (memory/local-tests-are-not-ci-tests).
 src = [".", "src", "tests"]
+# `patches/` holds whole files copied out of third-party images and edited in
+# place (patches/qsiprep/README.md). They keep upstream's style so the `.diff`
+# beside each stays the size of the change, and they never run outside the image.
+extend-exclude = ["patches"]
 
 [tool.ruff.lint]
 # Started as pycodestyle + pyflakes only, deliberately. That was the first gate

@@ -10,12 +10,15 @@ import pytest
 
 from duckbrain.core.pipeline import PipelineError, advance_one
 from duckbrain.core.qsiprep import (
+    QSIPREP_PACKAGE_DIRS,
     SESSIONLESS_REFERENCE,
     SESSIONWISE,
     QsiprepConfigError,
+    _patches_dir,
     anatomical_reference,
     get_container_path,
     get_dwi_runs,
+    grouping_patch_binds,
     has_dwi,
     output_resolution,
 )
@@ -225,6 +228,49 @@ def test_custom_flags_are_appended_unquoted(tmp_path):
     word-split — ``--dwi-denoise-window 5`` is two arguments."""
     script = _export(_project(tmp_path), extra_flags="--dwi-denoise-window 5")
     assert "--dwi-denoise-window 5" in script
+
+
+# ---- the eddy-group naming patch (patches/qsiprep/README.md) ---------------
+
+
+def _patched(tmp_path, value=True, version="26.0.0"):
+    config = _project(tmp_path)
+    config["qsiprep"]["patch_grouping"] = value
+    config["containers"]["qsiprep_version"] = version
+    return config
+
+
+def test_no_patch_is_mounted_unless_the_project_asks(tmp_path):
+    """Opt-in: a project without two-axis opposing-PE pairs runs the image as shipped."""
+    assert grouping_patch_binds(_project(tmp_path)) == []
+    assert "duckbrain patch mounted" not in _export(_project(tmp_path))
+
+
+def test_the_patch_is_bound_read_only_over_the_file_it_replaces(tmp_path):
+    script = _export(_patched(tmp_path))
+    target = f"{QSIPREP_PACKAGE_DIRS['26.0.0']}/utils/grouping.py:ro"
+    bind_lines = [line for line in script.splitlines() if line.strip().startswith("-B")]
+    assert any(target in line and "patches/qsiprep/26.0.0" in line for line in bind_lines)
+    # ...and the job log says so, since provenance has no slot for it.
+    assert "duckbrain patch mounted:" in script
+
+
+def test_a_patch_for_another_release_is_refused_not_mounted(tmp_path):
+    """Mounting 26.0.0's grouping.py into another release would run that release
+    with one module silently swapped for an older one."""
+    with pytest.raises(PipelineError, match="no grouping patch for QSIPrep '26.1.0'"):
+        _export(_patched(tmp_path, version="26.1.0"))
+
+
+def test_a_non_boolean_patch_setting_is_refused(tmp_path):
+    """``"false"`` is truthy; reading it as a switch would mount the patch."""
+    with pytest.raises(PipelineError, match="patch_grouping must be true or false"):
+        _export(_patched(tmp_path, value="false"))
+
+
+def test_every_pinned_package_dir_has_its_patch(tmp_path):
+    for version in QSIPREP_PACKAGE_DIRS:
+        assert (_patches_dir() / version / "qsiprep" / "utils" / "grouping.py").is_file()
 
 
 def test_the_container_resolves_through_the_pinned_version(tmp_path):
