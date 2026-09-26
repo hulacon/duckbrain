@@ -67,6 +67,21 @@ QSIPREP_PACKAGE_DIRS = {
     "26.0.0": "/app/.pixi/envs/qsiprep/lib/python3.10/site-packages/qsiprep",
 }
 
+#: The files ``patch_grouping`` mounts, per pinned version, relative to the
+#: package. All serve one layout — opposing-PE pairs on two axes, merged with
+#: ``--distortion-group-merge concat``: ``grouping.py`` keeps the second pair from
+#: being dropped, and the rest backport upstream's repair of the merge that follows.
+QSIPREP_PATCH_FILES = {
+    "26.0.0": (
+        "utils/grouping.py",
+        "workflows/base.py",
+        "workflows/dwi/finalize.py",
+        "workflows/dwi/distortion_group_merge.py",
+        "interfaces/dwi_merge.py",
+        "interfaces/reports.py",
+    ),
+}
+
 
 class QsiprepConfigError(ValueError):
     """A ``[qsiprep]`` setting cannot do what it says.
@@ -187,13 +202,15 @@ def _patches_dir() -> Path:
 
 
 def grouping_patch_binds(config: Config) -> list[str]:
-    """Bind specs that mount duckbrain's ``grouping.py`` over the image's, or ``[]``.
+    """Bind specs that mount duckbrain's patched files over the image's, or ``[]``.
 
-    Opt-in through ``[qsiprep] patch_grouping = true``. The patch exists because
+    Opt-in through ``[qsiprep] patch_grouping = true``. The patches exist because
     QSIPrep 26.0.0 gives both eddy groups of a session with opposing-PE pairs on
     two axes (AP/PA and LR/RL) the same name, and one of them is then dropped
-    without an error — ``patches/qsiprep/README.md`` has the account. A project
-    without that acquisition never needs it, and one that has it must say so.
+    without an error; and because once both groups survive, 26.0.0 cannot merge
+    them (``concat`` raises in ``MergeDWIs``) and skips their bias correction —
+    ``patches/qsiprep/README.md`` has the account. A project without that
+    acquisition never needs them, and one that has it must say so.
 
     A patch is a copy of one file from one release, so it is keyed on the pinned
     ``qsiprep_version``: a version with no patch is **refused**, because mounting
@@ -214,16 +231,20 @@ def grouping_patch_binds(config: Config) -> list[str]:
     if not enabled:
         return []
     version = str(config.get("containers", {}).get("qsiprep_version", ""))
-    patch = _patches_dir() / version / "qsiprep" / "utils" / "grouping.py"
     package_dir = QSIPREP_PACKAGE_DIRS.get(version)
-    if package_dir is None or not patch.is_file():
+    files = QSIPREP_PATCH_FILES.get(version, ())
+    patches = [_patches_dir() / version / "qsiprep" / f for f in files]
+    missing = [str(p) for p in patches if not p.is_file()]
+    if package_dir is None or not files or missing:
         raise QsiprepConfigError(
             f"[qsiprep] patch_grouping is set, but duckbrain has no grouping patch for "
-            f"QSIPrep {version!r} (looked for {patch}). Check whether that release "
-            "still collides eddy-group names; if it does, port the patch and pin its "
-            "package path in QSIPREP_PACKAGE_DIRS, and if it does not, unset the key."
+            f"QSIPrep {version!r} (missing: {', '.join(missing) or 'no pinned patch set'}). "
+            "Check whether that release still collides eddy-group names and still "
+            "fails the merge; port what it still needs, pin its package path in "
+            "QSIPREP_PACKAGE_DIRS and its files in QSIPREP_PATCH_FILES, and if it "
+            "needs neither, unset the key."
         )
-    return [f"{patch}:{package_dir}/utils/grouping.py:ro"]
+    return [f"{p}:{package_dir}/{f}:ro" for p, f in zip(patches, files, strict=True)]
 
 
 def anatomical_reference(config: Config, session: str) -> str:

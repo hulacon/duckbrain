@@ -12,6 +12,20 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **QSIPrep sessions with opposing-PE pairs on two axes keep all four runs and
+  merge.** QSIPrep 26.0.0 gives both eddy groups of an AP/PA + LR/RL session the
+  same name and silently drops one (the run exits 0 with half the volumes); and
+  once both survive, `--distortion-group-merge concat` cannot complete: each group
+  reaches the merge split into 3D volumes (`DimensionError` in `MergeDWIs`),
+  skips its final B1 bias correction, and the merge never writes the b=0
+  reference or raw series its own later steps need. `[qsiprep] patch_grouping =
+  true` now bind-mounts six patched files over the image's: `grouping.py`
+  (distinct group names) and a backport of upstream's repair of the merge
+  (commit 1a9efb6, #1092, and main's rule that a single-group session is not
+  merged) — each group is concatenated and bias-corrected before the merge, as an
+  unmerged session is. Use it with `extra_flags = "--distortion-group-merge
+  concat"`; `patches/qsiprep/README.md` has the account and the check that
+  retires each.
 - **Every fMRIPrep tree on the Status board is graded against the input it
   records, not the project toggle.** `use_nordic` picked the grading input for
   *every* `fmriprep*` column at once, so with the toggle on a raw-built variant

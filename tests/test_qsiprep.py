@@ -11,6 +11,7 @@ import pytest
 from duckbrain.core.pipeline import PipelineError, advance_one
 from duckbrain.core.qsiprep import (
     QSIPREP_PACKAGE_DIRS,
+    QSIPREP_PATCH_FILES,
     SESSIONLESS_REFERENCE,
     SESSIONWISE,
     QsiprepConfigError,
@@ -246,13 +247,17 @@ def test_no_patch_is_mounted_unless_the_project_asks(tmp_path):
     assert "duckbrain patch mounted" not in _export(_project(tmp_path))
 
 
-def test_the_patch_is_bound_read_only_over_the_file_it_replaces(tmp_path):
+def test_each_patch_is_bound_read_only_over_the_file_it_replaces(tmp_path):
     script = _export(_patched(tmp_path))
-    target = f"{QSIPREP_PACKAGE_DIRS['26.0.0']}/utils/grouping.py:ro"
     bind_lines = [line for line in script.splitlines() if line.strip().startswith("-B")]
-    assert any(target in line and "patches/qsiprep/26.0.0" in line for line in bind_lines)
+    files = QSIPREP_PATCH_FILES["26.0.0"]
+    assert {"utils/grouping.py", "workflows/dwi/finalize.py"} <= set(files)
+    for rel in files:
+        target = f"{QSIPREP_PACKAGE_DIRS['26.0.0']}/{rel}:ro"
+        source = f"patches/qsiprep/26.0.0/qsiprep/{rel}:"
+        assert any(target in line and source in line for line in bind_lines), rel
     # ...and the job log says so, since provenance has no slot for it.
-    assert "duckbrain patch mounted:" in script
+    assert script.count("duckbrain patch mounted:") == len(files)
 
 
 def test_a_patch_for_another_release_is_refused_not_mounted(tmp_path):
@@ -268,9 +273,11 @@ def test_a_non_boolean_patch_setting_is_refused(tmp_path):
         _export(_patched(tmp_path, value="false"))
 
 
-def test_every_pinned_package_dir_has_its_patch(tmp_path):
-    for version in QSIPREP_PACKAGE_DIRS:
-        assert (_patches_dir() / version / "qsiprep" / "utils" / "grouping.py").is_file()
+def test_every_pinned_package_dir_has_its_patches(tmp_path):
+    assert set(QSIPREP_PATCH_FILES) == set(QSIPREP_PACKAGE_DIRS)
+    for version, files in QSIPREP_PATCH_FILES.items():
+        for rel in files:
+            assert (_patches_dir() / version / "qsiprep" / rel).is_file(), (version, rel)
 
 
 def test_the_container_resolves_through_the_pinned_version(tmp_path):

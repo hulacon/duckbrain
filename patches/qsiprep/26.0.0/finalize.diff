@@ -1,0 +1,39 @@
+--- a/qsiprep/workflows/dwi/finalize.py
++++ b/qsiprep/workflows/dwi/finalize.py
+@@ -255,6 +255,19 @@
+             (b0_to_im_template, ds_report_intramodal, [('out_report', 'in_file')]),
+         ])  # fmt:skip
+ 
++    # duckbrain patch (patches/qsiprep/README.md): backport of upstream 1a9efb6
++    # (PennLINC/qsiprep#1092). 26.0.0 tied both lines below to write_derivatives,
++    # which is False for every group that --distortion-group-merge will merge: the
++    # group then reached the merge as one 3D file per volume (MergeDWIs raises
++    # DimensionError, qsiprep#971) and skipped final B1 bias correction, which the
++    # merge workflow never applies. Now each group is concatenated and
++    # bias-corrected exactly as an unmerged session is.
++    if not write_derivatives:
++        config.loggers.workflow.info(
++            'duckbrain finalize patch: %s concatenated and bias-corrected before merge',
++            name,
++        )
++
+     # Do the resampling
+     transform_dwis_t1 = init_dwi_trans_wf(
+         source_file=source_file,
+@@ -262,14 +275,14 @@
+         template='ACPC',
+         mem_gb=mem_gb['resampled'],
+         use_compression=False,
+-        concatenate=write_derivatives,
++        concatenate=True,
+         doing_topup=doing_topup,
+     )
+ 
+     # Apply denoising to the interpolated data if requested
+     final_denoise_wf = init_finalize_denoising_wf(
+         source_file=source_file,
+-        do_biascorr=config.workflow.b1_biascorrect_stage == 'final' and write_derivatives,
++        do_biascorr=config.workflow.b1_biascorrect_stage == 'final',
+         num_dwi_acquisitions=len(all_dwis),
+     )
+ 

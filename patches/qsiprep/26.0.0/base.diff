@@ -1,0 +1,50 @@
+--- a/qsiprep/workflows/base.py
++++ b/qsiprep/workflows/base.py
+@@ -327,6 +327,7 @@
+     config.loggers.workflow.info(dwi_fmap_groups)
+ 
+     # If a merge is happening at the end, make sure
++    merging_group_workflows = {}
+     if merging_distortion_groups:
+         # create a mapping of which across-distortion-groups are contained in each merge
+         merged_group_names = sorted(set(concatenation_scheme.values()))
+@@ -334,8 +335,12 @@
+         for subgroup_name, destination_name in concatenation_scheme.items():
+             merged_to_subgroups[destination_name].append(subgroup_name)
+ 
+-        merging_group_workflows = {}
+         for merged_group in merged_group_names:
++            # duckbrain patch (patches/qsiprep/README.md): as upstream main, a
++            # destination with a single correction unit has nothing to merge and
++            # keeps the direct path (26.0.0's merge workflow cannot run on one input).
++            if len(merged_to_subgroups[merged_group]) < 2:
++                continue
+             merging_group_workflows[merged_group] = init_distortion_group_merge_wf(
+                 merging_strategy=config.workflow.distortion_group_merge,
+                 source_file=merged_group + '_dwi.nii.gz',
+@@ -408,7 +413,11 @@
+             name=dwi_preproc_wf.name.replace('dwi_preproc', 'dwi_finalize'),
+             output_prefix=output_fname,
+             source_file=source_file,
+-            write_derivatives=not merging_distortion_groups,
++            # duckbrain patch: only groups that are actually merged defer their derivatives.
++            write_derivatives=not (
++                merging_distortion_groups
++                and concatenation_scheme[output_fname] in merging_group_workflows
++            ),
+         )
+ 
+         workflow.connect([
+@@ -477,7 +486,11 @@
+                 ]),
+             ])  # fmt:skip
+ 
+-        if merging_distortion_groups:
++        # duckbrain patch: connect only groups that are actually merged.
++        if (
++            merging_distortion_groups
++            and concatenation_scheme[output_fname] in merging_group_workflows
++        ):
+             image_name = f'inputnode.{output_wfname}_image'
+             bval_name = f'inputnode.{output_wfname}_bval'
+             bvec_name = f'inputnode.{output_wfname}_bvec'
