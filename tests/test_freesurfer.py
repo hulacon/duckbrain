@@ -10,6 +10,9 @@ per-subject; and container-crossing paths are respelled off ``/gpfs``
 
 from pathlib import Path
 
+import pytest
+
+from duckbrain.core.anat import AnatSelectionError, rec_label, select_t1ws
 from duckbrain.core.freesurfer import (
     build_stamp,
     container_visible,
@@ -175,3 +178,55 @@ def test_container_visible_respells_gpfs_only():
     assert container_visible("/projects/hulacon/x") == "/projects/hulacon/x"
     assert container_visible("/home/u/x") == "/home/u/x"
     assert container_visible(Path("/gpfs/projects/a")) == "/projects/a"
+
+
+# ---- one scan under two rec- labels (core/anat.py) -------------------------------
+
+
+def _anat(root: Path, *names: str) -> list[Path]:
+    anat = root / "sub-04" / "ses-1" / "anat"
+    anat.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        (anat / n).write_bytes(b"x")
+    return t1w_inputs(root, "04")
+
+
+def test_a_robustfov_crop_beside_its_original_is_refused_without_a_label(tmp_path):
+    # The beta-tester report: recon-all got both as separate -i inputs and died on
+    # "inputs have mismatched dimensions!" 15 seconds in.
+    t1s = _anat(tmp_path, "sub-04_ses-1_T1w.nii.gz", "sub-04_ses-1_rec-robustfov_T1w.nii")
+    with pytest.raises(AnatSelectionError, match=r"t1w_rec.*robustfov"):
+        select_t1ws({}, t1s, "04")
+
+
+def test_a_declared_label_selects_only_that_reconstruction(tmp_path):
+    t1s = _anat(tmp_path, "sub-04_ses-1_T1w.nii.gz", "sub-04_ses-1_rec-robustfov_T1w.nii")
+    for label in ("robustfov", "rec-robustfov"):
+        chosen = select_t1ws({"anat": {"t1w_rec": label}}, t1s, "04")
+        assert [p.name for p in chosen] == ["sub-04_ses-1_rec-robustfov_T1w.nii"]
+
+
+def test_a_declared_label_matching_nothing_is_refused_not_ignored(tmp_path):
+    # Falling back to every T1w would hand recon-all the very pair the label
+    # was set to avoid.
+    t1s = _anat(tmp_path, "sub-04_ses-1_T1w.nii.gz", "sub-04_ses-1_rec-robustfov_T1w.nii")
+    with pytest.raises(AnatSelectionError, match="no rec-robustFOV T1w"):
+        select_t1ws({"anat": {"t1w_rec": "robustFOV"}}, t1s, "04")
+
+
+def test_distinct_acquisitions_are_not_a_clash(tmp_path):
+    # Two runs, or two labels on two different runs, are separate scans — the
+    # subject-level recon is meant to read all of them.
+    t1s = _anat(
+        tmp_path,
+        "sub-04_ses-1_run-1_T1w.nii.gz",
+        "sub-04_ses-1_run-2_T1w.nii.gz",
+        "sub-04_ses-1_rec-norm_run-3_T1w.nii.gz",
+    )
+    assert select_t1ws({}, t1s, "04") == t1s
+
+
+def test_rec_label_reads_the_entity_not_a_lookalike():
+    assert rec_label("sub-04_ses-1_rec-robustfov_T1w.nii.gz") == "robustfov"
+    assert rec_label("sub-04_ses-1_T1w.nii.gz") == ""
+    assert rec_label("sub-04_acq-rec_T1w.nii.gz") == ""

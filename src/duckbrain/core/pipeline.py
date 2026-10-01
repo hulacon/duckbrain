@@ -209,13 +209,15 @@ def _build_fmriprep(
     config: Config, subject: str, session: str, log_dir: str, params: JobParams
 ) -> tuple[str, TemplateContext]:
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
+    from .anat import AnatSelectionError, select_t1ws, t1w_rec
     from .fmriprep import (
         find_fs_license,
         get_container_path,
         has_anat_derivatives,
         output_arm_conflict,
-        write_session_filter,
+        write_bids_filter,
     )
+    from .freesurfer import t1w_inputs
 
     paths = config["paths"]
     derivatives_dir = paths["derivatives_dir"]
@@ -277,12 +279,23 @@ def _build_fmriprep(
         )
         fmriprep_input = str(nordic_bids_input_dir(derivatives_dir))
 
-    # A session filter restricts fMRIPrep to one session (multi-session only).
+    # A session filter restricts fMRIPrep to one session (multi-session only);
+    # a declared T1w rec- label restricts the anatomical to the image the
+    # freesurfer stage reads. The selection runs whether or not a label is
+    # declared: with none, it is what refuses a subject holding one scan under
+    # two labels, which fMRIPrep would otherwise average with itself.
+    try:
+        select_t1ws(config, t1w_inputs(paths["bids_dir"], subject), subject)
+    except AnatSelectionError as e:
+        raise PipelineError(str(e)) from None
+    rec = t1w_rec(config)
     filter_file = ""
-    if session:
+    if session or rec:
         filter_file = str(
-            write_session_filter(
-                Path(log_dir) / f"bids_filter_{tag_for(subject, session)}.json", session
+            write_bids_filter(
+                Path(log_dir) / f"bids_filter_{tag_for(subject, session)}.json",
+                session=session,
+                t1w_rec=rec,
             )
         )
 
@@ -442,6 +455,7 @@ def _build_freesurfer(
     ``core/freesurfer.py`` for the design and ``docs/pipeline-extras.md`` §9 for
     its record.
     """
+    from .anat import AnatSelectionError, select_t1ws
     from .fmriprep import find_fs_license
     from .freesurfer import (
         build_stamp,
@@ -501,6 +515,12 @@ def _build_freesurfer(
             f"No T1w images found for sub-{subject} in the BIDS tree — recon-all "
             "needs at least one."
         )
+    # Each T1w becomes its own -i, so one scan under two rec- labels is two
+    # "scans" of mismatched dimensions to recon-all (core/anat.py).
+    try:
+        t1ws = select_t1ws(config, t1ws, subject)
+    except AnatSelectionError as e:
+        raise PipelineError(str(e)) from None
     t2ws = t2w_inputs(paths["bids_dir"], subject)
 
     ctx = build_context(

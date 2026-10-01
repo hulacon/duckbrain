@@ -250,7 +250,7 @@ def _patch_fmriprep(monkeypatch, tmp_path, cap):
     lic.write_text("x")
     monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
     monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
-    monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
+    monkeypatch.setattr(F, "write_bids_filter", lambda path, **kw: path)
     monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: cap.update(ctx=ctx) or "s")
     monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
 
@@ -337,7 +337,7 @@ def test_fmriprep_params_reach_context(monkeypatch, tmp_path):
     lic.write_text("x")
     monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
     monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
-    monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
+    monkeypatch.setattr(F, "write_bids_filter", lambda path, **kw: path)
 
     cap = {}
     monkeypatch.setattr(
@@ -848,7 +848,7 @@ def _patch_fmriprep_deps(monkeypatch, tmp_path, denoised):
     lic.write_text("x")
     monkeypatch.setattr(F, "get_container_path", lambda cfg: "cont.simg")
     monkeypatch.setattr(F, "find_fs_license", lambda cfg: lic)
-    monkeypatch.setattr(F, "write_session_filter", lambda path, ses: path)
+    monkeypatch.setattr(F, "write_bids_filter", lambda path, **kw: path)
     monkeypatch.setattr(N, "get_bold_runs", lambda root, sub, ses: denoised)
     built = {}
     monkeypatch.setattr(N, "build_nordic_bids_input", lambda **kw: built.update(kw) or tmp_path)
@@ -1638,6 +1638,34 @@ def test_freesurfer_existing_mismatched_recon_refused_not_clobbered(monkeypatch,
         advance_one(_fs_config(tmp_path), "freesurfer", "008", "")
 
 
+def _robustfov_pair(root, subject="008", session="01"):
+    """A T1w and its robustfov crop — one scan under two rec- labels."""
+    _t1w(root, subject, session)
+    anat = root / f"sub-{subject}" / f"ses-{session}" / "anat"
+    (anat / f"sub-{subject}_ses-{session}_rec-robustfov_T1w.nii").write_bytes(b"x")
+
+
+def test_freesurfer_refuses_one_scan_under_two_rec_labels(monkeypatch, tmp_path):
+    _license(monkeypatch, tmp_path)
+    _robustfov_pair(tmp_path)
+    with pytest.raises(PipelineError, match=r"\[anat\] t1w_rec"):
+        advance_one(_fs_config(tmp_path), "freesurfer", "008", "")
+
+
+def test_freesurfer_reads_only_the_declared_rec_label(monkeypatch, tmp_path):
+    _license(monkeypatch, tmp_path)
+    _robustfov_pair(tmp_path)
+    cfg = _fs_config(tmp_path)
+    cfg["anat"] = {"t1w_rec": "robustfov"}
+    cap = {}
+    monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: cap.update(ctx=ctx) or "s")
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
+    advance_one(cfg, "freesurfer", "008", "")
+    assert [Path(p).name for p in cap["ctx"]["t1w_files"]] == [
+        "sub-008_ses-01_rec-robustfov_T1w.nii"
+    ]
+
+
 # ---- fMRIPrep import gate (--fs-no-resume) ------------------------------------
 
 
@@ -1767,3 +1795,36 @@ def test_fmriprep_launches_into_a_tree_that_records_no_input(monkeypatch, tmp_pa
     cap.clear()
     advance_one(_nordic_config(tmp_path / "fresh", False), "fmriprep", "008", "")
     assert cap
+
+
+# ---- fMRIPrep reads the same T1w the freesurfer stage does (core/anat.py) ----
+
+
+def test_fmriprep_refuses_one_scan_under_two_rec_labels(monkeypatch, tmp_path):
+    # fMRIPrep would not crash on the pair — it would average the scan with its
+    # own crop and say nothing. So the refusal has to come from us.
+    _robustfov_pair(tmp_path)
+    with pytest.raises(PipelineError, match=r"\[anat\] t1w_rec"):
+        _fmriprep_script(monkeypatch, tmp_path, _config(tmp_path))
+
+
+@pytest.mark.parametrize("session", ["", "01"])
+def test_fmriprep_filters_the_t1w_to_the_declared_rec_label(monkeypatch, tmp_path, session):
+    import json
+
+    import duckbrain.core.fmriprep as F
+
+    _robustfov_pair(tmp_path)
+    cfg = _config(tmp_path)
+    cfg["anat"] = {"t1w_rec": "robustfov"}
+    _license(monkeypatch, tmp_path)
+    monkeypatch.setattr(F, "get_container_path", lambda c: "cont.simg")
+    cap = {}
+    monkeypatch.setattr(P, "render_sbatch", lambda template, ctx: cap.update(ctx=ctx) or "s")
+    monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
+    advance_one(cfg, "fmriprep", "008", session)
+
+    bids_filter = json.loads(Path(cap["ctx"]["filter_file"]).read_text())
+    assert bids_filter["t1w"] == {"reconstruction": "robustfov"}
+    # The session restriction, when there is one, survives beside it.
+    assert ("bold" in bids_filter) == bool(session)

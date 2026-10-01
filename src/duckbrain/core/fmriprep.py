@@ -22,20 +22,31 @@ if TYPE_CHECKING:
 _SESSION_FILTER_SUFFIXES = ("bold", "sbref", "fmap")
 
 
-def write_session_filter(path: str | Path, session: str) -> Path:
-    """Write a BIDS filter JSON restricting functional acquisitions to *session*.
+def write_bids_filter(path: str | Path, session: str = "", t1w_rec: str = "") -> Path:
+    """Write fMRIPrep's BIDS filter JSON and return the written path.
 
-    Anatomicals are left unfiltered (see ``_SESSION_FILTER_SUFFIXES``). Returns
-    the written path. Both ``build_fmriprep_command`` and the GUI's sbatch-
-    template path use this so there is a single definition of a per-session
-    filter.
+    *session* restricts the functional acquisitions to that session; anatomicals
+    are left unfiltered by session (see ``_SESSION_FILTER_SUFFIXES``). *t1w_rec*
+    restricts the T1w to that ``rec-`` label — the same image the ``freesurfer``
+    stage reads, so the two never build from different scans (``core/anat.py``).
+    fMRIPrep merges each entry into its default query, so naming only the entity
+    keeps the rest of that query intact.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    bids_filter = {suf: {"session": session} for suf in _SESSION_FILTER_SUFFIXES}
+    bids_filter: dict[str, dict[str, str]] = {}
+    if session:
+        bids_filter = {suf: {"session": session} for suf in _SESSION_FILTER_SUFFIXES}
+    if t1w_rec:
+        bids_filter["t1w"] = {"reconstruction": t1w_rec}
     with open(path, "w") as f:
         json.dump(bids_filter, f, indent=2)
     return path
+
+
+def write_session_filter(path: str | Path, session: str) -> Path:
+    """Write a BIDS filter JSON restricting functional acquisitions to *session*."""
+    return write_bids_filter(path, session=session)
 
 
 def find_anat_derivatives(derivatives_dir: str | Path, subject: str) -> list[Path]:

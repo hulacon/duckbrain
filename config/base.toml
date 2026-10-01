@@ -126,6 +126,16 @@ mriqc_version = "24.0.2"
 # 1.1.1 was followed by 26.0.0 — a version that looks like a year is not a typo.
 qsiprep_version = "26.0.0"
 
+[anat]
+# Which T1w the anatomical stages read when one scan sits in the BIDS tree under
+# more than one rec- label — e.g. an FSL robustfov crop beside the uncropped
+# original. Set to the label alone (t1w_rec = "robustfov") in a project's
+# code/duckbrain.toml, and both the freesurfer stage and fMRIPrep read only
+# sub-*_rec-<label>_T1w. Empty reads every T1w, and refuses at launch any subject
+# holding one scan under two labels: recon-all stops on their mismatched
+# dimensions, and fMRIPrep would average the scan with itself. See core/anat.py.
+t1w_rec = ""
+
 [fmriprep]
 # No resource keys here on purpose. --nprocs is the SLURM allocation's cpus and
 # --mem-mb is derived from its memory (config.tool_mem_gb); a second,
