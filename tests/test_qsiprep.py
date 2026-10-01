@@ -456,3 +456,52 @@ def test_the_template_renders_from_the_context_alone(tmp_path):
         mem_gb=40,
     )
     assert "QSIPrep" in render_sbatch("qsiprep", ctx)
+
+
+# ---- [anat] t1w_rec: the same T1w the anatomical stages read (core/anat.py) ----
+
+
+def _robustfov_pair(root, session="01"):
+    anat = root / "sub-01" / f"ses-{session}" / "anat"
+    _touch(anat / f"sub-01_ses-{session}_T1w.nii.gz")
+    _touch(anat / f"sub-01_ses-{session}_rec-robustfov_T1w.nii")
+
+
+def test_one_scan_under_two_rec_labels_is_refused(tmp_path):
+    # QSIPrep would conform the pair and average the scan with its own crop.
+    config = _project(tmp_path)
+    _robustfov_pair(tmp_path)
+    with pytest.raises(PipelineError, match=r"\[anat\] t1w_rec"):
+        _export(config)
+
+
+def test_a_declared_rec_label_reaches_qsiprep_as_a_t1w_filter(tmp_path):
+    import json
+    import shlex
+
+    config = _project(tmp_path)
+    config["anat"] = {"t1w_rec": "robustfov"}
+    _robustfov_pair(tmp_path)
+    script = _export(config)
+    # The session stays native; the filter carries the T1w choice and nothing else.
+    assert "--session-id 01" in script
+    (line,) = [ln for ln in script.splitlines() if "--bids-filter-file" in ln]
+    path = shlex.split(line.rstrip(" \\"))[1]
+    assert json.loads(open(path).read()) == {"t1w": {"reconstruction": "robustfov"}}
+
+
+def test_a_sessionwise_unit_judges_only_its_own_sessions_t1ws(tmp_path):
+    # Sessionwise pins QSIPrep's anat query to the session, so another session's
+    # pair is not this unit's problem — refusing it would block a clean session.
+    config = _project(tmp_path)
+    _touch(tmp_path / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_T1w.nii.gz")
+    _robustfov_pair(tmp_path, session="02")
+    assert "--bids-filter-file" not in _export(config)
+
+
+def test_a_declared_label_with_no_matching_t1w_is_refused(tmp_path):
+    config = _project(tmp_path)
+    config["anat"] = {"t1w_rec": "robustfov"}
+    _touch(tmp_path / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_T1w.nii.gz")
+    with pytest.raises(PipelineError, match="no rec-robustfov T1w"):
+        _export(config)

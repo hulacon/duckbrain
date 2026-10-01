@@ -30,7 +30,8 @@ def write_bids_filter(path: str | Path, session: str = "", t1w_rec: str = "") ->
     restricts the T1w to that ``rec-`` label — the same image the ``freesurfer``
     stage reads, so the two never build from different scans (``core/anat.py``).
     fMRIPrep merges each entry into its default query, so naming only the entity
-    keeps the rest of that query intact.
+    keeps the rest of that query intact. QSIPrep's filter has the same ``t1w``
+    key and merge, so its builder writes one here with no *session*.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

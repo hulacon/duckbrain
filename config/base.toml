@@ -130,10 +130,11 @@ qsiprep_version = "26.0.0"
 # Which T1w the anatomical stages read when one scan sits in the BIDS tree under
 # more than one rec- label — e.g. an FSL robustfov crop beside the uncropped
 # original. Set to the label alone (t1w_rec = "robustfov") in a project's
-# code/duckbrain.toml, and both the freesurfer stage and fMRIPrep read only
-# sub-*_rec-<label>_T1w. Empty reads every T1w, and refuses at launch any subject
-# holding one scan under two labels: recon-all stops on their mismatched
-# dimensions, and fMRIPrep would average the scan with itself. See core/anat.py.
+# code/duckbrain.toml, and the freesurfer stage, fMRIPrep and QSIPrep all read
+# only sub-*_rec-<label>_T1w. Empty reads every T1w, and refuses at launch any
+# unit holding one scan under two labels: recon-all stops on their mismatched
+# dimensions, and fMRIPrep and QSIPrep would average the scan with itself. See
+# core/anat.py.
 t1w_rec = ""
 
 [fmriprep]

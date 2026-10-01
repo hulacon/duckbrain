@@ -577,13 +577,17 @@ def _build_qsiprep(
     this stage's ``depends_on`` is the plain string ``"converted"`` and
     ``effective_dependencies`` needs no new arm.
 
-    No BIDS filter file either: ``--session-id`` is native to QSIPrep.
-    ``fmriprep.write_session_filter`` exists only because fMRIPrep must leave
-    anat *unfiltered*, and QSIPrep answers that with
-    ``--subject-anatomical-reference`` instead.
+    The session needs no BIDS filter file: ``--session-id`` is native to
+    QSIPrep. ``fmriprep.write_session_filter`` exists only because fMRIPrep must
+    leave anat *unfiltered*, and QSIPrep answers that with
+    ``--subject-anatomical-reference`` instead. A filter is written only to
+    carry ``[anat] t1w_rec`` (``core/anat.py``).
     """
     from ..config import get_slurm_resources, parse_mem_gb, tool_mem_gb
-    from .fmriprep import find_fs_license
+    from .anat import AnatSelectionError, select_t1ws, t1w_rec
+    from .fmriprep import find_fs_license, write_bids_filter
+    from .freesurfer import t1w_inputs
+    from .ingestion import nii_glob, sub_ses_relpath
     from .qsiprep import (
         QsiprepConfigError,
         anatomical_reference,
@@ -625,6 +629,31 @@ def _build_qsiprep(
             f"{('/ses-' + session) if session else ''} — nothing for QSIPrep to run on."
         )
 
+    # The T1ws QSIPrep will read: a session-scoped unit runs sessionwise, so its
+    # query is pinned to the session's own anat; a sessionless one reads them all.
+    # QSIPrep conforms and averages several T1ws as fMRIPrep does, so one scan
+    # under two rec- labels is the same silent self-average here. A session with
+    # no T1w is left to QSIPrep as before — there is nothing to choose between.
+    if session:
+        rel = sub_ses_relpath(subject, session)
+        t1ws = nii_glob(paths["bids_dir"], f"{rel}/anat/sub-{subject}*_T1w")
+    else:
+        t1ws = t1w_inputs(paths["bids_dir"], subject)
+    rec = t1w_rec(config)
+    filter_file = ""
+    if t1ws:
+        try:
+            select_t1ws(config, t1ws, subject)
+        except AnatSelectionError as e:
+            raise PipelineError(str(e)) from None
+        if rec:
+            filter_file = str(
+                write_bids_filter(
+                    Path(log_dir) / f"bids_filter_qsiprep_{tag_for(subject, session)}.json",
+                    t1w_rec=rec,
+                )
+            )
+
     fs_license = find_fs_license(config)
     if not fs_license:
         raise PipelineError("FreeSurfer license not found. Set it in Project Setup.")
@@ -649,6 +678,7 @@ def _build_qsiprep(
         fs_license_dir=str(fs_license.parent),
         output_resolution=resolution,
         anatomical_reference=anat_ref,
+        filter_file=filter_file,
         patch_binds=patch_binds,
         extra_flags=str(params.get("extra_flags", qp_cfg.get("extra_flags", ""))).strip(),
         mem_gb=tool_mem_gb(config, "qsiprep", alloc_gb=alloc_gb),

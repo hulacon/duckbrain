@@ -32,7 +32,9 @@ echo "Node: $(hostname)"
    `--session-id` is native to QSIPrep (it strips the `ses-` prefix itself), so a
    session-scoped run needs no BIDS filter file. `core/fmriprep.py:write_session_filter`
    exists only because fMRIPrep must leave anat *unfiltered*; QSIPrep addresses the
-   same concern with --subject-anatomical-reference. Don't port the filter here.
+   same concern with --subject-anatomical-reference. Don't port the session filter
+   here. The filter file below carries only `[anat] t1w_rec` (core/anat.py), and is
+   absent unless that is set.
 
    Output lands directly in the directory passed as `output_dir`, NOT in an
    `output_dir/qsiprep/` subdirectory — QSIPrep's DerivativesDataSink sets
@@ -74,6 +76,7 @@ singularity run {{ container_flags }} \
   {{ bids_dir | sh }} "$OUTPUT_DIR" participant \
   --participant-label {{ subject | sh }} \
 {% if session %}  --session-id {{ session | sh }} \
+{% endif %}{% if filter_file is defined and filter_file %}  --bids-filter-file {{ filter_file | sh }} \
 {% endif %}  --output-resolution {{ output_resolution }} \
   --subject-anatomical-reference {{ anatomical_reference | sh }} \
   --fs-license-file {{ fs_license | sh }} \

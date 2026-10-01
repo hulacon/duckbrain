@@ -15,13 +15,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **A T1w stored twice, under two `rec-` labels, no longer reaches recon-all as
   two scans.** A `rec-robustfov` crop beside its uncropped original was handed
   to the `freesurfer` stage's recon-all as two `-i` inputs, which stopped within
-  seconds with "inputs have mismatched dimensions!". fMRIPrep would have averaged
-  the scan with its own crop without saying so. New project setting `[anat]
-  t1w_rec = "<label>"`: the `freesurfer` stage reads only that T1w, and
-  fMRIPrep's BIDS filter restricts its T1w to the same label. With no label set,
-  both stages now refuse at launch any subject holding one scan under two labels,
-  and the message names the setting. A label that matches none of a subject's
-  T1ws is refused too, rather than falling back to all of them.
+  seconds with "inputs have mismatched dimensions!". fMRIPrep and QSIPrep would
+  have averaged the scan with its own crop without saying so. New project setting
+  `[anat] t1w_rec = "<label>"`: the `freesurfer` stage reads only that T1w, and
+  fMRIPrep's and QSIPrep's BIDS filters restrict their T1w to the same label.
+  With no label set, all three refuse at launch a unit holding one scan under two
+  labels, and the message names the setting. (A session-scoped QSIPrep unit
+  judges only its own session's T1ws: it builds that session's anatomical from
+  them alone.) A label that matches none of a unit's T1ws is refused too, rather
+  than falling back to all of them.
 - **QSIPrep sessions with opposing-PE pairs on two axes keep all four runs and
   merge.** QSIPrep 26.0.0 gives both eddy groups of an AP/PA + LR/RL session the
   same name and silently drops one (the run exits 0 with half the volumes); and
