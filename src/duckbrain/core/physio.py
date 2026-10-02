@@ -35,11 +35,14 @@ recordings showed two ways to be a dud that want different answers:
 
 ``trigger-only``
     Two levels, switching on a period a body does not hold. mmmdata's
-    ``recording-cardiac`` files are 228-of-231 like this, and the period is
+    ``recording-cardiac`` files were 228-of-231 like this, and the period is
     1.500 s — the *TR*. The channel carries scanner volume triggers. The file is
     not empty and not broken; it is the wrong signal, which is harder to notice
     than emptiness, and a consumer reaching for cardiac phase would find 231
-    present files and no heartbeat in any of them.
+    present files and no heartbeat in any of them. (The dataset renamed them
+    ``recording-trigger`` on 2026-10-02, column ``trigger``; under that name the
+    verdict no longer counts against the recording — see
+    :data:`PHYSIO_COLUMN_HINTS`.)
 
     What that verdict does *not* mean is that the session has no cardiac data.
     mmmdata's ``recording-pulse`` channel is a pulse-oximetry trace, 230-of-231

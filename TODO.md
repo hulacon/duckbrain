@@ -1586,6 +1586,26 @@ everything else is the user's repo.
      `INFO_ONLY` — no waveform at all — against **106 of 106 COMPLETE** for
      sub-06/07.
 
+   **Spec, DECIDED (Ben) 2026-10-02**, after LCNI's advice on trigger
+   recordings (often missing pulses, so they are unfit as a clock):
+   - **Align by the PMU `ACQUISITION_INFO` block:** `StartTime` = (first sample
+     tic − volume-0 slice-0 start tic) × 2.5 ms. Check `SliceTiming` before
+     taking slice 0 as the volume start; this holds for an ascending first slice.
+   - **No volume 0 in `ACQUISITION_INFO`: refuse the recording, loudly.** Never
+     write a placeholder `StartTime`. mmmdata's `physio_dcm.py` made this change
+     the same day.
+   - **Name each channel by its content, not its PMU section.** A two-level,
+     machine-regular channel is `recording-trigger` with column `trigger`,
+     whether it arrives in `EXT` or in an `ECG` channel. Reuse `core/physio.py`'s
+     regularity test. MMMData's `recording-cardiac` files were the trigger line
+     in all 231, and the dataset renames them to `recording-trigger`.
+   - **The trigger is a cross-check, never the clock.** When present, its rising
+     edges should hold one phase on the TR grid that `StartTime` implies, with the
+     first edge at volume 0. Report a drift; do not re-align from it. Dropped
+     pulses are expected and harmless.
+   - Measurements behind this live in mmmdata-agents
+     `docs/workbench/duckbrain-on-mmm/log.md` (2026-10-02).
+
    Not scheduled, and it does **not** block the mmmdata re-preprocessing
    campaign — that campaign's physio is already converted and verified
    (106/106 runs carry pulse + respiratory). This is about where the capability
