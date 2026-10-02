@@ -1603,6 +1603,19 @@ everything else is the user's repo.
      edges should hold one phase on the TR grid that `StartTime` implies, with the
      first edge at volume 0. Report a drift; do not re-align from it. Dropped
      pulses are expected and harmless.
+   - **Judge a recording against the volumes acquired, never `NumVolumes`.**
+     The header is the protocol's count; a run stopped by hand (free recall:
+     protocol 2400, acquired 778–1092) read `TRUNCATED` against it although its
+     recording covered the run. Count the slice-0 lines of `ACQUISITION_INFO`,
+     and parse the whole section (several MB for a long run; mmmdata's fixed
+     50,000-char window saw ~14 volumes). Corrected in mmmdata 2026-10-02:
+     every recording with a waveform is then `COMPLETE`.
+   - **Pair a PhysioLog with its BOLD by SeriesNumber, not by name.** PhysioLog
+     = converted BOLD + 2 (649 pairs) or + 1 (32). Names mislead: aborted
+     attempts map to the same run, `attempt2` series, a run-1 series named
+     `run2`. Write physio only for a paired, converted BOLD, under that BOLD's
+     entities (a run-less BOLD gets run-less physio). Two candidates for one
+     run is an error, not a choice.
    - Measurements behind this live in mmmdata-agents
      `docs/workbench/duckbrain-on-mmm/log.md` (2026-10-02).
 
