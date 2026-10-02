@@ -248,6 +248,36 @@ def test_scaffold_writes_bidsignore(tmp_path):
     assert (tmp_path / "code" / "logs").is_dir()
 
 
+def test_scaffold_does_not_create_a_layout_dir_the_config_puts_elsewhere(tmp_path):
+    """A project whose raw data lives outside the BIDS root (e.g. a sibling tree
+    kept apart for PII) must not get an empty ``sourcedata/`` planted in the root
+    every time it is opened."""
+    from duckbrain.config import save_project_config, scaffold_project
+
+    project = tmp_path / "study"
+    raw = tmp_path / "study-raw"
+    raw.mkdir()
+    (project / "code").mkdir(parents=True)
+    save_project_config(project, {"paths": {"sourcedata_dir": str(raw)}})
+
+    scaffold_project(project)
+
+    assert not (project / "sourcedata").exists()
+    assert (project / "derivatives").is_dir()  # still derived, still created
+    assert (project / "code" / "logs").is_dir()
+
+
+def test_scaffold_creates_sourcedata_when_the_config_names_the_default(tmp_path):
+    from duckbrain.config import save_project_config, scaffold_project
+
+    (tmp_path / "code").mkdir()
+    save_project_config(tmp_path, {"paths": {"sourcedata_dir": str(tmp_path / "sourcedata")}})
+
+    scaffold_project(tmp_path)
+
+    assert (tmp_path / "sourcedata").is_dir()
+
+
 def test_write_bidsignore_idempotent_and_preserves_user_lines(tmp_path):
     from duckbrain.config import write_bidsignore
 

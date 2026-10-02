@@ -12,6 +12,12 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Opening a project no longer creates `sourcedata/` (or `derivatives/`) in its
+  root when `[paths]` places that directory elsewhere.** A study that keeps raw
+  data in a sibling tree, outside the BIDS root it shares, got an empty
+  `sourcedata/` planted in that root on every Open. The configured location is
+  not created at Open either; ingestion creates it on first import. A new
+  project, with no such setting, is scaffolded exactly as before.
 - **A T1w stored twice, under two `rec-` labels, no longer reaches recon-all as
   two scans.** A `rec-robustfov` crop beside its uncropped original was handed
   to the `freesurfer` stage's recon-all as two `-i` inputs, which stopped within

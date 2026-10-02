@@ -718,11 +718,28 @@ def write_bidsignore(project_dir: str | Path) -> Path:
 def scaffold_project(project_dir: str | Path) -> Path:
     """Create the standard BIDS-ish project layout (sourcedata/derivatives/code).
 
+    A layout dir the merged config places somewhere other than its default under
+    the project is skipped, not created: a study that keeps raw data in a sibling
+    tree (outside the shareable BIDS root) otherwise got an empty ``sourcedata/``
+    planted in that root on every Open. The configured location itself is not
+    created at Open either: ingestion creates it on first import
+    (``ingest_session`` makes the target's parents), and until then the pages
+    that list sessions find none.
+
     Returns the project directory. Idempotent.
     """
     project_dir = Path(project_dir)
-    for sub in ("sourcedata", "derivatives", "code", "code/logs"):
-        (project_dir / sub).mkdir(parents=True, exist_ok=True)
+    paths = load_config(project_dir=project_dir).get("paths", {})
+    for sub, key in (
+        ("sourcedata", "sourcedata_dir"),
+        ("derivatives", "derivatives_dir"),
+        ("code", None),
+        ("code/logs", None),
+    ):
+        default = project_dir / sub
+        if key and Path(paths.get(key) or default) != default:
+            continue
+        default.mkdir(parents=True, exist_ok=True)
     write_bidsignore(project_dir)
     return project_dir
 
