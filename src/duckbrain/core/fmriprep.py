@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,6 +22,70 @@ if TYPE_CHECKING:
 # run_fmriprep.py.)
 
 _SESSION_FILTER_SUFFIXES = ("bold", "sbref", "fmap")
+
+# fMRIPrep 25.2 tracks sessions by default: one job reads *every* session of the
+# subject as one processing group, and the session list is appended to the
+# FreeSurfer subject ID (sub-01_ses-1-2). duckbrain's model predates that — one
+# job per session, chosen by the filter above, with the anatomy and the recon
+# subject-level (freesurfer.subject_import_dir). Under tracking the two collide:
+# niworkflows refuses a session filter that disagrees with the group's session
+# list before building anything ('Conflicting entities for "session" found:
+# 1 // ['1', '2']'), and a recon at sub-01 is not the sub-01_ses-* fMRIPrep then
+# looks for. So duckbrain turns tracking off itself, on every launch, rather than
+# leave it to each project's extra_flags — the one project that knew to set it
+# there was the one that had already hit the error.
+NO_TRACK_SESSIONS_FLAG = "--no-track-sessions"
+_TRACKING_SINCE = (25, 2)
+
+
+def tracks_sessions(version: str) -> bool:
+    """Whether fMRIPrep *version* has session tracking, and so accepts the flag.
+
+    Older releases reject ``--no-track-sessions`` as an unknown argument, so the
+    flag is gated on the pin. A tag with no ``major.minor`` ("latest",
+    "unstable") is taken as current — those name newer images, never 24.x.
+    """
+    m = re.match(r"\s*(\d+)\.(\d+)", str(version))
+    return not m or (int(m.group(1)), int(m.group(2))) >= _TRACKING_SINCE
+
+
+def session_tracking_conflict(extra_flags: str) -> str:
+    """Why the operator's *extra_flags* cannot run beside duckbrain's session handling.
+
+    Returns the refusal text, or ``""`` when there is none. Session tracking,
+    ``sessionwise`` anatomy and ``--session-label`` each hand fMRIPrep a session
+    list of its own, which the per-session filter then contradicts — the run
+    would die at workflow build, after its queue wait.
+    """
+    tokens = shlex.split(extra_flags or "")
+    sessionwise = any(
+        t == "--subject-anatomical-reference=sessionwise"
+        or (t == "--subject-anatomical-reference" and tokens[i + 1 : i + 2] == ["sessionwise"])
+        for i, t in enumerate(tokens)
+    )
+    found = [f for f in ("--track-sessions", "--session-label") if f in tokens]
+    if sessionwise:
+        found.append("--subject-anatomical-reference sessionwise")
+    if not found:
+        return ""
+    return (
+        f"Refusing to launch fMRIPrep: extra_flags sets {', '.join(found)}. duckbrain "
+        "runs one session per job and builds the anatomy and FreeSurfer recon once "
+        f"per subject, so it passes {NO_TRACK_SESSIONS_FLAG} itself; these flags "
+        "would hand fMRIPrep a session list that contradicts the job's own. Remove "
+        "them from [fmriprep] extra_flags."
+    )
+
+
+def session_tracking_args(version: str, extra_flags: str = "") -> list[str]:
+    """The session-tracking flag duckbrain adds for fMRIPrep *version*.
+
+    Empty for a release without tracking, and when *extra_flags* already
+    carries the flag (projects that set it there before duckbrain did).
+    """
+    if not tracks_sessions(version) or NO_TRACK_SESSIONS_FLAG in shlex.split(extra_flags or ""):
+        return []
+    return [NO_TRACK_SESSIONS_FLAG]
 
 
 def write_bids_filter(path: str | Path, session: str = "", t1w_rec: str = "") -> Path:
@@ -171,6 +237,7 @@ def build_fmriprep_command(
     derivatives: str | Path | None = None,
     bids_filter_file: str | Path | None = None,
     extra_args: list[str] | None = None,
+    fmriprep_version: str = "",
 ) -> list[str]:
     """Construct a Singularity run command for fMRIPrep.
 
@@ -205,6 +272,9 @@ def build_fmriprep_command(
         BIDS filter JSON to restrict processing.
     extra_args : list[str], optional
         Additional fMRIPrep arguments.
+    fmriprep_version : str, optional
+        The container's release, which decides whether ``--no-track-sessions``
+        is passed (``tracks_sessions``). Empty is taken as current.
 
     Returns
     -------
@@ -274,6 +344,7 @@ def build_fmriprep_command(
         filter_path = write_session_filter(work_dir / "bids_filter.json", session)
         cmd.extend(["--bids-filter-file", str(filter_path)])
 
+    cmd.extend(session_tracking_args(fmriprep_version, shlex.join(extra_args or [])))
     if extra_args:
         cmd.extend(extra_args)
 

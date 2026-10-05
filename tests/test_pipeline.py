@@ -1669,7 +1669,7 @@ def test_freesurfer_reads_only_the_declared_rec_label(monkeypatch, tmp_path):
 # ---- fMRIPrep import gate (--fs-no-resume) ------------------------------------
 
 
-def _fmriprep_script(monkeypatch, tmp_path, cfg):
+def _fmriprep_script(monkeypatch, tmp_path, cfg, session=""):
     """The sbatch text fMRIPrep would submit under *cfg*, rendered for real."""
     import duckbrain.core.fmriprep as F
     from duckbrain.slurm.templates import render_sbatch
@@ -1682,7 +1682,7 @@ def _fmriprep_script(monkeypatch, tmp_path, cfg):
         P, "render_sbatch", lambda template, ctx: cap.update(t=template, ctx=ctx) or "s"
     )
     monkeypatch.setattr(P, "submit_job", lambda s, n, scripts_dir=None: "J")
-    advance_one(cfg, "fmriprep", "008", "")
+    advance_one(cfg, "fmriprep", "008", session)
     return render_sbatch(cap["t"], cap["ctx"])
 
 
@@ -1828,3 +1828,52 @@ def test_fmriprep_filters_the_t1w_to_the_declared_rec_label(monkeypatch, tmp_pat
     assert bids_filter["t1w"] == {"reconstruction": "robustfov"}
     # The session restriction, when there is one, survives beside it.
     assert ("bold" in bids_filter) == bool(session)
+
+
+# ---- fMRIPrep 25.2 session tracking (core/fmriprep.py) -----------------------
+
+
+@pytest.mark.parametrize("session", ["", "01"])
+def test_fmriprep_turns_session_tracking_off(monkeypatch, tmp_path, session):
+    """25.2 tracks sessions by default, so a session job reads every session of the
+    subject and the session filter contradicts it — niworkflows refuses before
+    building anything ('Conflicting entities for "session"'). Off on every
+    launch, the anat-only and sessionless ones too: tracking also renames the
+    FreeSurfer subject away from the subject-level recon."""
+    cfg = _config(tmp_path)
+    cfg["containers"] = {"fmriprep_version": "25.2.5"}
+    script = _fmriprep_script(monkeypatch, tmp_path, cfg, session=session)
+    assert script.count("--no-track-sessions") == 1
+
+
+def test_fmriprep_does_not_repeat_a_flag_the_project_already_passes(monkeypatch, tmp_path):
+    cfg = _config(tmp_path)
+    cfg["fmriprep"] = {"extra_flags": "--no-track-sessions --subject-anatomical-reference unbiased"}
+    script = _fmriprep_script(monkeypatch, tmp_path, cfg, session="01")
+    assert script.count("--no-track-sessions") == 1
+    assert "--subject-anatomical-reference unbiased" in script
+
+
+def test_fmriprep_before_25_2_gets_no_tracking_flag(monkeypatch, tmp_path):
+    # 24.x and 25.0/25.1 reject the flag as an unknown argument.
+    cfg = _config(tmp_path)
+    cfg["containers"] = {"fmriprep_version": "24.1.1"}
+    assert "--no-track-sessions" not in _fmriprep_script(monkeypatch, tmp_path, cfg, session="01")
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        "--track-sessions",
+        "--subject-anatomical-reference sessionwise",
+        "--subject-anatomical-reference=sessionwise",
+        "--session-label 01",
+    ],
+)
+def test_fmriprep_refuses_flags_that_hand_it_a_session_list(monkeypatch, tmp_path, flags):
+    cfg = _config(tmp_path)
+    cfg["fmriprep"] = {"extra_flags": flags}
+    with pytest.raises(PipelineError, match="extra_flags"):
+        _fmriprep_script(monkeypatch, tmp_path, cfg, session="01")
+    # Refused before the filter file is written.
+    assert not list(Path(cfg["paths"]["log_dir"]).glob("bids_filter_*.json"))

@@ -3,7 +3,14 @@
 import json
 from pathlib import Path
 
-from duckbrain.core.fmriprep import build_fmriprep_command, write_session_filter
+import pytest
+
+from duckbrain.core.fmriprep import (
+    build_fmriprep_command,
+    session_tracking_args,
+    tracks_sessions,
+    write_session_filter,
+)
 from duckbrain.core.nordic import get_bold_runs
 
 
@@ -38,6 +45,36 @@ def test_fmriprep_command_multi_session_adds_filter(tmp_path):
     assert "--bids-filter-file" in cmd
     filter_path = Path(cmd[cmd.index("--bids-filter-file") + 1])
     assert json.loads(filter_path.read_text())["bold"] == {"session": "01"}
+
+
+def test_fmriprep_command_turns_session_tracking_off(tmp_path):
+    cmd = build_fmriprep_command(session="01", **_base_cmd_kwargs(tmp_path))
+    assert cmd.count("--no-track-sessions") == 1
+    old = build_fmriprep_command(
+        session="01", fmriprep_version="24.1.1", **_base_cmd_kwargs(tmp_path)
+    )
+    assert "--no-track-sessions" not in old
+
+
+@pytest.mark.parametrize(
+    ("version", "tracks"),
+    [
+        ("25.2.5", True),
+        ("25.2.0", True),
+        ("26.0.0", True),
+        ("25.1.4", False),
+        ("24.1.1", False),
+        ("latest", True),
+        ("", True),
+    ],
+)
+def test_tracks_sessions_from_the_pin(version, tracks):
+    assert tracks_sessions(version) is tracks
+
+
+def test_session_tracking_flag_is_not_repeated():
+    assert session_tracking_args("25.2.5", "--no-track-sessions") == []
+    assert session_tracking_args("25.2.5", "--use-syn-sdc") == ["--no-track-sessions"]
 
 
 def test_get_bold_runs_no_session_layout(tmp_path):

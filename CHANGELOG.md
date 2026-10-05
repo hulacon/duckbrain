@@ -46,6 +46,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **fMRIPrep runs on a multi-session subject again under 25.2.** fMRIPrep 25.2
+  tracks sessions by default: a job reads every session of the subject at once,
+  so duckbrain's one-session filter contradicted it and the run died at workflow
+  build with `Conflicting entities for "session" found`. Tracking would also have
+  renamed the FreeSurfer subject (`sub-01_ses-1-2`) away from the subject-level
+  recon. duckbrain now passes `--no-track-sessions` on every fMRIPrep launch
+  whose pin is 25.2 or later (once, if a project's `extra_flags` already carries
+  it), and refuses `extra_flags` that set `--track-sessions`, `sessionwise`
+  anatomy or `--session-label`, which would hand fMRIPrep a session list of its
+  own.
 - **Setup opens a project named at launch.** A project directory given on the
   OnDemand form (or in `DUCKBRAIN_PROJECT_DIR`) was open to the project bar and
   to Status, but Setup said "Open or create a project above" and hid its

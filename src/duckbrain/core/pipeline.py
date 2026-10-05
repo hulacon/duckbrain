@@ -215,6 +215,8 @@ def _build_fmriprep(
         get_container_path,
         has_anat_derivatives,
         output_arm_conflict,
+        session_tracking_args,
+        session_tracking_conflict,
         write_bids_filter,
     )
     from .freesurfer import t1w_inputs
@@ -238,6 +240,10 @@ def _build_fmriprep(
                 f"the SLURM allocation. Delete it and set "
                 f"[slurm.overrides.fmriprep] {slurm_key} instead."
             )
+    extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", ""))).strip()
+    conflict = session_tracking_conflict(extra_flags)
+    if conflict:
+        raise PipelineError(conflict)
 
     container = get_container_path(config)
     fs_license = find_fs_license(config)
@@ -341,7 +347,6 @@ def _build_fmriprep(
             )
         fs_no_resume = True
 
-    extra_flags = str(params.get("extra_flags", fp_cfg.get("extra_flags", ""))).strip()
     # Both resource knobs name the SLURM allocation. `nprocs` is the allocation's
     # CPUs outright — fMRIPrep documents --nprocs as the budget across all its
     # processes, which is the same quantity --cpus-per-task grants. `mem_gb` is
@@ -367,6 +372,9 @@ def _build_fmriprep(
         anat_only=anat_only,
         derivatives=output_dir if use_derivatives else "",
         extra_flags=extra_flags,
+        session_tracking_args=session_tracking_args(
+            config.get("containers", {}).get("fmriprep_version", ""), extra_flags
+        ),
         fs_no_resume=fs_no_resume,
         mem_gb=mem_gb,
     )

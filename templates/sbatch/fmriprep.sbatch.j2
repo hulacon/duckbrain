@@ -32,6 +32,9 @@ echo "Node: $(hostname)"
    `extra_flags` is the one deliberate exception: it is a shell fragment the
    operator supplies and it must word-split (`--use-syn-sdc --fd-spike-threshold
    0.5` is three arguments), so it is the one unquoted field in this template.
+   `session_tracking_args` sits just before it: duckbrain's own
+   `--no-track-sessions`, a list rather than operator text (core/fmriprep.py
+   says why fMRIPrep 25.2 needs it).
 
    Every note about the command belongs HERE, above it. A Jinja comment parked
    between two continued lines still emits its own newline, and a blank line
@@ -85,6 +88,7 @@ singularity run {{ container_flags }} \
 {% if anat_only %}  --anat-only \
 {% endif %}{% if derivatives %}  --derivatives {{ derivatives | sh }} \
 {% endif %}{% if fs_no_resume is defined and fs_no_resume %}  --fs-no-resume \
+{% endif %}{% if session_tracking_args is defined and session_tracking_args %}  {{ session_tracking_args | join(' ') }} \
 {% endif %}{% if extra_flags is defined and extra_flags %}  {{ extra_flags }} \
 {% endif %}  --skip-bids-validation --notrack
 
