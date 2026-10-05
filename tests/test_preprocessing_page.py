@@ -19,7 +19,7 @@ from streamlit.testing.v1 import AppTest
 from conftest import page_path
 from duckbrain.config import USER_CONFIG_ENV, save_project_config, scaffold_project
 
-PAGE = page_path("src/duckbrain/gui/pages/4_Preprocessing.py")
+PAGE = page_path("src/duckbrain/gui/views/4_Preprocessing.py")
 
 
 def _bold(project, subject, session, count=1):

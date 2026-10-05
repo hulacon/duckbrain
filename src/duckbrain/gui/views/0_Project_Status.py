@@ -131,6 +131,23 @@ _FS_ICON = {
 }
 _JOB_ICON = {"running": "🔵 running", "queued": "⏳ queued", "failed": "🔴 failed"}
 
+# Stage keys are lowercase identifiers; what a user reads is the tool's own
+# spelling. `.capitalize()` produced "Fmriprep" and "Mriqc", which a student
+# learning these tools would take as the names.
+_STAGE_TITLES = {
+    "ingested": "Ingested",
+    "converted": "Converted",
+    "nordic": "NORDIC",
+    "freesurfer": "FreeSurfer",
+    "fmriprep": "fMRIPrep",
+    "mriqc": "MRIQC",
+    "qsiprep": "QSIPrep",
+}
+
+
+def _stage_title(stage: str) -> str:
+    return _STAGE_TITLES.get(stage, stage.capitalize())
+
 
 def _cell(fs_val: str, job_val: str) -> str:
     """A live job overlay (running/queued/failed) wins the icon; else filesystem."""
@@ -288,7 +305,7 @@ def _launch(
     """Submit one stage for one unit, queue a confirmation, and rerun the fragment."""
     try:
         job_id = advance_one(config, stage, sub, ses, **params)
-        queue_toast(f"{verb} {stage} for {_unit_label(sub, ses)} — job {job_id}")
+        queue_toast(f"{verb} {_stage_title(stage)} for {_unit_label(sub, ses)} — job {job_id}")
         st.rerun()
     except Exception as e:
         show_error("Could not launch", e)
@@ -298,7 +315,7 @@ def _run_popover(row: pd.Series, stage: str, config: Config) -> None:
     from duckbrain.core.surveyor import run_progress
 
     sub, ses = str(row["subject"]), str(row["session"])
-    st.markdown(f"**Run {stage}** — {_unit_label(sub, ses)}")
+    st.markdown(f"**Run {_stage_title(stage)}** — {_unit_label(sub, ses)}")
     # A partial cell has to say how partial. Without the count it reads as an
     # unexplained "not done" and the operator goes and counts files by hand.
     if row.get(stage) == "partial":
@@ -332,7 +349,8 @@ def _job_popover(
     from duckbrain.slurm.monitor import find_job_logs, job_log
 
     sub, ses = str(row["subject"]), str(row["session"])
-    st.markdown(f"**{_JOB_ICON.get(job_state, job_state)}** — {stage} · {_unit_label(sub, ses)}")
+    state = _JOB_ICON.get(job_state, job_state)
+    st.markdown(f"**{state}** — {_stage_title(stage)} · {_unit_label(sub, ses)}")
 
     job_id = latest_jobs.get((sub, ses, stage), "")
     info = jobs_by_id.get(job_id) if job_id else None
@@ -398,7 +416,10 @@ def _job_popover(
 
             try:
                 cancel_job(job_id)
-                queue_toast(f"Cancelled job {job_id} — {stage} {_unit_label(sub, ses)}", icon="🛑")
+                queue_toast(
+                    f"Cancelled job {job_id} — {_stage_title(stage)} {_unit_label(sub, ses)}",
+                    icon="🛑",
+                )
                 st.rerun()
             except Exception as e:
                 show_error("Could not cancel", e)
@@ -619,9 +640,9 @@ def _paginate(view: pd.DataFrame) -> pd.DataFrame:
 def _deep_links() -> None:
     st.caption("Need advanced params or per-session review? Open the full pages:")
     for path, label, icon in [
-        ("pages/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
-        ("pages/4_Preprocessing.py", "Preprocessing", "🧠"),
-        ("pages/3a_Project.py", "Project (metadata, validation, expectations)", "🗂️"),
+        ("views/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
+        ("views/4_Preprocessing.py", "Preprocessing", "🧠"),
+        ("views/3a_Project.py", "Project (metadata, validation, expectations)", "🗂️"),
     ]:
         try:
             st.page_link(path, label=label, icon=icon)
@@ -827,7 +848,7 @@ def dashboard() -> None:
 
     # ---- Per-stage rollup ----
     summary = summarize(matrix)
-    st.subheader("Overview")
+    st.header("Overview")
     cols = st.columns(len(stages))
     for col, stage in zip(cols, stages, strict=True):
         counts = summary[stage]
@@ -835,10 +856,10 @@ def dashboard() -> None:
         # progress claim, and it was the headline number telling a finished
         # non-NORDIC project it had N units of work left (TODO #17.4).
         if counts.get(Status.NA.value, 0) == len(matrix) and len(matrix):
-            col.metric(stage.capitalize(), "—", help="does not apply to this project")
+            col.metric(_stage_title(stage), "—", help="does not apply to this project")
             continue
         col.metric(
-            stage.capitalize(),
+            _stage_title(stage),
             f"{counts[Status.COMPLETE.value]}/{len(matrix)}",
             help="complete / total",
         )
@@ -873,7 +894,7 @@ def dashboard() -> None:
     issues = check_consistency(config, matrix=matrix) + run_checks(config)
     if issues:
         warnings = [i for i in issues if i.severity != "note"]
-        st.subheader("⚠️ Warnings" if warnings else "Notes")
+        st.header("⚠️ Warnings" if warnings else "Notes")
         st.caption(
             "Self-contradictory pipeline state — config vs. what's on disk, mixed "
             "provenance/versions across subjects, staleness, or a missing input — "
@@ -904,7 +925,7 @@ def dashboard() -> None:
     # One board instead of three blocks: the matrix cells ARE the launch controls.
     # A cell upgrades to a popover when it has an action (▶ run / 🔴 log+re-run);
     # a gated cell keeps its icon in place rather than vanishing from a dropdown.
-    st.subheader("Subjects")
+    st.header("Subjects")
     only_incomplete = st.checkbox(
         "Show only units with unfinished stages",
         value=True,
@@ -965,13 +986,16 @@ def dashboard() -> None:
                 # one of its own: the headroom preflight below asks sacctmgr, and
                 # an eager body would ask once per stage on every 30 s refresh.
                 pop = hc.popover(
-                    f"{stage} ▾", width="stretch", on_change="rerun", key=f"bulkpop_{stage}"
+                    f"{_stage_title(stage)} ▾",
+                    width="stretch",
+                    on_change="rerun",
+                    key=f"bulkpop_{stage}",
                 )
                 if pop.open:
                     with pop:
                         _bulk_popover(stage, units, config, len(jobs["active"]))
             else:
-                hc.markdown(f"**{stage}**")
+                hc.markdown(f"**{_stage_title(stage)}**")
 
         # One row per unit; each SLURM cell becomes a popover when it has an action.
         for _, row in view.iterrows():

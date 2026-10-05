@@ -23,7 +23,7 @@ from duckbrain.core.ingestion import (
     normalize_use_sessions,
 )
 
-SETUP_PAGE = page_path("src/duckbrain/gui/pages/1_Project_Setup.py")
+SETUP_PAGE = page_path("src/duckbrain/gui/views/1_Project_Setup.py")
 
 
 def _sessions():
@@ -111,9 +111,8 @@ def project(tmp_path):
 def _run_setup(proj):
     """Run the Setup page with *proj* already open.
 
-    The page gates its settings section on ``session_state["project_dir"]`` (the
-    env var alone only seeds the picker's default), so the test opens the project
-    the same way clicking "Open / Create Project" would.
+    Seeds ``session_state["project_dir"]`` the way clicking "Open / Create
+    Project" would, rather than relying on the page opening an env-var project.
     """
     at = AppTest.from_file(SETUP_PAGE, default_timeout=60)
     at.session_state["project_dir"] = str(proj)

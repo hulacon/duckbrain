@@ -353,6 +353,18 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
         metrics_df = qc.detect_outliers(
             metrics_df, iqm_columns=iqm_cols, iqr_multiplier=iqr_multiplier
         )
+        # Cleared at the source, so every reader of the flags agrees: the
+        # Overview's counts, the run picker's ⚠, Inspect's per-measure column
+        # and the X marks on the distributions.
+        min_runs = int(settings["min_runs_for_flags"])
+        if len(metrics_df) < min_runs:
+            outlier_cols = [c for c in metrics_df.columns if c.endswith("_outlier")]
+            metrics_df[outlier_cols] = False
+            st.info(
+                f"Only {len(metrics_df)} {modality} run(s) — too few to flag outliers "
+                f"(flagging starts at {min_runs}). Every measure is still shown; judge "
+                "each run from its numbers, figures and report rather than from flags."
+            )
         motion_df = None
         if modality == "bold" and fmriprep_dir.is_dir():
             motion_df = _load_motion(
@@ -385,7 +397,14 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
         run_key = chosen
         run = next((r for r in runs if r["run_key"] == run_key), None)
         with cols[2]:
-            st.metric("Runs", len(keys), f"{len(flagged)} flagged" if flagged else None)
+            # delta_color="off": a positive delta renders as a green up-arrow,
+            # which reads as good news for a count of outliers.
+            st.metric(
+                "Runs",
+                len(keys),
+                f"{len(flagged)} flagged" if flagged else None,
+                delta_color="off",
+            )
         _publish_scope_to_url(qc_modality=modality, qc_run=run_key)
     else:
         _publish_scope_to_url(qc_modality=modality)
@@ -584,7 +603,7 @@ def render_inspection_page() -> None:
 
     all_measures = [m for d in qc_domains.DOMAINS for m in d.measures_for(scope.modality)]
 
-    st.subheader("Numbers at a glance")
+    st.header("Numbers at a glance")
     if scope.run and all_measures:
         measure_table(scope, all_measures)
         # A domain-wide caveat is about reading its numbers, so it belongs with
@@ -602,7 +621,7 @@ def render_inspection_page() -> None:
             "The measures need MRIQC — run it from **Preprocessing**. The figures below do not."
         )
 
-    st.subheader("Evidence")
+    st.header("Evidence")
     for domain in qc_domains.DOMAINS:
         if not domain.evidence_for(scope.modality):
             continue
@@ -622,7 +641,7 @@ def render_inspection_page() -> None:
 
     if scope.run:
         st.divider()
-        st.subheader(f"Review {scope.run_key}")
+        st.header(f"Review {scope.run_key}")
         record = qc.load_decisions(scope.decisions_read_dirs).get(scope.run_key)
         verdict = (record.get("latest") or {}).get("decision") if record else None
         st.caption(f"verdict: **{verdict}**" if verdict else "no verdict recorded")
@@ -630,9 +649,9 @@ def render_inspection_page() -> None:
         run_signoff(scope)
 
     st.divider()
-    st.subheader("Glossary")
+    st.header("Glossary")
     measure_glossary(all_measures)
-    _page_link("pages/5_QC_Overview.py", "Back to the Overview", icon="⬅️")
+    _page_link("views/5_QC_Overview.py", "Back to the Overview", icon="⬅️")
 
 
 # ---------------------------------------------------------------------------
@@ -947,7 +966,7 @@ def render_overview() -> None:
     if sentence and state != "complete":
         st.info(sentence)
 
-    st.subheader("Runs")
+    st.header("Runs")
     st.caption(
         "Every measure is compared within this dataset, never against a fixed "
         "cutoff — a flag means unusual here, not bad. Click a row to open that "
@@ -1015,7 +1034,7 @@ def _open_in_inspector(run_key: str, modality: str) -> None:
     """
     st.session_state["qc_run"] = run_key
     st.session_state["qc_modality"] = modality
-    _switch_page("pages/5a_QC_Inspect.py", f"Open **{run_key}** on the Inspect page.")
+    _switch_page("views/5a_QC_Inspect.py", f"Open **{run_key}** on the Inspect page.")
 
 
 def _iqm_strips(scope: Scope) -> None:
@@ -1035,7 +1054,7 @@ def _iqm_strips(scope: Scope) -> None:
     fig = qc_report.build_iqm_figure(scope.runs, scope.iqm_cols, scope.modality)
     if fig is None:
         return
-    st.subheader("Distributions")
+    st.header("Distributions")
     st.caption(
         "Every measure across the runs shown, grouped by subject — the boxes "
         "are the IQR the outlier fence is computed from, and ✗ marks a flagged "

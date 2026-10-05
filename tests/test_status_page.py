@@ -22,7 +22,7 @@ from conftest import page_path
 from duckbrain.config import USER_CONFIG_ENV, save_project_config, scaffold_project
 from duckbrain.slurm.monitor import JobInfo
 
-PAGE = page_path("src/duckbrain/gui/pages/0_Project_Status.py")
+PAGE = page_path("src/duckbrain/gui/views/0_Project_Status.py")
 
 
 def _touch(path, content="x"):
@@ -94,7 +94,7 @@ def test_page_renders_board(project):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
     labels = [m.label for m in at.metric]
-    assert {"Ingested", "Converted", "Fmriprep", "Mriqc"} <= set(labels)
+    assert {"Ingested", "Converted", "fMRIPrep", "MRIQC"} <= set(labels)
     # Both units render as rows in the grid (row label is a markdown cell).
     mds = _markdowns(at)
     assert "sub-01" in mds and "sub-02" in mds

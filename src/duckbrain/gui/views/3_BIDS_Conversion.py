@@ -149,7 +149,7 @@ with st.expander(
         n_ok = sum(1 for r in results if r["status"] == "submitted")
         st.success(f"Submitted {n_ok}/{len(target)} job(s). Logs in `{log_dir}`.")
 
-st.markdown("### Per-session review")
+st.markdown("## Per-session review")
 col1, col2 = st.columns(2)
 with col1:
     subject = st.selectbox("Subject", subjects)
@@ -211,7 +211,7 @@ if _nd_twins:
         "both": "Both, as `acq-dis` / `acq-nd`",
     }
     _twins = ", ".join(f"`{base}`" for base in _nd_twins)
-    st.markdown("##### Duplicate reconstructions")
+    st.markdown("### Duplicate reconstructions")
     st.caption(
         f"This session saved {len(_nd_twins)} series twice — {_twins} — once "
         "distortion-corrected and once with `ND` (No Distortion correction) in "
@@ -386,7 +386,7 @@ series_times = {
 }
 fmap_colors = fmap_swatches(fieldmaps.groups)
 
-st.subheader("Fieldmap Detection")
+st.header("Fieldmap Detection")
 if fieldmaps.strategy == "none":
     st.info("No fieldmaps detected — every run will convert without distortion correction.")
 else:
@@ -526,7 +526,7 @@ if _saved_config_path.exists():
                 "or press **Save Config** below to overwrite it with the table."
             )
 
-st.subheader("Conversion Plan")
+st.header("Conversion Plan")
 # The "source of truth" claim is only true while the hand-edited JSON is off, and
 # stating it unconditionally was half of what made the override confusing — the
 # page asserted the table drove the conversion at the exact moment it didn't.

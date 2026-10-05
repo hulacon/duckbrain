@@ -79,7 +79,7 @@ def _images(at: AppTest):
 def _switch_script():
     from duckbrain.gui import qc_panels
 
-    qc_panels._switch_page("pages/5a_QC_Inspect.py", "would have opened the Inspect page")
+    qc_panels._switch_page("views/5a_QC_Inspect.py", "would have opened the Inspect page")
 
 
 class TestOverviewClickThrough:

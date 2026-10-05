@@ -16,7 +16,14 @@ from streamlit.testing.v1 import AppTest
 
 from conftest import page_path
 from duckbrain.config import remember_project, scaffold_project
-from duckbrain.gui.app import _BIDS_PAGES, _PAGES, _PAGES_DIR, _QC_PAGES, _shorten
+from duckbrain.gui.app import (
+    _BIDS_PAGES,
+    _PAGES,
+    _PAGES_DIR,
+    _QC_PAGES,
+    _URL_PATHS,
+    _shorten,
+)
 
 APP = page_path("src/duckbrain/gui/app.py")
 
@@ -51,9 +58,9 @@ def test_the_bidsification_group_is_ingestion_conversion_project():
     import re
 
     declared = {f for f, _ in [*_PAGES, *_BIDS_PAGES, *_QC_PAGES]}
-    for source_file in ("pages/0_Project_Status.py", "pages/2_Data_Ingestion.py"):
+    for source_file in ("views/0_Project_Status.py", "views/2_Data_Ingestion.py"):
         source = (Path(__file__).parent.parent / "src/duckbrain/gui" / source_file).read_text()
-        targeted = {Path(m).name for m in re.findall(r'"pages/([^"]+\.py)"', source)}
+        targeted = {Path(m).name for m in re.findall(r'"views/([^"]+\.py)"', source)}
         assert targeted <= declared, f"navigated-to but not in the nav: {targeted - declared}"
 
 
@@ -71,7 +78,7 @@ def test_the_qc_group_is_exactly_overview_and_inspect():
 
     declared = {f for f, _ in _QC_PAGES}
     source = (Path(__file__).parent.parent / "src/duckbrain/gui/qc_panels.py").read_text()
-    targeted = {Path(m).name for m in re.findall(r'"pages/(5[^"]+\.py)"', source)}
+    targeted = {Path(m).name for m in re.findall(r'"views/(5[^"]+\.py)"', source)}
     assert targeted <= declared, f"navigated-to but not in the nav: {targeted - declared}"
 
 
@@ -180,3 +187,21 @@ def test_a_newer_release_becomes_a_link_and_silence_stays_silent(monkeypatch):
 def test_shorten_keeps_enough_to_disambiguate():
     assert _shorten("/projects/hulacon/bhutch/divatten") == ".../bhutch/divatten"
     assert _shorten("/short") == "/short"
+
+
+def test_every_page_has_its_own_explicit_url():
+    """Inferred url paths come from the filename with its numeric prefix
+    stripped, which served ``3a_Project.py`` at ``/a_Project``."""
+    files = [f for f, _ in [*_PAGES, *_BIDS_PAGES, *_QC_PAGES]]
+    assert sorted(files) == sorted(_URL_PATHS)
+    paths = list(_URL_PATHS.values())
+    assert len(set(paths)) == len(paths)
+    assert all(p and p == p.lower() and "_" not in p for p in paths)
+
+
+def test_no_pages_directory_sits_beside_the_main_script():
+    """Streamlit auto-registers ``pages/`` next to the main script until
+    ``st.navigation`` has run once, so a deep link as a fresh server's first
+    request got Streamlit's own sidebar of raw filenames instead of the app."""
+    assert not (_PAGES_DIR.parent / "pages").exists()
+    assert _PAGES_DIR.name != "pages"

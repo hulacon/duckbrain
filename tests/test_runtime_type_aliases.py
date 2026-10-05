@@ -39,7 +39,7 @@ import duckbrain
 #: pages call ``st.set_page_config`` at module scope; importing one outside a
 #: script run is not a thing they support, and their aliases are covered by the
 #: panel modules they import from.
-SKIP_PREFIXES = ("duckbrain.gui.pages.",)
+SKIP_PREFIXES = ("duckbrain.gui.views.",)
 
 
 def _importable_modules() -> list[str]:

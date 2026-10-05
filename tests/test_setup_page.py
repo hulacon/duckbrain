@@ -16,7 +16,7 @@ from streamlit.testing.v1 import AppTest
 from conftest import page_path
 from duckbrain.config import USER_CONFIG_ENV, load_config, remember_project, scaffold_project
 
-PAGE = page_path("src/duckbrain/gui/pages/1_Project_Setup.py")
+PAGE = page_path("src/duckbrain/gui/views/1_Project_Setup.py")
 
 
 @pytest.fixture
@@ -32,9 +32,9 @@ def project(tmp_path, monkeypatch):
 def _open(project):
     """A page instance with *project* already open.
 
-    The settings sections sit behind ``st.session_state["project_dir"]`` (the env
-    var only seeds the picker's default), so seed session state directly rather
-    than driving the picker widget.
+    Seeds session state directly rather than driving the picker widget. (A
+    project in the env var alone is opened by the page itself; see
+    ``test_a_project_named_at_launch_is_open_in_setup``.)
     """
     at = AppTest.from_file(PAGE, default_timeout=60)
     at.session_state["project_dir"] = str(project)
@@ -144,7 +144,7 @@ def test_setup_flags_a_partition_this_cluster_does_not_have(project, monkeypatch
     no such partition. It was invisible while a per-stage default outranked it;
     now that the field reaches jobs, a stale value must be visible before it
     rejects every submission."""
-    import duckbrain.gui.pages  # noqa: F401  (namespace exists before patching)
+    import duckbrain.gui.views  # noqa: F401  (namespace exists before patching)
     import duckbrain.slurm.monitor as M
 
     monkeypatch.setattr(M, "known_partitions", lambda: {"compute", "computelong"})
@@ -563,6 +563,37 @@ def test_an_unwritable_project_root_reports_instead_of_crashing(tmp_path, monkey
     try:
         at = AppTest.from_file(PAGE, default_timeout=60).run()
         _button(at, str(locked)).click().run()
+        assert not at.exception
+        assert any("write access" in e.value for e in at.error)
+        assert "project_dir" not in at.session_state
+    finally:
+        locked.chmod(0o755)
+
+
+def test_a_project_named_at_launch_is_open_in_setup(project):
+    """The OnDemand form's "Project directory" reaches the app as
+    DUCKBRAIN_PROJECT_DIR, and the project bar and Status treat it as open.
+    Setup used to read session state only, so it showed "Open or create a
+    project above" for a project the bar said was open, and hid every
+    setting until the user opened it a second time."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert at.session_state["project_dir"] == str(project)
+    assert not any("Open or create a project" in i.value for i in at.info)
+    assert any(ti.label == "Project name" for ti in at.text_input)
+
+
+def test_an_unwritable_project_named_at_launch_reports_and_stays_closed(tmp_path, monkeypatch):
+    """Opening at launch goes through the same scaffold as the button, so a
+    root the user cannot write must give the same named error and must not
+    half-activate the project."""
+    _no_active_project(tmp_path, monkeypatch)
+    locked = tmp_path / "locked_bids"
+    locked.mkdir()
+    locked.chmod(0o555)
+    monkeypatch.setenv("DUCKBRAIN_PROJECT_DIR", str(locked))
+    try:
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
         assert not at.exception
         assert any("write access" in e.value for e in at.error)
         assert "project_dir" not in at.session_state

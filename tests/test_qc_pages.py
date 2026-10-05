@@ -32,8 +32,8 @@ FD_MEAN = get_guidance("fd_mean").label
 
 from conftest import page_path
 
-OVERVIEW = page_path("src/duckbrain/gui/pages/5_QC_Overview.py")
-INSPECT = page_path("src/duckbrain/gui/pages/5a_QC_Inspect.py")
+OVERVIEW = page_path("src/duckbrain/gui/views/5_QC_Overview.py")
+INSPECT = page_path("src/duckbrain/gui/views/5a_QC_Inspect.py")
 ALL_PAGES = [OVERVIEW, INSPECT]
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mriqc"
@@ -422,7 +422,7 @@ class TestOverview:
         what holds here is that the section arrives with its invitation."""
         at = _run(OVERVIEW)
         assert not at.exception
-        assert any("Distributions" == s.value for s in at.subheader)
+        assert any("Distributions" == s.value for s in at.header)
         assert any("Click a point" in c for c in _captions(at))
 
     def test_the_outlier_slider_is_here_and_only_here(self, full):
@@ -449,3 +449,45 @@ class TestOverview:
         [t for t in at.toggle if t.label == "Prepare the report"][0].set_value(True).run()
         assert not at.exception
         assert [b for b in at.button if b.label == "Save to derivatives"]
+
+
+def _write_bold_cohort(derivatives: Path, n: int, outlier_tsnr: float | None = None):
+    """*n* bold runs with a gentle tSNR spread; the last one optionally extreme."""
+    mriqc = derivatives / "mriqc"
+    mriqc.mkdir(parents=True, exist_ok=True)
+    iqms = json.loads((FIXTURES / "bold.json").read_text())
+    for i in range(n):
+        payload = dict(iqms)
+        name = f"sub-{100 + i:03d}_task-rest_run-1_bold"
+        payload["bids_name"] = name
+        payload["tsnr"] = 40.0 + i * 0.5
+        if outlier_tsnr is not None and i == n - 1:
+            payload["tsnr"] = outlier_tsnr
+        (mriqc / f"{name}.json").write_text(json.dumps(payload))
+
+
+class TestTooFewRunsToFlag:
+    """Quartiles of a handful of runs move with every run added, so below
+    [qc].min_runs_for_flags the pages flag nothing and say so. A course
+    project (one subject, one or two sessions) was the case that asked."""
+
+    def test_a_small_cohort_flags_nothing_and_says_why(self, project):
+        _write_bold_cohort(project / "derivatives", 4, outlier_tsnr=400.0)
+        at = _run(OVERVIEW)
+        assert not at.exception
+        assert any("too few to flag" in i.value for i in at.info)
+        assert list(at.dataframe[0].value["Flags"]) == [0, 0, 0, 0]
+
+    def test_a_cohort_at_the_floor_still_flags_an_outlier(self, project):
+        _write_bold_cohort(project / "derivatives", 10, outlier_tsnr=400.0)
+        at = _run(OVERVIEW)
+        assert not at.exception
+        assert not any("too few to flag" in i.value for i in at.info)
+        assert at.dataframe[0].value["Flags"].max() >= 1
+
+    def test_the_floor_is_a_project_setting(self, project):
+        save_project_config(str(project), {"qc": {"min_runs_for_flags": 3}})
+        _write_bold_cohort(project / "derivatives", 4, outlier_tsnr=400.0)
+        at = _run(OVERVIEW)
+        assert not at.exception
+        assert not any("too few to flag" in i.value for i in at.info)

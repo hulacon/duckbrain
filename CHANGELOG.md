@@ -10,8 +10,53 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **The QC pages stop flagging outliers below 10 runs of a modality, and say
+  so.** The IQR fence is computed within the project, and its quartiles over a
+  handful of runs move with every run added, so a small project (one subject
+  scanned once) got flags that were noise. Below the floor, every measure is
+  still shown, no run is flagged, and a notice explains why. New setting
+  `[qc] min_runs_for_flags` (default 10), overridable per project.
+
+### Changed
+
+- **Text and buttons meet WCAG AA contrast in the light theme.** Streamlit's
+  default captions (3.69:1), inline code in captions (2.36:1) and primary
+  buttons (3.3:1) fell short of 4.5:1 on every page. A `.streamlit/config.toml`
+  beside `app.py` sets the light theme's text, code and primary colours (now
+  4.67:1, 4.94:1 and 5.62:1). Inline code is near-black: inside a caption
+  Streamlit fades it to 60 %, and no visibly green colour passes after that.
+  Gray badge text (3.44:1) is darkened to 5.59:1 as well. Both launchers pick it
+  up without new flags. Dark mode is unchanged.
+- **QC Inspect's "N flagged" is neutral gray, not a green up-arrow**, which read
+  as good news for a count of outliers.
+- **No "Deploy" button.** The toolbar runs in `viewer` mode. Deploy led to
+  Streamlit Community Cloud. The menu's Rerun and Clear cache go with it; Status
+  keeps its own Refresh.
+- **Pages have readable URLs**: `/preprocessing`, `/guide`, `/ingestion`,
+  `/conversion`, `/project`, `/qc-overview`, `/qc-inspect`, and `/status` or
+  `/setup`. Project and Inspect were `/a_Project` and `/a_QC_Inspect`. The
+  landing page (Status with a project open, Setup without) is served only at
+  `/`: Streamlit gives the default page no path of its own.
+- **Status names the tools the way they spell themselves**: fMRIPrep, MRIQC,
+  NORDIC, FreeSurfer, QSIPrep, not "Fmriprep" and "Mriqc".
+- **Page sections are h2, not h3**, so heading navigation in a screen reader no
+  longer skips a level under each page title.
+
 ### Fixed
 
+- **Setup opens a project named at launch.** A project directory given on the
+  OnDemand form (or in `DUCKBRAIN_PROJECT_DIR`) was open to the project bar and
+  to Status, but Setup said "Open or create a project above" and hid its
+  settings until the user opened it again. Setup now opens it the way the button
+  does, and reports a root it cannot write instead of half-opening it.
+- **A deep link no longer lands on a bare page with Streamlit's own sidebar.**
+  If a freshly started server's first request was a page URL (a tab left open
+  across a session restart), Streamlit auto-registered `gui/pages/` and served
+  the page without the app around it: no top bar, no project bar, and a sidebar
+  of raw filenames. The page scripts now live in `gui/views/`, which Streamlit
+  does not scan.
 - **Opening a project no longer creates `sourcedata/` (or `derivatives/`) in its
   root when `[paths]` places that directory elsewhere.** A study that keeps raw
   data in a sibling tree, outside the BIDS root it shares, got an empty

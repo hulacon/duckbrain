@@ -326,7 +326,7 @@ select = ["B", "E", "F", "FIX", "I", "RUF100", "TD", "UP", "W"]
 # Streamlit pages must call st.set_page_config() before anything else touches
 # st, and they import modules *after* a config guard that may st.stop(). Imports
 # genuinely cannot all sit at the top of these files.
-"src/duckbrain/gui/pages/*" = ["E402"]
+"src/duckbrain/gui/views/*" = ["E402"]
 # The test suite groups an import with the narrative section that uses it, which
 # is how these files stay readable at ~500 lines.
 "tests/*" = ["E402"]

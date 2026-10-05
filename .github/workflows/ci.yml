@@ -93,9 +93,9 @@ jobs:
           python - <<'PY'
           import compileall, pathlib, sys
 
-          pages = sorted(pathlib.Path("src/duckbrain/gui/pages").glob("[0-9]*.py"))
+          pages = sorted(pathlib.Path("src/duckbrain/gui/views").glob("[0-9]*.py"))
           if not pages:
-              sys.exit("no Streamlit pages found under src/duckbrain/gui/pages — layout moved?")
+              sys.exit("no Streamlit pages found under src/duckbrain/gui/views — layout moved?")
           print(f"compiling {len(pages)} pages + package")
           sys.exit(0 if compileall.compile_dir("src", quiet=1) else 1)
           PY

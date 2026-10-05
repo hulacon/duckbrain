@@ -43,8 +43,8 @@ resuming after significant drift.
 1. **Consistent SLURM job-naming convention = the join key.** Every SLURM stage
    submits as `f"{step}_{tag}"` where
    `tag = f"{sub}_{ses}" if ses else sub`:
-   - `dcm2bids_{tag}` — `gui/pages/3_BIDS_Conversion.py`
-   - `fmriprep_{tag}`, `nordic_{tag}`, `mriqc_{tag}` — `gui/pages/4_Preprocessing.py`
+   - `dcm2bids_{tag}` — `gui/views/3_BIDS_Conversion.py`
+   - `fmriprep_{tag}`, `nordic_{tag}`, `mriqc_{tag}` — `gui/views/4_Preprocessing.py`
    This string maps a surveyor cell ↔ a squeue/sacct row with no new plumbing.
 
 2. **Every SLURM stage's submit action is the same trio**, differing only in how
@@ -92,7 +92,7 @@ dependency-gated — not a card sliding across lanes.
 ## Architecture — three layers
 
 ```
-┌ Layer 3: Cockpit UI  (gui/pages/0_Project_Status.py, reworked)
+┌ Layer 3: Cockpit UI  (gui/views/0_Project_Status.py, reworked)
 │   actionable matrix · dependency-gated run popovers · job-state-aware cells · auto-refresh
 ├ Layer 2: Live-state fusion  (survey_live in core/pipeline.py)
 │   survey_project()  +  join list_jobs()/job_history() on {step}_{tag}
@@ -153,11 +153,11 @@ def advance_one(config, stage, subject, session, *, export_only=False, **overrid
 ```
 
 **Extract from (exact current locations — re-anchor by symbol):**
-- `converted`: `gui/pages/3_BIDS_Conversion.py`, the bulk-submit block
+- `converted`: `gui/views/3_BIDS_Conversion.py`, the bulk-submit block
   (`build_context(config, "dcm2bids", ...)` → `submit_job(..., f"dcm2bids_{tag}", ...)`).
   Note it auto-generates `dcm2bids_config.json` if missing (`generate_session_config`
   / `save_dcm2bids_config`) — that logic moves into the controller.
-- `fmriprep`: `gui/pages/4_Preprocessing.py`, `tab_fmriprep` submit block
+- `fmriprep`: `gui/views/4_Preprocessing.py`, `tab_fmriprep` submit block
   (session filter via `write_session_filter`; params: output_spaces, nprocs,
   mem_gb, anat_only, use_derivatives, extra_flags).
 - `mriqc`: `4_Preprocessing.py`, `tab_mriqc` block.
@@ -221,7 +221,7 @@ Commit msg: `Add survey_live: overlay SLURM job state on the status matrix`.
 
 ## Phase 3 — Cockpit UI  (the actionable board)
 
-Rework `gui/pages/0_Project_Status.py` to drive `survey_live` + `advance_one`.
+Rework `gui/views/0_Project_Status.py` to drive `survey_live` + `advance_one`.
 
 **Per-cell behavior (dependency- and job-state-gated):**
 - `complete` → 🟢, no action (optional: "re-run" under an "advanced" toggle).
@@ -344,5 +344,5 @@ act on, 3 makes it the cockpit.
 2. `git log --oneline -8` — confirm which checkpoint commits landed.
 3. `python -m pytest tests/ -q` — confirm green baseline.
 4. Re-anchor the "Extract from" locations by **symbol name** (line numbers drift):
-   `grep -n "submit_job\|build_context" src/duckbrain/gui/pages/{3_BIDS_Conversion,4_Preprocessing}.py`.
+   `grep -n "submit_job\|build_context" src/duckbrain/gui/views/{3_BIDS_Conversion,4_Preprocessing}.py`.
 5. Continue at the first ⬜/🟡 phase. Commit at its checkpoint before stopping.

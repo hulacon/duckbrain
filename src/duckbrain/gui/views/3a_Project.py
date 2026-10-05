@@ -61,7 +61,7 @@ from duckbrain.config import external_bids
 
 _external = external_bids(config)
 
-st.subheader("BIDS metadata")
+st.header("BIDS metadata")
 st.markdown(
     "Generate `participants.tsv` and `dataset_description.json` "
     + (

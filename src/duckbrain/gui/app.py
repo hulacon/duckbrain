@@ -2,9 +2,18 @@
 
 Navigation is **declarative** (``st.navigation``) rather than the filesystem
 ``pages/`` convention, so it can sit along the top and leave the left side free
-for content. Calling ``st.navigation`` also switches Streamlit out of
-pages-directory mode (it sets ``PagesManager.uses_pages_directory = False``), so
-``pages/`` no longer auto-registers a second nav — the two cannot fight.
+for content. The page scripts live in ``views/``, and the name is load-bearing:
+Streamlit auto-registers a directory called ``pages/`` beside the main script
+until ``st.navigation`` has run once. When a freshly started server's first
+request is a deep link (a tab left open across a session restart), the main
+script hasn't run yet, so the user got Streamlit's own sidebar of raw filenames
+and a page with none of the app around it. A directory Streamlit doesn't scan
+can't do that.
+
+Each page has an explicit ``url_path``. Inferred paths come from the filename
+with its numeric prefix stripped, which turned ``3a_Project.py`` into
+``/a_Project``. The default page is always served at ``/``, and Streamlit
+ignores its ``url_path``, so a link to it is the bare root.
 
 The pages keep their own ``st.set_page_config`` calls. Redundant here, but it is
 what lets each page still be run — and AppTest-driven — standalone.
@@ -14,6 +23,7 @@ import os
 from pathlib import Path
 
 import streamlit as st
+from streamlit.navigation.page import StreamlitPage
 
 # Absolute, not relative: Streamlit executes this file as a *script*, so there is
 # no parent package and ``from ..config`` raises ImportError. The previous version
@@ -26,7 +36,7 @@ from duckbrain.core.updates import update_available
 # resolve(): st.Page validates the path, and __file__ is only relative-safe while
 # the cwd happens to be the repo root. An absolute path makes nav independent of
 # where the process was launched from — which is not a given under OnDemand.
-_PAGES_DIR = Path(__file__).resolve().parent / "pages"
+_PAGES_DIR = Path(__file__).resolve().parent / "views"
 
 # (filename, nav title). Status leads: it is the cockpit and the page you land
 # on daily. Deliberately no icons — the top bar stays legible, and glyphs in
@@ -60,6 +70,27 @@ _QC_PAGES = [
     ("5_QC_Overview.py", "Overview"),
     ("5a_QC_Inspect.py", "Inspect a run"),
 ]
+
+
+# Stable URL per page (see the module docstring). Keyed by filename so the three
+# lists above stay (filename, title) pairs.
+_URL_PATHS = {
+    "0_Project_Status.py": "status",
+    "1_Project_Setup.py": "setup",
+    "4_Preprocessing.py": "preprocessing",
+    "6_Guide.py": "guide",
+    "2_Data_Ingestion.py": "ingestion",
+    "3_BIDS_Conversion.py": "conversion",
+    "3a_Project.py": "project",
+    "5_QC_Overview.py": "qc-overview",
+    "5a_QC_Inspect.py": "qc-inspect",
+}
+
+
+def _page(filename: str, title: str, default: bool = False) -> StreamlitPage:
+    return st.Page(
+        _PAGES_DIR / filename, title=title, url_path=_URL_PATHS[filename], default=default
+    )
 
 
 def active_project() -> str:
@@ -165,9 +196,9 @@ def main() -> None:
     default = _default_page()
     nav = st.navigation(
         {
-            "": [st.Page(_PAGES_DIR / f, title=t, default=(f == default)) for f, t in _PAGES],
-            "BIDSification": [st.Page(_PAGES_DIR / f, title=t) for f, t in _BIDS_PAGES],
-            "QC": [st.Page(_PAGES_DIR / f, title=t) for f, t in _QC_PAGES],
+            "": [_page(f, t, default=(f == default)) for f, t in _PAGES],
+            "BIDSification": [_page(f, t) for f, t in _BIDS_PAGES],
+            "QC": [_page(f, t) for f, t in _QC_PAGES],
         },
         position="top",
     )

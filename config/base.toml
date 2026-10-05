@@ -212,7 +212,7 @@ install_root = "/packages/freesurfer"
 [qc]
 # Quality-control thresholds. core/qc_guidance.py carries, per measure, why it
 # is on the dashboard and what the literature does — and mostly does not —
-# support. These three are the only numbers duckbrain applies itself.
+# support. These four are the only numbers duckbrain applies itself.
 
 # Framewise displacement (mm) above which a volume counts as high-motion when
 # duckbrain summarises fMRIPrep confounds. A run-summary convenience, not a
@@ -228,6 +228,12 @@ investigate_threshold = 0.5
 # Multiplier for the Tukey IQR fence used to flag outlier runs.
 # 1.5 is the standard fence; 3.0 flags only extreme values.
 iqr_multiplier = 1.5
+
+# Fewest runs of a modality the IQR fence is computed over. Below it the QC
+# pages flag nothing and say why: quartiles of a handful of runs move with every
+# run added, so a "flag" there is noise. A small project, such as one subject
+# scanned once, is judged from each run's report and figures instead.
+min_runs_for_flags = 10
 
 [slurm]
 # The two partition ROLES. A stage names its role (see `long` below), never a

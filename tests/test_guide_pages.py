@@ -18,7 +18,7 @@ from streamlit.testing.v1 import AppTest
 from conftest import REPO_ROOT, page_path
 from duckbrain.gui.app import _PAGES
 
-GUIDE = page_path("src/duckbrain/gui/pages/6_Guide.py")
+GUIDE = page_path("src/duckbrain/gui/views/6_Guide.py")
 NEWCOMER_DOC = Path(REPO_ROOT) / "docs" / "new-to-talapas.md"
 
 #: The canonical starting points the newcomer story promises — the topics Ben
@@ -74,7 +74,7 @@ def test_guide_is_in_the_nav_and_the_newcomer_page_is_gone():
     merge if the old page is actually gone: declared again, it would 404."""
     assert "6_Guide.py" in [f for f, _ in _PAGES]
     assert "7_New_to_Talapas.py" not in [f for f, _ in _PAGES]
-    assert not (Path(REPO_ROOT) / "src/duckbrain/gui/pages/7_New_to_Talapas.py").exists()
+    assert not (Path(REPO_ROOT) / "src/duckbrain/gui/views/7_New_to_Talapas.py").exists()
 
 
 def test_quickstart_points_at_the_doc():

@@ -28,7 +28,7 @@ def page_path(relpath: str) -> str:
     tidiness. Streamlit 1.61 changed how ``AppTest.from_file`` resolves a
     *relative* path: it used to be taken from the process working directory, and
     is now taken from the file that calls ``from_file``. So a literal
-    ``"src/duckbrain/gui/pages/0_Project_Status.py"`` silently started resolving
+    ``"src/duckbrain/gui/views/0_Project_Status.py"`` silently started resolving
     to ``tests/src/duckbrain/...``, and every page test in the suite — 162 of
     them — failed with ``FileNotFoundError`` on the day 1.61 was published, with
     nothing in this repo having changed.

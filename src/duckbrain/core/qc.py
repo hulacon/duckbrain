@@ -24,6 +24,7 @@ DEFAULT_QC_SETTINGS: dict[str, float] = {
     "fd_threshold": 0.5,
     "investigate_threshold": 0.5,
     "iqr_multiplier": 1.5,
+    "min_runs_for_flags": 10,
 }
 
 
@@ -48,7 +49,8 @@ def qc_settings(project_dir: str | Path | None = None) -> dict[str, float]:
     Returns
     -------
     dict
-        Keys ``fd_threshold``, ``investigate_threshold``, ``iqr_multiplier``.
+        Keys ``fd_threshold``, ``investigate_threshold``, ``iqr_multiplier``,
+        ``min_runs_for_flags``.
     """
     settings = dict(DEFAULT_QC_SETTINGS)
 

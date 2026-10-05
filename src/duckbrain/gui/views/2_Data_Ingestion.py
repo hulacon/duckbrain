@@ -57,13 +57,13 @@ from duckbrain.core.ingestion import (
 
 ingested = list_ingested_sessions(sourcedata_dir)
 if ingested:
-    st.subheader("Already Ingested")
+    st.header("Already Ingested")
     ingested_df = pd.DataFrame(ingested)
     ingested_df["path"] = ingested_df["path"].astype(str)
     st.dataframe(ingested_df, width="stretch", hide_index=True)
 
 # ---- Discover available sessions ----
-st.subheader("Available DICOM Sessions")
+st.header("Available DICOM Sessions")
 sessions = discover_sessions(dcm_source_dir)
 
 if not sessions:
@@ -311,7 +311,7 @@ if not selected.empty:
 st.divider()
 try:
     st.page_link(
-        "pages/3a_Project.py",
+        "views/3a_Project.py",
         label="Generate `participants.tsv` / `dataset_description.json` on the Project page",
         icon="🗂️",
     )

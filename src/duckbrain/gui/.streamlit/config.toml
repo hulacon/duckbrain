@@ -1,0 +1,28 @@
+# Streamlit reads this file because it sits beside the main script (app.py),
+# whatever directory a launcher starts from, so both launchers get it without
+# passing flags.
+
+[client]
+# "auto" shows the developer menu (Deploy, Rerun, Clear cache) on localhost,
+# which is exactly what the SSH-tunnel and OnDemand-desktop routes are. Deploy
+# leads to Streamlit Community Cloud and has nothing to do with duckbrain.
+# Status has its own Refresh.
+toolbarMode = "viewer"
+
+# Light-theme colours chosen for WCAG 2.x AA contrast (4.5:1 for normal text).
+# Streamlit's defaults fail it in three places on every page:
+# - captions: textColor at 60 % opacity, #83858c on white, 3.69:1;
+# - inline code: #73b487 on #fbfbfd, 2.36:1;
+# - white on the primary #ff4b4b, 3.3:1.
+# Code inside a caption is faded to 60 % as well, and most paths sit in
+# captions, so the code colour is near-black: a visibly green one cannot pass
+# once faded (even pure black reaches only 5.72:1). With the values below,
+# captions read 4.67:1, captioned code 4.94:1 and the primary buttons 5.62:1.
+# Gray badge text (e.g. a neutral st.metric delta) defaults to #31333f at 60 %
+# on #eaebec, 3.44:1; grayTextColor below gives 5.59:1.
+# Dark mode is left at Streamlit's defaults and has not been measured.
+[theme.light]
+textColor = "#16171d"
+codeTextColor = "#04140b"
+primaryColor = "#c62828"
+grayTextColor = "#5a5c63"

@@ -23,7 +23,7 @@ st.markdown(
     A general-purpose neuroimaging toolbox for LCNI/Talapas HPC users at UO —
     raw DICOMs → BIDS → preprocessing → QC, without writing pipeline scripts.
 
-    ### Where to work
+    ## Where to work
 
     - **Status** — the cockpit, and where you land once a project is open.
       What's done, half-done, or left per subject; launch the next step and
@@ -42,7 +42,7 @@ st.markdown(
         expectations.
     - **QC** — review quality metrics and record keep/exclude decisions.
 
-    ### First time here?
+    ## First time here?
 
     Go to **Setup** and point duckbrain at a project directory — it is the anchor
     everything else is derived from (`sourcedata/`, `derivatives/`, `code/`).
@@ -52,14 +52,14 @@ st.markdown(
     `QUICKSTART.md` in the repo covers install, container builds, and the layered
     config in more detail.
 
-    ### New to Talapas, the command line, or GitHub altogether?
+    ## New to Talapas, the command line, or GitHub altogether?
 
     If words like *compute node*, *SLURM*, or *PIRG* are new to you, there is a
     guide for exactly that. It lives in the repository rather than in this GUI,
     so it can be read **before** any setup — by the people who can't launch
     this page yet:
 
-    #### 📖 [New to Talapas? — the newcomer guide](https://github.com/hulacon/duckbrain/blob/main/docs/new-to-talapas.md)
+    ### 📖 [New to Talapas? — the newcomer guide](https://github.com/hulacon/duckbrain/blob/main/docs/new-to-talapas.md)
 
     It covers, in plain words:
 

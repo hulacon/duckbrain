@@ -160,6 +160,13 @@ with col_open:
             st.success(f"Active project: `{project_dir}`")
 
 active_project = st.session_state.get("project_dir")
+# A project named at launch (the OnDemand form's "Project directory", or
+# DUCKBRAIN_PROJECT_DIR) is already the open project to the project bar and to
+# Status, which both read the env var. Setup read session state only, so it told
+# the same user "open or create a project" about the project the bar said was
+# open. Open it the way the button does: scaffold, remember, or report why not.
+if not active_project and current_project and _open_project(current_project):
+    active_project = current_project
 if not active_project:
     st.info("Open or create a project above to configure it.")
     st.stop()

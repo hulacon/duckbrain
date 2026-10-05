@@ -18,7 +18,7 @@ different key by accident rather than by the fingerprint.
 
 Structural rather than behavioural on purpose. It is a claim about every cache in
 the package, including the ones not written yet, and the pages under
-``gui/pages/`` cannot be imported in order to be inspected — they are scripts
+``gui/views/`` cannot be imported in order to be inspected — they are scripts
 that call into Streamlit at import time. So the source is parsed, not run.
 
 ``EXEMPT`` is the escape hatch for the convention's real use. Adding to it asserts

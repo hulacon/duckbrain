@@ -18,7 +18,7 @@ from duckbrain.core import dcm2niix_probe
 from duckbrain.core.dcm2niix_probe import ProbeResult, SeriesProbe
 from duckbrain.gui.conversion_panels import _probe_cached
 
-PAGE = page_path("src/duckbrain/gui/pages/3_BIDS_Conversion.py")
+PAGE = page_path("src/duckbrain/gui/views/3_BIDS_Conversion.py")
 
 # One anat, a complete AP/PA pair, and a bold the classifier reads as func on its
 # own — the minimum that exercises naming, the fieldmap relation, and a drop.

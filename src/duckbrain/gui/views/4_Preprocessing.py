@@ -52,7 +52,7 @@ tab_fmriprep, tab_nordic, tab_mriqc, tab_qsiprep = st.tabs(
 # fMRIPrep Tab
 # ============================================================
 with tab_fmriprep:
-    st.subheader("fMRIPrep")
+    st.header("fMRIPrep")
 
     if config.get("nordic", {}).get("use_nordic", False):
         st.info(
@@ -159,7 +159,7 @@ with tab_fmriprep:
 # NORDIC Tab
 # ============================================================
 with tab_nordic:
-    st.subheader("NORDIC Denoising")
+    st.header("NORDIC Denoising")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -205,7 +205,7 @@ with tab_nordic:
 # MRIQC Tab
 # ============================================================
 with tab_mriqc:
-    st.subheader("MRIQC")
+    st.header("MRIQC")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -271,7 +271,7 @@ with tab_mriqc:
 # QSIPrep Tab
 # ============================================================
 with tab_qsiprep:
-    st.subheader("QSIPrep")
+    st.header("QSIPrep")
     st.caption(
         "The diffusion branch — orthogonal to the BOLD pipeline, sharing only BIDS. "
         "It runs on units that have `dwi/` data; a session without diffusion has "
