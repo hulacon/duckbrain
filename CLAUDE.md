@@ -258,7 +258,6 @@ there now lives in `docs/releasing.md`, which is also how you cut the next one.
 - A legacy `.venv` still works and is still probed (after conda) by both
   launchers: `python -m venv .venv && source .venv/bin/activate &&
   pip install -e ".[dev]"`. Python **3.10+** either way.
-- Dependencies: streamlit, jinja2, pandas, nibabel, plotly, pydicom (+ pytest for dev).
 
 ## Running it
 
