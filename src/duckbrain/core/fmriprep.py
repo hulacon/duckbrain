@@ -63,7 +63,7 @@ def session_tracking_conflict(extra_flags: str) -> str:
         or (t == "--subject-anatomical-reference" and tokens[i + 1 : i + 2] == ["sessionwise"])
         for i, t in enumerate(tokens)
     )
-    found = [f for f in ("--track-sessions", "--session-label") if f in tokens]
+    found: list[str] = [f for f in ("--track-sessions", "--session-label") if f in tokens]
     if sessionwise:
         found.append("--subject-anatomical-reference sessionwise")
     if not found:
