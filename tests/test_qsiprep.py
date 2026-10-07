@@ -184,10 +184,16 @@ def test_the_freesurfer_licence_is_bound_and_named(tmp_path):
     assert f"-B {tmp_path}:{tmp_path}:ro" in script
 
 
-def test_a_missing_freesurfer_licence_refuses_to_launch(tmp_path):
+def test_a_missing_freesurfer_licence_refuses_to_launch(tmp_path, monkeypatch):
     config = _project(tmp_path)
     (tmp_path / "license.txt").unlink()
     config["paths"]["fs_license"] = str(tmp_path / "license.txt")
+    # find_fs_license falls back to $FREESURFER_HOME, $FS_LICENSE and ~/license.txt.
+    # A cluster that exports FS_LICENSE (Talapas does) finds a licence there, so
+    # without this the test passes in CI and fails on the machines duckbrain runs on.
+    monkeypatch.delenv("FREESURFER_HOME", raising=False)
+    monkeypatch.delenv("FS_LICENSE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     with pytest.raises(PipelineError, match="[Ll]icense"):
         _export(config)
 
