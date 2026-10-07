@@ -347,8 +347,13 @@ def probe_session(
             if first is None:
                 continue
             link = stage / series_dir.name
+            # The resolved file, not the path we reached it by: ingestion's
+            # default *symlinks* sub-XX/dicom to the LCNI export, and only the
+            # resolved parents are bound below — so a link through the project
+            # dangled inside the container and every symlink-ingested session
+            # probed as "Unable to find any DICOM images".
             try:
-                link.symlink_to(first)
+                link.symlink_to(first.resolve())
             except OSError:
                 continue
             staged.add(series_dir.name)

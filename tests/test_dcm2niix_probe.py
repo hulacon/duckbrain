@@ -163,6 +163,47 @@ def test_a_failed_run_that_read_something_reports_both(tmp_path, monkeypatch):
     assert "Check sorted order" in result.failure
 
 
+def test_a_symlink_ingested_session_stages_links_the_container_can_follow(tmp_path, monkeypatch):
+    """Ingestion's default symlinks ``sub-XX/dicom`` to the export.
+
+    The container sees only the bound directories, so every staged link must
+    land inside one of them. Staging the path *through* the project's symlink
+    left all of them dangling: dcm2niix found no DICOMs and the plan reported
+    the phase-encoding checks as not run on every symlink-ingested session.
+    """
+    import subprocess
+
+    from duckbrain.core import dcm2niix_probe
+
+    export = tmp_path / "export" / "study_001_YYYYMMDD"
+    series = export / "Series_06_se_epi_ap"
+    series.mkdir(parents=True)
+    (series / "0001.dcm").write_bytes(b"x")
+    dicom = tmp_path / "project" / "sourcedata" / "sub-01" / "dicom"
+    dicom.parent.mkdir(parents=True)
+    dicom.symlink_to(export)
+    container = tmp_path / "dcm2bids.sif"
+    container.write_bytes(b"")
+
+    seen: dict[str, list[str]] = {}
+
+    def fake_run(cmd, **kwargs):
+        binds = [cmd[i + 1].split(":")[0] for i, arg in enumerate(cmd) if arg == "-B"]
+        stage = Path(cmd[-1])
+        seen["targets"] = [
+            str(link.readlink())
+            for link in stage.iterdir()
+            if not any(str(link.readlink()).startswith(b + "/") for b in binds)
+        ]
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(dcm2niix_probe.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(dcm2niix_probe.subprocess, "run", fake_run)
+
+    dcm2niix_probe.probe_session([dicom / "Series_06_se_epi_ap"], container)
+    assert seen["targets"] == []
+
+
 def test_a_silent_non_zero_exit_still_names_the_code(tmp_path, monkeypatch):
     """Nothing on either stream is no excuse for saying nothing."""
     probe = _fake_dcm2niix(monkeypatch, 9)
