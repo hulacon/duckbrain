@@ -17,6 +17,7 @@ import streamlit as st
 from starlette.middleware import Middleware
 from streamlit import config
 
+from duckbrain.gui import report_route
 from duckbrain.gui.access import TOKEN_ENV, AccessGate, normalise_base_path
 
 # Popped, not read. Every job the GUI submits inherits this process's
@@ -29,8 +30,13 @@ if not _token:
         "Start the GUI with scripts/launch.sh or the OnDemand app, which set it."
     )
 
+# The full-window report route (usability F37). User routes sit inside the same
+# Starlette app as Streamlit's, so the gate below covers them too.
+report_route.mounted = True
+
 app = st.App(
     Path(__file__).resolve().parent / "app.py",
+    routes=report_route.ROUTES,
     middleware=[
         Middleware(
             AccessGate,

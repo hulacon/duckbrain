@@ -34,7 +34,8 @@ import streamlit as st
 
 from duckbrain.core import qc, qc_domains, qc_evidence, qc_guidance, qc_report
 from duckbrain.core.qc_domains import ReviewDomain
-from duckbrain.gui.components import flush_toasts, queue_toast, require_project
+from duckbrain.gui import report_route
+from duckbrain.gui.components import _media_url_prefix, flush_toasts, queue_toast, require_project
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -879,6 +880,14 @@ def full_report_panel(
             fingerprint = (0.0, 0)
         payload = _payload_bytes_cached(str(path), fingerprint)
         st.caption(f"**{label}** — `{path.name}` · {payload / 1e6:.1f} MB, loaded only when shown")
+        if report_route.mounted:
+            # Its own tab, at full size, figures streamed from disk rather than
+            # held in the server's memory like the embed's (usability F37).
+            st.link_button(
+                f"Open {label} in a new tab",
+                _media_url_prefix() + "/" + report_route.register(path),
+                icon=":material/open_in_new:",
+            )
         if st.toggle(f"Open {label}", key=f"fullreport_{run_key}_{path.name}"):
             embed_tool_report(path)
     return len(offered)

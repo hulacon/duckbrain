@@ -1712,19 +1712,15 @@ plus the `ssh -L` line it prints.
    *was* the click on a View-report link, the verdict is "the link resolves but
    this serving context downloads instead of rendering", a different (and
    probably livable) outcome from the dead click; pin down which it was.
-2. **[OOD] Should the app serve tool reports itself?** A design question, not a
-   check — restated 2026-08-18 after a pass found it too vague to act on. The
-   embedded report is a `srcdoc` frame with **no origin**, so links *inside* it
-   have nothing to resolve against and are dead by construction, and the
-   exported dashboard is today's only route to a full MRIQC/fMRIPrep report
-   outside the app. The concrete question, answerable only mid-review: **while
-   doing a real QC pass, how often do you reach for the full report, and does
-   the export-then-open detour hurt enough to justify the app serving
-   derivative files over HTTP itself?** If the detour is fine in practice,
-   close this as an accepted limitation in `docs/qc-dashboard-migration.md`
-   (which calls its item 2 "only half-closed" for exactly this); if it hurts,
-   the follow-up is real design work — a static file route — and gets its own
-   TODO item rather than a line here.
+2. **[OOD] The full-window report route** (usability F37, 2026-10-07). This
+   replaces the old "should the app serve tool reports itself?" entry: Ben
+   decided yes, and `gui/report_route.py` serves a registered report's
+   directory at `/api/duckbrain/report/<key>/…`, behind the gate. Through
+   OnDemand: on Inspect, "Open … in a new tab" should open the MRIQC report
+   whole, with its figures. Then **time the 52 MB fMRIPrep subject report**
+   from a laptop (it took about 20 s on the node, embedded). Check the old
+   link after a restart says "open it again from Inspect". Check the rating
+   widget is hidden there too.
 3. **The full tool report embedded on the Inspect page** — the "Open the
    tool's own report" expander (`gui/qc_panels.py`, `full_report_panel`), which
    ships the MRIQC/fMRIPrep HTML itself as an `st.iframe` `srcdoc`. Distinct

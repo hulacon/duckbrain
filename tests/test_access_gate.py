@@ -239,3 +239,16 @@ def test_serve_takes_the_token_out_of_the_environment_jobs_inherit():
     done = _import_serve("abc")
     assert done.returncode == 0, done.stderr
     assert done.stdout.split() == ["App", "False"]
+
+
+def test_serve_mounts_the_full_window_report_route():
+    """F37: serve.py, and only serve.py, mounts the route Inspect links to."""
+    env = {k: v for k, v in os.environ.items() if k != TOKEN_ENV}
+    env[TOKEN_ENV] = "abc"
+    code = (
+        "import duckbrain.gui.serve as s; from duckbrain.gui import report_route as r; "
+        "print(r.mounted, all(x in s.app._user_routes for x in r.ROUTES))"
+    )
+    done = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["True", "True"]

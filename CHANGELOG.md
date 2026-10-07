@@ -30,6 +30,12 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **MRIQC and fMRIPrep reports open full-window in their own tab.** Inspect
+  gains "Open … in a new tab" beside each report. The figures stream from
+  disk as the browser asks for them, so a 50 MB fMRIPrep report no longer has
+  to be read into the server's memory first. The route sits behind the same
+  access gate as the rest of the GUI, and serves only report folders Inspect
+  has linked to. Available when started by OnDemand or `launch.sh`.
 - **The QC pages stop flagging outliers below 10 runs of a modality, and say
   so.** The IQR fence is computed within the project, and its quartiles over a
   handful of runs move with every run added, so a small project (one subject

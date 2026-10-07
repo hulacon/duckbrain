@@ -97,6 +97,13 @@ def _write_anat_mriqc(derivatives: Path):
     return mriqc
 
 
+def _write_mriqc_html(derivatives: Path):
+    """MRIQC's per-run HTML reports beside the IQM JSONs."""
+    for sub in ("010", "011"):
+        name = f"sub-{sub}_task-rest_run-1_bold.html"
+        (derivatives / "mriqc" / name).write_text("<html><body>report</body></html>")
+
+
 @pytest.fixture
 def project(tmp_path):
     # The metrics cache is process-wide, and tmp_path keys differ per test only
@@ -319,6 +326,22 @@ class TestInspection:
         assert report_toggles, "the tool's own report is not offered"
         assert all(t.value is False for t in report_toggles)
         assert not at.get("iframe")
+
+    def test_a_report_opens_in_its_own_tab_when_the_route_is_mounted(self, full, monkeypatch):
+        """F37: the embed was the only way to read a report."""
+        from duckbrain.gui import report_route
+
+        _write_mriqc_html(full / "derivatives")
+        monkeypatch.setattr(report_route, "mounted", True)
+        at = _run(INSPECT)
+        assert not at.exception
+        links = [b for b in at.get("link_button") if "in a new tab" in b.proto.label]
+        assert links and f"/{report_route.PREFIX}/" in links[0].proto.url
+
+    def test_no_new_tab_link_without_the_route(self, full):
+        _write_mriqc_html(full / "derivatives")
+        at = _run(INSPECT)
+        assert not [b for b in at.get("link_button") if "in a new tab" in b.proto.label]
 
     def test_recording_a_verdict_writes_it(self, full):
         at = _run(INSPECT)

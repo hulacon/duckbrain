@@ -240,6 +240,12 @@ to resolve against and the embed cannot route to MRIQC reports at all. The expor
 is the way to reach them; whether the app should serve the reports itself is
 still open and still needs an OnDemand session to settle.
 
+*Settled 2026-10-07 (usability F37, Ben): yes.* `gui/report_route.py` serves a
+report's own directory at a gated `/api/duckbrain/report/…` route, which
+`serve.py` mounts through `st.App(routes=…)`. Inspect links to it as "Open … in
+a new tab", and the report's relative links resolve there unmodified.
+`st.App`'s custom routes did not exist when this note was written.
+
 ### Slice 3 — the decision model — **DONE 2026-07-24**
 
 Unify the schema and add the sign-off distinction: `pending` joins the
