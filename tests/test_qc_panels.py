@@ -117,6 +117,20 @@ class TestOverviewClickThrough:
         assert qc_panels._selection_rows(object()) == []
         assert qc_panels._selection_rows(None) == []
 
+    def test_a_selected_cell_counts_as_its_row(self):
+        """F35: a click on the run name selects a cell, not the row."""
+
+        class Selection:
+            rows: list[int] = []
+            cells = [(1, "Run")]
+
+        class Event:
+            selection = Selection()
+
+        rows = qc_panels._selection_rows(Event())
+        assert rows == [1]
+        assert qc_panels.clicked_run_key(self.RUNS, rows) == "sub-011_task-rest_run-1_bold"
+
     def test_switch_page_degrades_to_a_caption_outside_the_app(self):
         at = AppTest.from_function(_switch_script, default_timeout=30).run()
         assert not at.exception

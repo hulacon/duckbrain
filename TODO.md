@@ -1805,6 +1805,12 @@ plus the `ssh -L` line it prints.
     auto on and nothing queued the board should settle to a 5-minute beat, and
     submitting a job should return it to 30 s within one tick (the switch costs
     a full page rerun, which AppTest cannot judge the feel of).
+11. **The Overview's Runs table answers a click on any cell** (usability F35,
+    2026-10-07). The table now selects by row *and* cell, and either opens the
+    run on Inspect. Click the run name: does it navigate, rather than only
+    outlining the cell? Then come back to the Overview: does the old cell
+    selection re-fire and bounce you to Inspect again? (Row selection was
+    proven not to; cell selection is the same mechanism but unproven.)
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that

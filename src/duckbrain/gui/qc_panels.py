@@ -692,15 +692,28 @@ def _switch_page(path: str, label: str) -> None:
 def _selection_rows(event: Any) -> list[int]:
     """The selected row indices out of a ``st.dataframe`` selection event.
 
+    A selected cell counts as its row, so a table with both row and cell
+    selection answers a click anywhere in the row.
+
     Defensive because the return shape is Streamlit's, not ours: outside a
     session (``AppTest``) the call returns the element rather than a selection
     state, and a missing attribute must read as "nothing selected", not crash
     the overview.
     """
     try:
-        return list(event.selection.rows)
+        selection = event.selection
     except Exception:
         return []
+    rows: list[int] = []
+    try:
+        rows.extend(int(row) for row in selection.rows or [])
+    except Exception:
+        pass
+    try:
+        rows.extend(int(cell[0]) for cell in selection.cells or [])
+    except Exception:
+        pass
+    return rows
 
 
 def clicked_run_key(runs: list[RunRow], rows: list[int]) -> str:
@@ -971,8 +984,8 @@ def render_overview() -> None:
     st.header("Runs")
     st.caption(
         "Every measure is compared within this dataset, never against a fixed "
-        "cutoff — a flag means unusual here, not bad. Click a row to open that "
-        "run on the Inspect page."
+        "cutoff — a flag means unusual here, not bad. Click anywhere in a run's "
+        "row to open it on the Inspect page."
     )
     rows: list[dict[str, Any]] = []
     for r in scope.runs:
@@ -996,7 +1009,10 @@ def render_overview() -> None:
         width="stretch",
         key="qc_overview_runs",
         on_select="rerun",
-        selection_mode="single-row",
+        # Row mode alone answers only the checkbox column; a click on the run
+        # name (what a reader reaches for) just outlined the cell (F35). Cell
+        # mode makes every cell a way in, and `_selection_rows` folds both.
+        selection_mode=["single-row", "single-cell"],
         column_config={
             "Mean FD": st.column_config.NumberColumn(
                 format="%.3f",

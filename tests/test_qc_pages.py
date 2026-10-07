@@ -423,7 +423,7 @@ class TestOverview:
         """AppTest cannot click a dataframe row, so the invitation is what is
         testable here; the click itself is in TODO.md #30's eyeball queue and
         clicked_run_key is unit-tested in tests/test_qc_panels.py."""
-        assert any("Click a row" in c for c in _captions(_run(OVERVIEW)))
+        assert any("Click anywhere in a run's row" in c for c in _captions(_run(OVERVIEW)))
 
     def test_the_strips_render_with_their_click_invitation(self, full):
         """The IQR strip plots live under the run table (#39). AppTest cannot
