@@ -173,6 +173,30 @@ def test_every_tab_renders(project):
     }
 
 
+def test_tabs_a_project_does_not_need_say_n_a(project):
+    """F18: Status marks NORDIC (no use_nordic) and QSIPrep (no dwi) n/a; the
+    tabs used to present both as ordinary work."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert [t.label for t in at.tabs] == ["fMRIPrep", "NORDIC (n/a)", "MRIQC", "QSIPrep (n/a)"]
+    infos = " ".join(i.value for i in at.info)
+    assert "Not used by this project" in infos
+    assert "has diffusion (dwi) data" in infos
+
+
+def test_tabs_a_project_needs_carry_no_n_a(project):
+    save_project_config(str(project), {"nordic": {"use_nordic": True}})
+    dwi = project / "sub-01" / "ses-01" / "dwi"
+    dwi.mkdir(parents=True)
+    (dwi / "sub-01_ses-01_dwi.nii.gz").touch()
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert [t.label for t in at.tabs] == ["fMRIPrep", "NORDIC", "MRIQC", "QSIPrep"]
+    infos = " ".join(i.value for i in at.info)
+    assert "Not used by this project" not in infos
+    assert "has diffusion (dwi) data" not in infos
+
+
 # ---- session pickers and target expansion -----------------------------------
 
 

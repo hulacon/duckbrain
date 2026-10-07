@@ -51,8 +51,25 @@ if not subjects:
     st.stop()
 
 # ---- Tabs ----
+# Status marks NORDIC n/a without use_nordic and QSIPrep n/a on a unit with no
+# dwi/. The tabs say the same, so a student who needs neither can see that
+# before opening them (usability F18). They stay: NORDIC can still be launched
+# deliberately, and a project may gain DWI later.
+from duckbrain.core.qsiprep import has_dwi
+
+uses_nordic = bool(config.get("nordic", {}).get("use_nordic", False))
+any_dwi = any(
+    has_dwi(bids_path, sub, ses)
+    for sub in subjects
+    for ses in (preproc_panels.get_sessions(bids_path, sub) or [""])
+)
 tab_fmriprep, tab_nordic, tab_mriqc, tab_qsiprep = st.tabs(
-    ["fMRIPrep", "NORDIC", "MRIQC", "QSIPrep"]
+    [
+        "fMRIPrep",
+        "NORDIC" if uses_nordic else "NORDIC (n/a)",
+        "MRIQC",
+        "QSIPrep" if any_dwi else "QSIPrep (n/a)",
+    ]
 )
 
 # ============================================================
@@ -167,6 +184,11 @@ with tab_fmriprep:
 # ============================================================
 with tab_nordic:
     st.header("NORDIC Denoising")
+    if not uses_nordic:
+        st.info(
+            "Not used by this project: fMRIPrep reads the raw data, so Status marks "
+            "NORDIC n/a. You can still run it here, or turn it on in Project Setup."
+        )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -279,6 +301,11 @@ with tab_mriqc:
 # ============================================================
 with tab_qsiprep:
     st.header("QSIPrep")
+    if not any_dwi:
+        st.info(
+            "No subject in this project has diffusion (dwi) data, so QSIPrep has "
+            "nothing to run and Status marks it n/a."
+        )
     st.caption(
         "The diffusion branch — orthogonal to the BOLD pipeline, sharing only BIDS. "
         "It runs on units that have `dwi/` data; a session without diffusion has "

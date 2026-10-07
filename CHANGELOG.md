@@ -64,6 +64,10 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **Setup's NORDIC and FreeSurfer switches explain themselves in one plain
   sentence each**, saying what the switch does and when to leave it off. The
   maintainer's detail moved into each switch's help.
+- **Preprocessing marks the NORDIC and QSIPrep tabs "(n/a)" when the project
+  doesn't need them**: NORDIC without `use_nordic`, QSIPrep with no `dwi/`
+  data anywhere. Each tab says why at the top, matching Status. The controls
+  stay, since NORDIC can still be run deliberately.
 
 ### Fixed
 
