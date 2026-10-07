@@ -673,6 +673,8 @@ def _outcome_checks_section(config: Config) -> None:
     as current — the exact failure the validation panel refused a cache over.
     """
     from duckbrain.core.checks import (
+        EXPENSIVE,
+        REGISTRY,
         read_checks_snapshot,
         run_expensive_checks,
         snapshot_is_stale,
@@ -690,12 +692,12 @@ def _outcome_checks_section(config: Config) -> None:
 
     with st.expander(f"🔬 Outcome checks — {state}"):
         st.caption(
-            "What the tools actually **did**, read from their own output: fMRIPrep's "
-            "susceptibility-distortion verdict against the fieldmap intent in the "
-            "sidecars it was given, and NORDIC output compared against its raw input. "
-            "The board grades what exists; these catch the run that looks done and "
-            "quietly isn't. They open reports and image data, so they run only when "
-            "asked and the result is kept until the inputs change."
+            "These open the tools' own output to confirm the work really happened, "
+            "which the board can't tell from file names alone: that fMRIPrep "
+            "corrected distortion on each run that has a fieldmap, and that NORDIC "
+            "actually changed the data it denoised. They take a while, so they run "
+            "only when you press the button, and the result is kept until the data "
+            "change."
         )
         if st.button("▶ Run outcome checks now", key="outcome_checks_btn", width="stretch"):
             with st.spinner("Reading tool reports and image data…"):
@@ -710,8 +712,26 @@ def _outcome_checks_section(config: Config) -> None:
                 "sidecar, or deleted files. The findings below describe the state at "
                 "measurement time; re-run to refresh."
             )
+        # What each check examined, so a clean result is distinguishable from
+        # one with nothing to look at (usability F32).
+        coverage = []
+        for check in REGISTRY:
+            if check.cost != EXPENSIVE or check.slug not in snapshot.checked:
+                continue
+            n = snapshot.checked[check.slug]
+            flagged = sum(i.check == check.slug for i in snapshot.issues)
+            if not n:
+                line = f"nothing to check yet (no {check.examines})"
+            elif not flagged:
+                line = f"{n} {check.examines} checked, none flagged"
+            else:
+                line = f"{n} {check.examines} checked, {flagged} finding(s) below"
+            coverage.append(f"- **{check.label}:** {line}")
+        if coverage:
+            st.markdown("\n".join(coverage))
+        labels = {c.slug: c.label for c in REGISTRY if c.label}
         for issue in snapshot.issues:
-            text = f"**{issue.check}** — {issue.message}"
+            text = f"**{labels.get(issue.check, issue.check)}** — {issue.message}"
             if issue.severity == "note":
                 st.info(text)
             elif issue.severity == "error":
@@ -719,7 +739,10 @@ def _outcome_checks_section(config: Config) -> None:
             else:
                 st.warning(text)
         if not snapshot.issues:
-            st.success("Nothing flagged.")
+            if snapshot.checked and not any(snapshot.checked.values()):
+                st.info("Nothing flagged, because there was nothing to check yet.")
+            else:
+                st.success("Nothing flagged.")
 
 
 def _submission_log(config: Config) -> None:

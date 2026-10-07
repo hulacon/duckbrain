@@ -279,7 +279,11 @@ per check over the inputs it read (the count is load-bearing — deleting a file
 changes the answer but can never raise a max mtime), taken *before* the checks
 run so inputs changing mid-measurement leave the snapshot stale rather than
 current. The panel confesses staleness instead of serving an old "clean" as
-current — the exact failure the validation panel refused a cache over.
+current — the exact failure the validation panel refused a cache over. The
+snapshot also records how many things each check examined (`checked`, from each
+check's `measure`), so a clean result says "6 runs checked" rather than a bare
+"nothing flagged" that reads the same as nothing to check (usability F32,
+2026-10-07).
 
 **The one deviation from the in-principle decision: no job id in the key.**
 `TODO.md` had settled "keyed on job id + newest input mtime". With the code in

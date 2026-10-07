@@ -199,6 +199,31 @@ def test_run_expensive_checks_persists_and_reads_back(tmp_path):
     assert read.issues[0].severity == "warning"
 
 
+def test_the_snapshot_records_what_each_check_examined(tmp_path):
+    """F32: a clean result must say how much was checked, or it reads the same
+    as a project with nothing to check."""
+    _complete_fmriprep_unit(tmp_path, sdc="PEB/PEPOLAR (phase-encoding based / PE-POLARity)")
+    config = _config(tmp_path)
+    snap = run_expensive_checks(config)
+    assert snap.issues == ()
+    assert snap.checked == {"outcome-sdc": 1, "outcome-nordic": 0}
+    assert read_checks_snapshot(config).checked == snap.checked
+
+
+def test_a_snapshot_from_before_the_counts_still_reads(tmp_path):
+    config = _config(tmp_path)
+    path = checks_snapshot_path(config)
+    _write_json(path, {"ran_at": "t", "fingerprint": {}, "issues": []})
+    snap = read_checks_snapshot(config)
+    assert snap is not None and snap.checked == {}
+
+
+def test_every_expensive_check_names_what_it_counts():
+    for check in REGISTRY:
+        if check.cost == EXPENSIVE:
+            assert check.measure and check.label and check.examines, check.slug
+
+
 def test_the_snapshot_goes_stale_when_an_input_changes(tmp_path):
     """The fingerprint is what makes a cached verdict honest: a re-run, a fixed
     sidecar, or a new run must flip the marker without a re-measure."""

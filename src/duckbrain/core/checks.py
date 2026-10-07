@@ -54,7 +54,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -91,12 +91,20 @@ class Check:
     (stats and globs, never file contents) identifying the inputs the check
     reads, so the cockpit can mark its cached result stale without paying for a
     re-measure. ``CHEAP`` checks re-run every render and need none.
+
+    ``measure`` (optional) is ``run`` plus a count of what was examined, and
+    ``label``/``examines`` name the check and that count in plain words. Without
+    the count a clean result reads "nothing flagged" whether six runs were
+    checked or none were (usability F32).
     """
 
     slug: str
     cost: str
     run: Callable[[Config], list[ConsistencyIssue]]
     fingerprint: Callable[[Config], str] | None = None
+    measure: Callable[[Config], tuple[list[ConsistencyIssue], int]] | None = None
+    label: str = ""
+    examines: str = ""
 
 
 def _shortfall(label: str, want: int, got: int) -> str:
@@ -432,6 +440,11 @@ def _sdc_verdicts(fmriprep_root: Path, subject: str) -> dict[str, str]:
 
 
 def _check_sdc_applied(config: Config) -> list[ConsistencyIssue]:
+    """The issues half of :func:`_measure_sdc`."""
+    return _measure_sdc(config)[0]
+
+
+def _measure_sdc(config: Config) -> tuple[list[ConsistencyIssue], int]:
     """fMRIPrep's own SDC verdict versus the fieldmap intent in the sidecars.
 
     Complementary to ``consistency``'s ``fmap-intent``, not redundant: that
@@ -446,17 +459,20 @@ def _check_sdc_applied(config: Config) -> list[ConsistencyIssue]:
     holds: a PARTIAL unit's shortfall already shows on the board, and this
     check exists for the run that *looks* done. A run without a summary
     reportlet is skipped: the tool left no testimony either way.
+
+    The count is the runs judged: declaring, COMPLETE, and with a verdict.
     """
     paths = config.get("paths") or {}
     derivatives = paths.get("derivatives_dir") or ""
     if not derivatives:
-        return []
+        return [], 0
     root = Path(derivatives) / "fmriprep"
     if not root.is_dir():
-        return []
+        return [], 0
     input_root = Path(_fmriprep_input_dir(config))
 
     issues: list[ConsistencyIssue] = []
+    judged = 0
     verdict_cache: dict[str, dict[str, str]] = {}
     for subject, session in discover_units(config["paths"]):
         declaring = [
@@ -473,6 +489,7 @@ def _check_sdc_applied(config: Config) -> list[ConsistencyIssue]:
             continue
         if subject not in verdict_cache:
             verdict_cache[subject] = _sdc_verdicts(root, subject)
+        judged += sum(_entity_key(bold.name) in verdict_cache[subject] for bold in declaring)
         skipped = sorted(
             bold.name
             for bold in declaring
@@ -498,7 +515,7 @@ def _check_sdc_applied(config: Config) -> list[ConsistencyIssue]:
                 ),
             )
         )
-    return issues
+    return issues, judged
 
 
 def _first_volumes_match(raw: Path, denoised: Path) -> bool:
@@ -530,6 +547,11 @@ def _first_volumes_match(raw: Path, denoised: Path) -> bool:
 
 
 def _check_nordic_denoised(config: Config) -> list[ConsistencyIssue]:
+    """The issues half of :func:`_measure_nordic`."""
+    return _measure_nordic(config)[0]
+
+
+def _measure_nordic(config: Config) -> tuple[list[ConsistencyIssue], int]:
     """NORDIC output that is numerically identical to its raw input.
 
     The denoise's whole product is a *difference*; an output equal to its input
@@ -539,25 +561,26 @@ def _check_nordic_denoised(config: Config) -> list[ConsistencyIssue]:
     legitimate. Presence/counts are the surveyor's job (``_nordic_status``);
     this only compares content where both files exist, so a running array
     can't be false-flagged for outputs it hasn't written yet.
+
+    The count is the outputs compared: those with a raw input beside them.
     """
     paths = config.get("paths") or {}
     derivatives = paths.get("derivatives_dir") or ""
     bids_dir = paths.get("bids_dir") or ""
     if not derivatives or not bids_dir or not (Path(derivatives) / "nordic").is_dir():
-        return []
+        return [], 0
 
     issues: list[ConsistencyIssue] = []
+    compared = 0
     for subject, session in discover_units(config["paths"]):
         raw_dir = Path(bids_dir) / sub_ses_relpath(subject, session) / "func"
         try:
             outs = sorted(nordic_output_dir(derivatives, subject, session).glob("*_bold.nii.gz"))
         except OSError:
             continue
-        unchanged = [
-            out.name
-            for out in outs
-            if (raw := raw_dir / out.name).is_file() and _first_volumes_match(raw, out)
-        ]
+        pairs = [(raw_dir / out.name, out) for out in outs if (raw_dir / out.name).is_file()]
+        compared += len(pairs)
+        unchanged = [out.name for raw, out in pairs if _first_volumes_match(raw, out)]
         if not unchanged:
             continue
         where = f"sub-{subject}" + (f"/ses-{session}" if session else "")
@@ -577,7 +600,7 @@ def _check_nordic_denoised(config: Config) -> list[ConsistencyIssue]:
                 ),
             )
         )
-    return issues
+    return issues, compared
 
 
 def _files_fingerprint(globs: Iterable[tuple[Path, str]]) -> str:
@@ -634,8 +657,24 @@ REGISTRY: tuple[Check, ...] = (
     Check("expected-roster", CHEAP, _check_roster),
     Check("expected-contents", CHEAP, _check_session_contents),
     Check("requested-spaces", CHEAP, _check_requested_spaces),
-    Check("outcome-sdc", EXPENSIVE, _check_sdc_applied, _sdc_fingerprint),
-    Check("outcome-nordic", EXPENSIVE, _check_nordic_denoised, _nordic_fingerprint),
+    Check(
+        "outcome-sdc",
+        EXPENSIVE,
+        _check_sdc_applied,
+        _sdc_fingerprint,
+        _measure_sdc,
+        label="Distortion correction",
+        examines="finished fMRIPrep run(s) with a fieldmap",
+    ),
+    Check(
+        "outcome-nordic",
+        EXPENSIVE,
+        _check_nordic_denoised,
+        _nordic_fingerprint,
+        _measure_nordic,
+        label="NORDIC denoising",
+        examines="NORDIC output(s)",
+    ),
 )
 
 
@@ -674,11 +713,13 @@ class CheckSnapshot:
     """One persisted run of the expensive checks: when, against what, and what
     it found. ``fingerprint`` is per-check (slug → :func:`_files_fingerprint`
     string) — the inputs the verdict was measured from, which is what makes a
-    cached verdict honest to render later."""
+    cached verdict honest to render later. ``checked`` is per-check too: how
+    many things each examined (empty in a snapshot written before it existed)."""
 
     ran_at: str
     fingerprint: dict[str, str]
     issues: tuple[ConsistencyIssue, ...]
+    checked: dict[str, int] = field(default_factory=dict)
 
 
 def checks_snapshot_path(config: Config) -> Path:
@@ -725,17 +766,23 @@ def run_expensive_checks(config: Config) -> CheckSnapshot:
     """
     fingerprint = expensive_fingerprint(config)
     issues: list[ConsistencyIssue] = []
+    checked: dict[str, int] = {}
     for check in REGISTRY:
         if check.cost != EXPENSIVE:
             continue
         try:
-            issues.extend(check.run(config))
+            if check.measure is not None:
+                found, checked[check.slug] = check.measure(config)
+            else:
+                found = check.run(config)
+            issues.extend(found)
         except Exception:
             continue
     snapshot = CheckSnapshot(
         ran_at=datetime.now().isoformat(timespec="seconds"),
         fingerprint=fingerprint,
         issues=tuple(issues),
+        checked=checked,
     )
     path = checks_snapshot_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -745,6 +792,7 @@ def run_expensive_checks(config: Config) -> CheckSnapshot:
                 "ran_at": snapshot.ran_at,
                 "fingerprint": snapshot.fingerprint,
                 "issues": [asdict(i) for i in snapshot.issues],
+                "checked": snapshot.checked,
             },
             f,
             indent=2,
@@ -775,8 +823,17 @@ def read_checks_snapshot(config: Config) -> CheckSnapshot | None:
             issues.append(ConsistencyIssue(**{k: str(v) for k, v in entry.items() if k in known}))
         except TypeError:
             continue
+    raw_checked = data.get("checked")
+    checked: dict[str, int] = {}
+    if isinstance(raw_checked, dict):
+        for slug, n in raw_checked.items():
+            try:
+                checked[str(slug)] = int(n)
+            except (TypeError, ValueError):
+                continue
     return CheckSnapshot(
         ran_at=str(data.get("ran_at", "")),
         fingerprint={str(k): str(v) for k, v in fingerprint.items()},
         issues=tuple(issues),
+        checked=checked,
     )

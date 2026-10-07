@@ -87,6 +87,11 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   in Setup. On a project that started from existing BIDS data, it says there
   is nothing to import. Conversion no longer says "ingest data first" when no
   project is open.
+- **Outcome checks say what they checked.** A clean result used to read only
+  "Nothing flagged", the same as having nothing to check. Each check now
+  reports its count (e.g. "6 finished fMRIPrep run(s) with a fieldmap checked,
+  none flagged"), and the explanation is in plain words. Snapshots written
+  before this show no counts until re-run.
 - **fMRIPrep runs on a multi-session subject again under 25.2.** fMRIPrep 25.2
   tracks sessions by default: a job reads every session of the subject at once,
   so duckbrain's one-session filter contradicted it and the run died at workflow

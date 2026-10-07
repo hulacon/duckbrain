@@ -670,6 +670,30 @@ def test_a_persisted_snapshot_renders_with_its_staleness_confessed(project):
     assert any("Inputs have changed since" in w for w in warnings)
 
 
+def test_a_clean_outcome_result_says_what_was_checked(project):
+    """F32: "Nothing flagged" alone looked the same as having nothing to check."""
+    import json as J
+
+    snap = {
+        "ran_at": "2026-10-07T10:00:00",
+        "fingerprint": {},
+        "issues": [],
+        "checked": {"outcome-sdc": 6, "outcome-nordic": 0},
+    }
+    path = project / "code" / "logs" / "checks.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(J.dumps(snap))
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    text = "\n".join(_markdowns(at))
+    assert "6 finished fMRIPrep run(s) with a fieldmap checked, none flagged" in text
+    assert "nothing to check yet (no NORDIC output(s))" in text
+    captions = " ".join(c.value for c in at.caption)
+    assert "sidecars it was given" not in captions
+    assert "board grades what exists" not in captions
+
+
 def test_a_queued_unit_is_counted_once_and_as_queued(project, monkeypatch):
     """One queued fMRIPrep unit used to read "🔵 1 running · ○ 2 missing" in the
     rollup: queued called running, and the queued unit counted again as
