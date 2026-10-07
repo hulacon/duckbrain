@@ -71,6 +71,10 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **Inspect's "Position in cohort" bars are grey, not red.** A red bar filled
   by rank made the best tSNR look like the worst. The bar now shows only
   where the run sits, and the "Better" column says which way is good.
+- **The embedded MRIQC report no longer offers its own "Rating widget".** It
+  recorded nothing in duckbrain, where verdicts are saved only by
+  Keep/Exclude/Investigate, so a rating there looked like a review that never
+  happened. It is hidden in the embed; the report on disk is unchanged.
 
 ### Fixed
 

@@ -331,3 +331,32 @@ def test_a_real_mriqc_report_shape_survives_a_round_trip(report):
     assert all(p.is_file() for p in served.values())
     for url in served:
         assert f'src="{url}"' in html
+
+
+# ---- hide_rating_widget (usability F36) --------------------------------------
+
+_MRIQC_NAV = (
+    "<html><head><title>r</title></head><body><nav>"
+    '<input class="form-check-input" type="checkbox" id="qcrating-toggler"></input>'
+    '<label class="form-check-label" for="qcrating-toggler">Rating widget</label>'
+    '</nav><div id="qcrating-menu" class="card d-none">Rating widget</div></body></html>'
+)
+
+
+def test_the_rating_widget_is_hidden_inside_head():
+    from duckbrain.core.report_embed import hide_rating_widget
+
+    out = hide_rating_widget(_MRIQC_NAV)
+    style = out[out.index("<style>") : out.index("</style>")]
+    for selector in ("#qcrating-toggler", 'label[for="qcrating-toggler"]', "#qcrating-menu"):
+        assert selector in style
+    assert out.index("</style>") < out.index("</head>")
+    # Hidden, not removed: MRIQC's own scripts still find their elements.
+    assert 'id="qcrating-menu"' in out
+
+
+def test_a_report_without_the_widget_is_untouched():
+    from duckbrain.core.report_embed import hide_rating_widget
+
+    html = "<html><head></head><body><img src='x.svg'/></body></html>"
+    assert hide_rating_widget(html) == html

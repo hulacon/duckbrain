@@ -164,6 +164,18 @@ def test_embed_tool_report_puts_the_rewritten_markup_in_the_frame(tmp_path):
     assert "/media/" in frame.proto.srcdoc
 
 
+def test_the_embedded_mriqc_report_hides_its_rating_widget(tmp_path):
+    """F36: the widget records nothing in duckbrain, so it must not be offered."""
+    path = tmp_path / "sub-010_T1w.html"
+    path.write_text(
+        '<html><head></head><body><input id="qcrating-toggler"/>'
+        '<div id="qcrating-menu"></div></body></html>'
+    )
+    at = AppTest.from_function(_embed_app, kwargs={"report_path": str(path)}).run()
+    (frame,) = at.get("iframe")
+    assert "#qcrating-menu" in frame.proto.srcdoc and "display: none" in frame.proto.srcdoc
+
+
 def test_embed_tool_report_says_so_when_a_figure_is_missing(tmp_path):
     """A report with holes in it must announce them. Rendering it silently
     incomplete is the failure mode this feature exists to end."""

@@ -180,3 +180,26 @@ def rewrite_asset_links(
         return f'{match.group("attr")}="{served}"'
 
     return _ASSET_REF.sub(_sub, html), unresolved
+
+
+#: MRIQC's "Rating widget": a navbar toggle and the panel it opens. Inside
+#: duckbrain it is a second rating mechanism that records nothing here (a
+#: verdict is saved only by Keep / Exclude / Investigate), so a student could
+#: rate a run there and believe it reviewed (usability F36). It can also POST
+#: the rating to MRIQC's public web API. Hidden by CSS rather than cut out of
+#: the markup, so the report's own scripts still find every element they bind.
+_HIDE_RATING_WIDGET = (
+    "<style>/* duckbrain: MRIQC's rating widget records nothing here */"
+    '#qcrating-toggler, label[for="qcrating-toggler"], #qcrating-menu'
+    " { display: none !important; }</style>"
+)
+
+
+def hide_rating_widget(html: str) -> str:
+    """*html* with MRIQC's rating widget hidden; unchanged if it has none."""
+    if "qcrating" not in html:
+        return html
+    head_end = re.search(r"</head\s*>", html, flags=re.IGNORECASE)
+    if head_end:
+        return html[: head_end.start()] + _HIDE_RATING_WIDGET + html[head_end.start() :]
+    return _HIDE_RATING_WIDGET + html

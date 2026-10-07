@@ -432,7 +432,7 @@ def embed_tool_report(report_path: Path, *, height: int = 1200) -> bool:
     which decides what may be *read and served* — as the control that is really
     doing work. Re-checked against Streamlit 1.59.1 on 2026-08-03.
     """
-    from duckbrain.core.report_embed import rewrite_asset_links
+    from duckbrain.core.report_embed import hide_rating_widget, rewrite_asset_links
 
     report_path = Path(report_path)
     try:
@@ -456,5 +456,5 @@ def embed_tool_report(report_path: Path, *, height: int = 1200) -> bool:
             + ". Download the report to see it whole."
         )
 
-    st.iframe(html, height=height)
+    st.iframe(hide_rating_widget(html), height=height)
     return not unresolved

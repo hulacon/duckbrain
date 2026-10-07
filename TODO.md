@@ -1811,6 +1811,11 @@ plus the `ssh -L` line it prints.
     outlining the cell? Then come back to the Overview: does the old cell
     selection re-fire and bounce you to Inspect again? (Row selection was
     proven not to; cell selection is the same mechanism but unproven.)
+12. **MRIQC's Rating widget is gone from the embedded report** (usability
+    F36, 2026-10-07). `report_embed.hide_rating_widget` injects CSS into the
+    srcdoc. Open an MRIQC report under Inspect → "Open the tool's own report":
+    the navbar's "Rating widget" switch should not be there, and the rest of
+    the navbar should still work.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that
