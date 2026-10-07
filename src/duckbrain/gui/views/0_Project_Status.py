@@ -865,19 +865,28 @@ def dashboard() -> None:
         )
         bits = []
         job_col = f"{stage}_job"
+        # A unit with a live job is reported once, by its job state. Its outputs
+        # are still missing (or half-written) on disk, and counting it there too
+        # made one queued unit read "1 running · 1 missing" — two claims about
+        # one unit, one of them wrong — while its own cell said ⏳ queued.
+        in_flight = pd.Series(False, index=matrix.index)
         if job_col in matrix.columns:
-            running = int(
-                (matrix[job_col] == "running").sum() + (matrix[job_col] == "queued").sum()
-            )
+            running = int((matrix[job_col] == "running").sum())
+            queued = int((matrix[job_col] == "queued").sum())
             failed = int((matrix[job_col] == "failed").sum())
+            in_flight = matrix[job_col].isin(("running", "queued"))
             if running:
                 bits.append(f"🔵 {running} running")
+            if queued:
+                bits.append(f"⏳ {queued} queued")
             if failed:
                 bits.append(f"🔴 {failed} failed")
-        if counts[Status.PARTIAL.value]:
-            bits.append(f"⚠ {counts[Status.PARTIAL.value]} partial")
-        if counts[Status.MISSING.value]:
-            bits.append(f"○ {counts[Status.MISSING.value]} missing")
+        partial = int(((matrix[stage] == Status.PARTIAL.value) & ~in_flight).sum())
+        missing = int(((matrix[stage] == Status.MISSING.value) & ~in_flight).sum())
+        if partial:
+            bits.append(f"⚠ {partial} partial")
+        if missing:
+            bits.append(f"○ {missing} missing")
         col.caption(" · ".join(bits) if bits else "✓ all complete")
 
     # ---- Provenance consistency (⚠️) ----

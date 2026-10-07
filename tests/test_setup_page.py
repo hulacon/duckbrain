@@ -599,3 +599,76 @@ def test_an_unwritable_project_named_at_launch_reports_and_stays_closed(tmp_path
         assert "project_dir" not in at.session_state
     finally:
         locked.chmod(0o755)
+
+
+def _project_picker(at):
+    for ti in at.text_input:
+        if ti.label == "Project directory":
+            return ti
+    raise AssertionError("no Project directory field")
+
+
+def test_the_project_picker_starts_empty_with_open_disabled(tmp_path, monkeypatch):
+    """It used to seed `/projects` itself, marked "✓ Selected", beside the
+    page's only primary button — so a new user's first click tried to make
+    `/projects` the project root."""
+    _no_active_project(tmp_path, monkeypatch)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert _project_picker(at).value == ""
+    assert _button(at, "Open / Create Project").disabled
+    assert not any("Selected" in c.value for c in at.caption)
+
+
+def test_opening_a_new_project_reruns_and_confirms_with_a_toast(tmp_path, monkeypatch):
+    """Confirming in place left the page drawn before the click: the project
+    bar said "No project open" and the picker "will be created" beside a
+    success box saying the opposite."""
+    _no_active_project(tmp_path, monkeypatch)
+    new = tmp_path / "study"
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    _project_picker(at).input(str(new)).run()
+    _button(at, "Open / Create Project").click().run()
+    assert not at.exception
+    assert at.session_state["project_dir"] == str(new)
+    assert any("Active project" in t.value for t in at.toast)
+    assert not any("will be created" in c.value for c in at.caption)
+
+
+@pytest.mark.parametrize("is_dataset", [False, True])
+def test_an_unwritable_root_gets_advice_that_fits_it(tmp_path, monkeypatch, is_dataset):
+    """Ask-the-owner advice is for adopting someone's dataset. For a folder that
+    is simply not yours (a PIRG root, `/projects`) it sent a new user after the
+    wrong person; they need to pick a folder of their own."""
+    _no_active_project(tmp_path, monkeypatch)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    if is_dataset:
+        (locked / "dataset_description.json").write_text("{}")
+    remember_project(locked)
+    locked.chmod(0o555)
+    try:
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
+        _button(at, str(locked)).click().run()
+        msg = " ".join(e.value for e in at.error)
+        assert "write access" in msg
+        assert ("ask its owner" in msg) is is_dataset
+        assert ("folder of your own" in msg) is not is_dataset
+    finally:
+        locked.chmod(0o755)
+
+
+def test_forgetting_a_recent_project_is_a_labelled_button(tmp_path, monkeypatch):
+    """A glyph-only "✕" was announced as its symbol: Streamlit sets no
+    aria-label and does not expose `help=` to assistive tech."""
+    _no_active_project(tmp_path, monkeypatch)
+    proj = tmp_path / "proj"
+    scaffold_project(proj)
+    remember_project(proj)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    labels = [b.label for b in at.button]
+    assert "Forget" in labels
+    assert "✕" not in labels
+    _button(at, "Forget").click().run()
+    assert not at.exception
+    assert str(proj) not in [b.label for b in at.button]

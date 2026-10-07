@@ -636,3 +636,33 @@ def test_a_persisted_snapshot_renders_with_its_staleness_confessed(project):
     warnings = [w.value for w in at.warning]
     assert any("preprocessed uncorrected" in w for w in warnings)
     assert any("Inputs have changed since" in w for w in warnings)
+
+
+def test_a_queued_unit_is_counted_once_and_as_queued(project, monkeypatch):
+    """One queued fMRIPrep unit used to read "🔵 1 running · ○ 2 missing" in the
+    rollup: queued called running, and the queued unit counted again as
+    missing, while its own cell said ⏳ queued."""
+    from duckbrain.config import load_config
+    from duckbrain.core.pipeline import record_submission
+
+    cfg = load_config(project_dir=str(project))
+    record_submission(cfg, "fmriprep", "01", "", "55124")
+    monkeypatch.setattr(
+        P,
+        "list_jobs",
+        lambda: [
+            JobInfo(
+                job_id="55124",
+                name="fmriprep_01",
+                state="PENDING",
+                partition="c",
+                nodes="",
+                time_used="0:00",
+            )
+        ],
+    )
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    caps = [c.value for c in at.caption]
+    assert "⏳ 1 queued · ○ 1 missing" in caps
+    assert not any("🔵 1 running" in c for c in caps)

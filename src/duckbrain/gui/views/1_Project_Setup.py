@@ -110,12 +110,23 @@ def _open_project(path: str) -> bool:
     try:
         scaffold_project(path)  # idempotent: makes sourcedata/derivatives/code
     except OSError as e:
+        # Two different people hit this, and they need different advice. Someone
+        # adopting a colleague's dataset should ask its owner; someone who has
+        # picked a folder that is not theirs (a PIRG root, `/projects` itself)
+        # should pick another one — telling them to ask "its owner" sent a new
+        # user after whoever owns `/projects`.
+        is_dataset = (Path(path) / "dataset_description.json").exists()
+        fix = (
+            "If this dataset belongs to someone else, ask its owner to make the "
+            "root group-writable, then reopen."
+            if is_dataset
+            else "Choose or create a folder of your own — for example a new "
+            "folder for this study inside your PIRG's directory — and open that instead."
+        )
         st.error(
             f"Cannot open `{path}` — duckbrain needs write access to the "
             "project root (it keeps `sourcedata/`, `derivatives/`, `code/logs/` "
-            f"and `.bidsignore` there), and creating them failed: {e}. "
-            "If this dataset belongs to someone else, ask its owner to make "
-            "the root group-writable, then reopen."
+            f"and `.bidsignore` there), and creating them failed: {e}. {fix}"
         )
         return False
     st.session_state["project_dir"] = path
@@ -131,14 +142,22 @@ _recents = [p for p in recent_projects() if p != current_project]
 if _recents:
     st.caption("Recent projects")
     for _path in _recents:
-        _open_col, _drop_col = st.columns([12, 1], vertical_alignment="center")
+        _open_col, _drop_col = st.columns([10, 2], vertical_alignment="center")
         with _open_col:
             if st.button(_path, key=f"open_recent_{_path}", width="stretch") and _open_project(
                 _path
             ):
                 st.rerun()
         with _drop_col:
-            if st.button("✕", key=f"drop_recent_{_path}", help="Forget this project"):
+            # A word, not a glyph: Streamlit gives a button no aria-label and does
+            # not expose `help=` to assistive tech, so "✕" was announced as its
+            # symbol (WCAG 2.4.6).
+            if st.button(
+                "Forget",
+                key=f"drop_recent_{_path}",
+                type="tertiary",
+                help="Remove from this list (the folder itself is not touched)",
+            ):
                 forget_project(_path)
                 st.rerun()
     st.divider()
@@ -146,7 +165,8 @@ if _recents:
 project_dir = directory_picker(
     "Project directory",
     key="project_dir_pick",
-    default=current_project or "/projects",
+    default=current_project or "",
+    browse_from="/projects",
     allow_create=True,
     reset_on=current_project,
     help="Browse to (or create) your BIDS project directory. Use the ➕ expander "
@@ -157,7 +177,11 @@ col_open, col_info = st.columns([1, 2])
 with col_open:
     if st.button("Open / Create Project", type="primary", disabled=not project_dir):
         if _open_project(project_dir):
-            st.success(f"Active project: `{project_dir}`")
+            # Rerun rather than confirm in place: the project bar above this page
+            # and the picker's "will be created" caption were drawn before the
+            # click, and kept saying "No project open" beside a success box.
+            queue_toast(f"Active project: {project_dir}")
+            st.rerun()
 
 active_project = st.session_state.get("project_dir")
 # A project named at launch (the OnDemand form's "Project directory", or
@@ -226,7 +250,7 @@ st.code(
 
 # ---- Project-specific settings (saved INSIDE the project) ----
 st.header("Project settings")
-st.caption(f"Saved to `{project_config_path(active_project)}`")
+st.caption(f"Saves to `{project_config_path(active_project)}`")
 project_name = st.text_input("Project name", value=_get("project", "name"))
 # A hand-written config may hold the TOML boolean `use_sessions = true` rather
 # than the string this selectbox writes; both are legitimate, so normalize before
@@ -421,7 +445,7 @@ if st.button("Save project settings"):
 # ---- Shared machine resources (saved to the USER config) ----
 st.divider()
 st.header("Shared resources (all your projects)")
-st.caption(f"Saved to `{user_config_path()}` — reused across every project.")
+st.caption(f"Saves to `{user_config_path()}` — reused across every project.")
 containers_dir = directory_picker(
     "Containers directory",
     key="containers_pick",

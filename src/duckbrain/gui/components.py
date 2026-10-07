@@ -94,6 +94,7 @@ def directory_picker(
     allow_create: bool = False,
     help: str | None = None,
     reset_on: object = None,
+    browse_from: str = "",
 ) -> str:
     """A server-side directory browser that works like a file manager.
 
@@ -112,6 +113,12 @@ def directory_picker(
     Pass it whenever ``default`` is derived from something that can change mid
     session: when its value changes the picker re-seeds from ``default`` instead
     of holding a selection that now belongs to somewhere else.
+
+    ``browse_from`` makes the picker start with **nothing** selected and the
+    browser open there instead. For a choice that must be made on purpose: the
+    project picker used to seed ``/projects`` itself, marked "✓ Selected", next
+    to the page's only primary button — and a new user's first click made
+    ``/projects`` the project root.
     """
     sel_key = f"__dp_{key}"  # committed selection (= text input state)
     cwd_key = f"__dp_{key}_cwd"  # directory the browser is currently showing
@@ -128,14 +135,14 @@ def directory_picker(
     seed_key = f"__dp_{key}_seed"
     _stale = seed_key in st.session_state and st.session_state[seed_key] != reset_on
     if sel_key not in st.session_state or _stale:
-        st.session_state[sel_key] = default or str(Path.home())
-        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
+        st.session_state[sel_key] = default or ("" if browse_from else str(Path.home()))
+        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key] or browse_from))
         st.session_state[seed_key] = reset_on
     if cwd_key not in st.session_state:
-        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
+        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key] or browse_from))
 
     def _typed() -> None:
-        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key]))
+        st.session_state[cwd_key] = str(_nearest_dir(st.session_state[sel_key] or browse_from))
 
     def _commit() -> None:
         # runs before widgets instantiate, so writing the text input's state is legal
