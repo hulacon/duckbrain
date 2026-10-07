@@ -1,10 +1,16 @@
-<% h = (host rescue nil); p = (port rescue nil) %>
+<% h = (host rescue nil); p = (port rescue nil); t = (password rescue nil) %>
 <% if h && p %>
 <form action="/node/<%= h %>/<%= p %>/" method="get" target="_blank">
+  <%# The session's access token, sent as ?token=. The app swaps it for a cookie
+      and drops it from the URL (src/duckbrain/gui/access.py). %>
+  <input type="hidden" name="token" value="<%= t %>">
   <button class="btn btn-primary" type="submit">
     <i class="fa fa-brain"></i> Connect to duckbrain
   </button>
 </form>
+<p class="small text-muted">
+  Access token, only if duckbrain asks for it: <code><%= t %></code>
+</p>
 <% else %>
 <p>duckbrain is still starting — the connect button will appear once the server is running.</p>
 <% end %>

@@ -10,6 +10,24 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Security
+
+- **The GUI answers only the person who started it.** It acts as that
+  person, on their files and their Slurm account, and the "Custom fMRIPrep
+  flags" field reaches the job script as shell. Before this change, any
+  Talapas user who could reach the node and port could drive it. Under
+  OnDemand that was any signed-in user, through the `/node/` proxy. Under
+  `launch.sh` it was anyone on the cluster network, since it bound `0.0.0.0`.
+  Both launchers now serve `gui/serve.py`, which puts the app behind a
+  per-session token (`gui/access.py`). OnDemand's **Connect** button carries
+  the token, and `launch.sh` prints a link carrying it. The first request
+  trades it for an HttpOnly, `SameSite=Strict` cookie, so reloads, new tabs
+  and page moves need nothing more. Every route is gated, including the
+  websocket, uploads and media, and nobody types a password. `launch.sh` also
+  binds `127.0.0.1` now, and prints a two-hop tunnel
+  (`ssh -L PORT:localhost:PORT -J you@login you@node`). Requires
+  `streamlit>=1.57`.
+
 ### Added
 
 - **The QC pages stop flagging outliers below 10 runs of a modality, and say

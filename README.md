@@ -109,18 +109,23 @@ srun --partition=interactive --time=04:00:00 --mem=4G --cpus-per-task=2 \
 bash scripts/launch.sh
 ```
 
-Then set up an SSH tunnel and open `http://localhost:8501` in your browser:
+The script prints an SSH tunnel command for the node it landed on and a link,
+`http://localhost:8501/?token=…`. Run the tunnel on your own computer, then
+open the link:
 
 ```bash
-ssh -L 8501:<compute-node>:8501 youruser@talapas-login.uoregon.edu
+ssh -L 8501:localhost:8501 -J youruser@talapas-login.uoregon.edu youruser@<compute-node>
 ```
+
+The GUI acts as you, so it listens only on the node's `localhost` and answers
+only a browser that opened the link with its token. Don't share the link.
 
 The GUI will walk you through project setup on first launch.
 
 > **Two launch routes are in real use today** — the interactive-session +
 > `scripts/launch.sh` path above (what current beta testers use; also works
 > from a terminal inside an OnDemand Interactive Desktop, where the desktop's
-> own browser reaches `localhost:8501` with no tunnel), and a personal OnDemand
+> own browser opens the link with no tunnel), and a personal OnDemand
 > sandbox app registered from `ondemand/` (what the maintainer uses).
 > **Registering a sandbox is not self-service** — on current OnDemand an
 > administrator must enable app development for your account before the

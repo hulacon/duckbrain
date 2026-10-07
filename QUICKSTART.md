@@ -257,15 +257,22 @@ srun --account=<pirg> --partition=interactive --time=04:00:00 \
      --mem=4G --cpus-per-task=2 --pty bash scripts/launch.sh
 ```
 
-Then reach it one of two ways:
+The script prints a link, `http://localhost:8501/?token=…`. The token is
+what keeps the GUI yours: it acts as you, on your files and your Slurm account,
+and answers only a browser that opened that link. Don't share the link. Then
+reach it one of two ways:
 
-- **SSH tunnel from your laptop.** The script prints the exact `ssh -L …`
-  command for the node it landed on. Run that in a second terminal on your
-  own machine, then open <http://localhost:8501>.
+- **SSH tunnel from your laptop.** The script prints the exact command for the
+  node it landed on, of the form
+  `ssh -L 8501:localhost:8501 -J <you>@talapas-login.uoregon.edu <you>@<node>`.
+  Run that in a second terminal on your own machine, then open the link. The
+  `-J` hops through the login node to the compute node, which Talapas allows
+  while you hold a job there. The GUI listens only on the node's own
+  `localhost`, so the tunnel has to end on the node.
 - **Inside an OnDemand Interactive Desktop.** If you are already working in a
   Talapas desktop session (OnDemand's Interactive Desktop app), run
-  `bash scripts/launch.sh` in a terminal there and open
-  <http://localhost:8501> in the desktop's own browser — no tunnel needed.
+  `bash scripts/launch.sh` in a terminal there and open the link in the
+  desktop's own browser — no tunnel needed.
 
 > `UNVALIDATED`: the `srun` flags above (partition name, whether `--account` is
 > required for `interactive`) are the shape the repo already documents but have
@@ -285,7 +292,10 @@ ln -s ~/code/duckbrain/ondemand ~/ondemand/dev/duckbrain
 ```
 
 Then reload the OnDemand dashboard; the app appears under **Develop → My Sandbox
-Apps** (Interactive Apps → Neuroimaging).
+Apps** (Interactive Apps → Neuroimaging). Open the GUI with the session's
+**Connect** button: the link carries a per-session token, and without it the
+GUI shows only a page saying where to get one. The token is also shown on the
+session card, in case a page asks for it.
 
 > ⚠️ **This is not self-service, and that is the part to check first.** On
 > OnDemand 1.6 and later, creating `~/ondemand/dev` is *not* enough — an

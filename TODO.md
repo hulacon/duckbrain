@@ -1805,6 +1805,18 @@ plus the `ssh -L` line it prints.
     auto on and nothing queued the board should settle to a 5-minute beat, and
     submitting a job should return it to 30 s within one tick (the switch costs
     a full page rerun, which AppTest cannot judge the feel of).
+11. **[OOD] The access gate through the real proxy** (2026-10-07). Already
+    checked on a compute node, through a real server and a headless browser,
+    against both launchers: the Connect-style link opens the app and drops
+    the token from the URL; page moves, reload and a second tab stay in; a
+    fresh browser, a wrong token and a forged cookie get the gate page; the
+    websocket is refused without the cookie; another host can't reach the
+    `launch.sh` port at all. What only OnDemand can settle: does **Connect**
+    carry `?token=` through the proxy (an empty hidden input would mean
+    `password` is missing from `connection.yml`); does the cookie arrive with
+    `Path=/node/<host>/<port>/`, and with `Secure` (it is added only if the
+    proxy sends `X-Forwarded-Proto: https`); and does a bare
+    `/node/<host>/<port>/` show the gate page rather than the app.
 
 **Dark theme is deliberately not an entry** — it is `#8`'s, with the two specific
 traps already named there. But `#8` and this item want the same session, and that

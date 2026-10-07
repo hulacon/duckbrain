@@ -52,6 +52,15 @@ fi
 # Find an available port
 PORT=${DUCKBRAIN_PORT:-8501}
 
+# The GUI acts as whoever started it, so it answers only a browser holding
+# this session's token (src/duckbrain/gui/access.py). Localhost keeps other
+# hosts out; the token keeps out other users on this one, since compute nodes
+# are shared between jobs and a login node is shared by everyone. The link
+# below carries it, so nobody types it.
+DUCKBRAIN_ACCESS_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+export DUCKBRAIN_ACCESS_TOKEN
+LINK="http://localhost:${PORT}/?token=${DUCKBRAIN_ACCESS_TOKEN}"
+
 echo "============================================"
 echo "  duckbrain — Neuroimaging Toolbox"
 echo "============================================"
@@ -60,16 +69,20 @@ echo "  Port:    $PORT"
 echo "  Config:  $DUCKBRAIN_CONFIG_DIR"
 echo "  Project: ${DUCKBRAIN_PROJECT_DIR:-(choose in Project Setup)}"
 echo ""
-echo "  Access via SSH tunnel:"
-echo "    ssh -L ${PORT}:$(hostname):${PORT} $(whoami)@talapas-login.uoregon.edu"
-echo "  Then open: http://localhost:${PORT}"
+echo "  From your own computer, open an SSH tunnel:"
+echo "    ssh -L ${PORT}:localhost:${PORT} -J $(whoami)@talapas-login.uoregon.edu $(whoami)@$(hostname)"
+echo "  Then open this link (it is your key to this session; don't share it):"
+echo "    ${LINK}"
 echo ""
-echo "  (From an OnDemand Desktop running on this node, skip the tunnel:"
-echo "   open http://localhost:${PORT} in the desktop's own browser.)"
+echo "  (From an OnDemand Desktop running on this node, skip the tunnel and"
+echo "   open the same link in the desktop's own browser.)"
 echo "============================================"
 
-streamlit run "$PROJECT_DIR/src/duckbrain/gui/app.py" \
+# Localhost only: the -J tunnel above ends on this node (Slurm lets you ssh to
+# a node where you hold a job), so nothing is lost. The OnDemand app has to
+# listen on the network for its proxy, and relies on the same token.
+streamlit run "$PROJECT_DIR/src/duckbrain/gui/serve.py" \
     --server.port "$PORT" \
-    --server.address 0.0.0.0 \
+    --server.address 127.0.0.1 \
     --server.headless true \
     --browser.gatherUsageStats false

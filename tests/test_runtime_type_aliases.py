@@ -38,8 +38,10 @@ import duckbrain
 #: Modules that legitimately cannot be imported in a bare process. The Streamlit
 #: pages call ``st.set_page_config`` at module scope; importing one outside a
 #: script run is not a thing they support, and their aliases are covered by the
-#: panel modules they import from.
-SKIP_PREFIXES = ("duckbrain.gui.views.",)
+#: panel modules they import from. ``gui.serve`` refuses to import without an
+#: access token, by design (it would otherwise serve an ungated GUI);
+#: ``test_access_gate.py`` imports it both ways, in subprocesses.
+SKIP_PREFIXES = ("duckbrain.gui.views.", "duckbrain.gui.serve")
 
 
 def _importable_modules() -> list[str]:

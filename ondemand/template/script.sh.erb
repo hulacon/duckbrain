@@ -58,9 +58,22 @@ else
     pip install -e "${DUCKBRAIN_DIR}" --quiet
 fi
 
-# Launch Streamlit behind OOD's reverse proxy
-# --server.baseUrlPath must match OOD's /node/<host>/<port>/ proxy path
-streamlit run "${DUCKBRAIN_DIR}/src/duckbrain/gui/app.py" \
+# The access gate's secret (before.sh.erb). Fail rather than start a GUI that
+# anyone on the OOD proxy could drive; serve.py refuses an empty token too.
+# Tracing off while the token is handled, so it stays out of the session log.
+set +x
+if [ -z "${password:-}" ]; then
+    echo "ERROR: no session password from before.sh; refusing to start an ungated GUI" >&2
+    exit 1
+fi
+export DUCKBRAIN_ACCESS_TOKEN="${password}"
+set -x
+
+# Launch Streamlit behind OOD's reverse proxy, through the gated entrypoint.
+# --server.baseUrlPath must match OOD's /node/<host>/<port>/ proxy path.
+# CORS and XSRF stay off for the proxy; the gate's SameSite=Strict cookie is
+# what keeps other sites out (see access.py).
+streamlit run "${DUCKBRAIN_DIR}/src/duckbrain/gui/serve.py" \
     --server.port="${port}" \
     --server.address="0.0.0.0" \
     --server.headless=true \
