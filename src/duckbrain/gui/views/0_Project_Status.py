@@ -643,11 +643,22 @@ def _deep_links() -> None:
         ("views/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
         ("views/4_Preprocessing.py", "Preprocessing", "🧠"),
         ("views/3a_Project.py", "Project (metadata, validation, expectations)", "🗂️"),
+        ("views/5_QC_Overview.py", "QC (review each run's quality)", "🔍"),
     ]:
-        try:
-            st.page_link(path, label=label, icon=icon)
-        except Exception:
-            pass  # standalone (non-multipage) render — links are best-effort
+        _link(path, label, icon)
+
+
+def _link(path: str, label: str, icon: str) -> None:
+    """``st.page_link``, degrading to a caption in a standalone render.
+
+    ``st.page_link`` raises outside ``st.navigation`` (every page test, any
+    one-page debug run); a caption naming the target keeps the render alive
+    and keeps the link visible to a test.
+    """
+    try:
+        st.page_link(path, label=label, icon=icon)
+    except Exception:
+        st.caption(label)
 
 
 def _outcome_checks_section(config: Config) -> None:
@@ -977,6 +988,9 @@ def dashboard() -> None:
 
     if view.empty:
         st.success("Every subject/session is complete across all stages. 🎉")
+        # The board has nothing left to offer, so say where the work goes next
+        # rather than leaving the student to find the QC menu (F31).
+        _link("views/5_QC_Overview.py", "Next: review each run's quality in QC", "➡️")
     else:
         view = _paginate(view)
         latest_jobs = _latest_jobs(config)

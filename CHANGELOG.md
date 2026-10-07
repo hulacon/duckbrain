@@ -74,6 +74,9 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   fewer runs than `[qc] min_runs_for_flags`, the IQR-multiplier slider is
   disabled, the Distributions caption no longer describes an outlier fence,
   and Inspect drops its always-empty Flagged column.
+- **A finished project's Status page points at QC.** When every stage is
+  complete, the board says "Next: review each run's quality in QC" with a
+  link, and QC joins the "Open the full pages" list.
 - **fMRIPrep runs on a multi-session subject again under 25.2.** fMRIPrep 25.2
   tracks sessions by default: a job reads every session of the subject at once,
   so duckbrain's one-session filter contradicted it and the run died at workflow

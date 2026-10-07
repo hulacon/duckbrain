@@ -112,6 +112,38 @@ def test_only_incomplete_filter_present_and_default_on(project):
     assert "sub-02" in _markdowns(at)
 
 
+def _all_complete(monkeypatch):
+    """Survey for real, then mark every stage complete — the finished project."""
+    real = P.survey_live
+
+    def survey(config, with_jobs=False):
+        matrix, jobs = real(config, with_jobs=True)
+        from duckbrain.core.surveyor import stage_columns
+
+        for stage in stage_columns(config):
+            matrix[stage] = "complete"
+        return (matrix, jobs) if with_jobs else matrix
+
+    monkeypatch.setattr(P, "survey_live", survey)
+
+
+def test_a_finished_project_points_at_qc(project, monkeypatch):
+    """F31: with every stage done, the board hid itself and the next step (QC)
+    was named nowhere on the page."""
+    _all_complete(monkeypatch)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert any("complete across all stages" in s.value for s in at.success)
+    captions = [c.value for c in at.caption]
+    assert any("Next: review each run's quality in QC" in c for c in captions)
+
+
+def test_the_full_pages_list_includes_qc(project):
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert any("QC (review each run's quality)" in c.value for c in at.caption)
+
+
 def test_the_board_paginates_past_fifty_units(project, monkeypatch):
     """`#42.6`: a row is a whole `st.columns` of popovers, so several hundred of
     them per refresh is the board's own cost. The `only_incomplete` filter is no
