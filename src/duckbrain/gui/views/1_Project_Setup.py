@@ -338,13 +338,14 @@ use_nordic = st.toggle(
     help="Off: fMRIPrep reads the raw BIDS tree, and the Project Status board "
     "marks NORDIC **n/a** — launch it deliberately from Preprocessing → NORDIC. "
     "On: fMRIPrep reads derivatives/nordic/bids_format instead and waits for the "
-    "NORDIC stage to finish for each subject.",
+    "NORDIC stage to finish for each subject. NORDIC can be run either way; this "
+    "only decides whether fMRIPrep uses its output.",
 )
+# The caption is for a first-time user; the maintainer's detail is in the help
+# above (usability F24).
 st.caption(
-    "NORDIC runs as a producer either way; this only decides whether anything "
-    "**consumes** what it produces. The setting is what the cockpit reads to "
-    "decide the stage applies to this project at all, which is why it lives "
-    "here rather than only in the config file."
+    "NORDIC is an optional extra denoising step for fMRI. Leave this off unless "
+    "your lab has decided to use it."
 )
 
 st.subheader("FreeSurfer")
@@ -357,13 +358,13 @@ use_external_fs = st.toggle(
     "system FreeSurfer 8's recon-all first, and fMRIPrep waits for it, imports "
     "the finished recon (`--fs-no-resume`), and refuses to launch until the "
     "recon is complete and version-matched — never silently rebuilding one "
-    "with its own older FreeSurfer.",
+    "with its own older FreeSurfer. The FreeSurfer 8 version and install path "
+    "are set per machine (`[freesurfer] version` / `install_root`, default 8.2.0 "
+    "from `/packages/freesurfer`), not here.",
 )
 st.caption(
-    "The FreeSurfer version and install path are machine facts "
-    "(`[freesurfer] version` / `install_root`, default 8.2.0 from "
-    "`/packages/freesurfer`), not per-project settings — this toggle only "
-    "decides whether this project's fMRIPrep consumes an external recon."
+    "Off lets fMRIPrep build each brain's surfaces itself, which suits most "
+    "projects. Leave it off unless your lab runs FreeSurfer 8 separately."
 )
 
 st.subheader("SLURM (project)")

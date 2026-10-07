@@ -257,6 +257,16 @@ def _toggle(at, label):
 _USE_NORDIC = "fMRIPrep reads NORDIC-denoised data"
 
 
+def test_the_nordic_and_freesurfer_captions_are_plain(project):
+    """F24: one plain sentence each for a first-time user; the maintainer's
+    detail ("producer", "machine facts", config keys) stays in the help."""
+    captions = [c.value for c in _open(project).caption]
+    assert any("Leave this off unless your lab has decided to use it" in c for c in captions)
+    assert any("Leave it off unless your lab runs FreeSurfer 8" in c for c in captions)
+    jargon = ("producer", "consumes", "machine facts", "install_root", "cockpit")
+    assert not [c for c in captions if any(j in c for j in jargon)]
+
+
 def test_use_nordic_can_be_turned_on_and_reads_back_on(project):
     at = _open(project)
     assert not at.exception

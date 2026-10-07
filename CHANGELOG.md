@@ -61,6 +61,9 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   NORDIC, FreeSurfer, QSIPrep, not "Fmriprep" and "Mriqc".
 - **Page sections are h2, not h3**, so heading navigation in a screen reader no
   longer skips a level under each page title.
+- **Setup's NORDIC and FreeSurfer switches explain themselves in one plain
+  sentence each**, saying what the switch does and when to leave it off. The
+  maintainer's detail moved into each switch's help.
 
 ### Fixed
 
