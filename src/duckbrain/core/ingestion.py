@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -626,6 +627,114 @@ def auto_number_sessions(
             )
 
     return mappings
+
+
+@dataclass
+class AutoAssignment:
+    """What :func:`auto_assign_subjects` proposes.
+
+    ``mappings`` covers every folder it assigned. ``held`` maps each folder it
+    left blank to the note that says why, for the user to confirm or override.
+    """
+
+    mappings: list[BidsMapping]
+    held: dict[str, str] = field(default_factory=dict)
+
+
+_WHERE = re.compile(r"sub-([A-Za-z0-9]+)(?:/ses-([A-Za-z0-9]+))?")
+
+
+def imported_labels(import_status: dict[str, ImportStatus]) -> dict[str, tuple[str, str]]:
+    """Folder → (subject, session) it was ingested as, for ``"imported"`` folders."""
+    out: dict[str, tuple[str, str]] = {}
+    for folder, status in import_status.items():
+        if status.state != "imported":
+            continue
+        match = _WHERE.search(status.where)
+        if match:
+            out[folder] = (match.group(1), match.group(2) or "")
+    return out
+
+
+def auto_assign_subjects(
+    sessions: list[SessionInfo],
+    *,
+    use_sessions: str | bool = "auto",
+    imported: dict[str, tuple[str, str]] | None = None,
+    existing_subjects: Iterable[str] = (),
+) -> AutoAssignment:
+    """Propose BIDS subjects and sessions for an export, the GUI's Auto-assign.
+
+    Unlike :func:`auto_number_sessions`, which keeps each folder's own number
+    (``psy607_000`` → ``000``), this numbers subjects ``01``, ``02``, … in
+    order of first scan (usability F27, Ben 2026-10-07), with two guards:
+
+    - **A folder already in sourcedata keeps the subject and session it was
+      ingested as** (*imported*, from :func:`imported_labels`), and so does
+      every other folder of its subject. New subjects take the next free
+      numbers after everything in *existing_subjects* and *imported*, so a
+      top-up ingest never hands out a label that is already taken.
+    - **A thin lone folder is held, not numbered**: a subject with a single
+      folder holding fewer than half the series of the fullest folder in the
+      export. That is the shape of a pilot or phantom scan. It is left blank
+      with a note, and the user can still fill it in. Multi-session subjects
+      are never held: a short session of a real participant is not a pilot.
+
+    Sessions are numbered by date within each subject, as before.
+    """
+    from collections import defaultdict
+
+    imported = dict(imported or {})
+    groups: dict[str, list[SessionInfo]] = defaultdict(list)
+    for s in sorted(sessions, key=lambda s: s.date):
+        groups[s.parsed_subject].append(s)
+
+    fullest = max((s.series_count for s in sessions), default=0)
+    held: dict[str, str] = {}
+    for members in groups.values():
+        only = members[0]
+        if (
+            len(members) == 1
+            and len(sessions) > 1
+            and only.folder_name not in imported
+            and only.series_count * 2 < fullest
+        ):
+            held[only.folder_name] = (
+                f"Pilot or phantom? Only {only.series_count} series (the fullest "
+                f"folder has {fullest}), so Auto-assign left it blank. Fill in "
+                "BIDS Subject to ingest it anyway."
+            )
+
+    kept = {k: [s for s in v if s.folder_name not in held] for k, v in groups.items()}
+    kept = {k: v for k, v in kept.items() if v}
+    mode = normalize_use_sessions(use_sessions)
+    include = any(len(v) > 1 for v in kept.values()) if mode == "auto" else mode == "true"
+
+    taken = set(existing_subjects) | {sub for sub, _ in imported.values()}
+    numeric = [label for label in taken if label.isdigit()]
+    width = max([2, *(len(label) for label in numeric)])
+    counter = max((int(label) for label in numeric), default=0)
+
+    def next_free() -> str:
+        nonlocal counter
+        while True:
+            counter += 1
+            label = f"{counter:0{width}d}"
+            if label not in taken:
+                taken.add(label)
+                return label
+
+    mappings: list[BidsMapping] = []
+    for members in kept.values():
+        known = [imported[s.folder_name][0] for s in members if s.folder_name in imported]
+        subject = known[0] if known else next_free()
+        for i, s in enumerate(members, start=1):
+            if s.folder_name in imported:
+                sub, ses = imported[s.folder_name]
+            else:
+                sub, ses = subject, (f"{i:02d}" if include else "")
+            mappings.append(BidsMapping(s.folder_name, sub, ses))
+    return AutoAssignment(mappings, held)
 
 
 def list_ingested_sessions(sourcedata_dir: str | Path) -> list[dict[str, Any]]:

@@ -145,28 +145,59 @@ st.session_state["ingest_df"]["imported"] = [
     for f in st.session_state["ingest_df"]["folder_name"]
 ]
 
-# ---- Auto-session numbering ----
+# ---- Auto-assign ----
+# Messages persist in session state until the folder set changes: written only
+# on the click, they vanished on the next edit and the table jumped up under
+# the pointer between two clicks (usability F27).
+if st.session_state.get("_autoassign_folders") != folder_key:
+    st.session_state["_autoassign_msgs"] = []
 if st.button("Auto-assign subjects & sessions by date"):
-    from duckbrain.core.ingestion import auto_number_sessions
+    from duckbrain.core.ingestion import auto_assign_subjects, imported_labels
 
-    mappings = auto_number_sessions(
-        sessions, use_sessions=config.get("project", {}).get("use_sessions", "auto")
+    imported = imported_labels(import_status)
+    proposal = auto_assign_subjects(
+        sessions,
+        use_sessions=config.get("project", {}).get("use_sessions", "auto"),
+        imported=imported,
+        existing_subjects={str(d["subject"]) for d in ingested},
     )
-    mapping_lookup = {m.folder_name: m for m in mappings}
+    mapping_lookup = {m.folder_name: m for m in proposal.mappings}
     base = st.session_state["ingest_df"]
+    by_folder = {s.folder_name: s for s in sessions}
     for i, row in base.iterrows():
-        m = mapping_lookup.get(row["folder_name"])
-        if m:
-            base.at[i, "bids_subject"] = m.bids_subject
-            base.at[i, "bids_session"] = m.bids_session
+        folder = row["folder_name"]
+        m = mapping_lookup.get(folder)
+        base.at[i, "bids_subject"] = m.bids_subject if m else ""
+        base.at[i, "bids_session"] = m.bids_session if m else ""
+        notes = [by_folder[folder].notes] if folder in by_folder else []
+        if folder in proposal.held:
+            notes.append(proposal.held[folder])
+        base.at[i, "notes"] = " ".join(n for n in notes if n)
     # Bump the editor key so it reloads from the freshly-populated base.
     st.session_state["_editor_rev"] += 1
-    n_subj = len(set(m.bids_subject for m in mappings))
-    used_sessions = any(m.bids_session for m in mappings)
-    msg = f"Auto-assigned {n_subj} subject(s)"
-    if not used_sessions:
-        msg += " — single-session study, so BIDS Session is left blank (by design)."
-    st.success(msg)
+
+    subjects = sorted({m.bids_subject for m in proposal.mappings})
+    kept = sorted({m.bids_subject for m in proposal.mappings if m.folder_name in imported})
+    msg = f"Auto-assigned {len(subjects)} subject(s): " + ", ".join(f"sub-{s}" for s in subjects)
+    if kept:
+        msg += f". Already imported, so kept: {', '.join(f'sub-{s}' for s in kept)}"
+    msg += "."
+    if not any(m.bids_session for m in proposal.mappings):
+        msg += " Single-session study, so BIDS Session is left blank (by design)."
+    msgs = [("success", msg)]
+    if proposal.held:
+        msgs.append(
+            (
+                "warning",
+                f"Left {len(proposal.held)} folder(s) blank because they look like a "
+                "pilot or phantom scan (see Notes). Fill in BIDS Subject to ingest "
+                "one anyway.",
+            )
+        )
+    st.session_state["_autoassign_msgs"] = msgs
+    st.session_state["_autoassign_folders"] = folder_key
+for kind, text in st.session_state.get("_autoassign_msgs", []):
+    (st.success if kind == "success" else st.warning)(text)
 
 st.markdown(
     "Edit the **bids_subject** and **bids_session** columns to assign BIDS "

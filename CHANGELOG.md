@@ -70,6 +70,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **Setup's NORDIC and FreeSurfer switches explain themselves in one plain
   sentence each**, saying what the switch does and when to leave it off. The
   maintainer's detail moved into each switch's help.
+- **Ingestion's Auto-assign numbers subjects sub-01, sub-02, … in scan order**
+  instead of copying each folder's number (`psy607_000` → `000`). Folders
+  already in sourcedata keep the subject and session they were ingested as,
+  and new subjects take the next free numbers, so a top-up ingest never
+  reuses a label. A lone folder with under half the series of the fullest
+  one is left blank as a possible pilot or phantom, with a note saying so.
+  The Auto-assign message now stays put while you edit the table.
 - **Preprocessing marks the NORDIC and QSIPrep tabs "(n/a)" when the project
   doesn't need them**: NORDIC without `use_nordic`, QSIPrep with no `dwi/`
   data anywhere. Each tab says why at the top, matching Status. The controls

@@ -46,15 +46,42 @@ def test_auto_assign_persists_across_rerun(project):
 
     next(b for b in at.button if "Auto-assign" in b.label).click().run()
     assert not at.exception
-    assert _subjects(at) == ["001", "002"]
+    assert _subjects(at) == ["01", "02"]
     rev = at.session_state["_editor_rev"]
 
     # An unrelated rerun must NOT clear the assignment (the reported bug).
     at.run()
     assert not at.exception
-    assert _subjects(at) == ["001", "002"]
+    assert _subjects(at) == ["01", "02"]
     # ...and the editor key stays stable so manual edits aren't dropped either.
     assert at.session_state["_editor_rev"] == rev
+
+
+def test_the_auto_assign_message_survives_an_edit(project):
+    """F27: the message vanished on the next rerun and the table jumped up
+    under the pointer between two clicks."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    next(b for b in at.button if "Auto-assign" in b.label).click().run()
+    assert any("Auto-assigned 2 subject(s)" in s.value for s in at.success)
+    at.run()  # stands in for a cell edit
+    assert any("Auto-assigned 2 subject(s)" in s.value for s in at.success)
+
+
+def test_a_thin_pilot_folder_is_left_blank_and_says_why(project):
+    pilot = project / "dcmsrc" / "TEST_000_20211231_100000" / "Series_01_localizer"
+    pilot.mkdir(parents=True)
+    for sub in ("001", "002"):
+        for extra in ("Series_03_dwi", "Series_04_fmap", "Series_05_bold"):
+            (next((project / "dcmsrc").glob(f"TEST_{sub}_*")) / extra).mkdir()
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    next(b for b in at.button if "Auto-assign" in b.label).click().run()
+    assert not at.exception
+    df = at.session_state["ingest_df"]
+    row = df[df["folder_name"].str.startswith("TEST_000")].iloc[0]
+    assert row["bids_subject"] == ""
+    assert "Pilot or phantom" in row["notes"]
+    assert sorted(df["bids_subject"]) == ["", "01", "02"]
+    assert any("look like a pilot or phantom" in w.value for w in at.warning)
 
 
 def test_single_session_leaves_bids_session_blank(project):

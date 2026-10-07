@@ -741,3 +741,87 @@ def test_nii_glob_recursive_and_missing_root(tmp_path):
     _touch_files(tmp_path / "sub-01" / "ses-01" / "anat", "sub-01_T1w.nii")
     assert [p.name for p in nii_glob(tmp_path, "sub-01/**/*")] == ["sub-01_T1w.nii"]
     assert nii_glob(tmp_path / "absent", "*") == []
+
+
+# ---- auto_assign_subjects: the GUI's Auto-assign (usability F27) -------------
+
+
+def _info(folder, subject, date, series=10):
+    from duckbrain.core.ingestion import SessionInfo
+
+    return SessionInfo(folder, subject, "", date, Path("/x") / folder, series_count=series)
+
+
+def _labels(proposal):
+    return {m.folder_name: (m.bids_subject, m.bids_session) for m in proposal.mappings}
+
+
+def test_auto_assign_numbers_subjects_from_01_in_scan_order():
+    from duckbrain.core.ingestion import auto_assign_subjects
+
+    sessions = [_info("p_007_b", "007", "20240102"), _info("p_003_a", "003", "20240101")]
+    proposal = auto_assign_subjects(sessions)
+    assert _labels(proposal) == {"p_003_a": ("01", ""), "p_007_b": ("02", "")}
+    assert proposal.held == {}
+
+
+def test_a_thin_lone_folder_is_held_as_a_possible_pilot():
+    """PSY607's shape: a 9-series pilot beside a 19-series participant."""
+    from duckbrain.core.ingestion import auto_assign_subjects
+
+    sessions = [_info("c_000", "000", "20241002", 9), _info("c_001", "001", "20241007", 19)]
+    proposal = auto_assign_subjects(sessions)
+    assert _labels(proposal) == {"c_001": ("01", "")}
+    assert "Pilot or phantom" in proposal.held["c_000"]
+
+
+def test_a_short_session_of_a_real_participant_is_not_held():
+    from duckbrain.core.ingestion import auto_assign_subjects
+
+    sessions = [
+        _info("s_001_a", "001", "20240101", 20),
+        _info("s_001_b", "001", "20240108", 4),
+        _info("s_002_a", "002", "20240102", 20),
+    ]
+    proposal = auto_assign_subjects(sessions)
+    assert proposal.held == {}
+    assert _labels(proposal)["s_001_b"] == ("01", "02")
+
+
+def test_imported_folders_keep_their_labels_and_new_subjects_take_the_next_free():
+    """A top-up ingest must never hand out a label sourcedata already uses."""
+    from duckbrain.core.ingestion import auto_assign_subjects
+
+    sessions = [
+        _info("m_003_a", "003", "20240101"),
+        _info("m_003_b", "003", "20240201"),
+        _info("m_009_a", "009", "20240301"),
+    ]
+    proposal = auto_assign_subjects(
+        sessions,
+        imported={"m_003_a": ("03", "01")},
+        existing_subjects={"03", "07"},
+    )
+    labels = _labels(proposal)
+    assert labels["m_003_a"] == ("03", "01")
+    assert labels["m_003_b"] == ("03", "02")  # its subject's label, next session
+    assert labels["m_009_a"] == ("08", "01")
+
+
+def test_the_padding_follows_existing_three_digit_labels():
+    from duckbrain.core.ingestion import auto_assign_subjects
+
+    proposal = auto_assign_subjects([_info("d_1", "x", "1")], existing_subjects={"017"})
+    assert _labels(proposal) == {"d_1": ("018", "")}
+
+
+def test_imported_labels_reads_the_import_badges():
+    from duckbrain.core.ingestion import ImportStatus, imported_labels
+
+    status = {
+        "a": ImportStatus("imported", "sub-03/ses-02"),
+        "b": ImportStatus("imported", "sub-04"),
+        "c": ImportStatus("unverifiable", "sub-05/ses-01"),
+        "d": ImportStatus("new"),
+    }
+    assert imported_labels(status) == {"a": ("03", "02"), "b": ("04", "")}
