@@ -690,7 +690,11 @@ def _outcome_checks_section(config: Config) -> None:
         if stale:
             state += " — ⚠ inputs changed since"
 
-    with st.expander(f"🔬 Outcome checks — {state}"):
+    # The label changes once a run lands ("not measured yet" → "clean, …"), and
+    # Streamlit treats a relabelled expander as a new one, which opens closed.
+    # So the run's own result was hidden behind a click until it was reopened.
+    just_ran = bool(st.session_state.pop("_outcome_checks_ran", False))
+    with st.expander(f"🔬 Outcome checks — {state}", expanded=just_ran):
         st.caption(
             "These open the tools' own output to confirm the work really happened, "
             "which the board can't tell from file names alone: that fMRIPrep "
@@ -702,6 +706,7 @@ def _outcome_checks_section(config: Config) -> None:
         if st.button("▶ Run outcome checks now", key="outcome_checks_btn", width="stretch"):
             with st.spinner("Reading tool reports and image data…"):
                 run_expensive_checks(config)
+            st.session_state["_outcome_checks_ran"] = True
             st.rerun()
 
         if snapshot is None:

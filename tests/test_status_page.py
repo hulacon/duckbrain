@@ -638,6 +638,11 @@ def test_the_outcome_panel_measures_nothing_until_the_button_is_pressed(project,
     at.button(key="outcome_checks_btn").click().run()
     assert not at.exception
     assert calls == ["ran"]
+    # The relabelled expander must open on the result, not hide it (F32 walk).
+    panel = [e for e in at.expander if "Outcome checks" in e.label]
+    assert panel and panel[0].proto.expanded
+    at.run()  # and close again on the next ordinary render
+    assert not [e for e in at.expander if "Outcome checks" in e.label][0].proto.expanded
 
 
 def test_a_persisted_snapshot_renders_with_its_staleness_confessed(project):
