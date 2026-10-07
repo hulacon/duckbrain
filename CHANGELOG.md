@@ -68,6 +68,9 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   doesn't need them**: NORDIC without `use_nordic`, QSIPrep with no `dwi/`
   data anywhere. Each tab says why at the top, matching Status. The controls
   stay, since NORDIC can still be run deliberately.
+- **Inspect's "Position in cohort" bars are grey, not red.** A red bar filled
+  by rank made the best tSNR look like the worst. The bar now shows only
+  where the run sits, and the "Better" column says which way is good.
 
 ### Fixed
 

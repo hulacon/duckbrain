@@ -503,6 +503,10 @@ def measure_table(scope: Scope, measures: list[str]) -> None:
                 min_value=0.0,
                 max_value=1.0,
                 format="%.2f",
+                # Neutral, not the theme's primary red: a full red bar on the
+                # best tSNR read as bad. The bar is a position; direction is
+                # the "Better" column's job (usability F33).
+                color="gray",
             ),
             "Value": st.column_config.NumberColumn(format="%.4f"),
             "Cohort median": st.column_config.NumberColumn(format="%.4f"),

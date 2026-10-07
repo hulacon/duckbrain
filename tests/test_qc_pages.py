@@ -282,6 +282,11 @@ class TestInspection:
         # A bare IQM cannot be read; where it sits among these runs can.
         assert "Position in cohort" in table.columns
 
+    def test_the_position_bars_are_a_neutral_colour(self, full):
+        """F33: the theme's red filled the best tSNR's bar; a position is not a verdict."""
+        config = json.loads(_run(INSPECT).dataframe[0].proto.columns)
+        assert config["Position in cohort"]["type_config"]["color"] == "gray"
+
     def test_each_domains_review_question_is_stated(self, full):
         assert any("distortion corrected" in m.value for m in _run(INSPECT).markdown)
 
