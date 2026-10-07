@@ -214,6 +214,16 @@ class TestSurvivesAMissingTool:
         assert not at.exception
         assert any("Run MRIQC first" in i.value for i in at.info)
 
+    def test_the_missing_mriqc_note_shows_only_when_mriqc_is_missing(self, project):
+        _write_fmriprep(project / "derivatives")
+        assert any("measures need MRIQC" in c for c in _captions(_run(INSPECT)))
+
+    def test_a_run_with_mriqc_measures_is_not_told_to_run_mriqc(self, full):
+        """F30: a `for … else` printed the note under a full table of IQMs."""
+        at = _run(INSPECT)
+        assert at.dataframe, "no measure table rendered"
+        assert not any("measures need MRIQC" in c for c in _captions(at))
+
     def test_measures_survive_a_project_with_no_fmriprep(self, project):
         """MRIQC ran, fMRIPrep did not — the numbers must still be reviewable."""
         _write_mriqc(project / "derivatives")

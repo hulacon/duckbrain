@@ -611,15 +611,17 @@ def render_inspection_page() -> None:
         for domain in qc_domains.DOMAINS:
             if domain.caveat and domain.measures_for(scope.modality):
                 st.caption(f"**{domain.label}:** {domain.caveat}")
+    elif all_measures:
+        # `elif`, not a `for … else` on the loop below: that loop never breaks,
+        # so an `else` there printed this under a full MRIQC table (F30).
+        st.caption(
+            "The measures need MRIQC — run it from **Preprocessing**. The figures below do not."
+        )
     # A domain with neither numbers nor figures for this modality still says
     # why — a silently absent section reads as a section that failed to load.
     for domain in qc_domains.DOMAINS:
         if not domain.measures_for(scope.modality) and not domain.evidence_for(scope.modality):
             st.caption(f"**{domain.label}:** {domain.explain_absence(scope.modality)}")
-    else:
-        st.caption(
-            "The measures need MRIQC — run it from **Preprocessing**. The figures below do not."
-        )
 
     st.header("Evidence")
     for domain in qc_domains.DOMAINS:

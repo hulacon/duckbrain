@@ -64,6 +64,9 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Inspect no longer tells you to run MRIQC when it already has.** "The
+  measures need MRIQC" printed under every run's measure table, even with
+  MRIQC complete. It now shows only when the run has no MRIQC measures.
 - **fMRIPrep runs on a multi-session subject again under 25.2.** fMRIPrep 25.2
   tracks sessions by default: a job reads every session of the subject at once,
   so duckbrain's one-session filter contradicted it and the run died at workflow
