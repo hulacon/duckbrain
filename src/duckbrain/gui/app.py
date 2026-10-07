@@ -186,6 +186,19 @@ def _default_page() -> str:
     return "0_Project_Status.py" if active_project() else "1_Project_Setup.py"
 
 
+# Keyboard focus that Streamlit leaves invisible (WCAG 2.4.7):
+# - a table's toolbar (Show/hide columns, Download, Search, Fullscreen) is in
+#   the Tab order but stays at opacity 0 until hovered, so a keyboard user
+#   tabs through four buttons they can't see;
+# - the main scroll region takes focus (so the keyboard can scroll it) with no
+#   indicator at all.
+# Upstream reports: TODO(link once filed).
+_KEYBOARD_FOCUS_CSS = """<style>
+[data-testid="stElementToolbar"]:focus-within { opacity: 1; }
+[data-testid="stMain"]:focus-visible { outline: 2px solid #c62828; outline-offset: -2px; }
+</style>"""
+
+
 def main() -> None:
     st.set_page_config(
         page_title="duckbrain",
@@ -193,6 +206,7 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="collapsed",
     )
+    st.html(_KEYBOARD_FOCUS_CSS)  # style-only, so it takes no space on the page
     default = _default_page()
     nav = st.navigation(
         {

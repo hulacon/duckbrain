@@ -144,6 +144,18 @@ def test_the_full_pages_list_includes_qc(project):
     assert any("QC (review each run's quality)" in c.value for c in at.caption)
 
 
+def test_the_full_pages_list_links_every_grouped_page(project):
+    """F40: dropdown items come last in the Tab order, so each grouped page
+    needs an in-page link; Ingestion had none."""
+    from duckbrain.gui.app import _BIDS_PAGES, _QC_PAGES
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    captions = " | ".join(c.value for c in at.caption)
+    for title in ("Ingestion", "Conversion", "Project", "QC (review", "QC Inspect"):
+        assert title in captions, title
+    assert len(_BIDS_PAGES) + len(_QC_PAGES) == 5  # a new grouped page needs a link above
+
+
 def test_the_board_paginates_past_fifty_units(project, monkeypatch):
     """`#42.6`: a row is a whole `st.columns` of popovers, so several hundred of
     them per refresh is the board's own cost. The `only_incomplete` filter is no

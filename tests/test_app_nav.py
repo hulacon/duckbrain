@@ -18,6 +18,7 @@ from conftest import page_path
 from duckbrain.config import remember_project, scaffold_project
 from duckbrain.gui.app import (
     _BIDS_PAGES,
+    _KEYBOARD_FOCUS_CSS,
     _PAGES,
     _PAGES_DIR,
     _QC_PAGES,
@@ -205,3 +206,13 @@ def test_no_pages_directory_sits_beside_the_main_script():
     request got Streamlit's own sidebar of raw filenames instead of the app."""
     assert not (_PAGES_DIR.parent / "pages").exists()
     assert _PAGES_DIR.name != "pages"
+
+
+def test_keyboard_focus_css_covers_the_toolbar_and_main_region(user_cfg):
+    """F38/F39: Streamlit leaves a table toolbar at opacity 0 while its buttons
+    have focus, and the main region with no focus indicator. The style-only
+    st.html goes to the event container, so it adds nothing to the layout."""
+    assert '[data-testid="stElementToolbar"]:focus-within' in _KEYBOARD_FOCUS_CSS
+    assert '[data-testid="stMain"]:focus-visible' in _KEYBOARD_FOCUS_CSS
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    assert not at.exception
