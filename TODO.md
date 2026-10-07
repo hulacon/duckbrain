@@ -77,6 +77,15 @@ already reads a tree duckbrain did not convert, and 88 units sit inside the
 pagination `#42.6` shipped. What follows is capability duckbrain does not have,
 not plumbing it is missing.
 
+**Adopted for production conversion 2026-10-07.** duckbrain converts new
+mmmdata sessions (MR data) through `converted` → MRIQC / fMRIPrep / QSIPrep,
+with mmmdata's `after_conversion.sbatch` doing the dataset-side half (defacing,
+events, beh, physio, `scans.tsv`). A three-session parity re-conversion showed 0
+unexplained differences, and the first production batch resolved 0 missing in
+the catalog. `#43.4` is bridged (decided); `#7.9` and `#10` are next, with
+mmmdata's physio converter and its `--layout duckbrain` config generator as the
+bridges. Record: mmmdata-agents `docs/results/duckbrain-on-mmm.md`.
+
 ### What mmmdata actually holds — measured 2026-08-20, from the tree
 
 Not from its docs; the docs agreed, but the point of the check was not to trust
@@ -398,7 +407,13 @@ as "what stands between the dataset and release" — but that read release inten
 off a CC0 metadata string (see above), and no release is planned. What remains
 true is narrower and still worth something: the anatomicals are undefaced, so
 duckbrain has no defacing capability and mmmdata is a fixture that would exercise
-one. What is gone is the urgency. **Its position in this order is therefore
+one.
+
+  **DECIDED 2026-10-02 (Ben): bridged, not folded in.** mmmdata's own defacing
+  tool runs from its after-conversion step, which covers new subjects too; a
+  duckbrain port would mainly serve other labs. The paragraph above predates
+  that and its "anatomicals are undefaced" no longer holds (mmmdata defaced
+  2026-09-11). Re-open only if another project needs defacing. What is gone is the urgency. **Its position in this order is therefore
 unresolved** — the ordering was agreed with Ben on value, and this entry's value
 was argued from a premise that is false. Re-decide before starting it; do not
 treat its position as settled by the 2026-08-20 agreement. Scoped down from
@@ -1617,9 +1632,17 @@ everything else is the user's repo.
      entities (a run-less BOLD gets run-less physio). Two candidates for one
      run is an error, not a choice.
    - Measurements behind this live in mmmdata-agents
-     `docs/workbench/duckbrain-on-mmm/log.md` (2026-10-02).
+     `docs/archive/workbench/duckbrain-on-mmm/log.md` (2026-10-02).
 
-   Not scheduled, and it does **not** block the mmmdata re-preprocessing
+   **Scheduled 2026-10-02 (Ben): after mmmdata's conversion backlog**, which
+   closed 2026-10-07; mmmdata's `physio_dcm.py` is the bridge until then. Two
+   more rules from that batch: PMU marker rows (`PULS_TRIGGER`/`RESP_TRIGGER`,
+   value 2048, tics running backwards) are not samples; and a `trigger` channel
+   needs a minimum-coverage or two-level check, since a ~1 s ECG1 fragment
+   otherwise gets written as a trigger recording. The native PMU sample rate
+   (pulse every 2 tics) vs the declared 500 Hz is deferred to this item.
+
+   Originally not scheduled, and it does **not** block the mmmdata re-preprocessing
    campaign — that campaign's physio is already converted and verified
    (106/106 runs carry pulse + respiratory). This is about where the capability
    should live next time, not about unblocking anything.
