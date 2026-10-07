@@ -20,8 +20,13 @@ toolbarMode = "viewer"
 # captions read 4.67:1, captioned code 4.94:1 and the primary buttons 5.62:1.
 # Gray badge text (e.g. a neutral st.metric delta) defaults to #31333f at 60 %
 # on #eaebec, 3.44:1; grayTextColor below gives 5.59:1.
-# Dark mode is left at Streamlit's defaults and has not been measured.
-[theme.light]
+#
+# The theme is pinned to light: only these colours have been measured. A
+# [theme.light] section alone does not pin it; a browser whose OS prefers dark
+# still got Streamlit's stock dark theme, even with --theme.base=light added.
+# A plain [theme] with base = "light" pins it (Streamlit 1.61).
+[theme]
+base = "light"
 textColor = "#16171d"
 codeTextColor = "#04140b"
 primaryColor = "#c62828"
