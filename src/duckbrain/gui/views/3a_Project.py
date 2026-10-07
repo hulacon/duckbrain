@@ -38,12 +38,12 @@ except FileNotFoundError:
     st.error("Configuration not found. Please complete **Project Setup** first.")
     st.stop()
 
+from duckbrain.gui.components import require_project
+
+require_project(config)
 paths = config.get("paths", {})
 bids_dir = paths.get("bids_dir", "")
 sourcedata_dir = paths.get("sourcedata_dir", "")
-if not bids_dir:
-    st.error("Project directory not set. Start with **Project Setup**.")
-    st.stop()
 
 from duckbrain.gui.components import flush_toasts, queue_toast
 

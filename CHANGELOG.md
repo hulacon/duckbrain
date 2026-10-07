@@ -77,6 +77,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **A finished project's Status page points at QC.** When every stage is
   complete, the board says "Next: review each run's quality in QC" with a
   link, and QC joins the "Open the full pages" list.
+- **Every page that can't run yet says why in plain words, with a link to
+  the page that fixes it.** With no project open, all seven working pages now
+  say "No project is open yet" and link to Project Setup. Ingestion no longer
+  names config keys (`dcm_source.dir`): it asks for the DICOM source directory
+  in Setup. On a project that started from existing BIDS data, it says there
+  is nothing to import. Conversion no longer says "ingest data first" when no
+  project is open.
 - **fMRIPrep runs on a multi-session subject again under 25.2.** fMRIPrep 25.2
   tracks sessions by default: a job reads every session of the subject at once,
   so duckbrain's one-session filter contradicted it and the run died at workflow

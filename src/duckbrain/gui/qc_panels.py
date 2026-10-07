@@ -34,7 +34,7 @@ import streamlit as st
 
 from duckbrain.core import qc, qc_domains, qc_evidence, qc_guidance, qc_report
 from duckbrain.core.qc_domains import ReviewDomain
-from duckbrain.gui.components import flush_toasts, queue_toast
+from duckbrain.gui.components import flush_toasts, queue_toast, require_project
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -441,10 +441,12 @@ def load_config_or_stop() -> Config:
     from duckbrain.config import load_config
 
     try:
-        return load_config()
+        config = load_config()
     except FileNotFoundError:
         st.error("Configuration not found. Please complete **Project Setup** first.")
         st.stop()
+    require_project(config)
+    return config
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,20 @@ except FileNotFoundError:
     st.error("Configuration not found. Please complete **Project Setup** first.")
     st.stop()
 
+from duckbrain.config import external_bids
+from duckbrain.gui.components import SETUP_PAGE, not_ready, require_project
+
+require_project(config)
+if external_bids(config):
+    # The surveyor already marks ingestion n/a here; this page used to ask for
+    # a DICOM source instead, which an existing-BIDS project will never have.
+    not_ready(
+        "This project started from BIDS data that already existed, so there are "
+        "no DICOMs to import. Its next steps are on Status.",
+        "views/0_Project_Status.py",
+        "Go to Status",
+    )
+
 # ---- Show current paths ----
 dcm_source = config.get("dcm_source", {})
 paths = config.get("paths", {})
@@ -29,17 +43,29 @@ try:
 
     dcm_source_dir = build_dcm_source_path(config)
     st.info(f"DICOM source: `{dcm_source_dir}`")
-except ValueError as e:
-    st.error(str(e))
-    st.stop()
+except ValueError:
+    not_ready(
+        "This project doesn't say where its DICOMs are yet. Set the DICOM source "
+        "directory (the scanner's export folder for your study) in Project Setup.",
+        SETUP_PAGE,
+        "Go to Project Setup",
+    )
 
 if not dcm_source_dir.is_dir():
-    st.error(f"DICOM source directory not found: `{dcm_source_dir}`")
-    st.stop()
+    not_ready(
+        f"The DICOM source directory, `{dcm_source_dir}`, can't be found. Check the "
+        "path in Project Setup.",
+        SETUP_PAGE,
+        "Go to Project Setup",
+    )
 
 if not sourcedata_dir:
-    st.error("sourcedata_dir not set in config. Please complete Project Setup.")
-    st.stop()
+    not_ready(
+        "This project has no sourcedata folder set. Save the project once in "
+        "Project Setup to create it.",
+        SETUP_PAGE,
+        "Go to Project Setup",
+    )
 
 # ---- Already ingested sessions ----
 from duckbrain.core.ingestion import (

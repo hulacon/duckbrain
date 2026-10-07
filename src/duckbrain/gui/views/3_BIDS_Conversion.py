@@ -30,9 +30,16 @@ except FileNotFoundError:
 paths = config.get("paths", {})
 sourcedata_dir = paths.get("sourcedata_dir", "")
 
+from duckbrain.gui.components import not_ready, require_project
+
+require_project(config)
 if not sourcedata_dir or not Path(sourcedata_dir).is_dir():
-    st.error("Sourcedata directory not found. Please ingest data first.")
-    st.stop()
+    not_ready(
+        "No DICOMs have been imported into this project yet. Import them on "
+        "the Ingestion page first.",
+        "views/2_Data_Ingestion.py",
+        "Go to Ingestion",
+    )
 
 # ---- Select subject + session from ingested sourcedata ----
 from duckbrain.core.ingestion import list_ingested_sessions

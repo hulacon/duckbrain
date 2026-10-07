@@ -132,7 +132,7 @@ def test_no_bids_dir_reports_it(tmp_path, monkeypatch):
     monkeypatch.setenv(USER_CONFIG_ENV, str(tmp_path / "no-such-user-config.toml"))
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
-    assert any("BIDS directory not found" in e.value for e in at.error)
+    assert any("No project is open yet" in i.value for i in at.info)
 
 
 def test_bids_tree_with_no_subjects_warns(tmp_path):

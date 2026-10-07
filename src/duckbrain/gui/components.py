@@ -5,8 +5,12 @@ from __future__ import annotations
 import traceback
 from collections.abc import Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING, NoReturn
 
 import streamlit as st
+
+if TYPE_CHECKING:
+    from duckbrain.config import Config
 
 _DP_MAX_BUTTONS = 300
 _DP_LIST_HEIGHT = 280
@@ -48,6 +52,39 @@ def flush_toasts() -> None:
     """
     for message, icon in st.session_state.pop(_TOAST_QUEUE, []):
         st.toast(message, icon=icon)
+
+
+# ---- "Not ready yet" --------------------------------------------------------
+#
+# A page that cannot run yet is the ordinary state of a new project, not a
+# fault, so it gets an info box rather than an error. The box names the missing
+# step in plain words and links to the page that does it. Before this helper,
+# each page wrote its own: two named config keys or told a student to "ingest
+# data first" with no project open (usability F15).
+
+SETUP_PAGE = "views/1_Project_Setup.py"
+
+
+def not_ready(message: str, page: str, link_label: str) -> NoReturn:
+    """Stop the page: say what is missing, and link to the page that fixes it."""
+    st.info(message)
+    try:
+        st.page_link(page, label=link_label, icon="➡️")
+    except Exception:
+        # Outside st.navigation (page tests, one-page debug runs) page_link
+        # raises; the label still says where to go.
+        st.caption(link_label)
+    st.stop()
+
+
+def require_project(config: Config) -> None:
+    """Stop with a pointer to Setup unless a project is open."""
+    if not (config.get("paths") or {}).get("bids_dir"):
+        not_ready(
+            "No project is open yet. Open one or create one in Project Setup.",
+            SETUP_PAGE,
+            "Go to Project Setup",
+        )
 
 
 def show_error(prefix: str, exc: Exception) -> None:

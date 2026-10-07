@@ -29,9 +29,16 @@ work_dir = paths.get("work_dir", "")
 # a filter file passed to a compute-node job must be visible there.
 log_dir = paths.get("log_dir", "") or f"{work_dir}/logs"
 
-if not bids_dir or not Path(bids_dir).is_dir():
-    st.error("BIDS directory not found. Check Project Setup.")
-    st.stop()
+from duckbrain.gui.components import SETUP_PAGE, not_ready, require_project
+
+require_project(config)
+if not Path(bids_dir).is_dir():
+    not_ready(
+        f"This project's folder, `{bids_dir}`, can't be found. It may have moved; "
+        "check the project folder in Project Setup.",
+        SETUP_PAGE,
+        "Go to Project Setup",
+    )
 
 Path(log_dir).mkdir(parents=True, exist_ok=True)
 
