@@ -194,6 +194,16 @@ class Scope:
         """
         return self.selected_key or (self.run["run_key"] if self.run else "")
 
+    @property
+    def flagging(self) -> bool:
+        """Whether there are enough runs for the outlier fence to mean anything.
+
+        Below ``[qc] min_runs_for_flags`` :func:`scope_bar` clears every flag
+        and says why, so the controls and captions that explain flags have
+        nothing to explain (F34). No MRIQC rows reads as not flagging too.
+        """
+        return len(self.runs) >= int(self.settings["min_runs_for_flags"])
+
     def values_for(self, measure: str) -> list[float | None]:
         """Every run's value for *measure* — the cohort this run is judged against."""
         return [r["iqms"].get(measure, (r.get("motion") or {}).get(measure)) for r in self.runs]
@@ -470,9 +480,14 @@ def measure_table(scope: Scope, measures: list[str]) -> None:
                 "Flagged": "⚠️" if key in run["flagged_metrics"] else "",
             }
         )
+    table = pd.DataFrame(rows)
+    if not scope.flagging:
+        # An always-empty column reads as "checked and clean"; the notice
+        # above already says nothing is flagged at this size.
+        table = table.drop(columns="Flagged")
 
     st.dataframe(
-        pd.DataFrame(rows),
+        table,
         hide_index=True,
         width="stretch",
         column_config={
@@ -970,10 +985,15 @@ def render_overview() -> None:
         scope.iqr_multiplier,
         0.1,
         key="qc_iqr",
+        # Below the floor no run is flagged whatever this says, and a live
+        # control that changes nothing reads as broken (F34).
+        disabled=not scope.flagging,
         help=(
             "Flags runs outside a Tukey fence computed across the runs shown — a "
             "comparison within this dataset, not an absolute cutoff. The starting "
             "value comes from [qc].iqr_multiplier."
+            if scope.flagging
+            else "Not used yet: with this few runs nothing is flagged (see the note above)."
         ),
     )
 
@@ -1073,10 +1093,20 @@ def _iqm_strips(scope: Scope) -> None:
     if fig is None:
         return
     st.header("Distributions")
+    if scope.flagging:
+        spread = (
+            "the boxes are the IQR the outlier fence is computed from, and ✗ marks a flagged run."
+        )
+    elif len(scope.runs) == 1:
+        spread = "with one run, each measure is a single point, so there is no spread yet."
+    else:
+        spread = (
+            "with this few runs the boxes only sketch the spread; nothing is "
+            "flagged, so read each run against its neighbours by eye."
+        )
     st.caption(
-        "Every measure across the runs shown, grouped by subject — the boxes "
-        "are the IQR the outlier fence is computed from, and ✗ marks a flagged "
-        "run. Click a point to open that run on the Inspect page."
+        f"Every measure across the runs shown, grouped by subject — {spread} "
+        "Click a point to open that run on the Inspect page."
     )
     event = st.plotly_chart(
         fig,

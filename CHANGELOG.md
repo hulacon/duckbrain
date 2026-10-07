@@ -70,6 +70,10 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 - **Clicking a run's name in the QC Overview opens it.** Only the checkbox at
   the far left of the Runs table used to respond; a click on the name just
   outlined the cell. Any cell in the row now opens the run on Inspect.
+- **Below the flagging floor, the QC pages stop offering flag controls.** With
+  fewer runs than `[qc] min_runs_for_flags`, the IQR-multiplier slider is
+  disabled, the Distributions caption no longer describes an outlier fence,
+  and Inspect drops its always-empty Flagged column.
 - **fMRIPrep runs on a multi-session subject again under 25.2.** fMRIPrep 25.2
   tracks sessions by default: a job reads every session of the subject at once,
   so duckbrain's one-session filter contradicted it and the run died at workflow

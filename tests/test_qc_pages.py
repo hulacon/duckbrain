@@ -495,6 +495,25 @@ class TestTooFewRunsToFlag:
         assert not any("too few to flag" in i.value for i in at.info)
         assert at.dataframe[0].value["Flags"].max() >= 1
 
+    def test_below_the_floor_the_fence_controls_stand_down(self, project):
+        """F34: a live slider and fence wording with nothing flagged read as broken."""
+        _write_bold_cohort(project / "derivatives", 4)
+        at = _run(OVERVIEW)
+        slider = [s for s in at.slider if s.label.startswith("IQR multiplier")]
+        assert slider and slider[0].disabled
+        assert not any("outlier fence is computed from" in c for c in _captions(at))
+        assert any("nothing is flagged" in c for c in _captions(at))
+        inspect = _run(INSPECT)
+        assert "Flagged" not in inspect.dataframe[0].value.columns
+
+    def test_at_the_floor_the_fence_controls_are_live(self, project):
+        _write_bold_cohort(project / "derivatives", 10)
+        at = _run(OVERVIEW)
+        slider = [s for s in at.slider if s.label.startswith("IQR multiplier")]
+        assert slider and not slider[0].disabled
+        assert any("outlier fence is computed from" in c for c in _captions(at))
+        assert "Flagged" in _run(INSPECT).dataframe[0].value.columns
+
     def test_the_floor_is_a_project_setting(self, project):
         save_project_config(str(project), {"qc": {"min_runs_for_flags": 3}})
         _write_bold_cohort(project / "derivatives", 4, outlier_tsnr=400.0)
