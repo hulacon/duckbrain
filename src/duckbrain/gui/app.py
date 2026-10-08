@@ -192,7 +192,8 @@ def _default_page() -> str:
 #   tabs through four buttons they can't see;
 # - the main scroll region takes focus (so the keyboard can scroll it) with no
 #   indicator at all.
-# Upstream reports: TODO(link once filed).
+# Both reproduce on stock Streamlit (1.61.1 and 1.65.0) and are not reported
+# upstream; on a Streamlit upgrade, check whether each rule is still needed.
 _KEYBOARD_FOCUS_CSS = """<style>
 [data-testid="stElementToolbar"]:focus-within { opacity: 1; }
 [data-testid="stMain"]:focus-visible { outline: 2px solid #c62828; outline-offset: -2px; }
