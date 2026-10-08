@@ -10,6 +10,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **The drafted expectations on the Project page are readable.** The draft
+  was shown with Python syntax colours, which drew its quoted names in a pale
+  green too faint to read against the code background (2.88:1, under the
+  4.5:1 that WCAG AA asks for). It is plain text now.
+- **The folder browser's top crumb says what it is.** It was a bare "/",
+  which a screen reader reads as "slash" or skips. It now reads "/ (root)".
+
 ## [0.8.1] — 2026-10-08
 
 ### Added

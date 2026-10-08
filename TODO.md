@@ -811,7 +811,7 @@ of the GUI anyway. `QUICKSTART.md` and `README.md` are written and current.
 PIRG `psy607`, one subject scanned in week 1). The maintainer walked the course's
 six tasks (launch → Setup → Ingestion → Conversion → Preprocessing → QC) on the
 course's own export, 2026-10-06/07. The walk is recorded in mmmdata-agents'
-`duckbrain-usability` workbench, findings `F1`–`F42`. Its GUI findings are
+`duckbrain-usability` workbench, findings `F1`–`F44`. Its GUI findings are
 fixed or accepted, all but `F17` below: see `git log` 2026-10-05 → 10-08, plus
 `#30` item 2 for the one check only a browser over OnDemand can settle. That
 settles the in-GUI guidance bullet below. What it left open for duckbrain:

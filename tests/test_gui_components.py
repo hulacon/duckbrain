@@ -81,6 +81,15 @@ def test_breadcrumb_jumps_up(tmp_path):
     assert at.session_state["__dp_t_cwd"] == str(tmp_path / "a")
 
 
+def test_root_crumb_has_a_word_not_only_a_glyph(tmp_path):
+    """A bare "/" was the root crumb's whole accessible name (usability F44)."""
+    at = _run(tmp_path)
+
+    crumbs = [b for b in at.button if b.key and b.key.startswith("t_bc")]
+    assert crumbs[0].label == "/ (root)"
+    assert all(c.label != "/" for c in crumbs)
+
+
 def test_filter_narrows_list(tmp_path):
     (tmp_path / "alpha").mkdir()
     (tmp_path / "beta").mkdir()

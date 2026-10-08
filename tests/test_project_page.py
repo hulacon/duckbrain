@@ -131,6 +131,14 @@ def test_a_declaration_is_summarized(project):
     assert any("2** run(s) of `rest`" in m.value for m in at.markdown)
 
 
+def test_the_draft_is_shown_without_syntax_colours(project):
+    """Python highlighting drew strings at 2.88:1 contrast (usability F43)."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert at.code, "the elicited draft should be shown"
+    assert all(c.language == "text" for c in at.code)
+
+
 def test_freezing_a_draft_writes_the_declaration(project):
     """The save control had no test while it lived on Status; the page move is
     when it gets one. sub-01 has a converted T1w, so the elicited draft is

@@ -263,16 +263,17 @@ def directory_picker(
     def _browser() -> None:
         cwd = Path(st.session_state[cwd_key])
 
-        # breadcrumb — click any segment to jump straight there. The root crumb's
-        # label is "/", 16 px wide: under WCAG 2.5.8's 24 px target minimum (F42).
-        st.html(f"<style>.st-key-{key}_bc0 button {{ min-width: 24px; }}</style>")
+        # breadcrumb — click any segment to jump straight there. The root crumb
+        # says "(root)" as well as "/": a bare "/" was a glyph-only control (read
+        # out as "slash" or not at all), and 16 px wide, under WCAG 2.5.8's 24 px
+        # target minimum (usability F42, F44).
         crumbs = cwd.parts
         with st.container(horizontal=True, gap=None, vertical_alignment="center"):
             for i, part in enumerate(crumbs):
                 if i >= 2:
                     st.markdown("/")
                 st.button(
-                    part,
+                    "/ (root)" if part == "/" else part,
                     key=f"{key}_bc{i}",
                     type="tertiary",
                     on_click=_goto,

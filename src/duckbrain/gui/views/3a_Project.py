@@ -302,7 +302,9 @@ def _expectations_section() -> None:
             key="expect_source",
         )
         draft = elicit(config, *choice)
-        st.code(str(draft or "{}"), language="python")
+        # Plain text: Python highlighting colours strings #09ab3b on the code
+        # background, 2.88:1, under WCAG's 4.5:1 (usability F43).
+        st.code(str(draft or "{}"), language="text")
 
         n_participants = st.number_input(
             "Participants this study plans to scan (0 = don't declare)",
