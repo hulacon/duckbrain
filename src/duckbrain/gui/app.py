@@ -209,7 +209,7 @@ def _project_bar(page: str = "") -> None:
     st.session_state[PAGE_KEY] = page
 
     others = [p for p in recent_projects() if p != active]
-    label, version, report, switcher = st.columns([4, 2, 1.8, 1], vertical_alignment="center")
+    label, version, report, switcher = st.columns([4, 2, 2.4, 1], vertical_alignment="center")
 
     with label:
         st.caption(f"Project: `{active}`" if active else "No project open — start in **Setup**.")

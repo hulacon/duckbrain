@@ -55,8 +55,8 @@ the rule lives — the two questions that sort finished work into releases, and 
 "ship it all at once" is the wrong default. It used to be narrated here release by
 release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
-went stale between every read. **Currently unreleased:** see `CHANGELOG.md` `[Unreleased]`
-(`v0.8.0`, 2026-10-08, shipped everything before it).
+went stale between every read. **Currently unreleased:** nothing — `v0.8.1`
+(2026-10-08) shipped the whole queue.
 
 ---
 
