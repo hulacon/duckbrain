@@ -1,5 +1,8 @@
 """AppTest smoke/interaction tests for gui.components.directory_picker."""
 
+import os
+
+import pytest
 from streamlit.testing.v1 import AppTest
 
 
@@ -111,6 +114,66 @@ def test_must_exist_warns_on_missing_default(tmp_path):
     missing = tmp_path / "nope"
     at = _run(missing, must_exist=True)
     assert any("does not exist" in c.value for c in at.caption)
+
+
+@pytest.fixture
+def pirg_tree(tmp_path, monkeypatch):
+    """A ``/projects``-like listing: one folder of yours, one open, two closed.
+
+    A test can't chgrp to a group it isn't in, so "not your group" is faked by
+    hiding the tmp folders' group from ``os.getgroups``; "mylab" is chowned to a
+    supplementary group that stays visible. "closed" is mode 000.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root opens every folder")
+    for name in ("mylab", "apps", "zeta", "other"):
+        (tmp_path / name).mkdir()
+    gid = tmp_path.stat().st_gid
+    kept = [g for g in os.getgroups() if g != gid]
+    if not kept:
+        pytest.skip("needs a second group to stand in for a PIRG")
+    os.chown(tmp_path / "mylab", -1, kept[0])
+    monkeypatch.setattr(os, "getgroups", lambda: kept)
+    for name in ("zeta", "other"):
+        (tmp_path / name).chmod(0)
+    yield tmp_path
+    for name in ("zeta", "other"):
+        (tmp_path / name).chmod(0o755)
+
+
+def test_list_subdirs_marks_access(pirg_tree):
+    from duckbrain.gui.components import _list_subdirs
+
+    assert _list_subdirs(pirg_tree) == [
+        ("apps", "open"),
+        ("mylab", "yours"),
+        ("other", "closed"),
+        ("zeta", "closed"),
+    ]
+
+
+def test_your_groups_first_and_closed_hidden(pirg_tree):
+    at = _run(pirg_tree)
+    folders = [b for b in at.button if b.key and b.key.startswith("t_d")]
+    assert [b.label for b in folders] == ["\U0001f4c1 mylab — your group", "\U0001f4c1 apps"]
+
+    at.checkbox(key="t_closed").check().run()
+    assert not at.exception
+    folders = [b for b in at.button if b.key and b.key.startswith("t_d")]
+    assert [(b.label, b.disabled) for b in folders] == [
+        ("\U0001f4c1 mylab — your group", False),
+        ("\U0001f4c1 apps", False),
+        ("\U0001f4c1 other — no access", True),
+        ("\U0001f4c1 zeta — no access", True),
+    ]
+
+
+def test_filter_shows_a_closed_match_as_no_access(pirg_tree):
+    at = _run(pirg_tree)
+    at.text_input(key="__dp_t_flt").input("zet").run()
+    assert not at.exception
+    folders = [b for b in at.button if b.key and b.key.startswith("t_d")]
+    assert [(b.label, b.disabled) for b in folders] == [("\U0001f4c1 zeta — no access", True)]
 
 
 # ---------------------------------------------------------------------------

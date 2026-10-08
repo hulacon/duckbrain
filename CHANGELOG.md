@@ -88,6 +88,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   recorded nothing in duckbrain, where verdicts are saved only by
   Keep/Exclude/Investigate, so a rating there looked like a review that never
   happened. It is hidden in the embed; the report on disk is unchanged.
+- **The folder browser shows which folders are yours.** In a listing that
+  mixes access, such as `/projects` with every PIRG on the cluster, folders
+  in your groups come first, marked "your group", and folders you can't open
+  are hidden behind "Show N folders you can't open". A filter still finds
+  them, greyed out and marked "no access", so typing a PIRG you aren't in
+  explains itself. Listings with nothing closed, like your home or a project,
+  look as before. The breadcrumb's root "/" is now a 24 px target (WCAG 2.5.8).
 
 ### Fixed
 

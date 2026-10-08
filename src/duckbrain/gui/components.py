@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import traceback
 from collections.abc import Iterable
 from pathlib import Path
@@ -122,6 +123,40 @@ def _nearest_dir(path: str) -> Path:
     return Path.home()
 
 
+def _list_subdirs(cwd: Path) -> list[tuple[str, str]]:
+    """Visible subfolders of *cwd* as ``(name, access)``, sorted by name.
+
+    ``access`` is ``"yours"`` (you can open it and its group is one of yours),
+    ``"open"`` (you can open it through some other permission), or ``"closed"``.
+    Raises ``OSError`` when *cwd* itself cannot be listed.
+
+    This is what lets a newcomer find their own PIRG in ``/projects``: about 270
+    folders, of which a student can open a handful (F25, duckbrain-usability
+    review). Group ownership is the signal a PIRG carries; ``os.access`` is the
+    one that decides whether a click goes anywhere.
+    """
+    groups = set(os.getgroups())
+    entries = []
+    with os.scandir(cwd) as it:
+        for e in it:
+            if e.name.startswith("."):
+                continue
+            try:
+                if not e.is_dir():
+                    continue
+                gid = e.stat().st_gid
+            except OSError:
+                continue
+            if not os.access(e.path, os.R_OK | os.X_OK):
+                access = "closed"
+            elif gid in groups:
+                access = "yours"
+            else:
+                access = "open"
+            entries.append((e.name, access))
+    return sorted(entries)
+
+
 def directory_picker(
     label: str,
     *,
@@ -211,7 +246,9 @@ def directory_picker(
     def _browser() -> None:
         cwd = Path(st.session_state[cwd_key])
 
-        # breadcrumb — click any segment to jump straight there
+        # breadcrumb — click any segment to jump straight there. The root crumb's
+        # label is "/", 16 px wide: under WCAG 2.5.8's 24 px target minimum (F42).
+        st.html(f"<style>.st-key-{key}_bc0 button {{ min-width: 24px; }}</style>")
         crumbs = cwd.parts
         with st.container(horizontal=True, gap=None, vertical_alignment="center"):
             for i, part in enumerate(crumbs):
@@ -236,33 +273,56 @@ def directory_picker(
                 if err := st.session_state.pop(err_key, None):
                     st.error(f"Could not create folder: {err}")
 
-        subdirs: list[str] = []
+        entries: list[tuple[str, str]] = []
         unreadable = False
         try:
-            subdirs = sorted(
-                d.name for d in cwd.iterdir() if d.is_dir() and not d.name.startswith(".")
-            )
+            entries = _list_subdirs(cwd)
         except OSError:
             unreadable = True
+
+        # Where a listing crosses a permission boundary (``/projects``: ~270 PIRGs,
+        # a student can open a handful), your groups go first and say so, and the
+        # folders you can't open are hidden unless asked for. A filter shows them
+        # anyway, marked, so typing a PIRG you aren't in says "no access" rather
+        # than "no match". Where nothing is closed (your home, a project) the list
+        # is plain alphabetical, as before: there every folder would be "yours".
+        n_closed = sum(access == "closed" for _, access in entries)
+        show_closed = True
+        if n_closed and not flt:
+            show_closed = st.checkbox(
+                f"Show {n_closed} folder{'s' if n_closed != 1 else ''} you can't open",
+                key=f"{key}_closed",
+            )
+        if n_closed:
+            rank = {"yours": 0, "open": 1, "closed": 2}
+            entries = sorted(entries, key=lambda e: rank[e[1]])
+        if not show_closed:
+            entries = [e for e in entries if e[1] != "closed"]
         if flt:
-            subdirs = [d for d in subdirs if flt.lower() in d.lower()]
+            entries = [e for e in entries if flt.lower() in e[0].lower()]
 
         with st.container(height=_DP_LIST_HEIGHT, border=True):
             if unreadable:
                 st.caption("🚫 cannot read this directory")
-            elif not subdirs:
+            elif not entries:
                 st.caption("(no subfolders here)" if not flt else "(no folders match the filter)")
             else:
-                for i, name in enumerate(subdirs[:_DP_MAX_BUTTONS]):
+                for i, (name, access) in enumerate(entries[:_DP_MAX_BUTTONS]):
+                    suffix = ""
+                    if n_closed and access == "yours":
+                        suffix = " — your group"
+                    elif access == "closed":
+                        suffix = " — no access"
                     st.button(
-                        f"📁 {name}",
+                        f"📁 {name}{suffix}",
                         key=f"{key}_d{i}",
                         type="tertiary",
                         on_click=_goto,
                         args=(cwd / name,),
+                        disabled=access == "closed",
                     )
-                if len(subdirs) > _DP_MAX_BUTTONS:
-                    st.caption(f"… {len(subdirs) - _DP_MAX_BUTTONS} more — narrow with the filter")
+                if len(entries) > _DP_MAX_BUTTONS:
+                    st.caption(f"… {len(entries) - _DP_MAX_BUTTONS} more — narrow with the filter")
 
         if st.button("✓ Use this folder", key=f"{key}_use", type="primary", on_click=_commit):
             st.rerun(scope="app")  # propagate the new selection to the whole page
