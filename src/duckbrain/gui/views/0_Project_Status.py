@@ -640,8 +640,8 @@ def _paginate(view: pd.DataFrame) -> pd.DataFrame:
 def _deep_links() -> None:
     st.caption("Need advanced params or per-session review? Open the full pages:")
     # Every grouped page has a link here: a top-bar dropdown's items come last
-    # in the Tab order (Streamlit), so for a keyboard user these are the short
-    # route, and for Ingestion the only in-page one.
+    # in the Tab order (streamlit/streamlit#17339), so for a keyboard user
+    # these are the short route, and for Ingestion the only in-page one.
     for path, label, icon in [
         ("views/2_Data_Ingestion.py", "Data Ingestion", "📥"),
         ("views/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
