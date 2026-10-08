@@ -43,10 +43,7 @@ are still described there; the rest is unscheduled ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
 [`#46`](#46) — tree comparator (conversion validation + duplicate audit, one
 digest core) — **not scheduled**; shape to be decided once the first
-adopting lab's needs are clear ·
-[`#47`](#47) — "Bundle a bug report" button — one-click assembly of version +
-traceback + log tail into a downloadable file; email delivery deliberately
-deferred
+adopting lab's needs are clear
 
 **Below the queue, unscheduled, and not closed either:**
 [`#5`](#5) standing config / mapping decisions ·
@@ -834,7 +831,8 @@ settles the in-GUI guidance bullet below. What it left open for duckbrain:
 Not duckbrain's, but they gate the course: the launch route (the distribution
 bullet below), placing the course assets under `psy607`, and students' read
 access to the LCNI export before week 1. The course's pilot (≥ 2 people who
-are not the maintainer) is the `UNVALIDATED` walk below.
+are not the maintainer) is the `UNVALIDATED` walk below. Pilots report
+problems with **Report a problem** in the project bar (shipped 2026-10-08).
 
 **2026-08-07 — Ben's three directions for this item, all landed the same day:**
 
@@ -1703,12 +1701,10 @@ twice", which is this item:
   floated and called non-essential. Not free either: the token *is* the
   persisted `[series_types]` value, so changing the display means either a
   render-only mapping or a config-format change.
-- Whether the grouped fieldmap view (`docs/conversion-legibility.md` phase 4)
-  is redundant with the unified table (phase 6). The table carries the same
-  relation on every row; what the section still adds is aggregation — every
-  bold for one pair in one place — which Ben found "good for sanity checking".
-  The cheap middle is an expander rather than deletion. A density judgment,
-  and density depends on the theme.
+- ~~Whether the grouped fieldmap view (`docs/conversion-legibility.md` phase 4)
+  is redundant with the unified table (phase 6).~~ **Resolved by the cheap
+  middle:** it is the "Which pair corrects which run" expander, open by default
+  only when more than one pair is complete.
 
 ---
 
@@ -1748,7 +1744,7 @@ plus the `ssh -L` line it prints.
    width, and that the help text is reachable. Also check the fourth
    **QSIPrep** tab on the Preprocessing page renders beside the other three
    (AppTest counts the tabs but does not model their contents).
-1. **[OOD] Do the *exported* dashboard's report links navigate?** The oldest
+2. **[OOD] Do the *exported* dashboard's report links navigate?** The oldest
    entry and the highest value. mmmdata's shipped dashboard carried 837 absolute
    `href="file:///gpfs/…"` links; a browser blocks `file://` navigation from an
    HTTP page, so under the proxy every "View report" did nothing at all — no
@@ -1760,7 +1756,7 @@ plus the `ssh -L` line it prints.
    *was* the click on a View-report link, the verdict is "the link resolves but
    this serving context downloads instead of rendering", a different (and
    probably livable) outcome from the dead click; pin down which it was.
-2. **[OOD] The full-window report route** (usability F37, 2026-10-07). This
+3. **[OOD] The full-window report route** (usability F37, 2026-10-07). This
    replaces the old "should the app serve tool reports itself?" entry: Ben
    decided yes, and `gui/report_route.py` serves a registered report's
    directory at `/api/duckbrain/report/<key>/…`, behind the gate. Through
@@ -1769,11 +1765,11 @@ plus the `ssh -L` line it prints.
    from a laptop (it took about 20 s on the node, embedded). Check the old
    link after a restart says "open it again from Inspect". Check the rating
    widget is hidden there too.
-3. **[OOD] The app tile's icon** (`#8`, 2026-10-08). `ondemand/icon.png` should
+4. **[OOD] The app tile's icon** (`#8`, 2026-10-08). `ondemand/icon.png` should
    replace OnDemand's generic tile icon for duckbrain under Interactive Apps
    (dev sandbox). Check that it reads at tile size. The GUI tab icon was
    checked headless on a compute node: path-only SVG, kept across pages.
-3. **The full tool report embedded on the Inspect page** — the "Open the
+5. **The full tool report embedded on the Inspect page** — the "Open the
    tool's own report" expander (`gui/qc_panels.py`, `full_report_panel`), which
    ships the MRIQC/fMRIPrep HTML itself as an `st.iframe` `srcdoc`. Distinct
    from the evidence figures above it, which the 2026-08-18 pass cleared; the
@@ -1783,7 +1779,7 @@ plus the `ssh -L` line it prints.
    what a srcdoc assertion cannot reach: does the report scroll inside its
    frame rather than clipping, is the height sane, and do its own internal
    anchors work.
-4. **The `#37` bar redraw.** The reorganized top nav (Status · Setup ·
+6. **The `#37` bar redraw.** The reorganized top nav (Status · Setup ·
    Preprocessing · Guide · BIDSification ▾ · QC ▾) is exactly the width/strip
    behaviour AppTest cannot judge — it asserts the declared page lists, not
    what the frontend draws. Three looks in one: does the **BIDSification
@@ -1793,7 +1789,7 @@ plus the `ssh -L` line it prints.
    real session (a fresh launch with a project open goes to Status, one
    without goes to Setup — AppTest pins the `default=`, not what the browser's
    session actually restores).
-5. **[OOD] Repoint the cached OnDemand form value, then confirm the stamp.**
+7. **[OOD] Repoint the cached OnDemand form value, then confirm the stamp.**
    Narrowed 2026-08-18 from the conda-branch launch entry: the launch itself is
    now proven — the whole eyeball pass ran through the proxy on the conda env
    (the personal checkout records the shared prefix and has no `.venv`, so no
@@ -1808,13 +1804,13 @@ plus the `ssh -L` line it prints.
    version stamp shows the shared checkout's `git describe` — the commit that
    struck the old entries landed only here, so until `~/code` pulls, the stamp
    discriminates.
-6. **The ingestion "Imported" badge column** (`#38`, 2026-08-18). Rendered
+8. **The ingestion "Imported" badge column** (`#38`, 2026-08-18). Rendered
    inside `st.data_editor`, whose output AppTest does not model — the tests
    pin the backing dataframe's values, not what the frontend draws. Look at a
    project with ingested sessions: do the ✅/❓ glyphs render legibly in the
    disabled column, does the column width leave the `sub-XX/ses-YY` labels
    readable rather than truncated, and does the header tooltip open.
-7. **The Overview's IQR strips and their point-click** (`#39`, 2026-08-18).
+9. **The Overview's IQR strips and their point-click** (`#39`, 2026-08-18).
    AppTest asserts the section and its caption exist, not what plotly draws
    or does. Three looks: do the strips render under the run table with the
    subject labels legible on the reworked numeric axis (the jitter moved from
@@ -1823,7 +1819,7 @@ plus the `ssh -L` line it prints.
    selected, and does returning to the Overview stay put rather than
    re-firing the click; does a box-select of several points open exactly one
    run rather than misbehaving.
-8. **The external-BIDS declaration's three surfaces** (`#41`, 2026-08-18).
+10. **The external-BIDS declaration's three surfaces** (`#41`, 2026-08-18).
    AppTest pins the toggle's save, the hidden subheader, and the NA grades;
    what it cannot judge is the *reading* of them together. On a project
    pointed at an existing BIDS tree with the toggle on: does Setup read
@@ -1834,7 +1830,7 @@ plus the `ssh -L` line it prints.
    participants button produce a table that reads right with `n/a`
    demographics.
 
-9. **The board's now-lazy cell popovers** (`#42.2`, 2026-08-20). A cell
+11. **The board's now-lazy cell popovers** (`#42.2`, 2026-08-20). A cell
    popover tracks its open state and computes its body only while open, which
    buys the board back at 100 subjects but changes two things AppTest cannot
    judge. **Does opening one feel immediate?** Opening now costs a server
@@ -1845,7 +1841,7 @@ plus the `ssh -L` line it prints.
    project with a live job: open a running cell, read the log tail, and wait
    out a refresh.
 
-10. **The board at 100 subjects** (`#42.6`, 2026-08-20). Two looks on a
+12. **The board at 100 subjects** (`#42.6`, 2026-08-20). Two looks on a
     project big enough to paginate. Does the **Page** control read as a
     control — it is an `st.number_input` above the grid, and its caption has to
     make clear that a column's ▾ bulk still covers every unit rather than the
@@ -1941,56 +1937,6 @@ shows what the adopting lab actually asks for.
 
 ---
 
-<a id="47"></a>
-## #47 — "Bundle a bug report": one-click assembly, deliberately no auto-send
-
-**Asked for by Ben 2026-08-27, preparing to support the first adopting lab
-live.** The support loop is paste-mediated — the maintainer cannot read the
-lab's PIRG, so the report *is* the visibility — and the current protocol (the
-onboarding doc's "when something breaks" checklist) depends on the reporter
-executing four steps correctly: `git describe`, full error via the
-`v0.7.0` "Details for a bug report" expander, the log tail, what they clicked.
-The observed failure mode of such protocols is not unwillingness but
-incompleteness — version missing, wrong log, error paraphrased.
-
-**Build the assembly half:** a **"Bundle a bug report"** button that gathers,
-at click time, `git describe` of the running checkout (the provenance rule's
-"what ran" answer), the current traceback if the expander is showing one, the
-newest log tail(s) from the derived `log_dir`, a sanitized config summary, and
-a free-text "what did you click" box — written to **one downloadable text
-file** the user sends themselves. Download-and-send is a feature, not a
-fallback: the bundle auto-scrapes logs from a tree whose paths and subject
-labels belong to the lab, so the user's eyes stay on exactly what leaves
-their PIRG before it leaves.
-
-**The email half is deliberately deferred, three reasons measured 2026-08-27:**
-
-1. **Transport is unproven.** The GUI runs on an OnDemand compute node.
-   SLURM's `--mail-user` works because *slurmctld* sends it — that is no
-   evidence arbitrary SMTP from a compute node works here. Cheap to test
-   (`echo test | mail -s test …` from a Desktop session) and worth doing
-   before designing anything; but a dependency on cluster mail config fails
-   precisely when the user is already stuck.
-2. **The recipient does not generalize.** A baked-in address in a public
-   general-purpose tool routes every future adopter's bugs to one person
-   forever. It would have to be a `support_email` config field defaulting to
-   unset — at which point the button degrades to "download the bundle" for
-   most users anyway, so the bundle is the feature and email is sugar on top
-   *if* the transport test passes.
-3. Auto-sending removes the user's eyes from the content — the wrong
-   direction given the privacy point above.
-
-**No report cache.** The logs are already on shared FS in `log_dir` and the
-expander already holds the live traceback; bundle from what exists at click
-time. A cache of report material is a second state store with a staleness
-story, against the surveyor's re-derive-live rule for no payoff.
-
-Ties to `#2` (onboarding: this compresses the doc's report checklist to "click
-the button, send the file") and shares `#46`'s adoption-era origin: shape the
-bundle's contents after live support shows what reports actually lack.
-
----
-
 <a id="5"></a>
 ## #5 — Standing config / mapping decisions
 
@@ -2077,8 +2023,9 @@ The item is closed and shipping; these are the accepted edges.
 
 - Cockpit: re-run of an already-*complete* stage behind an advanced toggle
   (deliberately excluded from `stage_runnable` today).
-- The NORDIC column is always-on; for non-NORDIC projects it's a column of ⚪.
-  Fine for LCNI/mmmdata, revisit if it reads as noise elsewhere.
+- ~~The NORDIC column is always-on; for non-NORDIC projects it's a column of ⚪.~~
+  **Resolved:** a project without `use_nordic` shows that column as "— n/a"
+  (checked live 2026-10-08).
 - ~~The QC metrics table doesn't carry a `current_decision` column.~~ **Resolved
   by `#24`, 2026-07-28** — the ordering problem it described was an artefact of
   the single page, and the Overview's run table now carries Decision and Reviewer
@@ -2138,6 +2085,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-10-08 | `#47` | **"Report a problem" assembles a bug report and sends nothing.** A popover in the project bar on every page builds one text file (the user's own words, `git describe`, the last error `show_error` displayed, recent submissions, the newest log tails, the effective config with credential-shaped keys redacted), shows all of it, then offers the download. Email stays out for the reasons the item gave. `core/bug_report.py`; pinned by `tests/test_bug_report.py` and the two report tests in `tests/test_app_nav.py`. |
 | 2026-10-08 | `#12` | **Merge with mmmdata-agents — closed without a merge (Ben).** The overlap it targeted was settled by contract, not by moving code: mmmdata-agents answers "what exists" from the Contract A catalog, whose engine is `duckbrain.catalog`, and duckbrain became mmmdata's conversion route (`#43`, adopted 2026-10-07). The agent loop and orchestrator it described were retired for an MCP server in 2026-08. |
 | 2026-08-21 | `#45` | **The dcm2niix probe can say "couldn't look", and a failed run no longer reads as a clean session.** `probe_session` returned a bare map, so a non-zero exit was indistinguishable from a session whose series all legitimately yield nothing — the silently-degrading-option rule inside `core/`. It now returns a `ProbeResult` carrying the probes *and* a `failure` string, set on a non-zero exit (code plus dcm2niix's last line, not the whole log — it renders in a caption), a timeout naming its budget, an exec error, or no runnable dcm2niix at all. **Both fields, not either/or:** dcm2niix can write sidecars and then fail, so discarding the partial read throws away real answers while reporting only the partial read claims the session was checked. `probe_unavailable_reason` is untouched and still cannot answer this — it looks for the binary rather than trying it, which is exactly the gap (availability was reportable, usability was not). Consumers: the preflight caption prints the reason and the green tick is gated on `result.ok` as well as on having probes; the bulk path warns per session, the same warning a missing dcm2niix already got. `session_probes` carries `runtime.reason` into the result, since a probe that is never called is the one failure it cannot report itself, and `_probe_cached` caches the whole result so a Streamlit rerun re-renders the same honesty rather than a clean panel over a remembered empty map. **Validated both ways against the real binary:** the guarded corpus test passes on the LCNI repository normally, and under the pip console-script shim that triggered this it now *skips* naming `dcm2niix exited 1: ModuleNotFoundError…` where it previously read as an empty session. Five new pins in `tests/test_dcm2niix_probe.py` plus one each at the panel, the page and the bulk path. |
 | 2026-08-20 | `#44` | **CI is green again: the flat-root listing now answers all three questions, not one of three.** The 3.12 leg failed `TestFlatLayoutIsScannedOnce` at `1 + 2×4` scans, and the arithmetic was the diagnosis — the cache worked, and the two calls it never covered (`_mriqc_expected_found`'s nested `sub-XX/**/*.json` glob and `_mriqc_status`'s `{ss}` subtree probe) ran once per unit each. **The 3.11 leg was green for an implementation-detail reason, not because the code was right:** 3.11 resolved a literal leading component by statting the named child, 3.12 removed that path and listed the parent like any other component, and 3.13 put a literal fast path back — so the same code costs 1 scan, 9 scans, and 1 scan on three consecutive Pythons. Two fixes, both aimed at *not globbing the root* rather than at making the glob cheap, which is the only form that holds on all three. `_has_match` answers a wildcard-free pattern with one stat, which is every stage's `{ss}` probe, not just MRIQC's. The listing gained the entry *type* alongside the name (`_FlatListing`, `subdirs`) — the distinction that tells the flat layout from the nested one — so `_mriqc_nested_jsons` can skip the nested search where no `sub-XX` directory exists and, where one does, glob from the subject's own directory instead of from the root. Caching the type is safe for the same reason caching the name is: an entry cannot become a directory without being created, and that moves the parent's mtime. **The assertion was not loosened**, and the pin that replaces the version lottery is `test_the_flat_root_is_never_globbed_at_all`, which counts *calls* rather than scans — it fails on 3.11 too, at exactly the 8 globs that were 8 scans on 3.12. One new defensive branch is pinned by `test_a_listing_keeps_the_names_it_cannot_type`: an entry whose type won't stat must not empty the whole listing, since an empty listing reads as "MRIQC wrote nothing here" and grades every unit MISSING. Also makes an unreleased `CHANGELOG.md` sentence true — "listed once per survey rather than once per subject-session" was a claim about 3.11 only. |

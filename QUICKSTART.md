@@ -363,6 +363,20 @@ you go straight to preprocessing and QC. Details and caveats:
 
 ---
 
+## When something goes wrong
+
+Press **Report a problem** at the top of any page. Say in the box what you
+were doing and what you clicked, then press **Assemble report**. duckbrain
+builds one text file holding its version, the last error it showed you, your
+recent jobs, the end of the newest log files and your project's settings, and
+shows the whole thing before you download it.
+
+Nothing is sent anywhere. The file contains paths and log text from your
+project, so read it, delete anything you'd rather not share, and send it
+yourself to whoever supports duckbrain for you.
+
+---
+
 ## The distribution question
 
 How a new user should launch duckbrain is **unresolved**, not a settled path.

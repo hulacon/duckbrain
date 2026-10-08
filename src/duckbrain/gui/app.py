@@ -29,9 +29,10 @@ from streamlit.navigation.page import StreamlitPage
 # no parent package and ``from ..config`` raises ImportError. The previous version
 # hid exactly that behind a bare ``except Exception``, which is why the sidebar's
 # project indicator always read "Config not found" under `streamlit run`.
-from duckbrain.config import PROJECT_ENV, recent_projects, remember_project
+from duckbrain.config import PROJECT_ENV, load_config, recent_projects, remember_project
 from duckbrain.core.bids_metadata import duckbrain_version
 from duckbrain.core.updates import update_available
+from duckbrain.gui.components import LAST_ERROR_KEY, PAGE_KEY
 
 # resolve(): st.Page validates the path, and __file__ is only relative-safe while
 # the cwd happens to be the repo root. An absolute path makes nav independent of
@@ -146,8 +147,57 @@ def _version_note() -> str:
     return f"`{here}` · [**{tag}** available]({url})" if here else f"[**{tag}** available]({url})"
 
 
-def _project_bar() -> None:
-    """One-line active-project indicator, version, + recent-projects switcher.
+def _report_popover(active: str) -> None:
+    """ "Report a problem": assemble a report, show all of it, offer the file.
+
+    Nothing is sent (``core/bug_report.py`` says why). The report carries paths and log text from
+    the lab's tree, so the user reads it here before downloading, and sends the
+    file themselves. Built only on the button press, never on render: it reads
+    log files, which a 30 s refresh must not pay for.
+    """
+    from duckbrain.core.bug_report import build_bug_report, report_filename
+
+    with st.popover("Report a problem", icon=":material/bug_report:", width="stretch"):
+        st.caption(
+            "Builds one text file: duckbrain's version, the last error shown, recent "
+            "jobs, the newest log tails and the project's settings. Nothing is sent. "
+            "Read it, then send the file to whoever supports duckbrain for you."
+        )
+        what = st.text_area(
+            "What happened, and what did you click just before?",
+            key="_report_what",
+            height=100,
+        )
+        if st.button("Assemble report", key="_report_build", width="stretch"):
+            config = None
+            if active:
+                try:
+                    config = load_config(project_dir=active)
+                except Exception as exc:  # the report still goes out without it
+                    what = f"{what}\n\n(project config failed to load: {exc})"
+            st.session_state["_report_text"] = build_bug_report(
+                config,
+                what_happened=what,
+                last_error=st.session_state.get(LAST_ERROR_KEY),
+                page=st.session_state.get(PAGE_KEY),
+            )
+        text = st.session_state.get("_report_text")
+        if text:
+            st.code(text, language="text", height=320)
+            st.download_button(
+                "Download report",
+                data=text,
+                file_name=report_filename(),
+                mime="text/plain",
+                icon=":material/download:",
+                on_click="ignore",
+                key="_report_download",
+                width="stretch",
+            )
+
+
+def _project_bar(page: str = "") -> None:
+    """One-line active-project indicator, version, report button + switcher.
 
     Rendered *before* ``nav.run()`` for two reasons: it appears above whichever
     page is showing (replacing the sidebar indicator that top nav displaced), and
@@ -156,9 +206,10 @@ def _project_bar() -> None:
     active = active_project()
     if active:
         os.environ[PROJECT_ENV] = active
+    st.session_state[PAGE_KEY] = page
 
     others = [p for p in recent_projects() if p != active]
-    label, version, switcher = st.columns([5, 2, 1], vertical_alignment="center")
+    label, version, report, switcher = st.columns([4, 2, 1.8, 1], vertical_alignment="center")
 
     with label:
         st.caption(f"Project: `{active}`" if active else "No project open — start in **Setup**.")
@@ -166,6 +217,8 @@ def _project_bar() -> None:
         note = _version_note()
         if note:
             st.caption(note)
+    with report:
+        _report_popover(active)
     with switcher:
         if not others:
             return
@@ -221,7 +274,7 @@ def main() -> None:
         },
         position="top",
     )
-    _project_bar()
+    _project_bar(nav.title)
     nav.run()
 
 

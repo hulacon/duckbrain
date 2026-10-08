@@ -10,6 +10,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **Report a problem.** A button at the top of every page builds one text
+  file for a bug report: what you say happened, duckbrain's version, the last
+  error it showed you, your recent jobs, the end of the newest log files, and
+  the project's settings (any credential-shaped setting is replaced by
+  `<redacted>`). It shows the whole text before you download it, and sends
+  nothing: the file holds paths and log text from your project, so you read
+  it and send it yourself.
+
 ### Changed
 
 - **duckbrain has an icon, in the browser tab and on the OnDemand tile.** A

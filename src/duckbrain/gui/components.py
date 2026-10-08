@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import traceback
 from collections.abc import Iterable
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
@@ -53,6 +54,12 @@ def flush_toasts() -> None:
     """
     for message, icon in st.session_state.pop(_TOAST_QUEUE, []):
         st.toast(message, icon=icon)
+
+
+# session_state keys "Report a problem" reads: the page showing (set by app.py)
+# and the last error show_error displayed.
+PAGE_KEY = "_duckbrain_page"
+LAST_ERROR_KEY = "_duckbrain_last_error"
 
 
 # ---- "Not ready yet" --------------------------------------------------------
@@ -106,9 +113,19 @@ def show_error(prefix: str, exc: Exception) -> None:
         return
     from duckbrain.core.bids_metadata import duckbrain_version
 
+    trace = "".join(traceback.format_exception(exc))
+    # Kept for "Report a problem" (core/bug_report.py), which bundles the last
+    # error this session showed. Only the last: the one on screen is what the
+    # user is asking about.
+    st.session_state[LAST_ERROR_KEY] = {
+        "page": st.session_state.get(PAGE_KEY, ""),
+        "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "message": f"{prefix}: {exc}",
+        "trace": trace,
+    }
     with st.expander("Details for a bug report"):
-        trace = "".join(traceback.format_exception(exc))
         st.code(f"duckbrain {duckbrain_version()}\n\n{trace}", language="text")
+        st.caption("**Report a problem**, at the top of the page, bundles this with the logs.")
 
 
 def _nearest_dir(path: str) -> Path:

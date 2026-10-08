@@ -229,3 +229,40 @@ def test_the_tab_icon_draws_without_a_font():
     assert "<text" not in svg
     # The OnDemand tile icon is rendered from the same file.
     assert (REPO_ROOT / "ondemand" / "icon.png").is_file()
+
+
+def test_report_a_problem_shows_the_whole_bundle_before_the_download(
+    user_cfg, tmp_path, monkeypatch
+):
+    """One click assembles the report; nothing is sent. The text is
+    shown in full above the download, so the user reads what leaves their PIRG."""
+    project = tmp_path / "proj"
+    scaffold_project(project)
+    remember_project(str(project))
+    monkeypatch.setenv("DUCKBRAIN_PROJECT_DIR", str(project))
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    assert not at.exception
+    assert not at.get("download_button")  # nothing offered before assembling
+
+    at.text_area(key="_report_what").input("Clicked Run on fMRIPrep, nothing happened")
+    at.button(key="_report_build").click().run()
+    assert not at.exception
+    shown = [c.value for c in at.code if c.value.startswith("duckbrain bug report")]
+    assert shown and "Clicked Run on fMRIPrep" in shown[0]
+    assert "== Config (effective, merged) ==" in shown[0]
+    assert at.get("download_button")
+
+
+def test_show_error_keeps_the_last_error_for_the_report():
+    from duckbrain.gui.components import LAST_ERROR_KEY
+
+    at = AppTest.from_string(
+        "from duckbrain.gui.components import show_error\n"
+        "try:\n"
+        "    raise ValueError('boom')\n"
+        "except ValueError as e:\n"
+        "    show_error('Launch failed', e)\n"
+    ).run()
+    err = at.session_state[LAST_ERROR_KEY]
+    assert err["message"] == "Launch failed: boom"
+    assert "ValueError: boom" in err["trace"]
