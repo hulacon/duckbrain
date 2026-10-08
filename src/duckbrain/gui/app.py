@@ -37,6 +37,9 @@ from duckbrain.core.updates import update_available
 # the cwd happens to be the repo root. An absolute path makes nav independent of
 # where the process was launched from — which is not a given under OnDemand.
 _PAGES_DIR = Path(__file__).resolve().parent / "views"
+# The tab icon is a file, not an emoji: Streamlit draws an emoji favicon as SVG
+# <text>, which needs an emoji font, and Talapas compute nodes have none.
+_ICON = Path(__file__).resolve().parent / "icon.svg"
 
 # (filename, nav title). Status leads: it is the cockpit and the page you land
 # on daily. Deliberately no icons — the top bar stays legible, and glyphs in
@@ -204,7 +207,7 @@ _KEYBOARD_FOCUS_CSS = """<style>
 def main() -> None:
     st.set_page_config(
         page_title="duckbrain",
-        page_icon="\U0001f9e0",
+        page_icon=str(_ICON),
         layout="wide",
         initial_sidebar_state="collapsed",
     )

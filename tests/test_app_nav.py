@@ -14,10 +14,11 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from conftest import page_path
+from conftest import REPO_ROOT, page_path
 from duckbrain.config import remember_project, scaffold_project
 from duckbrain.gui.app import (
     _BIDS_PAGES,
+    _ICON,
     _KEYBOARD_FOCUS_CSS,
     _PAGES,
     _PAGES_DIR,
@@ -216,3 +217,15 @@ def test_keyboard_focus_css_covers_the_toolbar_and_main_region(user_cfg):
     assert '[data-testid="stMain"]:focus-visible' in _KEYBOARD_FOCUS_CSS
     at = AppTest.from_file(APP, default_timeout=60).run()
     assert not at.exception
+
+
+def test_the_tab_icon_draws_without_a_font():
+    """Streamlit renders an emoji favicon as SVG ``<text>``, so on a compute-node
+    browser with no emoji font the tab showed an empty box (F17). The icon is a
+    path-only SVG, and Streamlit inlines an SVG file only if it starts ``<svg``."""
+    svg = _ICON.read_text()
+    assert svg.lstrip().startswith("<svg")
+    assert "<path" in svg
+    assert "<text" not in svg
+    # The OnDemand tile icon is rendered from the same file.
+    assert (REPO_ROOT / "ondemand" / "icon.png").is_file()

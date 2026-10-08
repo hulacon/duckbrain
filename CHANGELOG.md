@@ -10,6 +10,15 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Changed
+
+- **duckbrain has an icon, in the browser tab and on the OnDemand tile.** A
+  white brain on the theme's red replaces the 🧠 tab icon. Streamlit drew that
+  emoji as text, so on a compute node's browser, which has no emoji font, the
+  tab showed an empty box. The new icon is drawn as shapes and needs no font.
+  OnDemand's Interactive Apps list showed a generic tile icon, and now shows
+  the same mark.
+
 ## [0.8.0] — 2026-10-08
 
 ### Security

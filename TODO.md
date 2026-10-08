@@ -39,7 +39,7 @@ sub-items as fixtures appear ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#7`](#7) extra stages — the four `#43` claims
 are still described there; the rest is unscheduled ·
-[`#8`](#8) branding + dark theme ·
+[`#8`](#8) branding (interim mark shipped), glyph vocabulary, dark theme ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
 [`#46`](#46) — tree comparator (conversion validation + duplicate audit, one
 digest core) — **not scheduled**; shape to be decided once the first
@@ -58,8 +58,8 @@ the rule lives — the two questions that sort finished work into releases, and 
 "ship it all at once" is the wrong default. It used to be narrated here release by
 release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
-went stale between every read. **Currently unreleased:** nothing — `v0.8.0`
-(2026-10-08) shipped the whole queue.
+went stale between every read. **Currently unreleased:** see `CHANGELOG.md` `[Unreleased]`
+(`v0.8.0`, 2026-10-08, shipped everything before it).
 
 ---
 
@@ -1661,22 +1661,40 @@ everything else is the user's repo.
 ## #8 — Visual identity & branding (someday)
 
 Gated behind functionality + onboarding (`#2`); captured so it isn't forgotten.
-Logo/wordmark that works small (favicon) and as a banner; a considered Streamlit
-theme instead of defaults; favicon for the GUI tab and the OOD tile; README banner.
 Tasteful, not over-designed, and after the product behavior is locked.
 
-**Dark theme is this item's, not `#13`'s** (Ben's call, 2026-07-30 — a facelift is
-coming, so testing against the defaults would be work done twice). Two things
-already known to check when it happens, both of which a screenshot at the time
-will not remind you of:
+**What exists (2026-10-08).**
 
-- The Conversion page's fieldmap colour join spans **two rendering mechanisms** —
-  `:blue-badge[…]` markdown above the table (theme-aware) and plain emoji inside
-  it (font-rendered, theme-blind). They must still read as the same colour or the
-  join breaks where it carries information. See `#13`.
-- `5_QC_Dashboard.py` hardcodes `#ffcccc`, which reads poorly on a dark
-  background. Flagged in `docs/conversion-legibility.md` phase 3 as the thing not
-  to repeat, and never fixed.
+- **A measured light theme**: `gui/.streamlit/config.toml`. The text, code,
+  primary and grey colours were chosen for WCAG AA contrast in the 2026-10-05
+  accessibility pass. It is pinned to light (2026-10-07), because only those
+  colours have been measured.
+- **An interim mark**: `gui/icon.svg`, a white brain on the theme's primary red.
+  The brain is Material Symbols "neurology" (Apache-2.0), drawn as paths, so it
+  needs no font. It is the GUI's tab icon, and `ondemand/icon.png` is rendered
+  from it for the OnDemand tile (`#30` has the tile check). It replaced the 🧠
+  favicon. Streamlit draws an emoji favicon as SVG text, so on a compute-node
+  browser with no emoji font it showed as an empty box.
+
+**Still open.**
+
+- **Logo / wordmark** that works small and as a banner, plus a README banner.
+  The interim mark holds the place until then.
+- **The GUI's glyph vocabulary**: about 40 emoji, including the Status cell
+  states 🟢 🟡 🔵 🔴 ⚪ ⏳ and 📁 Browse. They are font-rendered, so on a
+  compute-node browser they show as empty boxes (`#2`, usability `F17`).
+  Choosing a replacement set is a visual-identity call: decide it here, once,
+  not separately for `F17`.
+- **Dark theme.** It is switched off on purpose: the pin gives a dark-OS
+  browser the light theme. Offering dark again means choosing a dark palette
+  and measuring it the way the light one was. (Ben's call 2026-07-30 put dark
+  mode here rather than in `#13`.) One thing to check then, which a screenshot
+  will not remind you of: the Conversion page's fieldmap colour join spans
+  **two rendering mechanisms**. `:blue-badge[…]` markdown above the table is
+  theme-aware, and the emoji inside it are font-rendered and theme-blind. They
+  must still read as the same colour, or the join breaks where it carries
+  information (`#13`). Without an emoji font the cell colour disappears
+  entirely; the group name printed beside it is what keeps the join.
 
 Two polish notes from `#13`'s eyeball pass landed here when that item closed
 (2026-08-17) — both were parked on "decide with the theme, or the work is done
@@ -1752,6 +1770,10 @@ plus the `ssh -L` line it prints.
    from a laptop (it took about 20 s on the node, embedded). Check the old
    link after a restart says "open it again from Inspect". Check the rating
    widget is hidden there too.
+3. **[OOD] The app tile's icon** (`#8`, 2026-10-08). `ondemand/icon.png` should
+   replace OnDemand's generic tile icon for duckbrain under Interactive Apps
+   (dev sandbox). Check that it reads at tile size. The GUI tab icon was
+   checked headless on a compute node: path-only SVG, kept across pages.
 3. **The full tool report embedded on the Inspect page** — the "Open the
    tool's own report" expander (`gui/qc_panels.py`, `full_report_panel`), which
    ships the MRIQC/fMRIPrep HTML itself as an `st.iframe` `srcdoc`. Distinct
