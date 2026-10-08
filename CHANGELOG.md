@@ -10,6 +10,8 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-08
+
 ### Security
 
 - **The GUI answers only the person who started it.** It acts as that
@@ -95,6 +97,12 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   them, greyed out and marked "no access", so typing a PIRG you aren't in
   explains itself. Listings with nothing closed, like your home or a project,
   look as before. The breadcrumb's root "/" is now a 24 px target (WCAG 2.5.8).
+- **fMRIPrep's default output spaces add `T1w` and `fsnative`.** A project
+  that doesn't set `[fmriprep] output_spaces` now gets five spaces:
+  `MNI152NLin2009cAsym:res-2`, `fsaverage6`, `func`, `T1w` and `fsnative`.
+  `T1w` is one subject-native volume grid at BOLD resolution (`func` is each
+  run's own scanner grid, so it can't be pooled), and `fsnative` is the
+  subject's own surface. A project that sets the key keeps its own list.
 
 ### Fixed
 
@@ -198,6 +206,31 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   already reports every `fmriprep_*` tree beside the canonical one) and launch
   into an empty directory. A tree that records no input is not refused, since
   it cannot be judged. (TODO `#5b` item 1.)
+- **The phase-encoding check runs on symlink-ingested sessions.** Ingestion's
+  default (and recommended) method links `sub-XX/dicom` to the DICOM export.
+  The preflight probe staged each series through that link, but the container
+  saw only the resolved export, so every staged file dangled. Preflight then
+  said "Phase encoding was not checked" on every such session, which turned
+  off the check that catches swapped AP/PA fieldmaps. The probe now stages the
+  resolved files.
+- **Setup's first screen no longer starts on `/projects`.** The project picker
+  used to pre-select `/projects`, mark it "Selected", and put it beside the
+  only primary button, which then failed with advice to ask the folder's
+  owner. The picker now starts empty with Open disabled, and the browser opens
+  at `/projects`. An unwritable folder that isn't a dataset says to choose a
+  folder of your own. Open / Create confirms with a toast, so the project bar
+  no longer says "No project open" beside the success message. "Saved to"
+  captions read "Saves to", and the recent-project "✕" is a "Forget" button a
+  screen reader can name.
+- **Status counts queued jobs apart from running ones.** A single queued unit
+  read "1 running · 1 missing": queued was shown as running, and the unit was
+  counted twice.
+- **QC guidance no longer explains diffusion runs with BOLD rules.** MRIQC
+  writes `fd_mean`, `fd_num` and `fd_perc` for diffusion too, but there they
+  reflect registration across b-value shells, not head motion. The BOLD
+  advice (a 0.25 mm exclusion threshold, censoring) was attached to them, and
+  so were measures MRIQC never writes for diffusion. Each QC domain now says
+  plainly that it doesn't apply to `dwi`.
 
 ## [0.7.0] — 2026-08-27
 
@@ -1935,7 +1968,8 @@ Notable bugs caught by live validation rather than unit tests:
 - Released under **GPL-3.0-or-later**. Supersedes an unbacked `license = "MIT"`
   claim in `pyproject.toml` (no `LICENSE` file had ever existed).
 
-[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/hulacon/duckbrain/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/hulacon/duckbrain/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hulacon/duckbrain/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hulacon/duckbrain/compare/v0.4.0...v0.5.0
