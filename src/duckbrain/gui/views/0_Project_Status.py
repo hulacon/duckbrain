@@ -59,13 +59,13 @@ if project_name:
 
 if config.get("nordic", {}).get("use_nordic", False):
     st.caption(
-        "🧊 **use_nordic** on — fMRIPrep reads NORDIC-denoised input and is "
+        ":material/ac_unit: **use_nordic** on — fMRIPrep reads NORDIC-denoised input and is "
         "gated on the `nordic` stage."
     )
 
 if config.get("freesurfer", {}).get("use_external", False):
     st.caption(
-        "🧠 **use_external** FreeSurfer on — fMRIPrep imports the external "
+        ":material/neurology: **use_external** FreeSurfer on — fMRIPrep imports the external "
         "recon (`--fs-no-resume`) and is gated on the `freesurfer` stage, "
         "which runs once per subject."
     )
@@ -110,7 +110,9 @@ _LIVE_KEY = "cockpit_jobs_live"
 
 c_refresh, c_auto = st.columns([1, 3])
 with c_refresh:
-    if st.button("↻ Refresh", help="Re-scan the filesystem and re-query SLURM"):
+    if st.button(
+        "Refresh", icon=":material/refresh:", help="Re-scan the filesystem and re-query SLURM"
+    ):
         st.rerun()
 with c_auto:
     auto = st.checkbox(
@@ -124,12 +126,16 @@ with c_auto:
     )
 
 _FS_ICON = {
-    Status.COMPLETE.value: "🟢 complete",
-    Status.PARTIAL.value: "🟡 partial",
-    Status.MISSING.value: "⚪ missing",
+    Status.COMPLETE.value: ":green[:material/check_circle:] complete",
+    Status.PARTIAL.value: ":orange[:material/contrast:] partial",
+    Status.MISSING.value: ":gray[:material/radio_button_unchecked:] missing",
     Status.NA.value: "— n/a",
 }
-_JOB_ICON = {"running": "🔵 running", "queued": "⏳ queued", "failed": "🔴 failed"}
+_JOB_ICON = {
+    "running": ":blue[:material/progress_activity:] running",
+    "queued": ":gray[:material/schedule:] queued",
+    "failed": ":red[:material/error:] failed",
+}
 
 # Stage keys are lowercase identifiers; what a user reads is the tool's own
 # spelling. `.capitalize()` produced "Fmriprep" and "Mriqc", which a student
@@ -159,7 +165,11 @@ def _unit_label(subject: str, session: str) -> str:
 
 
 def _emoji(icon: str) -> str:
-    """First token of a '<emoji> <word>' status label, for a compact cell trigger."""
+    """First token of a '<icon> <word>' status label, for a compact cell trigger.
+
+    Icons are Material Symbols, which Streamlit serves itself: emoji render as
+    empty boxes on a browser with no emoji font, such as a compute node's.
+    """
     return icon.split(" ", 1)[0] if icon else "·"
 
 
@@ -328,7 +338,12 @@ def _run_popover(row: pd.Series, stage: str, config: Config) -> None:
     params = _stage_params(
         stage, config, key_prefix=f"run_{stage}_{sub}_{ses}", subject=sub, session=ses
     )
-    if st.button(f"▶ Run {stage}", type="primary", key=f"runbtn_{stage}_{sub}_{ses}"):
+    if st.button(
+        f"Run {stage}",
+        icon=":material/play_arrow:",
+        type="primary",
+        key=f"runbtn_{stage}_{sub}_{ses}",
+    ):
         _launch(stage, sub, ses, config, params)
 
 
@@ -391,7 +406,7 @@ def _job_popover(
                 st.caption(f"**{stream}**")
                 st.code(text[-4000:], language="text")
                 st.download_button(
-                    f"⬇ Download {stream} tail",
+                    f":material/download: Download {stream} tail",
                     data=text,
                     file_name=f"{stage}_{job_id}.{stream}.log",
                     key=f"dl_{stream}_{stage}_{sub}_{ses}",
@@ -403,14 +418,22 @@ def _job_popover(
         params = _stage_params(
             stage, config, key_prefix=f"re_{stage}_{sub}_{ses}", subject=sub, session=ses
         )
-        if st.button(f"↻ Re-run {stage}", type="primary", key=f"rerun_{stage}_{sub}_{ses}"):
+        if st.button(
+            f"Re-run {stage}",
+            icon=":material/refresh:",
+            type="primary",
+            key=f"rerun_{stage}_{sub}_{ses}",
+        ):
             _launch(stage, sub, ses, config, params, verb="Re-submitted")
     elif job_state in ("running", "queued") and job_id:
         # An in-flight job can be cancelled here (scancel), behind a confirm tick.
         st.divider()
         confirm = st.checkbox("Confirm cancel", key=f"cancelchk_{stage}_{sub}_{ses}")
         if st.button(
-            f"✖ Cancel job {job_id}", disabled=not confirm, key=f"cancel_{stage}_{sub}_{ses}"
+            f"Cancel job {job_id}",
+            icon=":material/cancel:",
+            disabled=not confirm,
+            key=f"cancel_{stage}_{sub}_{ses}",
         ):
             from duckbrain.slurm.monitor import cancel_job
 
@@ -418,7 +441,7 @@ def _job_popover(
                 cancel_job(job_id)
                 queue_toast(
                     f"Cancelled job {job_id} — {_stage_title(stage)} {_unit_label(sub, ses)}",
-                    icon="🛑",
+                    icon=":material/stop_circle:",
                 )
                 st.rerun()
             except Exception as e:
@@ -474,7 +497,7 @@ def _bulk_popover(stage: str, units: list[pd.Series], config: Config, queued: in
     # Per-stage confirm key so ticking one column can't arm another.
     confirm = st.checkbox(f"Yes — submit {n} {stage} job(s)", key=f"bulk_confirm_{stage}")
     if st.button(
-        f"▶▶ Run all {n} {stage}",
+        f":material/fast_forward: Run all {n} {stage}",
         type="primary",
         disabled=not confirm or bool(too_many),
         key=f"bulk_run_{stage}",
@@ -584,7 +607,7 @@ def _render_cell(
             with pop:
                 _job_popover(row, stage, config, latest_jobs, log_dir, jobs_by_id, runnable, job)
     elif runnable:
-        pop = _lazy_popover(col, f"▶ {_emoji(icon)}", stage, sub, ses)
+        pop = _lazy_popover(col, f":material/play_arrow: {_emoji(icon)}", stage, sub, ses)
         if pop.open:
             with pop:
                 _run_popover(row, stage, config)
@@ -643,12 +666,16 @@ def _deep_links() -> None:
     # in the Tab order (streamlit/streamlit#17339), so for a keyboard user
     # these are the short route, and for Ingestion the only in-page one.
     for path, label, icon in [
-        ("views/2_Data_Ingestion.py", "Data Ingestion", "📥"),
-        ("views/3_BIDS_Conversion.py", "BIDS Conversion", "🧬"),
-        ("views/4_Preprocessing.py", "Preprocessing", "🧠"),
-        ("views/3a_Project.py", "Project (metadata, validation, expectations)", "🗂️"),
-        ("views/5_QC_Overview.py", "QC (review each run's quality)", "🔍"),
-        ("views/5a_QC_Inspect.py", "QC Inspect (one run in depth)", "🔎"),
+        ("views/2_Data_Ingestion.py", "Data Ingestion", ":material/move_to_inbox:"),
+        ("views/3_BIDS_Conversion.py", "BIDS Conversion", ":material/genetics:"),
+        ("views/4_Preprocessing.py", "Preprocessing", ":material/neurology:"),
+        (
+            "views/3a_Project.py",
+            "Project (metadata, validation, expectations)",
+            ":material/folder_open:",
+        ),
+        ("views/5_QC_Overview.py", "QC (review each run's quality)", ":material/search:"),
+        ("views/5a_QC_Inspect.py", "QC Inspect (one run in depth)", ":material/troubleshoot:"),
     ]:
         _link(path, label, icon)
 
@@ -693,13 +720,13 @@ def _outcome_checks_section(config: Config) -> None:
         n = len(snapshot.issues)
         state = ("clean" if not n else f"{n} issue(s)") + f", measured {snapshot.ran_at}"
         if stale:
-            state += " — ⚠ inputs changed since"
+            state += " — :material/warning: inputs changed since"
 
     # The label changes once a run lands ("not measured yet" → "clean, …"), and
     # Streamlit treats a relabelled expander as a new one, which opens closed.
     # So the run's own result was hidden behind a click until it was reopened.
     just_ran = bool(st.session_state.pop("_outcome_checks_ran", False))
-    with st.expander(f"🔬 Outcome checks — {state}", expanded=just_ran):
+    with st.expander(f":material/biotech: Outcome checks — {state}", expanded=just_ran):
         st.caption(
             "These open the tools' own output to confirm the work really happened, "
             "which the board can't tell from file names alone: that fMRIPrep "
@@ -708,7 +735,12 @@ def _outcome_checks_section(config: Config) -> None:
             "only when you press the button, and the result is kept until the data "
             "change."
         )
-        if st.button("▶ Run outcome checks now", key="outcome_checks_btn", width="stretch"):
+        if st.button(
+            "Run outcome checks now",
+            icon=":material/play_arrow:",
+            key="outcome_checks_btn",
+            width="stretch",
+        ):
             with st.spinner("Reading tool reports and image data…"):
                 run_expensive_checks(config)
             st.session_state["_outcome_checks_ran"] = True
@@ -774,7 +806,8 @@ def _all_jobs_section(jobs: JobIndex, config: Config) -> None:
     plus an arbitrary-job-id log viewer. Fed from survey_live's single pull."""
     active, history = jobs["active"], jobs["history"]
     with st.expander(
-        f"🖥 All SLURM jobs — {len(active)} active · {len(history)} recent (+ log lookup)"
+        f":material/terminal: All SLURM jobs — {len(active)} active · "
+        f"{len(history)} recent (+ log lookup)"
     ):
         st.caption(
             "The board is organized by unit × stage; this catches every job — "
@@ -912,7 +945,7 @@ def dashboard() -> None:
         # A unit with a live job is reported once, by its job state. Its outputs
         # are still missing (or half-written) on disk, and counting it there too
         # made one queued unit read "1 running · 1 missing" — two claims about
-        # one unit, one of them wrong — while its own cell said ⏳ queued.
+        # one unit, one of them wrong — while its own cell said queued.
         in_flight = pd.Series(False, index=matrix.index)
         if job_col in matrix.columns:
             running = int((matrix[job_col] == "running").sum())
@@ -920,20 +953,22 @@ def dashboard() -> None:
             failed = int((matrix[job_col] == "failed").sum())
             in_flight = matrix[job_col].isin(("running", "queued"))
             if running:
-                bits.append(f"🔵 {running} running")
+                bits.append(f"{_JOB_ICON['running'].split()[0]} {running} running")
             if queued:
-                bits.append(f"⏳ {queued} queued")
+                bits.append(f"{_JOB_ICON['queued'].split()[0]} {queued} queued")
             if failed:
-                bits.append(f"🔴 {failed} failed")
+                bits.append(f"{_JOB_ICON['failed'].split()[0]} {failed} failed")
         partial = int(((matrix[stage] == Status.PARTIAL.value) & ~in_flight).sum())
         missing = int(((matrix[stage] == Status.MISSING.value) & ~in_flight).sum())
         if partial:
-            bits.append(f"⚠ {partial} partial")
+            bits.append(f"{_emoji(_FS_ICON[Status.PARTIAL.value])} {partial} partial")
         if missing:
-            bits.append(f"○ {missing} missing")
-        col.caption(" · ".join(bits) if bits else "✓ all complete")
+            bits.append(f"{_emoji(_FS_ICON[Status.MISSING.value])} {missing} missing")
+        col.caption(
+            " · ".join(bits) if bits else f"{_emoji(_FS_ICON[Status.COMPLETE.value])} all complete"
+        )
 
-    # ---- Provenance consistency (⚠️) ----
+    # ---- Provenance consistency (warnings) ----
     # On-disk provenance is authoritative; the submission log is an overlay that
     # catches cross-subject mixing on-disk can't represent. Silent when clean.
     # `run_checks` is folded into the same panel on purpose: it asks a different
@@ -947,7 +982,7 @@ def dashboard() -> None:
     issues = check_consistency(config, matrix=matrix) + run_checks(config)
     if issues:
         warnings = [i for i in issues if i.severity != "note"]
-        st.header("⚠️ Warnings" if warnings else "Notes")
+        st.header(":material/warning: Warnings" if warnings else "Notes")
         st.caption(
             "Self-contradictory pipeline state — config vs. what's on disk, mixed "
             "provenance/versions across subjects, staleness, or a missing input — "
@@ -976,7 +1011,7 @@ def dashboard() -> None:
 
     # ---- Actionable status board ----
     # One board instead of three blocks: the matrix cells ARE the launch controls.
-    # A cell upgrades to a popover when it has an action (▶ run / 🔴 log+re-run);
+    # A cell upgrades to a popover when it has an action (run / failed: log + re-run);
     # a gated cell keeps its icon in place rather than vanishing from a dropdown.
     st.header("Subjects")
     only_incomplete = st.checkbox(
@@ -1020,10 +1055,16 @@ def dashboard() -> None:
         view = matrix[mask.values]
 
     if view.empty:
-        st.success("Every subject/session is complete across all stages. 🎉")
+        st.success(
+            "Every subject/session is complete across all stages.", icon=":material/task_alt:"
+        )
         # The board has nothing left to offer, so say where the work goes next
         # rather than leaving the student to find the QC menu (F31).
-        _link("views/5_QC_Overview.py", "Next: review each run's quality in QC", "➡️")
+        _link(
+            "views/5_QC_Overview.py",
+            "Next: review each run's quality in QC",
+            ":material/arrow_forward:",
+        )
     else:
         view = _paginate(view)
         latest_jobs = _latest_jobs(config)
@@ -1064,8 +1105,11 @@ def dashboard() -> None:
                 )
 
         st.caption(
-            "🟢 complete · 🟡 partial (crashed/half-done) · 🔵 running · ⏳ queued · "
-            "🔴 failed · ⚪ missing.  ▶ = launch (opens params) · 🔵/⏳/🔴 = open the "
+            f"{_FS_ICON[Status.COMPLETE.value]} · "
+            f"{_FS_ICON[Status.PARTIAL.value]} (crashed/half-done) · "
+            f"{_JOB_ICON['running']} · {_JOB_ICON['queued']} · {_JOB_ICON['failed']} · "
+            f"{_FS_ICON[Status.MISSING.value]}.  :material/play_arrow: = launch (opens params) · "
+            "a running, queued or failed cell opens the "
             "SLURM job (id, live detail, log; cancel in-flight / re-run failed) · "
             "column ▾ = run the whole stage."
         )

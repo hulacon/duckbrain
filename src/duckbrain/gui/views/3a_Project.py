@@ -177,7 +177,7 @@ def _bids_validation_section() -> None:
         result = None  # a different project's answer is not this project's
     state = result.headline() if result is not None else "not run this session"
 
-    with st.expander(f"🧾 BIDS validation — {state}"):
+    with st.expander(f":material/fact_check: BIDS validation — {state}"):
         st.caption(
             "Checks that the dataset is well **formed** — structure, naming, required "
             "files. It does not check that the data means what you intended: run "
@@ -187,7 +187,9 @@ def _bids_validation_section() -> None:
         )
         if reason:
             st.info(f"Can't run the validator: {reason}")
-        elif st.button("▶ Validate now", key="validate_bids_btn", width="stretch"):
+        elif st.button(
+            "Validate now", icon=":material/play_arrow:", key="validate_bids_btn", width="stretch"
+        ):
             with st.spinner("Running bids-validator…"):
                 st.session_state[_VALIDATION_STATE] = validate_bids(config)
             st.rerun()
@@ -250,7 +252,9 @@ def _expectations_section() -> None:
     from duckbrain.core.surveyor import discover_units
 
     current = declared(config) or {}
-    label = "🎯 Declared expectations" + ("" if current else " — none set (checks off)")
+    label = ":material/target: Declared expectations" + (
+        "" if current else " — none set (checks off)"
+    )
 
     with st.expander(label):
         st.caption(
@@ -314,7 +318,7 @@ def _expectations_section() -> None:
         project_dir = resolve_project_dir() or bids_dir
         with c_save:
             if st.button(
-                "⭑ Freeze this as the study's expectation",
+                ":material/star: Freeze this as the study's expectation",
                 width="stretch",
                 disabled=not (draft or n_participants),
             ):

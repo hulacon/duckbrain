@@ -105,9 +105,9 @@ import_status = match_imported_sources(sessions, sourcedata_dir)
 
 def _import_badge(status: ImportStatus) -> str:
     if status.state == "imported":
-        return f"✅ {status.where}"
+        return f"✓ {status.where}"
     if status.state == "unverifiable":
-        return f"❓ maybe — {status.where}"
+        return f"? maybe — {status.where}"
     return ""
 
 
@@ -216,9 +216,9 @@ edited_df = st.data_editor(
         "imported": st.column_config.TextColumn(
             "Imported",
             disabled=True,
-            help="Already in sourcedata? ✅ names the sub/ses this folder was "
+            help="Already in sourcedata? ✓ names the sub/ses this folder was "
             "ingested into (from the symlink target or the copy's source "
-            "marker). ❓ means sourcedata holds sessions with no recorded "
+            "marker). ? means sourcedata holds sessions with no recorded "
             "source — copies made before duckbrain wrote markers — so this "
             "folder may be among them. Blank means not imported.",
         ),
@@ -370,7 +370,7 @@ try:
     st.page_link(
         "views/3a_Project.py",
         label="Generate `participants.tsv` / `dataset_description.json` on the Project page",
-        icon="🗂️",
+        icon=":material/folder_open:",
     )
 except Exception:
     pass  # standalone (non-multipage) render — links are best-effort

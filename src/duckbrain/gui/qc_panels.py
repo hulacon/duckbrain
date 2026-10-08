@@ -402,7 +402,7 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
                 "Run",
                 keys,
                 "qc_run",
-                format_func=lambda k: f"{k}  ⚠️" if k in flagged else k,
+                format_func=lambda k: f"{k}  ⚠" if k in flagged else k,
                 help="The run every section on this page describes.",
             )
         run_key = chosen
@@ -480,7 +480,7 @@ def measure_table(scope: Scope, measures: list[str]) -> None:
                 "Cohort median": float(series.median()) if len(series) else None,
                 "Position in cohort": qc.cohort_position(cohort, value),
                 "Better": guidance.direction_label if guidance else "",
-                "Flagged": "⚠️" if key in run["flagged_metrics"] else "",
+                "Flagged": "⚠" if key in run["flagged_metrics"] else "",
             }
         )
     table = pd.DataFrame(rows)
@@ -675,7 +675,7 @@ def render_inspection_page() -> None:
     st.divider()
     st.header("Glossary")
     measure_glossary(all_measures)
-    _page_link("views/5_QC_Overview.py", "Back to the Overview", icon="⬅️")
+    _page_link("views/5_QC_Overview.py", "Back to the Overview", icon=":material/arrow_back:")
 
 
 # ---------------------------------------------------------------------------

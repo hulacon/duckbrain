@@ -73,7 +73,7 @@ converted_map = {
 }
 
 with st.expander(
-    f"⚡ Bulk convert all ingested sessions "
+    f":material/bolt: Bulk convert all ingested sessions "
     f"({sum(not v for v in converted_map.values())} unconverted of {len(ingested)})"
 ):
     st.caption(
@@ -91,7 +91,8 @@ with st.expander(
     )
     if not _bulk_runtime.available:
         st.caption(
-            f"⚠️ Phase-encoding checks will not run for these sessions: {_bulk_runtime.reason}. "
+            ":material/warning: Phase-encoding checks will not run for these sessions: "
+            f"{_bulk_runtime.reason}. "
             "Everything else in the preflight still applies."
         )
     st.dataframe(
@@ -412,7 +413,7 @@ else:
         else:
             st.markdown(
                 f"{fmap_badge(group_name, fmap_colors)} &nbsp; {detail} &nbsp; "
-                "⚠️ **incomplete** — a pair needs both directions, so this one "
+                ":material/warning: **incomplete** — a pair needs both directions, so this one "
                 "can't correct anything and isn't offered below."
             )
 
@@ -477,7 +478,7 @@ if _saved_config_path.exists():
         )
     with _c_btn:
         if st.button(
-            "⇧ Load the saved config",
+            ":material/upload: Load the saved config",
             key="load_saved_config",
             width="stretch",
             help="Read the saved file into the table so you review what will actually run.",
@@ -563,7 +564,8 @@ project_rules = task_rules_from_config(config)
 project_fmap_rules = fmap_rules_from_config(config)
 if project_rules or project_fmap_rules or project_type_rules or project_skip:
     st.caption(
-        f"↪ {len(project_type_rules)} project-wide type declaration(s), "
+        ":material/subdirectory_arrow_right: "
+        f"{len(project_type_rules)} project-wide type declaration(s), "
         f"{len(project_rules)} task rule(s), "
         f"{len(project_fmap_rules)} fieldmap binding(s) and "
         f"{len(project_skip)} skipped description(s) applied as defaults. "
@@ -663,7 +665,7 @@ if row_edits:
         )
     with _e_btn:
         if st.button(
-            "↺ Discard my row edits",
+            ":material/undo: Discard my row edits",
             key="reset_row_edits",
             width="stretch",
             help="Put every row back to the value duckbrain derived for it.",
@@ -1093,7 +1095,7 @@ with st.container(border=True):
     if _probe_note := probe_note(_runtime, _probe_result):
         st.caption(_probe_note)
     for finding in _notes:
-        st.caption(f"ℹ️ {finding.message}")
+        st.caption(f":material/info: {finding.message}")
 
 # Under an active override the JSON is the config, so the decision columns are
 # read-only and show what the JSON says. Left editable they were three controls
@@ -1104,7 +1106,7 @@ if _override_config is not None:
     _locked += ["Type", "convert", "task", "run", "fieldmap"]
     st.info(
         "**The hand-edited JSON is driving this conversion.** The columns below "
-        "show what that JSON says and are read-only — edit it in ⚙️ Advanced at "
+        "show what that JSON says and are read-only — edit it in **Advanced** at "
         "the bottom, or use *Load the JSON into the table* there to go back to "
         "editing rows."
     )
@@ -1198,7 +1200,7 @@ if fixups:
 # ---- Promote this session's review to project-wide defaults ----
 if _nd_twins:
     if st.button(
-        "⭑ Save duplicate-reconstruction choice as project default",
+        ":material/star: Save duplicate-reconstruction choice as project default",
         key="save_project_nd_policy",
         width="stretch",
         disabled=nd_policy == _project_nd_policy,
@@ -1258,7 +1260,7 @@ _save_type_col, _save_task_col, _save_fmap_col, _save_skip_col = st.columns(4)
 
 with _save_type_col:
     if st.button(
-        "⭑ Save series types as project default",
+        ":material/star: Save series types as project default",
         key="save_project_series_types",
         width="stretch",
         disabled=_effective_type_rules == project_type_rules,
@@ -1282,7 +1284,7 @@ with _save_type_col:
 
 with _save_task_col:
     if st.button(
-        "⭑ Save task/run mapping as project default",
+        ":material/star: Save task/run mapping as project default",
         key="save_project_task_map",
         width="stretch",
         help="Writes the BOLD task rows to the project config's [task_mapping]. "
@@ -1301,7 +1303,7 @@ with _save_task_col:
 
 with _save_fmap_col:
     if st.button(
-        "⭑ Save fieldmap bindings as project default",
+        ":material/star: Save fieldmap bindings as project default",
         key="save_project_fmap_map",
         width="stretch",
         disabled=not session_fmap_rules,
@@ -1329,7 +1331,7 @@ with _save_fmap_col:
 
 with _save_skip_col:
     if st.button(
-        "⭑ Save skipped series as project default",
+        ":material/star: Save skipped series as project default",
         key="save_project_series_skip",
         width="stretch",
         disabled=skip_lookup(_effective_skip) == _project_skip_keys,
@@ -1365,7 +1367,9 @@ with _save_skip_col:
 # A table can only show one direction of an edge. This is the direction the user
 # actually asks about, and it was previously nowhere on the page.
 if fieldmaps.groups:
-    with st.expander("🔗 Which pair corrects which run", expanded=len(complete_groups) > 1):
+    with st.expander(
+        ":material/link: Which pair corrects which run", expanded=len(complete_groups) > 1
+    ):
         for group_name, dirs in fieldmaps.groups.items():
             bound = plan.corrected_by(group_name)
             ap, pa = dirs.get("ap"), dirs.get("pa")
@@ -1403,7 +1407,7 @@ if fieldmaps.groups:
 # custom ids and dcm2bids options have no column. A continuous round trip would
 # drop them silently. The back-import below is the honest version: explicit,
 # one-shot, and it reports what it could not represent.
-with st.expander("⚙️ Advanced — edit the dcm2bids config JSON by hand"):
+with st.expander(":material/settings: Advanced — edit the dcm2bids config JSON by hand"):
     override_json = st.checkbox(
         "Edit the JSON directly instead of using the table above",
         value=False,
@@ -1424,17 +1428,19 @@ with st.expander("⚙️ Advanced — edit the dcm2bids config JSON by hand"):
             key="dcm2bids_config_editor",
         )
         if edited_json.strip() != auto_json.strip():
-            st.caption("✏️ Edited — this differs from what the table would generate.")
+            st.caption(":material/edit: Edited — this differs from what the table would generate.")
             c_revert, c_import = st.columns(2)
             with c_revert:
                 if st.button(
-                    "↺ Revert to the generated config", key="revert_json", width="stretch"
+                    ":material/undo: Revert to the generated config",
+                    key="revert_json",
+                    width="stretch",
                 ):
                     st.session_state.pop("dcm2bids_config_editor", None)
                     st.rerun()
             with c_import:
                 if st.button(
-                    "⇧ Load these edits back into the table",
+                    ":material/upload: Load these edits back into the table",
                     key="import_json",
                     width="stretch",
                     help="Reads task, run and fieldmap group back out of "

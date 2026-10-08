@@ -135,7 +135,7 @@ def test_plan_shows_which_pair_corrects_the_run(project):
 
     # One unnamed pair: the bold and both fieldmaps carry the same token.
     assert fmap[9] == fmap[3] == fmap[4]
-    assert fmap[9].startswith("🔵")
+    assert fmap[9].startswith("●")
     # Colour is never the only channel — the label rides along with it.
     assert "unnamed" in fmap[9]
     # Anat has no fieldmap relation at all, so no token.
@@ -866,19 +866,19 @@ def test_discarding_row_edits_puts_the_heuristic_back(two_pair_project):
     seeded = _by_series(_plan_table(at), "fieldmap")[9]
 
     at.session_state[EDITOR_KEY] = {
-        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "edited_rows": {4: {"fieldmap": "● 2"}},
         "added_rows": [],
         "deleted_rows": [],
     }
     at.run()
-    assert _by_series(_plan_table(at), "fieldmap")[9] == "🟢 2"
+    assert _by_series(_plan_table(at), "fieldmap")[9] == "● 2"
 
     # The browser ships the full widget state with every rerun, and the table
     # keeps its delta whenever its data didn't change — so the discard has to
     # survive the very edit it is discarding arriving alongside the click.
     next(b for b in at.button if b.key == "reset_row_edits").click()
     at.session_state[EDITOR_KEY] = {
-        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "edited_rows": {4: {"fieldmap": "● 2"}},
         "added_rows": [],
         "deleted_rows": [],
     }
@@ -926,10 +926,10 @@ def test_binding_a_bold_to_a_half_pair_does_not_hide_the_table(half_pair_project
     gone and the stop would have been a locked door.
     """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
-    assert _by_series(_plan_table(at), "fieldmap")[30] == "🟢 2"
+    assert _by_series(_plan_table(at), "fieldmap")[30] == "● 2"
 
     at.session_state[EDITOR_KEY] = {
-        "edited_rows": {4: {"fieldmap": "🟢 2"}},  # series 9, bound to the half pair
+        "edited_rows": {4: {"fieldmap": "● 2"}},  # series 9, bound to the half pair
         "added_rows": [],
         "deleted_rows": [],
     }
@@ -941,7 +941,7 @@ def test_binding_a_bold_to_a_half_pair_does_not_hide_the_table(half_pair_project
     # The table is still up, still shows what she picked, and every row survives.
     plan = _plan_table(at)
     assert list(plan["Series #"]) == [1, 2, 3, 4, 9, 30]
-    assert _by_series(plan, "fieldmap")[9] == "🟢 2"
+    assert _by_series(plan, "fieldmap")[9] == "● 2"
     # Two ways back, and both are on screen: change the cell, or discard.
     assert [b for b in at.button if b.key == "reset_row_edits"]
 
@@ -956,7 +956,7 @@ def test_a_bold_on_a_half_pair_is_written_uncorrected_not_re_bound(half_pair_pro
     """
     at = AppTest.from_file(PAGE, default_timeout=90).run()
     at.session_state[EDITOR_KEY] = {
-        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "edited_rows": {4: {"fieldmap": "● 2"}},
         "added_rows": [],
         "deleted_rows": [],
     }
@@ -977,7 +977,7 @@ def test_discarding_recovers_from_a_binding_that_warns(half_pair_project):
     """The escape hatch still works where the page is complaining loudest."""
     at = AppTest.from_file(PAGE, default_timeout=90).run()
     at.session_state[EDITOR_KEY] = {
-        "edited_rows": {4: {"fieldmap": "🟢 2"}},
+        "edited_rows": {4: {"fieldmap": "● 2"}},
         "added_rows": [],
         "deleted_rows": [],
     }
@@ -985,7 +985,7 @@ def test_discarding_recovers_from_a_binding_that_warns(half_pair_project):
     next(b for b in at.button if b.key == "reset_row_edits").click().run()
     assert not at.exception
     assert not [w for w in at.warning if "holds only one" in w.value]
-    assert _by_series(_plan_table(at), "fieldmap")[9] == "🔵 1"
+    assert _by_series(_plan_table(at), "fieldmap")[9] == "● 1"
 
 
 # Two pairs whose names differ only by a period, which `_b0_identifier` has to

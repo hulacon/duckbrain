@@ -35,7 +35,7 @@ _DP_LIST_HEIGHT = 280
 _TOAST_QUEUE = "_duckbrain_pending_toasts"
 
 
-def queue_toast(message: str, icon: str = "✅") -> None:
+def queue_toast(message: str, icon: str = ":material/check_circle:") -> None:
     """Show *message* as a toast on the next script run.
 
     For any caller that is about to ``st.rerun()``. Queued rather than raised, so
@@ -70,7 +70,7 @@ def not_ready(message: str, page: str, link_label: str) -> NoReturn:
     """Stop the page: say what is missing, and link to the page that fixes it."""
     st.info(message)
     try:
-        st.page_link(page, label=link_label, icon="➡️")
+        st.page_link(page, label=link_label, icon=":material/arrow_forward:")
     except Exception:
         # Outside st.navigation (page tests, one-page debug runs) page_link
         # raises; the label still says where to go.
@@ -267,7 +267,7 @@ def directory_picker(
             "filter", key=flt_key, placeholder="filter folders…", label_visibility="collapsed"
         )
         if allow_create:
-            with bar[1].popover("➕ New", width="stretch"):
+            with bar[1].popover(":material/add: New", width="stretch"):
                 st.text_input("New folder name", key=new_key, placeholder="folder name")
                 st.button("Create here", key=f"{key}_mk", on_click=_create)
                 if err := st.session_state.pop(err_key, None):
@@ -303,7 +303,7 @@ def directory_picker(
 
         with st.container(height=_DP_LIST_HEIGHT, border=True):
             if unreadable:
-                st.caption("🚫 cannot read this directory")
+                st.caption(":material/block: cannot read this directory")
             elif not entries:
                 st.caption("(no subfolders here)" if not flt else "(no folders match the filter)")
             else:
@@ -314,7 +314,8 @@ def directory_picker(
                     elif access == "closed":
                         suffix = " — no access"
                     st.button(
-                        f"📁 {name}{suffix}",
+                        f"{name}{suffix}",
+                        icon=":material/folder:",
                         key=f"{key}_d{i}",
                         type="tertiary",
                         on_click=_goto,
@@ -324,10 +325,16 @@ def directory_picker(
                 if len(entries) > _DP_MAX_BUTTONS:
                     st.caption(f"… {len(entries) - _DP_MAX_BUTTONS} more — narrow with the filter")
 
-        if st.button("✓ Use this folder", key=f"{key}_use", type="primary", on_click=_commit):
+        if st.button(
+            "Use this folder",
+            icon=":material/check:",
+            key=f"{key}_use",
+            type="primary",
+            on_click=_commit,
+        ):
             st.rerun(scope="app")  # propagate the new selection to the whole page
 
-    with st.expander("📂 Browse"):
+    with st.expander(":material/folder_open: Browse"):
         _browser()
 
     # Declared, not coerced: every write to this key above is a string, and the
@@ -338,7 +345,7 @@ def directory_picker(
     elif Path(sel).is_dir():
         st.caption(f"✓ Selected: `{sel}`")
     elif must_exist:
-        st.caption(f"⚠ does not exist: `{sel}`")
+        st.caption(f":material/warning: does not exist: `{sel}`")
     else:
         st.caption(f"↳ will be created: `{sel}`")
 
@@ -357,13 +364,13 @@ def directory_picker(
 # as a hue is a binding some users cannot perceive. The emoji also survives
 # `st.dataframe`, which renders cells as plain text — no markdown, no styling.
 _FMAP_SWATCHES = [
-    ("🔵", "blue"),
-    ("🟢", "green"),
-    ("🟠", "orange"),
-    ("🟣", "violet"),
-    ("🔴", "red"),
+    ("●", "blue"),
+    ("●", "green"),
+    ("●", "orange"),
+    ("●", "violet"),
+    ("●", "red"),
 ]
-_NO_FMAP_SWATCH = ("⚪", "gray")
+_NO_FMAP_SWATCH = ("○", "gray")
 
 
 def fmap_label(group: str | None) -> str:
@@ -388,7 +395,12 @@ def fmap_swatches(groups: Iterable[str]) -> dict[str, tuple[str, str]]:
 
 
 def fmap_token(group: str | None, swatches: dict[str, tuple[str, str]]) -> str:
-    """Plain-text ``🔵 encoding`` token — safe inside a dataframe cell."""
+    """Plain-text ``● encoding`` token — safe inside a dataframe cell.
+
+    The dot is the same glyph the badge carries, and the label is what joins the
+    two: a Styler can't colour an editable column, and the emoji circles this
+    used to carry render as empty boxes where no emoji font is installed.
+    """
     emoji, _ = swatches.get(group, _NO_FMAP_SWATCH) if group is not None else _NO_FMAP_SWATCH
     return f"{emoji} {fmap_label(group)}"
 

@@ -169,7 +169,7 @@ project_dir = directory_picker(
     browse_from="/projects",
     allow_create=True,
     reset_on=current_project,
-    help="Browse to (or create) your BIDS project directory. Use the ➕ expander "
+    help="Browse to (or create) your BIDS project directory. Use the **New** button "
     "to make a new folder for a new project.",
 )
 

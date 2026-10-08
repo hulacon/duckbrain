@@ -18,6 +18,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   tab showed an empty box. The new icon is drawn as shapes and needs no font.
   OnDemand's Interactive Apps list showed a generic tile icon, and now shows
   the same mark.
+- **The GUI's symbols render on every browser.** Status cells, page links,
+  buttons and expanders used about 40 emoji. On a browser with no emoji font,
+  such as an OnDemand Interactive Desktop on a compute node, every one of them
+  was an empty box. They are now Material Symbols, which Streamlit serves
+  itself, so they need no font on the machine and no internet. Each status has
+  its own shape (a check for complete, a half-filled circle for partial, a
+  spinner for running, a clock for queued, an alert for failed, an empty circle
+  for missing), so colour is not the only cue. Table cells can't hold those
+  icons. There, fieldmap groups show as `● <group>`, the same dot as the badge
+  above the table, and the Ingestion "Imported" column uses ✓ and ?.
 
 ## [0.8.0] — 2026-10-08
 

@@ -122,12 +122,15 @@ def probe_note(runtime: ProbeRuntime, result: ProbeResult) -> str:
     feature exists to prevent.
     """
     if result.failure:
-        return f"⚠️ Phase encoding was not checked: {result.failure}."
+        return f":material/warning: Phase encoding was not checked: {result.failure}."
     if not result.probes:
-        return "⚠️ Phase encoding was not checked: dcm2niix ran but read none of these series."
+        return (
+            ":material/warning: Phase encoding was not checked: "
+            "dcm2niix ran but read none of these series."
+        )
     if runtime.fallback:
         return (
-            "ℹ️ Phase encoding was read with a host `dcm2niix` rather than the "
+            ":material/info: Phase encoding was read with a host `dcm2niix` rather than the "
             f"pinned dcm2bids image ({runtime.fallback}), so it may not be the "
             "build that converts."
         )

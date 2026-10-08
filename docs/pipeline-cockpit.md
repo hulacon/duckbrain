@@ -224,6 +224,12 @@ Commit msg: `Add survey_live: overlay SLURM job state on the status matrix`.
 Rework `gui/views/0_Project_Status.py` to drive `survey_live` + `advance_one`.
 
 **Per-cell behavior (dependency- and job-state-gated):**
+
+*The glyphs below are the original emoji. Since 2026-10-08 (`TODO.md` `#8`) the
+cells use Material Symbols, which Streamlit serves itself, because emoji render as
+empty boxes on a browser with no emoji font. `_FS_ICON` and `_JOB_ICON` in
+`0_Project_Status.py` hold the current set.*
+
 - `complete` → 🟢, no action (optional: "re-run" under an "advanced" toggle).
 - `running`/`queued` → 🔵/⏳, **no run button** (prevents double-submit); the cell
   opens a popover referencing the exact job (id + live squeue/sacct detail + log

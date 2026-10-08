@@ -59,7 +59,7 @@ st.markdown(
     so it can be read **before** any setup — by the people who can't launch
     this page yet:
 
-    ### 📖 [New to Talapas? — the newcomer guide](https://github.com/hulacon/duckbrain/blob/main/docs/new-to-talapas.md)
+    ### :material/menu_book: [New to Talapas? — the newcomer guide](https://github.com/hulacon/duckbrain/blob/main/docs/new-to-talapas.md)
 
     It covers, in plain words:
 

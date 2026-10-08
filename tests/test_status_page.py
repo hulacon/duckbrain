@@ -1,8 +1,8 @@
 """Smoke/interaction tests for the Project Status page (the pipeline cockpit).
 
 The board is an actionable grid: each (unit, stage) cell is a status icon that
-upgrades to a popover when it has an action — ``▶`` to launch (keys ``runbtn_*``),
-``🔴`` to view the SLURM log + re-run a failed stage (``rerun_*`` / ``dl_*``), and a
+upgrades to a popover when it has an action — a play icon to launch (keys ``runbtn_*``),
+a failed cell to view the SLURM log + re-run a failed stage (``rerun_*`` / ``dl_*``), and a
 per-column header popover for bulk (``bulk_run_<stage>`` / ``bulk_confirm_<stage>``).
 
 A cell popover computes its body **only while open** (`#42.2`), so a test that
@@ -382,7 +382,7 @@ def test_submission_log_panel_renders(project):
 
 def test_consistency_warning_panel_renders(project):
     # use_nordic on, but the fMRIPrep derivative was generated from raw data —
-    # check_consistency should flag it and the cockpit should surface the ⚠️.
+    # check_consistency should flag it and the cockpit should surface the warning.
     import json
 
     from duckbrain.config import save_project_config
@@ -712,9 +712,9 @@ def test_a_clean_outcome_result_says_what_was_checked(project):
 
 
 def test_a_queued_unit_is_counted_once_and_as_queued(project, monkeypatch):
-    """One queued fMRIPrep unit used to read "🔵 1 running · ○ 2 missing" in the
+    """One queued fMRIPrep unit used to read "1 running · 2 missing" in the
     rollup: queued called running, and the queued unit counted again as
-    missing, while its own cell said ⏳ queued."""
+    missing, while its own cell said queued."""
     from duckbrain.config import load_config
     from duckbrain.core.pipeline import record_submission
 
@@ -737,5 +737,6 @@ def test_a_queued_unit_is_counted_once_and_as_queued(project, monkeypatch):
     at = AppTest.from_file(PAGE, default_timeout=60).run()
     assert not at.exception
     caps = [c.value for c in at.caption]
-    assert "⏳ 1 queued · ○ 1 missing" in caps
-    assert not any("🔵 1 running" in c for c in caps)
+    queued, missing = ":gray[:material/schedule:]", ":gray[:material/radio_button_unchecked:]"
+    assert f"{queued} 1 queued · {missing} 1 missing" in caps
+    assert not any("1 running" in c for c in caps)

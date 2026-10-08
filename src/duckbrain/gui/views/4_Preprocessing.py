@@ -80,7 +80,7 @@ with tab_fmriprep:
 
     if config.get("nordic", {}).get("use_nordic", False):
         st.info(
-            "🧊 **use_nordic** is on for this project — fMRIPrep runs on the "
+            ":material/ac_unit: **use_nordic** is on for this project — fMRIPrep runs on the "
             "NORDIC-denoised input (`derivatives/nordic/bids_format`) and "
             "requires the NORDIC stage to be complete for each subject first."
         )

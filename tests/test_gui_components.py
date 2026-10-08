@@ -26,8 +26,10 @@ def _run(tmp_path, **kwargs):
 
 
 def _folder_button(at, name):
+    # Folder buttons carry the folder icon as `icon=`, so the label is the bare
+    # name; the key (`<picker>_d<i>`) tells them from the breadcrumb buttons.
     for b in at.button:
-        if b.label == f"\U0001f4c1 {name}":
+        if b.key and "_d" in b.key and b.label == name:
             return b
     raise AssertionError(f"no folder button for {name!r}")
 
@@ -39,8 +41,11 @@ def test_renders_subdirs_and_selection_caption(tmp_path):
     at = _run(tmp_path)
 
     labels = [b.label for b in at.button]
-    assert "\U0001f4c1 alpha" in labels
-    assert "\U0001f4c1 beta" in labels
+    assert "alpha" in labels
+    # A Material icon, which Streamlit serves itself: the old 📁 emoji was an empty
+    # box on a browser with no emoji font (TODO #8).
+    assert _folder_button(at, "alpha").proto.icon == ":material/folder:"
+    assert "beta" in labels
     assert not any(".hidden" in lbl for lbl in labels)
     assert at.session_state["__dp_t"] == str(tmp_path)
     assert any("✓ Selected" in c.value for c in at.caption)
@@ -56,7 +61,7 @@ def test_navigate_then_commit(tmp_path):
     assert at.session_state["__dp_t"] == str(tmp_path)
     assert at.session_state["__dp_t_cwd"] == str(tmp_path / "alpha")
     # the browsed dir's children are now listed
-    assert any(b.label == "\U0001f4c1 inner" for b in at.button)
+    assert any(b.label == "inner" for b in at.button)
 
     at.button(key="t_use").click().run()
     assert not at.exception
@@ -84,8 +89,8 @@ def test_filter_narrows_list(tmp_path):
     at.text_input(key="__dp_t_flt").input("alp").run()
     assert not at.exception
     labels = [b.label for b in at.button]
-    assert "\U0001f4c1 alpha" in labels
-    assert "\U0001f4c1 beta" not in labels
+    assert "alpha" in labels
+    assert "beta" not in labels
 
 
 def test_typed_path_commits_directly(tmp_path):
@@ -155,16 +160,16 @@ def test_list_subdirs_marks_access(pirg_tree):
 def test_your_groups_first_and_closed_hidden(pirg_tree):
     at = _run(pirg_tree)
     folders = [b for b in at.button if b.key and b.key.startswith("t_d")]
-    assert [b.label for b in folders] == ["\U0001f4c1 mylab — your group", "\U0001f4c1 apps"]
+    assert [b.label for b in folders] == ["mylab — your group", "apps"]
 
     at.checkbox(key="t_closed").check().run()
     assert not at.exception
     folders = [b for b in at.button if b.key and b.key.startswith("t_d")]
     assert [(b.label, b.disabled) for b in folders] == [
-        ("\U0001f4c1 mylab — your group", False),
-        ("\U0001f4c1 apps", False),
-        ("\U0001f4c1 other — no access", True),
-        ("\U0001f4c1 zeta — no access", True),
+        ("mylab — your group", False),
+        ("apps", False),
+        ("other — no access", True),
+        ("zeta — no access", True),
     ]
 
 
@@ -173,7 +178,7 @@ def test_filter_shows_a_closed_match_as_no_access(pirg_tree):
     at.text_input(key="__dp_t_flt").input("zet").run()
     assert not at.exception
     folders = [b for b in at.button if b.key and b.key.startswith("t_d")]
-    assert [(b.label, b.disabled) for b in folders] == [("\U0001f4c1 zeta — no access", True)]
+    assert [(b.label, b.disabled) for b in folders] == [("zeta — no access", True)]
 
 
 # ---------------------------------------------------------------------------

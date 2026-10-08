@@ -39,7 +39,7 @@ sub-items as fixtures appear ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
 [`#7`](#7) extra stages — the four `#43` claims
 are still described there; the rest is unscheduled ·
-[`#8`](#8) branding (interim mark shipped), glyph vocabulary, dark theme ·
+[`#8`](#8) branding (interim mark + Material symbols shipped), dark theme ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
 [`#46`](#46) — tree comparator (conversion validation + duplicate audit, one
 digest core) — **not scheduled**; shape to be decided once the first
@@ -828,11 +828,8 @@ settles the in-GUI guidance bullet below. What it left open for duckbrain:
   (`/gpfs/projects/hulacon` is `0770`), and `project_dir` is free text. Both need
   defaults under a PIRG the students belong to. This waits on where the course
   places the shared env and checkout.
-- **Emoji on a compute-node browser** (`F17`). Talapas compute nodes have no
-  emoji font, so on the Interactive Desktop route every glyph renders as a box:
-  the Status cells, the legend, 📁 Browse. Each glyph is paired with a word, so
-  meaning survives. Fix only if that route is the course's: swap to symbols that
-  DejaVu Sans covers (✓ ✗ ● ◐ ○ ▶ ⚠). Depends on the distribution answer.
+- **Emoji on a compute-node browser** (`F17`). **Fixed 2026-10-08** under
+  `#8`: the GUI's symbols are Material Symbols now, and the tab icon is a file.
 
 Not duckbrain's, but they gate the course: the launch route (the distribution
 bullet below), placing the course assets under `psy607`, and students' read
@@ -1680,11 +1677,13 @@ Tasteful, not over-designed, and after the product behavior is locked.
 
 - **Logo / wordmark** that works small and as a banner, plus a README banner.
   The interim mark holds the place until then.
-- **The GUI's glyph vocabulary**: about 40 emoji, including the Status cell
-  states 🟢 🟡 🔵 🔴 ⚪ ⏳ and 📁 Browse. They are font-rendered, so on a
-  compute-node browser they show as empty boxes (`#2`, usability `F17`).
-  Choosing a replacement set is a visual-identity call: decide it here, once,
-  not separately for `F17`.
+- **The GUI's glyph vocabulary — DECIDED and SHIPPED 2026-10-08 (Ben):**
+  Material Symbols, which Streamlit serves itself, with a plain ● (or ✓ / ?)
+  wherever a glyph sits in a table cell. Four sets were mocked and rendered on a
+  compute node (emoji, DejaVu Unicode, Material, words only); the record is in
+  mmmdata-agents' `duckbrain-usability` workbench. This closes `F17` under `#2`.
+  Left as they were: the plain-text arrows and marks in prose and captions
+  (`✓ ✗ ○ ▾ ↳ ← ✎`), which render from ordinary fonts.
 - **Dark theme.** It is switched off on purpose: the pin gives a dark-OS
   browser the light theme. Offering dark again means choosing a dark palette
   and measuring it the way the light one was. (Ben's call 2026-07-30 put dark
