@@ -16,8 +16,8 @@ row: a comment citing `#17.4` is answered by the `#17` ledger line, which covers
 
 **Open items, in priority order:**
 [`#43`](#43) — running duckbrain on mmmdata; an ordering over five
-existing capability items, not new work of its own. `#43.1` and `#43.2`'s
-reading pass shipped 2026-08-20, `#43.3` Slice A 2026-08-21 ·
+existing capability items, not new work of its own. **Adopted for production
+conversion 2026-10-07**; `#43.4` is bridged, `#7.9` and `#10` are next ·
 [`#16`](#16) — sanity checks (Slices A–C done; `#16.3` open) ·
 [`#5b`](#5b) NORDIC — **Case 2 SHIPPED 2026-08-21**, its *reporting* half;
 the **clobber guard SHIPPED 2026-09-01** (the data-loss path in shipped code),
@@ -29,14 +29,15 @@ left is the UO employee-IP answer, which does not block anything ·
 [`#42`](#42) — 100-subject scale; the cheap tranche shipped 2026-08-20, what is
 left is three unscheduled design questions, of which `#42.7` (stage-scoped
 filter) is wanted by the mmmdata campaign ·
-[`#2`](#2) onboarding — the writing shipped in `v0.5.0`; the remainder (clean-account
-walk, in-GUI guidance, distribution) is blocked on people who aren't Ben — take
-sub-items as the blockers clear ·
+[`#2`](#2) onboarding — the writing shipped in `v0.5.0`; a course (PSY607,
+January 2027) now drives the rest. Its GUI walk-through (2026-10-06/07) is done
+and fixed; open are a course preset, the OnDemand form defaults, the
+fresh-user walk and distribution (RACS) ·
 [`#19`](#19) conversion coverage — **not scheduled**, mostly data-blocked; take
 sub-items as fixtures appear ·
 [`#9`](#9) launch surface ·
 [`#10`](#10) template groups · [`#11`](#11) automation ·
-[`#12`](#12) mmmdata-agents · [`#7`](#7) extra stages — the four `#43` claims
+[`#7`](#7) extra stages — the four `#43` claims
 are still described there; the rest is unscheduled ·
 [`#8`](#8) branding + dark theme ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
@@ -57,8 +58,9 @@ the rule lives — the two questions that sort finished work into releases, and 
 "ship it all at once" is the wrong default. It used to be narrated here release by
 release, which meant this file carried a running account of `v0.4.0`–`v0.6.0` that
 `CHANGELOG.md`, `git tag` and the Releases page already carried better, and that
-went stale between every read. **Currently unreleased:** nothing — `v0.7.0`
-(2026-08-27) shipped the whole queue.
+went stale between every read. **Currently unreleased:** everything after `v0.7.0`
+(2026-08-27), including a security fix (the GUI access gate); `CHANGELOG.md`
+`[Unreleased]` has the list.
 
 ---
 
@@ -675,7 +677,7 @@ is "Restore the NORDIC fMRIPrep arm".
 **This is `#43.1` — first of the mmmdata slices, 2026-08-20.** Not because it is
 urgent but because it is cheap and it blocks *other people's* work rather than
 Ben's. Note the boundary precisely: running duckbrain on mmmdata needs no licence
-answer at all. Only **code moving between the repos** does — which is `#12`, the
+answer at all. Only **code moving between the repos** does — the
 `surveyor.py` port, and `#7.4`'s end state where mmmdata depends on duckbrain
 instead of keeping a copy.
 
@@ -713,8 +715,8 @@ instead of keeping a copy.
   territory. See `memory/licensing-and-versioning`.
 - ✅ **Answered 2026-08-20 for Ben's own repos (`#43.1`).** `mmmdata-agents` and
   `mmmdata` are both **GPL-3.0-or-later** now, matching duckbrain byte-for-byte
-  on the LICENSE text — so `#12` and the `surveyor.py` port need no
-  dual-licensing, and the wall they were said to hit is gone in that direction.
+  on the LICENSE text — so the `surveyor.py` port needs no
+  dual-licensing, and the wall it was said to hit is gone in that direction.
   `mmmdata` turned out to be the urgent one: it is **public** on GitHub and was
   unlicensed, i.e. all-rights-reserved to every reader of its docs site. Two
   docs-only commits from a second contributor (47 lines) are non-blocking but
@@ -809,6 +811,35 @@ happened, and distribution needs RACS. Take them as the blockers clear, and
 batch `#30`'s browser-eyeball queue into the walkthrough — it puts you in front
 of the GUI anyway. `QUICKSTART.md` and `README.md` are written and current.
 
+**2026-10-08 — a course now drives this item: PSY607, January 2027** (course
+PIRG `psy607`, one subject scanned in week 1). The maintainer walked the course's
+six tasks (launch → Setup → Ingestion → Conversion → Preprocessing → QC) on the
+course's own export, 2026-10-06/07. The walk is recorded in mmmdata-agents'
+`duckbrain-usability` workbench, findings `F1`–`F42`. Its GUI findings are
+fixed or accepted, all but `F17` below: see `git log` 2026-10-05 → 10-08, plus
+`#30` item 2 for the one check only a browser over OnDemand can settle. That
+settles the in-GUI guidance bullet below. What it left open for duckbrain:
+
+- **A course preset that Setup reads** (`F3`). The docs send about seven lab
+  decisions to "ask your PI": PIRG, shared env, containers, versions, NORDIC,
+  project location and DICOM access. In a course the instructor is the PI. Ship
+  the answers as a preset Setup loads, so students don't type paths.
+- **OnDemand form defaults** (`F4`). `ondemand/form.yml` defaults `duckbrain_dir`
+  to the maintainer's hulacon checkout, which non-members cannot read
+  (`/gpfs/projects/hulacon` is `0770`), and `project_dir` is free text. Both need
+  defaults under a PIRG the students belong to. This waits on where the course
+  places the shared env and checkout.
+- **Emoji on a compute-node browser** (`F17`). Talapas compute nodes have no
+  emoji font, so on the Interactive Desktop route every glyph renders as a box:
+  the Status cells, the legend, 📁 Browse. Each glyph is paired with a word, so
+  meaning survives. Fix only if that route is the course's: swap to symbols that
+  DejaVu Sans covers (✓ ✗ ● ◐ ○ ▶ ⚠). Depends on the distribution answer.
+
+Not duckbrain's, but they gate the course: the launch route (the distribution
+bullet below), placing the course assets under `psy607`, and students' read
+access to the LCNI export before week 1. The course's pilot (≥ 2 people who
+are not the maintainer) is the `UNVALIDATED` walk below.
+
 **2026-08-07 — Ben's three directions for this item, all landed the same day:**
 
 1. **Both launch routes are documented as real, current paths** — the
@@ -853,11 +884,15 @@ of the GUI anyway. `QUICKSTART.md` and `README.md` are written and current.
   exact config key set the Setup page emits matching the hand-written shapes in the
   docs; `scripts/launch.sh` srun flags under current partition/account policy; and
   personal-OOD-sandbox registration for a *new* user.
-- **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion) —
-  needs a real walkthrough to know where the friction actually is.
+- **In-GUI guidance at friction points** (Setup, ingestion mapping, conversion).
+  The course walk-through above found the friction, and its fixes shipped as GUI
+  changes (one "not ready yet" voice that links the missing step, plain-words
+  captions, a Setup that starts empty). Any further guidance waits for the pilot
+  to find friction the maintainer can't see.
 - **Distribution story — needs RACS.** The OOD app is a personal sandbox today.
   Three candidates laid out but not picked in
-  `QUICKSTART.md#the-distribution-question`.
+  `QUICKSTART.md#the-distribution-question`. The course needs this answered
+  before January 2027 (`F1`).
 
 ### Second-user blockers, actually checked (2026-07-20)
 
@@ -1356,34 +1391,8 @@ unattended — either by periodically checking in, or by chaining dependencies.
   run? Cron on a Talapas login node may be discouraged or disallowed — a RACS
   question, and the answer may push this toward a long-lived SLURM job or an
   OOD-launched daemon.
-- Related but distinct from `#12`: a deterministic reconciler and an agent that
-  decides what to run next are alternative drivers over the same core API.
-
----
-
-<a id="12"></a>
-## #12 — Merge with mmmdata-agents (exploratory)
-
-**Captured 2026-07-20, Ben's idea.**
-`/gpfs/projects/hulacon/shared/mmmdata/code/mmmdata-agents` is a Claude-powered
-agent repo over the mmmdata dataset: a data agent (natural language BIDS
-queries), a QC agent (MRIQC outliers), an orchestrator, and a tool registry under
-`src/tools/` — `bids_tools`, `conversion_tools`, `manifest_tools`, `qc_tools`,
-`slurm_tools`, `sourcedata_tools`.
-
-- **The overlap is close to one-to-one**, which is the argument for merging rather
-  than a second implementation: those tool modules map onto duckbrain's
-  `core/surveyor.py` (inventory/status), `core/consistency.py`, `slurm/monitor.py`
-  + `core/pipeline.py`, and the `core/` BIDS modules. mmmdata-agents even carries
-  its own `pipeline_status_*.tsv` — the thing the surveyor exists to produce.
-- **duckbrain is already shaped for this.** The core/GUI split means the useful
-  surface is plain Python with no Streamlit in it (`survey_project`, `survey_live`,
-  `stage_runnable`, `advance_one`, `check_consistency`). Backing agent tools with
-  that core is mostly wiring, not redesign.
-- **⚠️ Check the licence before any code moves** — see Licensing above.
-- **Cheapest first step, if this proceeds:** point one existing agent tool at
-  duckbrain's surveyor instead of its own status code, and see whether the
-  abstraction actually fits before committing to a merge.
+- A deterministic reconciler and an agent that decides what to run next are
+  alternative drivers over the same core API.
 
 ---
 
@@ -2109,6 +2118,7 @@ docstring, the BEP028 sidecar warning in `core/nordic.py`, the task-vs-run rule 
 
 | Done | Id | Item |
 |---|---|---|
+| 2026-10-08 | `#12` | **Merge with mmmdata-agents — closed without a merge (Ben).** The overlap it targeted was settled by contract, not by moving code: mmmdata-agents answers "what exists" from the Contract A catalog, whose engine is `duckbrain.catalog`, and duckbrain became mmmdata's conversion route (`#43`, adopted 2026-10-07). The agent loop and orchestrator it described were retired for an MCP server in 2026-08. |
 | 2026-08-21 | `#45` | **The dcm2niix probe can say "couldn't look", and a failed run no longer reads as a clean session.** `probe_session` returned a bare map, so a non-zero exit was indistinguishable from a session whose series all legitimately yield nothing — the silently-degrading-option rule inside `core/`. It now returns a `ProbeResult` carrying the probes *and* a `failure` string, set on a non-zero exit (code plus dcm2niix's last line, not the whole log — it renders in a caption), a timeout naming its budget, an exec error, or no runnable dcm2niix at all. **Both fields, not either/or:** dcm2niix can write sidecars and then fail, so discarding the partial read throws away real answers while reporting only the partial read claims the session was checked. `probe_unavailable_reason` is untouched and still cannot answer this — it looks for the binary rather than trying it, which is exactly the gap (availability was reportable, usability was not). Consumers: the preflight caption prints the reason and the green tick is gated on `result.ok` as well as on having probes; the bulk path warns per session, the same warning a missing dcm2niix already got. `session_probes` carries `runtime.reason` into the result, since a probe that is never called is the one failure it cannot report itself, and `_probe_cached` caches the whole result so a Streamlit rerun re-renders the same honesty rather than a clean panel over a remembered empty map. **Validated both ways against the real binary:** the guarded corpus test passes on the LCNI repository normally, and under the pip console-script shim that triggered this it now *skips* naming `dcm2niix exited 1: ModuleNotFoundError…` where it previously read as an empty session. Five new pins in `tests/test_dcm2niix_probe.py` plus one each at the panel, the page and the bulk path. |
 | 2026-08-20 | `#44` | **CI is green again: the flat-root listing now answers all three questions, not one of three.** The 3.12 leg failed `TestFlatLayoutIsScannedOnce` at `1 + 2×4` scans, and the arithmetic was the diagnosis — the cache worked, and the two calls it never covered (`_mriqc_expected_found`'s nested `sub-XX/**/*.json` glob and `_mriqc_status`'s `{ss}` subtree probe) ran once per unit each. **The 3.11 leg was green for an implementation-detail reason, not because the code was right:** 3.11 resolved a literal leading component by statting the named child, 3.12 removed that path and listed the parent like any other component, and 3.13 put a literal fast path back — so the same code costs 1 scan, 9 scans, and 1 scan on three consecutive Pythons. Two fixes, both aimed at *not globbing the root* rather than at making the glob cheap, which is the only form that holds on all three. `_has_match` answers a wildcard-free pattern with one stat, which is every stage's `{ss}` probe, not just MRIQC's. The listing gained the entry *type* alongside the name (`_FlatListing`, `subdirs`) — the distinction that tells the flat layout from the nested one — so `_mriqc_nested_jsons` can skip the nested search where no `sub-XX` directory exists and, where one does, glob from the subject's own directory instead of from the root. Caching the type is safe for the same reason caching the name is: an entry cannot become a directory without being created, and that moves the parent's mtime. **The assertion was not loosened**, and the pin that replaces the version lottery is `test_the_flat_root_is_never_globbed_at_all`, which counts *calls* rather than scans — it fails on 3.11 too, at exactly the 8 globs that were 8 scans on 3.12. One new defensive branch is pinned by `test_a_listing_keeps_the_names_it_cannot_type`: an entry whose type won't stat must not empty the whole listing, since an empty listing reads as "MRIQC wrote nothing here" and grades every unit MISSING. Also makes an unreleased `CHANGELOG.md` sentence true — "listed once per survey rather than once per subject-session" was a claim about 3.11 only. |
 | 2026-08-19 | `#7.7` | **External FreeSurfer recon stage feeding fMRIPrep — built, with the `#5b` forcing question settled on the way.** New `core/freesurfer.py` + `templates/sbatch/freesurfer_recon.sbatch.j2` + `[freesurfer]` config; opt-in per project (`use_external`), NA otherwise (`#17.4`'s rule). The stage is duckbrain's first **subject-level** one — recon-all takes every session's T1w at once, matching fMRIPrep 25's default subject-level anatomical reference — carried by `StageSpec.unit` so `advance_one` drops the session in one place and the job name, submission record, cockpit overlay, and bulk-run dedupe all follow. §9's two traps are closed structurally: the recon runs under a dot-prefixed per-subject staging `SUBJECTS_DIR` and only a finished recon is atomically renamed into `<derivatives>/fmriprep/sourcedata/freesurfer/` (never a second writer in the `#21` battleground, never a partial tree at the import path); version identity is the recon's own `build-stamp.txt` against the `[freesurfer]` pin, required by the surveyor tracker, the recon launcher, and the fMRIPrep gate — so fMRIPrep refuses to submit (rather than silently FS7-resuming) until the recon is complete and version-matched, then passes `--fs-no-resume`. **The `#5b` Case 3 decision: parked stays parked.** `effective_depends_on` became `effective_dependencies` returning a tuple — fMRIPrep is the one stage with two config-conditional producers, and that is the whole requirement; the named-pipeline DAG still waits for branch counts to actually grow. `_DUCKBRAIN_RECIPE_STAGES` deliberately does NOT gain a row: the recon lands in a FreeSurfer SUBJECTS_DIR that is not ours to stamp, and its identity question is answered by the build-stamp gates (comment at the dict says so). Not yet validated live — pilot + the LCNI/nipreps validity ask tracked in mmmdata-agents `docs/workbench/fs8-external-recon/`. Tests: `test_freesurfer.py`, freesurfer sections of `test_pipeline.py` / `test_surveyor.py` / `test_sbatch_templates.py`. |
