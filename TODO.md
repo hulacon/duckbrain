@@ -241,6 +241,33 @@ be *exercised* rather than stressed.
   table, so `cnr_dwi_min` is blank there and could only come from the
   `model-eddy_stat-cnr_dwimap` image.
 
+  **Next: a gradient-table orientation check (decided 2026-10-09, Ben).**
+  QSIPrep's `*_coherence_index` columns cannot flag a flipped or swapped
+  b-table, so they stay off the page. Each is DSI Studio's raw fiber-coherence
+  score for one table, unnormalised and scaled by brain size. A flip shows only
+  as the shipped table scoring below its own flipped variants, and QSIPrep
+  keeps no such comparison. `raw_` is worse still: on merged sessions it is
+  scored after DSI Studio's `check_btable=1` has already auto-corrected the
+  table.
+
+  The check: for each session's final `space-ACPC_desc-preproc_dwi` plus its
+  `.b_table.txt`, build a src, run `dsi_studio --action=rec --method=4
+  --check_btable=1` in the QSIPrep container, and parse the ranking DSI
+  Studio logs (`012=BEST,012fx=-N%,…` over all 24 flip/swap arrangements; it
+  registers fibres to ICBM152). Pass when `012` is BEST. Record the
+  runner-up's margin.
+
+  Surface it as a session-level QSIPrep evidence item on the dwi page, and
+  in the qsiprep landing checklist. It costs one GQI rec per session (about
+  10 min at 8 CPUs on a 216-volume series), so it is a post-stage step, not a
+  page-load computation.
+
+  The alternative it beat is scoring the shipped table against its x/y/z sign
+  flips by fib-QC coherence. It agrees, but its margin varies by protocol and
+  participant. A prototype and the validation run (it reproduces QSIPrep's
+  `t1_coherence_index` exactly) live in the private mmmdata-agents workbench
+  `dwi-qc`.
+
   **What Slice A is:** a launchable, tracked `qsiprep` stage — `core/qsiprep.py`,
   `templates/sbatch/qsiprep.sbatch.j2`, a `_qsiprep_status` tracker with the
   merge-tolerant grader Trap 1 asked for, a cockpit arm, a fourth Preprocessing
