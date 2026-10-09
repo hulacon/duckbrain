@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 import streamlit as st
 
-from duckbrain.core import qc, qc_domains, qc_evidence, qc_guidance, qc_report
+from duckbrain.core import qc, qc_domains, qc_dwi, qc_evidence, qc_guidance, qc_report
 from duckbrain.core.qc_domains import ReviewDomain
 from duckbrain.gui import report_route
 from duckbrain.gui.components import _media_url_prefix, flush_toasts, queue_toast, require_project
@@ -84,6 +84,13 @@ def _show_figure(path: Path, label: str) -> None:
     st.image(str(path), caption=label or None, width="stretch")
 
 
+#: Above this, a figure stays closed even where ``default_open`` asks for it
+#: open. fMRIPrep's are about a megabyte each; QSIPrep writes one denoising
+#: figure per acquired run at ~6.5 MB, so a four-direction session's set is
+#: ~27 MB — on every arrival, for one of eight figures.
+AUTO_OPEN_MAX_BYTES = 20_000_000
+
+
 def evidence_viewer(
     fmriprep_dir: Path | str,
     domain: ReviewDomain,
@@ -92,8 +99,9 @@ def evidence_viewer(
     modality: str = "bold",
     key_prefix: str = "",
     default_open: bool = False,
+    qsiprep_dir: Path | str | None = None,
 ) -> int:
-    """Show the fMRIPrep figures *domain* is reviewed through. Returns how many.
+    """Show the fMRIPrep or QSIPrep figures *domain* is reviewed through. Returns how many.
 
     Each figure sits behind its own toggle with its size named first, because
     these are megabyte-scale SVGs and the reviewer should choose knowingly which
@@ -101,14 +109,17 @@ def evidence_viewer(
     1.1 MB per figure instead of 80 MB per subject. ``default_open`` flips the
     toggles on to begin with — the inspector page wants the evidence visible on
     arrival, since looking at it *is* that page's purpose — while the toggle
-    stays as the way to put a figure away.
+    stays as the way to put a figure away. A figure set larger than
+    :data:`AUTO_OPEN_MAX_BYTES` stays closed regardless, and says so.
 
     An absent figure is **reported, not skipped**. For most that reads as "this
     run was not preprocessed"; for the distortion-correction figure it means the
     run was preprocessed with no correction at all, which is a finding a blank
     space would hide.
     """
-    hits = qc_evidence.collect(fmriprep_dir, domain, run_key, modality=modality)
+    hits = qc_evidence.collect(
+        fmriprep_dir, domain, run_key, modality=modality, qsiprep_dir=qsiprep_dir
+    )
     if not hits:
         return 0
 
@@ -122,10 +133,15 @@ def evidence_viewer(
             continue
 
         shown += 1
-        st.caption(f"**{fig.label}** — {_size_note(hit.total_bytes, len(hit.paths))}")
+        too_big = hit.total_bytes > AUTO_OPEN_MAX_BYTES
+        note = _size_note(hit.total_bytes, len(hit.paths))
+        if default_open and too_big:
+            note += " — closed to begin with, for its size"
+        st.caption(f"**{fig.label}** — {note}")
         # Not lower-cased: these labels are full of acronyms, and "bold to t1w
         # coregistration" reads as a mistake rather than as a sentence.
-        if not st.toggle(f"Show {fig.label}", key=widget_key, value=default_open):
+        opened = default_open and not too_big
+        if not st.toggle(f"Show {fig.label}", key=widget_key, value=opened):
             continue
 
         st.markdown(f"*Look for:* {fig.look_for}")
@@ -145,7 +161,7 @@ def evidence_viewer(
 _SCOPE_PARAMS = {"qc_modality": "modality", "qc_run": "run"}
 _SEEDED = "_qc_scope_seeded"
 
-MODALITIES = ("bold", "T1w", "T2w")
+MODALITIES = ("bold", "T1w", "T2w", qc_dwi.MODALITY)
 
 
 @dataclass(frozen=True)
@@ -180,6 +196,7 @@ class Scope:
     selected_key: str
     mriqc_dir: Path
     fmriprep_dir: Path
+    qsiprep_dir: Path
     decisions_dir: Path
     decisions_read_dirs: list[Path]
     settings: dict[str, float]
@@ -291,6 +308,21 @@ def _load_motion(
     return qc.summarize_motion(fmriprep_dir, fd_threshold=fd_threshold)
 
 
+@st.cache_data(show_spinner="Reading MRIQC and QSIPrep diffusion output…")
+def _load_dwi_sessions(
+    mriqc_dir: str,
+    qsiprep_dir: str,
+    fingerprint: tuple[tuple[int, float], tuple[int, float]],
+) -> pd.DataFrame:
+    """Cached diffusion session table, keyed on the state of *both* derivatives.
+
+    Two fingerprints, because the table is built from two trees and either can
+    change alone: QSIPrep landing a session must not be served the MRIQC-only
+    row it replaces. No leading underscore, for the reason in :func:`_load_metrics`.
+    """
+    return qc_dwi.load_session_metrics(mriqc_dir, qsiprep_dir)
+
+
 def _fingerprint_of(root: Path, pattern: str) -> tuple[int, float]:
     """(count, newest mtime) of matching files — enough to invalidate the cache.
 
@@ -322,6 +354,7 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
         return None
 
     mriqc_dir = Path(derivatives_dir) / "mriqc"
+    qsiprep_dir = Path(derivatives_dir) / "qsiprep"
     # Two names, and they are not the same thing: decisions are *written* to one
     # place and *read* from everywhere they have ever been written, so a project
     # reviewed before duckbrain gathered its output under one directory — or by
@@ -335,12 +368,39 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
     with cols[0]:
         modality = _pick("Modality", list(MODALITIES), "qc_modality")
 
-    metrics_df = _load_metrics(
-        str(mriqc_dir), modality, _fingerprint_of(mriqc_dir, f"*_{modality}.json")
-    )
+    is_dwi = modality == qc_dwi.MODALITY
+    if is_dwi:
+        metrics_df = _load_dwi_sessions(
+            str(mriqc_dir),
+            str(qsiprep_dir),
+            (
+                _fingerprint_of(mriqc_dir, f"*_{modality}.json"),
+                _fingerprint_of(qsiprep_dir, qc_dwi.IMAGE_QC_GLOB),
+            ),
+        )
+    else:
+        metrics_df = _load_metrics(
+            str(mriqc_dir), modality, _fingerprint_of(mriqc_dir, f"*_{modality}.json")
+        )
     iqm_cols = qc.iqm_columns(modality)
     iqr_multiplier = float(st.session_state.get("qc_iqr", settings["iqr_multiplier"]))
     runs: list[RunRow] = []
+
+    if is_dwi and metrics_df.empty:
+        # Diffusion rows come from either tool, so empty means neither has run;
+        # there is no third tree whose figures could stand in.
+        st.warning(
+            f"No diffusion output found in `{mriqc_dir}` or `{qsiprep_dir}`. "
+            "Run MRIQC or QSIPrep from the **Preprocessing** page."
+        )
+        return None
+    if is_dwi:
+        st.caption(
+            "Diffusion is reviewed per **session**: QSIPrep preprocesses a "
+            "session's runs together, so each row below is a session, MRIQC's "
+            "numbers are its worst run, and a session is compared only with "
+            "sessions acquired with the same phase-encoding directions."
+        )
 
     if metrics_df.empty:
         # MRIQC has not run, but fMRIPrep may well have. Falling back to the run
@@ -361,20 +421,29 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
         )
         flagged: set[str] = set()
     else:
-        metrics_df = qc.detect_outliers(
-            metrics_df, iqm_columns=iqm_cols, iqr_multiplier=iqr_multiplier
-        )
+        if is_dwi:
+            metrics_df = qc_dwi.flag_outliers(metrics_df, iqm_cols, iqr_multiplier=iqr_multiplier)
+        else:
+            metrics_df = qc.detect_outliers(
+                metrics_df, iqm_columns=iqm_cols, iqr_multiplier=iqr_multiplier
+            )
         # Cleared at the source, so every reader of the flags agrees: the
         # Overview's counts, the run picker's ⚠, Inspect's per-measure column
         # and the X marks on the distributions.
         min_runs = int(settings["min_runs_for_flags"])
         if len(metrics_df) < min_runs:
-            outlier_cols = [c for c in metrics_df.columns if c.endswith("_outlier")]
-            metrics_df[outlier_cols] = False
+            metrics_df = _clear_fence_flags(metrics_df, modality)
+            unit = "session(s)" if is_dwi else "run(s)"
+            kept = (
+                " Neighbouring-DWI correlation keeps its own two rules, which are "
+                "built for small batches and can still flag."
+                if is_dwi
+                else ""
+            )
             st.info(
-                f"Only {len(metrics_df)} {modality} run(s) — too few to flag outliers "
+                f"Only {len(metrics_df)} {modality} {unit} — too few to flag outliers "
                 f"(flagging starts at {min_runs}). Every measure is still shown; judge "
-                "each run from its numbers, figures and report rather than from flags."
+                f"each one from its numbers, figures and report rather than from flags.{kept}"
             )
         motion_df = None
         if modality == "bold" and fmriprep_dir.is_dir():
@@ -389,7 +458,10 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
             iqm_cols,
             motion_df=motion_df,
             decisions=qc.load_decisions(decisions_read_dirs),
-            reports=qc_report.find_mriqc_reports(mriqc_dir, modality),
+            # A diffusion key is a session with one MRIQC report per direction,
+            # so a one-report-per-key map would pick one direction silently.
+            # The Inspect page offers them all instead (`full_report_panel`).
+            reports=None if is_dwi else qc_report.find_mriqc_reports(mriqc_dir, modality),
         )
         keys = [r["run_key"] for r in runs]
         flagged = {r["run_key"] for r in runs if r["is_outlier"]}
@@ -429,12 +501,32 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
         selected_key=run_key,
         mriqc_dir=mriqc_dir,
         fmriprep_dir=fmriprep_dir,
+        qsiprep_dir=qsiprep_dir,
         decisions_dir=decisions_dir,
         decisions_read_dirs=decisions_read_dirs,
         settings=settings,
         iqr_multiplier=iqr_multiplier,
         motion_status=qc_report.describe_motion_source(fmriprep_dir, runs, modality),
     )
+
+
+def _clear_fence_flags(metrics_df: pd.DataFrame, modality: str) -> pd.DataFrame:
+    """Clear the IQR-fence flags of a table too small for the fence to mean anything.
+
+    Diffusion's NDC flags are left standing. They do not come from the fence:
+    DSI Studio's median/MAD rule and the within-participant drop were chosen for
+    ``core/qc_dwi.py`` *because* a small batch defeats the fence, and each has
+    its own floor (three sessions, and a second session of the participant).
+    Clearing them with the fence would switch off the rules meant for exactly
+    this case.
+    """
+    out = metrics_df.copy()
+    measure_flags = [c for c in out.columns if c.endswith("_outlier") and c != "is_outlier"]
+    kept = {f"{m}_outlier" for m in qc_dwi.NDC_MEASURES} if modality == qc_dwi.MODALITY else set()
+    cleared = [c for c in measure_flags if c not in kept]
+    out[cleared] = False
+    out["is_outlier"] = out[measure_flags].any(axis=1) if measure_flags else False
+    return out
 
 
 def load_config_or_stop() -> Config:
@@ -631,8 +723,9 @@ def render_inspection_page() -> None:
         # A domain-wide caveat is about reading its numbers, so it belongs with
         # the table rather than down in the glossary a reader may not reach.
         for domain in qc_domains.DOMAINS:
-            if domain.caveat and domain.measures_for(scope.modality):
-                st.caption(f"**{domain.label}:** {domain.caveat}")
+            caveat = domain.caveat_for(scope.modality)
+            if caveat and domain.measures_for(scope.modality):
+                st.caption(f"**{domain.label}:** {caveat}")
     elif all_measures:
         # `elif`, not a `for … else` on the loop below: that loop never breaks,
         # so an `else` there printed this under a full MRIQC table (F30).
@@ -656,11 +749,16 @@ def render_inspection_page() -> None:
             scope.run_key,
             modality=scope.modality,
             default_open=True,
+            qsiprep_dir=scope.qsiprep_dir,
         )
 
     with st.expander("Open the tool's own report"):
         full_report_panel(
-            scope.mriqc_dir, scope.fmriprep_dir, scope.run_key, modality=scope.modality
+            scope.mriqc_dir,
+            scope.fmriprep_dir,
+            scope.run_key,
+            modality=scope.modality,
+            qsiprep_dir=scope.qsiprep_dir,
         )
 
     if scope.run:
@@ -830,6 +928,7 @@ def full_report_panel(
     run_key: str,
     *,
     modality: str = "bold",
+    qsiprep_dir: Path | str | None = None,
 ) -> int:
     """Offer the tools' own reports for this run, whole. Returns how many.
 
@@ -854,22 +953,41 @@ def full_report_panel(
     mriqc_dir, fmriprep_dir = Path(mriqc_dir), Path(fmriprep_dir)
     offered: list[tuple[str, Path]] = []
 
-    name = qc_report.find_mriqc_reports(mriqc_dir, modality).get(run_key)
-    if name:
-        offered.append(("MRIQC — this run", mriqc_dir / name))
+    if modality == qc_dwi.MODALITY:
+        # A session: one MRIQC report per direction, and QSIPrep's in place of
+        # fMRIPrep's, which never covers diffusion.
+        for name in qc_report.find_mriqc_run_reports(mriqc_dir, run_key, modality):
+            direction = qc.parse_entities(name.removesuffix(".html")).get("dir", "")
+            label = f"MRIQC — dir-{direction}" if direction else "MRIQC — this run"
+            offered.append((label, mriqc_dir / name))
+        qsiprep_report = (
+            qc_report.find_qsiprep_report(qsiprep_dir, run_key) if qsiprep_dir else None
+        )
+        if qsiprep_report:
+            offered.append(("QSIPrep — this session", qsiprep_report))
+        absent = (
+            "Neither tool has written a report covering this session. MRIQC writes "
+            "one per diffusion run and QSIPrep one per session — run them from "
+            "**Preprocessing**."
+        )
+    else:
+        run_report = qc_report.find_mriqc_reports(mriqc_dir, modality).get(run_key)
+        if run_report:
+            offered.append(("MRIQC — this run", mriqc_dir / run_report))
 
-    fmriprep_reports = qc_report.find_fmriprep_reports(fmriprep_dir)
-    for key in _fmriprep_report_keys(run_key):
-        if key in fmriprep_reports:
-            offered.append((f"fMRIPrep — {key}", fmriprep_dir / fmriprep_reports[key]))
-            break
-
-    if not offered:
-        st.caption(
+        fmriprep_reports = qc_report.find_fmriprep_reports(fmriprep_dir)
+        for key in _fmriprep_report_keys(run_key):
+            if key in fmriprep_reports:
+                offered.append((f"fMRIPrep — {key}", fmriprep_dir / fmriprep_reports[key]))
+                break
+        absent = (
             "Neither tool has written a report covering this run. MRIQC writes "
             "one per run and fMRIPrep one per subject — run them from "
             "**Preprocessing**."
         )
+
+    if not offered:
+        st.caption(absent)
         return 0
 
     for label, path in offered:
@@ -1035,6 +1153,12 @@ def render_overview() -> None:
             row["Mean FD"] = (r.get("motion") or {}).get("mean_fd")
             row["% high motion"] = r["iqms"].get("fd_perc")
             row["tSNR"] = r["iqms"].get("tsnr")
+        elif scope.modality == qc_dwi.MODALITY:
+            # The two the expert-rating study found most predictive, and eddy's
+            # motion summary (no BOLD-style % high motion exists for diffusion).
+            row["NDC (raw)"] = r["iqms"].get("raw_neighbor_corr")
+            row["Max translation"] = r["iqms"].get("max_rel_translation")
+            row["Mean FD (eddy)"] = r["iqms"].get("eddy_mean_fd")
         row["Flags"] = len(r["flagged_metrics"])
         row["Reviewer"] = r["reviewer"]
         rows.append(row)
@@ -1059,6 +1183,17 @@ def render_overview() -> None:
             ),
             "tSNR": st.column_config.NumberColumn(
                 format="%.1f", help="Temporal signal-to-noise ratio."
+            ),
+            "NDC (raw)": st.column_config.NumberColumn(
+                format="%.3f",
+                help="QSIPrep's neighbouring-DWI correlation on the uncorrected series.",
+            ),
+            "Max translation": st.column_config.NumberColumn(
+                format="%.2f",
+                help="Largest volume-to-volume translation from eddy (mm).",
+            ),
+            "Mean FD (eddy)": st.column_config.NumberColumn(
+                format="%.3f", help="Mean framewise displacement from eddy (mm)."
             ),
             "Flags": st.column_config.NumberColumn(
                 help=(
@@ -1111,6 +1246,13 @@ def _iqm_strips(scope: Scope) -> None:
     if scope.flagging:
         spread = (
             "the boxes are the IQR the outlier fence is computed from, and ✗ marks a flagged run."
+        )
+    elif any(r["is_outlier"] for r in scope.runs):
+        # Diffusion's NDC rules survive the small-batch floor (see
+        # `_clear_fence_flags`), so "nothing is flagged" would be false here.
+        spread = (
+            "with this few runs the boxes only sketch the spread and the IQR fence "
+            "is off; ✗ marks a flag from a rule built for small batches."
         )
     elif len(scope.runs) == 1:
         spread = "with one run, each measure is a single point, so there is no spread yet."

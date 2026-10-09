@@ -1504,6 +1504,471 @@ _register(
 )
 
 
+# --- Diffusion (per session) -----------------------------------------------
+#
+# Every key below is a column of ``core/qc_dwi.py``'s session table, not a key
+# MRIQC or QSIPrep writes under that name: diffusion is reviewed per session, so
+# each measure is the worst of the session's runs (MRIQC) or outputs (QSIPrep),
+# and a per-shell MRIQC measure is the worst shell. The two flag rules are
+# spelled out here as text because this module cannot import ``qc_dwi`` (it
+# imports ``qc``, which imports this registry through ``qc_domains``);
+# ``tests/test_qc_guidance.py`` pins the numbers in the text to the constants.
+
+_DWI_IQR_FLAG = (
+    "Flagged when outside the 1.5x IQR fence of the sessions in scope that share "
+    "this session's set of phase-encoding directions. No absolute cutoff is applied."
+)
+
+_DWI_NDC_FLAG = (
+    "Flagged, among sessions sharing this session's phase-encoding directions, when "
+    "below median - 3 x 1.4826 x MAD of that group (DSI Studio's batch rule), or "
+    "more than 0.1 below the same participant's best session of that protocol "
+    "(Yeh et al. 2019). Not the IQR fence: in a small batch, two collapsed sessions "
+    "widen the quartiles until neither falls outside them, and the median and MAD "
+    "are not moved by a minority."
+)
+
+_QSIPREP_PAPER = Reference(
+    label="Cieslak et al. (2021)",
+    detail="Nature Methods 18:775-778",
+    url="https://doi.org/10.1038/s41592-021-01185-5",
+    note="QSIPrep; source of the session image-QC table and eddy motion estimates",
+)
+
+_YEH_2019 = Reference(
+    label="Yeh et al. (2019)",
+    detail="NeuroImage 202:116131",
+    url="https://doi.org/10.1016/j.neuroimage.2019.116131",
+    note=(
+        "neighbouring-DWI correlation: typically 0.6-0.8; reject a scan more than 0.1 "
+        "below the same participant's other scan; accept under 0.1% dropout slices"
+    ),
+)
+
+_DSI_STUDIO_QC = Reference(
+    label="DSI Studio — cmd/qc.cpp",
+    detail="github.com/frankyeh/DSI-Studio",
+    url="https://github.com/frankyeh/DSI-Studio/blob/master/cmd/qc.cpp",
+    kind="software",
+    note="computes QSIPrep's NDC and bad-slice count; flags NDC below median - 3 MAD",
+)
+
+_HBN_POD2 = Reference(
+    label="Richie-Halford et al. (2022)",
+    detail="Scientific Data 9:616",
+    url="https://doi.org/10.1038/s41597-022-01695-7",
+    note=(
+        "expert ratings of QSIPrep output: raw NDC the strongest single predictor, "
+        "then max relative translation and outlier slices; cutoffs per question"
+    ),
+)
+
+_BASTIANI_2019 = Reference(
+    label="Bastiani et al. (2019)",
+    detail="NeuroImage 184:801-812",
+    url="https://doi.org/10.1016/j.neuroimage.2018.09.073",
+    note="eddy QC: CNR averaged per b-shell; group flags at 1 and 2 SD from the mean",
+)
+
+_NS_QSIPREP_QC = Reference(
+    label="NeuroStars — Interpreting QSIPrep HTML output for QC",
+    detail="neurostars.org/t/interpreting-qsiprep-html-output-components-for-qc-purposes/31539",
+    url="https://neurostars.org/t/interpreting-qsiprep-html-output-components-for-qc-purposes/31539",
+    kind="forum",
+    note="QSIPrep developers: no BOLD-style FD cutoff for diffusion; prefer NDC",
+)
+
+_NDC_PROTOCOL_CAVEAT = (
+    "Depends on the acquisition — b-values, how densely directions are sampled, "
+    "acquisition order — so it compares only within one protocol, which is why "
+    "sessions are grouped by their phase-encoding directions before any rule is "
+    "applied. Use it as a covariate as well as a screen."
+)
+
+_register(
+    MeasureGuidance(
+        key="raw_neighbor_corr",
+        label="Neighbouring-DWI correlation, raw",
+        modalities=("dwi",),
+        direction="higher_better",
+        why=(
+            "The mean correlation between each diffusion-weighted volume and its "
+            "nearest neighbour in q-space. Neighbouring directions should look "
+            "alike, so anything that corrupts volumes — noise, motion, eddy "
+            "currents, signal dropout — lowers it. Computed on the uncorrected "
+            "series, it measures the data as acquired, and it is the single "
+            "measure that best tracked expert ratings of QSIPrep output."
+        ),
+        look_for=(
+            "A low value says something corrupted volumes, not what. Open the "
+            "carpet plot for outlier slices and the denoising figure of each "
+            "phase-encoding direction for a run that looks unlike its partners."
+        ),
+        auto_flag=_DWI_NDC_FLAG,
+        literature_threshold=(
+            "Yeh et al. (2019) report 0.6-0.8 as typical and reject a scan more than "
+            "0.1 below the same participant's other scan. The '< 0.4' cutoff that "
+            "circulates is not in that paper."
+        ),
+        caveats=(
+            _NDC_PROTOCOL_CAVEAT + " On a session QSIPrep merged across "
+            "phase-encoding directions, the raw series is the concatenation, so "
+            "a merged session is not comparable with a single-direction one."
+        ),
+        references=(_YEH_2019, _DSI_STUDIO_QC, _HBN_POD2, _NS_QSIPREP_QC),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="t1_neighbor_corr",
+        label="Neighbouring-DWI correlation, preprocessed",
+        modalities=("dwi",),
+        direction="higher_better",
+        why=(
+            "The same correlation as the raw value, on the series after motion, "
+            "eddy-current and distortion correction and resampling to the T1w. "
+            "Read beside the raw value: preprocessing should raise it, and a "
+            "session that stays low after correction carries damage that "
+            "correction could not undo."
+        ),
+        look_for=(
+            "If this is low while the raw value is not, preprocessing made the data "
+            "worse: check the coregistration and distortion-correction figures. If "
+            "both are low, read the raw value's guidance."
+        ),
+        auto_flag=_DWI_NDC_FLAG,
+        caveats=(
+            _NDC_PROTOCOL_CAVEAT + " Resampling smooths the data, which raises "
+            "neighbour correlation by itself, so this value always reads higher "
+            "than the raw one and the two do not share a scale."
+        ),
+        references=(_YEH_2019, _DSI_STUDIO_QC, _QSIPREP_PAPER),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="cnr_dwi_min",
+        label="Eddy contrast-to-noise, worst shell",
+        modalities=("dwi",),
+        direction="higher_better",
+        why=(
+            "eddy's contrast-to-noise ratio for a b-shell: how much of the signal "
+            "varies with gradient direction, against eddy's residual noise. "
+            "Direction-dependent contrast is what every diffusion model fits, so "
+            "this is closer to 'is there anything to model' than any SNR. The "
+            "lowest diffusion-weighted shell's mean is shown."
+        ),
+        look_for=(
+            "The highest b-value shell has the least contrast by nature, so a low "
+            "value is only a finding against the same shell in other sessions. "
+            "Open the carpet plot for outlier slices concentrated in one shell."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        literature_threshold=(
+            "None absolute. eddy's own group QC flags a value more than 1 SD "
+            "(moderate) or 2 SD (severe) from the group mean (Bastiani et al. 2019)."
+        ),
+        caveats=(
+            "QSIPrep 26.0.0 writes the CNR columns only for a session it did not "
+            "merge across distortion groups. A merged session carries no CNR in "
+            "its QC table, so the value is blank — not zero — for those sessions."
+        ),
+        references=(_BASTIANI_2019, _QSIPREP_PAPER),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="snr_b0_min",
+        label="b0 SNR in the corpus callosum, worst run",
+        modalities=("dwi",),
+        direction="higher_better",
+        why=(
+            "MRIQC's signal-to-noise ratio of the b0 volumes inside the corpus "
+            "callosum, the lowest of the session's runs. A run whose b0 is noisy "
+            "carries the noise into every diffusion-weighted volume it normalises."
+        ),
+        look_for=(
+            "Compare the run's b0 against the session's other directions in "
+            "MRIQC's report. One direction far below its partners points at that "
+            "acquisition (coil, shim, a moved head) rather than at the session."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats=(
+            "The corpus-callosum mask is small, so the estimate is noisy and "
+            "sensitive to how the mask lands. Compare only within the dataset."
+        ),
+        references=(_MRIQC_MEASURES, _MRIQC_PAPER),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="snr_dwi_min",
+        label="Diffusion-weighted SNR in the corpus callosum, worst shell and run",
+        modalities=("dwi",),
+        direction="higher_better",
+        why=(
+            "MRIQC's corpus-callosum SNR for the diffusion-weighted shells, taken "
+            "along the direction where it is lowest, then the lowest shell and "
+            "run. Signal falls as b rises, so this is usually the highest shell "
+            "MRIQC reports, and it is where noise bites first."
+        ),
+        look_for=(
+            "A low value with a normal b0 SNR points at the diffusion weighting "
+            "rather than the coil: check the carpet plot for dropout in the "
+            "high shells."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats=(
+            "MRIQC 24.x numbers these shells one off: its `snr_cc_shell1_*` is "
+            "the b0 again and the highest b-value shell is never reported. This "
+            "value skips the b0 copy, so on such output it is the second-highest "
+            "shell, not the highest."
+        ),
+        references=(_MRIQC_MEASURES, _MRIQC_PAPER),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="fber_min",
+        label="Foreground-background energy ratio, worst shell and run",
+        modalities=("dwi",),
+        direction="higher_better",
+        why=(
+            "MRIQC's FBER computed per shell: energy inside the head against "
+            "energy outside it. Low values mean signal outside the head — "
+            "ghosting, wrap-around — or a weak signal inside."
+        ),
+        look_for=(
+            "Look for ghosts or wrap in the background of MRIQC's report for the "
+            "run that set the value, and compare it with the session's other "
+            "directions."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats=(
+            "A defaced or tightly cropped image has little background, which moves "
+            "FBER for reasons that are not image quality."
+        ),
+        references=(_MRIQC_MEASURES, _QAP_FBER),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="eddy_mean_fd",
+        label="Mean framewise displacement (eddy)",
+        modalities=("dwi",),
+        direction="lower_better",
+        units="mm",
+        why=(
+            "Head motion from eddy's volume-to-volume registration, summarised by "
+            "QSIPrep as mean framewise displacement over the session. Motion "
+            "between volumes rotates the gradient table and leaves slice "
+            "dropout that eddy can only impute."
+        ),
+        look_for=(
+            "Open the carpet plot: the FD trace sits above it, and motion that "
+            "matters shows as outlier slices (marked by eddy) at the same volumes."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        literature_threshold=(
+            "None for diffusion. BOLD cutoffs such as Power's 0.2 or 0.5 mm do not "
+            "transfer: a dense diffusion acquisition tolerates motion that a BOLD "
+            "run would not, because neighbouring directions carry redundant signal."
+        ),
+        caveats=(
+            "QSIPrep zeroes the displacement at each run boundary, so a jump "
+            "between runs of a merged session is not in this value. That jump is "
+            "only in the confounds file."
+        ),
+        references=(_QSIPREP_PAPER, _NS_QSIPREP_QC),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="max_rel_translation",
+        label="Largest volume-to-volume translation",
+        modalities=("dwi",),
+        direction="lower_better",
+        units="mm",
+        why=(
+            "The largest translation between consecutive volumes, from eddy. "
+            "Mean FD can hide one large movement among many still volumes; this "
+            "cannot. It tracked expert ratings of diffusion data second only to "
+            "neighbouring-DWI correlation."
+        ),
+        look_for=(
+            "Find the volume in the carpet plot's motion trace and check the "
+            "slices around it for dropout."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        literature_threshold=(
+            "None published. 'More than one voxel' is a common rule of thumb with "
+            "no source behind it."
+        ),
+        caveats="Zeroed at run boundaries, as for mean FD.",
+        references=(_HBN_POD2, _QSIPREP_PAPER),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="max_rel_rotation",
+        label="Largest volume-to-volume rotation",
+        modalities=("dwi",),
+        direction="lower_better",
+        units="radians",
+        why=(
+            "The largest rotation between consecutive volumes, from eddy. A "
+            "rotation also turns the diffusion gradient relative to the head, "
+            "which QSIPrep corrects by rotating the b-vectors; the larger the "
+            "rotation, the more rides on that correction."
+        ),
+        look_for=(
+            "As for translation: locate the volume in the motion trace and check "
+            "for dropout, then check the sampling-scheme figure for directions "
+            "that moved far after rotation."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats="Zeroed at run boundaries, as for mean FD.",
+        references=(_QSIPREP_PAPER,),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="t1_dice_distance",
+        label="DWI-to-T1w brain mask mismatch",
+        modalities=("dwi",),
+        direction="lower_better",
+        why=(
+            "One minus the Dice overlap between the diffusion brain mask and the "
+            "T1w brain mask, after coregistration. It rises when the two disagree: "
+            "a failed registration, a failed mask, or residual distortion."
+        ),
+        look_for=(
+            "Open the DWI-to-T1w coregistration figure and follow the contour at "
+            "the frontal and temporal poles, where uncorrected distortion pulls "
+            "the diffusion brain away from the anatomy."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats=(
+            "A distance, despite the name of the overlap it comes from: lower is "
+            "better. Small absolute differences between sessions are expected."
+        ),
+        references=(_QSIPREP_PAPER,),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="raw_num_bad_slices",
+        label="Signal-dropout slices, raw",
+        modalities=("dwi",),
+        direction="lower_better",
+        why=(
+            "Slices whose correlation with their neighbours drops sharply, counted "
+            "on the uncorrected series by DSI Studio's check — the signature of "
+            "motion during a slice's readout, or table vibration."
+        ),
+        look_for=(
+            "Open the carpet plot: eddy marks outlier slices there too, and "
+            "dropout from motion lines up with spikes in the motion trace."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        literature_threshold=(
+            "Yeh et al. (2019) accepted a dataset with fewer than 0.1% dropout "
+            "slices; one study's criterion, not a standard."
+        ),
+        caveats=(
+            "Most sessions have none, which leaves the IQR fence with no spread: "
+            "any session with even one bad slice can be flagged. Read the count, "
+            "not just the flag."
+        ),
+        references=(_YEH_2019, _DSI_STUDIO_QC, _HBN_POD2),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="efc_max",
+        label="Entropy focus criterion, worst shell and run",
+        modalities=("dwi",),
+        direction="lower_better",
+        why=(
+            "MRIQC's EFC computed per shell: the entropy of voxel intensities, "
+            "which ghosting and blurring from motion raise. The highest of the "
+            "session's shells and runs is shown."
+        ),
+        look_for=(
+            "Check MRIQC's report of the run that set the value for ghosting or "
+            "ringing in the background."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats=(
+            "Sensitive to how much background is in the field of view, so it is "
+            "comparable only between runs of the same protocol."
+        ),
+        references=(_MRIQC_MEASURES, _MRIQC_PAPER),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="fa_nans_max",
+        label="Tensor-fit failures (NaN FA), worst run",
+        modalities=("dwi",),
+        direction="lower_better",
+        units="ppm of brain-mask voxels",
+        why=(
+            "Brain voxels where MRIQC's tensor fit gave no FA at all, worst run. "
+            "A clean acquisition fits everywhere; voxels that fail point at "
+            "corrupted volumes or a gradient table that does not match the data."
+        ),
+        look_for=(
+            "Open MRIQC's FA map for the run and look for where the holes are: "
+            "scattered voxels are noise, a contiguous region is an artifact."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats=(
+            "Usually zero for every run, so the IQR fence has no spread and any "
+            "non-zero run is flagged. Read the value, not just the flag."
+        ),
+        references=(_MRIQC_MEASURES,),
+    )
+)
+
+_register(
+    MeasureGuidance(
+        key="fa_degenerate_max",
+        label="Tensor-fit degenerate voxels, worst run",
+        modalities=("dwi",),
+        direction="lower_better",
+        units="ppm of brain-mask voxels",
+        why=(
+            "Brain voxels where MRIQC's FA came out outside its valid "
+            "range of 0 to 1 — a tensor with negative eigenvalues, which noise or "
+            "a mismatched gradient table produces."
+        ),
+        look_for=(
+            "As for NaN FA: open MRIQC's FA map and judge whether the bad voxels "
+            "are scattered or form a region."
+        ),
+        auto_flag=_DWI_IQR_FLAG,
+        caveats=(
+            "Usually zero for every run, so the IQR fence has no spread and any "
+            "non-zero run is flagged. Read the value, not just the flag."
+        ),
+        references=(_MRIQC_MEASURES,),
+    )
+)
+
+
 # ---------------------------------------------------------------------------
 # Process guidance
 # ---------------------------------------------------------------------------

@@ -509,3 +509,35 @@ class TestMotionCache:
 
         assert lenient["pct_high_motion"].tolist() == [50.0]
         assert strict["pct_high_motion"].tolist() == [100.0]
+
+
+class TestSmallBatchGate:
+    """Below ``min_runs_for_flags`` the IQR fence stands down; diffusion's NDC rules do not."""
+
+    @staticmethod
+    def _flagged():
+        import pandas as pd
+
+        return pd.DataFrame(
+            {
+                "raw_neighbor_corr_outlier": [True, False],
+                "snr_b0_min_outlier": [False, True],
+                "is_outlier": [True, True],
+            }
+        )
+
+    def test_diffusion_keeps_its_ndc_flags(self):
+        out = qc_panels._clear_fence_flags(self._flagged(), "dwi")
+        assert out["raw_neighbor_corr_outlier"].tolist() == [True, False]
+        assert out["snr_b0_min_outlier"].tolist() == [False, False]
+        assert out["is_outlier"].tolist() == [True, False]
+
+    def test_other_modalities_clear_everything(self):
+        out = qc_panels._clear_fence_flags(self._flagged(), "bold")
+        assert not out["is_outlier"].any()
+        assert not out["raw_neighbor_corr_outlier"].any()
+
+    def test_the_input_is_not_modified(self):
+        frame = self._flagged()
+        qc_panels._clear_fence_flags(frame, "bold")
+        assert frame["is_outlier"].all()

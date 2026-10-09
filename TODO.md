@@ -225,15 +225,21 @@ be *exercised* rather than stressed.
   so its value tracks the edge of the brain mask, not the data; NDC comes from
   QSIPrep alone); and `fd_*` untagged from `dwi` in the guidance registry, because
   MRIQC's diffusion FD reads cross-shell contrast as millimetres of motion.
-  **Remaining:** guidance entries for the `qc_dwi.MEASURE_KEYS` and their domain
-  assignment (no registry entry applies to `dwi` any more — `gsr_x`/`gsr_y`/
-  `snr`/`efc`/`fber`/`fwhm_avg` untagged, since MRIQC writes none of those keys
-  for diffusion); `dwi` in `qc_panels.MODALITIES` reading
-  `qc_dwi` instead of `load_mriqc_metrics`; QSIPrep's session-level figures as
-  an evidence source (`qc_evidence` reads fMRIPrep's tree only); eddy outlier
-  counts and between-run FD jumps from the confounds file, which `mean_fd` and
-  `max_*` zero out. Open: whether a four-direction session yields one QSIPrep
-  output or two.
+  ✅ **Page wiring landed 2026-10-09:** guidance entries for all 14
+  `qc_dwi.MEASURE_KEYS`, placed in the four domains; `dwi` in
+  `qc_panels.MODALITIES`, reading `qc_dwi` (cached on both trees' fingerprints)
+  and flagging with `qc_dwi.flag_outliers`; QSIPrep's session-level figures as
+  evidence (`EvidenceFigure.source`, `session` scope); every MRIQC direction
+  report plus QSIPrep's session report on Inspect. Walked on a real
+  nine-session tree: one row per session, 8 figure kinds per session, and on a
+  four-direction session 2 figures per distortion group and 4 denoising
+  figures. Answered: a four-direction session yields **one** QSIPrep output
+  (merged with `concat`); the figures stay split per group.
+  **Remaining:** eddy outlier counts and between-run FD jumps from the
+  confounds file, which `mean_fd` and `max_*` zero out; eddy CNR for a merged
+  session — QSIPrep 26.0.0 writes no `CNR*` columns to a merged session's QC
+  table, so `cnr_dwi_min` is blank there and could only come from the
+  `model-eddy_stat-cnr_dwimap` image.
 
   **What Slice A is:** a launchable, tracked `qsiprep` stage — `core/qsiprep.py`,
   `templates/sbatch/qsiprep.sbatch.j2`, a `_qsiprep_status` tracker with the

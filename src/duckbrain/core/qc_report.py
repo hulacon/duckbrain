@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from . import qc_guidance
+from . import qc_dwi, qc_guidance
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -162,7 +162,12 @@ def describe_motion_source(
 
     States are ``not-applicable`` (anat: fMRIPrep contributes no columns),
     ``absent``, ``no-confounds``, ``unmatched``, ``partial``, ``complete``.
+
+    Diffusion is the other modality with a second source: QSIPrep, per session,
+    in place of fMRIPrep — see :func:`_describe_qsiprep_source`.
     """
+    if modality == "dwi":
+        return _describe_qsiprep_source(runs)
     if modality != "bold":
         return "not-applicable", (
             f"Every column here comes from {MRIQC_SOURCE}. {FMRIPREP_SOURCE} "
@@ -203,6 +208,34 @@ def describe_motion_source(
     )
 
 
+def _describe_qsiprep_source(runs: list[dict[str, Any]]) -> tuple[str, str]:
+    """The diffusion counterpart of :func:`describe_motion_source`.
+
+    A session row carries QSIPrep's measures only once QSIPrep has run for it,
+    and a session with only MRIQC output must not read as one QSIPrep passed.
+    Whether a row has QSIPrep is read from its QSIPrep columns: every one of
+    them is blank exactly when no QSIPrep output was found for the session.
+    """
+    keys = [m.key for m in qc_dwi.SESSION_MEASURES if m.source == qc_dwi.QSIPREP_SOURCE]
+    with_qsiprep = sum(
+        1 for r in runs if any((r.get("iqms") or {}).get(k) is not None for k in keys)
+    )
+    if runs and with_qsiprep == len(runs):
+        return "complete", ""
+    if not with_qsiprep:
+        return "absent", (
+            f"No session has {qc_dwi.QSIPREP_SOURCE} output yet, so every column "
+            f"here comes from {MRIQC_SOURCE}. The {qc_dwi.QSIPREP_SOURCE} columns "
+            f"(neighbouring-DWI correlation, eddy motion and CNR) are absent, not zero."
+        )
+    return "partial", (
+        f"{with_qsiprep} of {len(runs)} sessions carry {qc_dwi.QSIPREP_SOURCE} "
+        f"measures; the rest have only {MRIQC_SOURCE}'s, because "
+        f"{qc_dwi.QSIPREP_SOURCE} has not run for them. A blank cell is missing "
+        f"evidence, not a good value."
+    )
+
+
 def find_mriqc_reports(mriqc_dir: str | Path, modality: str = "bold") -> dict[str, str]:
     """Map run key → MRIQC HTML filename, for the ones that exist on disk.
 
@@ -225,6 +258,50 @@ def find_mriqc_reports(mriqc_dir: str | Path, modality: str = "bold") -> dict[st
             continue
         reports[build_run_key(entities, modality)] = path.name
     return reports
+
+
+def find_mriqc_run_reports(mriqc_dir: str | Path, run_key: str, modality: str = "dwi") -> list[str]:
+    """Every MRIQC report filed under *run_key*, not just one.
+
+    :func:`find_mriqc_reports` maps a key to one filename, which is right where
+    a key names one run. A diffusion key names a session, and MRIQC writes one
+    report per ``dir-`` run of it, so the mapping keeps whichever it read last
+    and the reviewer is shown one direction as if it were the session. This
+    returns them all, sorted, for the caller to label by direction.
+    """
+    mriqc_dir = Path(mriqc_dir)
+    if not mriqc_dir.is_dir():
+        return []
+    found = []
+    for path in sorted(mriqc_dir.glob(f"*_{modality}.html")):
+        entities = dict(part.split("-", 1) for part in path.stem.split("_") if "-" in part)
+        if "sub" in entities and build_run_key(entities, modality) == run_key:
+            found.append(path.name)
+    return found
+
+
+def find_qsiprep_report(qsiprep_dir: str | Path, run_key: str) -> Path | None:
+    """QSIPrep's own HTML report covering the session named by *run_key*.
+
+    Two shapes, depending on ``--subject-anatomical-reference``: sessionwise
+    writes ``sub-XX/ses-YY/sub-XX_ses-YY.html``, anything else ``sub-XX.html``
+    at the derivative root (see ``surveyor._qsiprep_report_present``). The
+    session report is tried first, so a subject-level one is offered only when
+    no report for this session exists.
+    """
+    entities = dict(part.split("-", 1) for part in run_key.split("_") if "-" in part)
+    subject = entities.get("sub")
+    if not subject:
+        return None
+    root = Path(qsiprep_dir)
+    session = entities.get("ses")
+    candidates = []
+    if session:
+        candidates.append(
+            root / f"sub-{subject}" / f"ses-{session}" / f"sub-{subject}_ses-{session}.html"
+        )
+    candidates.append(root / f"sub-{subject}.html")
+    return next((c for c in candidates if c.is_file()), None)
 
 
 def find_fmriprep_reports(fmriprep_dir: str | Path) -> dict[str, str]:

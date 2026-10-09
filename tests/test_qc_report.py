@@ -543,3 +543,58 @@ class TestIqmFigure:
         assert jittered[3] == 1.0  # a lone point stays put
         assert all(abs(j - c) <= 0.2 for j, c in zip(jittered, centers, strict=True))
         assert len(set(jittered[:3])) == 3  # points sharing a center spread out
+
+
+class TestDiffusionReports:
+    """A diffusion key names a session: several MRIQC reports, one QSIPrep one."""
+
+    def test_every_direction_of_a_session_is_found(self, tmp_path):
+        for direction in ("AP", "PA", "LR", "RL"):
+            (tmp_path / f"sub-01_ses-01_dir-{direction}_dwi.html").write_text("x")
+        (tmp_path / "sub-01_ses-02_dir-AP_dwi.html").write_text("x")
+        found = qc_report.find_mriqc_run_reports(tmp_path, "sub-01_ses-01_dwi")
+        assert found == [f"sub-01_ses-01_dir-{d}_dwi.html" for d in ("AP", "LR", "PA", "RL")]
+
+    def test_the_one_report_map_would_have_kept_only_one(self, tmp_path):
+        """Why the list exists: the key collapses four reports into one entry."""
+        for direction in ("AP", "PA"):
+            (tmp_path / f"sub-01_ses-01_dir-{direction}_dwi.html").write_text("x")
+        assert len(qc_report.find_mriqc_reports(tmp_path, "dwi")) == 1
+
+    def test_the_session_report_is_preferred(self, tmp_path):
+        session = tmp_path / "sub-01" / "ses-01"
+        session.mkdir(parents=True)
+        (session / "sub-01_ses-01.html").write_text("x")
+        (tmp_path / "sub-01.html").write_text("x")
+        assert qc_report.find_qsiprep_report(tmp_path, "sub-01_ses-01_dwi") == (
+            session / "sub-01_ses-01.html"
+        )
+
+    def test_a_subject_report_covers_a_session_without_its_own(self, tmp_path):
+        (tmp_path / "sub-01.html").write_text("x")
+        assert qc_report.find_qsiprep_report(tmp_path, "sub-01_ses-01_dwi") == (
+            tmp_path / "sub-01.html"
+        )
+
+    def test_no_report_is_none(self, tmp_path):
+        assert qc_report.find_qsiprep_report(tmp_path, "sub-01_ses-01_dwi") is None
+
+
+class TestDiffusionSourceNote:
+    @staticmethod
+    def _row(qsiprep: bool):
+        return {"iqms": {"snr_b0_min": 7.0, "raw_neighbor_corr": 0.88 if qsiprep else None}}
+
+    def test_all_sessions_with_qsiprep_is_complete(self):
+        state, sentence = qc_report.describe_motion_source("", [self._row(True)] * 2, "dwi")
+        assert (state, sentence) == ("complete", "")
+
+    def test_some_sessions_without_qsiprep_says_how_many(self):
+        state, sentence = qc_report.describe_motion_source(
+            "", [self._row(True), self._row(False)], "dwi"
+        )
+        assert state == "partial" and "1 of 2 sessions" in sentence
+
+    def test_no_qsiprep_at_all_does_not_claim_every_column_is_mriqc_silently(self):
+        state, sentence = qc_report.describe_motion_source("", [self._row(False)], "dwi")
+        assert state == "absent" and "QSIPrep" in sentence

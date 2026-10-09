@@ -34,13 +34,16 @@ from duckbrain.core.qc_guidance import MEASURE_GUIDANCE
 
 #: Where an artifact is written, and therefore what a reviewer is looking at.
 #: fMRIPrep writes SDC, coregistration and carpet plots per *run*; segmentation,
-#: normalization and surface reconstruction once per *subject*.
-VALID_SCOPES = {"run", "subject"}
+#: normalization and surface reconstruction once per *subject*. QSIPrep writes
+#: every figure once per *session*, because a session is what it preprocesses.
+VALID_SCOPES = {"run", "subject", "session"}
 
-#: Modalities the taxonomy projects onto. ``dwi`` is listed although no MRIQC
-#: measure in the guidance registry applies to it — its measures are built per
-#: session by ``core/qc_dwi.py`` — so every domain carries a ``dwi`` sentence
-#: saying why it is empty rather than rendering blank.
+#: Which tool wrote a figure, and so which derivative tree it is looked for in.
+VALID_SOURCES = {"fmriprep", "qsiprep"}
+
+#: Modalities the taxonomy projects onto. ``dwi``'s measures are not MRIQC
+#: keys but the per-session columns ``core/qc_dwi.py`` builds, and its figures
+#: are QSIPrep's rather than fMRIPrep's.
 MODALITIES = ("bold", "T1w", "T2w", "dwi")
 
 
@@ -68,12 +71,17 @@ class EvidenceFigure:
         choice: ``space-*_T1w.svg`` must match whichever template was used.
     scope : str
         One of :data:`VALID_SCOPES`. ``'run'`` filters on subject, session, task
-        and run; ``'subject'`` filters on subject and session only. Session
-        matters even for a "subject" figure because fieldmaps are estimated per
-        session, and showing another session's is worse than showing none.
+        and run; ``'subject'`` and ``'session'`` filter on subject and session
+        only. Session matters even for a "subject" figure because fieldmaps are
+        estimated per session, and showing another session's is worse than
+        showing none.
     look_for : str
         What the reviewer should check by eye. Same contract, and same voice, as
         ``MeasureGuidance.look_for``.
+    source : str
+        One of :data:`VALID_SOURCES`: the tool that writes the figure, which
+        decides the derivative tree it is looked for in. A QSIPrep figure is
+        reviewed for diffusion only, and an fMRIPrep figure never is.
     absent_means : str, optional
         What it *means* that this figure is missing. For most figures absence
         just means the run was not preprocessed, but for some it is a finding in
@@ -88,6 +96,7 @@ class EvidenceFigure:
     pattern: str
     scope: str
     look_for: str
+    source: str = "fmriprep"
     absent_means: str | None = None
 
     def __post_init__(self) -> None:
@@ -95,6 +104,11 @@ class EvidenceFigure:
             raise ValueError(
                 f"Invalid scope {self.scope!r} for {self.key!r}; "
                 f"expected one of {sorted(VALID_SCOPES)}"
+            )
+        if self.source not in VALID_SOURCES:
+            raise ValueError(
+                f"Invalid source {self.source!r} for {self.key!r}; "
+                f"expected one of {sorted(VALID_SOURCES)}"
             )
 
     def explain_absence(self) -> str:
@@ -105,10 +119,11 @@ class EvidenceFigure:
         """
         if self.absent_means:
             return self.absent_means
+        tool = {"fmriprep": "fMRIPrep", "qsiprep": "QSIPrep"}[self.source]
         return (
             f"No {self.label.lower()} figure was written for this selection. "
-            f"fMRIPrep writes it whenever the corresponding step runs, so the "
-            f"usual reading is that this run was not preprocessed."
+            f"{tool} writes it whenever the corresponding step runs, so the "
+            f"usual reading is that this was not preprocessed."
         )
 
 
@@ -138,6 +153,10 @@ class ReviewDomain:
     caveat : str, optional
         Something true of the domain as a whole that a reviewer reading only its
         numbers would otherwise assume wrongly.
+    modality_caveats : dict
+        Modality to a caveat replacing :attr:`caveat` for it. The empty string
+        withdraws the caveat, for a modality whose numbers come from elsewhere
+        and of which the general one is not true.
     """
 
     key: str
@@ -147,6 +166,7 @@ class ReviewDomain:
     evidence: tuple[EvidenceFigure, ...] = ()
     not_applicable: dict[str, str] = field(default_factory=dict)
     caveat: str | None = None
+    modality_caveats: dict[str, str] = field(default_factory=dict)
 
     def measures_for(self, modality: str) -> list[str]:
         """This domain's measures documented for *modality*, in registry order."""
@@ -155,14 +175,28 @@ class ReviewDomain:
     def evidence_for(self, modality: str) -> list[EvidenceFigure]:
         """This domain's figures relevant to *modality*.
 
-        Anatomical figures are written once per subject and are worth seeing
-        whichever modality is selected — a failed surface reconstruction is a
-        fact about the subject, not about the T1w row. Run-scoped figures are
-        BOLD-only, because that is the only modality fMRIPrep writes them for.
+        Diffusion is reviewed from QSIPrep's figures only. fMRIPrep's anatomical
+        figures describe fMRIPrep's own segmentation and normalization, which
+        QSIPrep does not use — it runs its own and draws them.
+
+        Otherwise QSIPrep's figures are left out. fMRIPrep's anatomical figures
+        are written once per subject and are worth seeing whichever modality is
+        selected — a failed surface reconstruction is a fact about the subject,
+        not about the T1w row. Run-scoped figures are BOLD-only, because that is
+        the only modality fMRIPrep writes them for.
         """
+        if modality == "dwi":
+            return [e for e in self.evidence if e.source == "qsiprep"]
+        fmriprep = [e for e in self.evidence if e.source == "fmriprep"]
         if modality == "bold":
-            return list(self.evidence)
-        return [e for e in self.evidence if e.scope == "subject"]
+            return fmriprep
+        return [e for e in fmriprep if e.scope == "subject"]
+
+    def caveat_for(self, modality: str) -> str | None:
+        """The caveat to show beside this domain's numbers for *modality*."""
+        if modality in self.modality_caveats:
+            return self.modality_caveats[modality] or None
+        return self.caveat
 
     def explain_absence(self, modality: str) -> str:
         """Why this domain is empty for *modality* — never the empty string.
@@ -241,6 +275,12 @@ _register(
             "cnr",
             "cjv",
             "fber",
+            "raw_neighbor_corr",
+            "t1_neighbor_corr",
+            "cnr_dwi_min",
+            "snr_b0_min",
+            "snr_dwi_min",
+            "fber_min",
         ),
         caveat=(
             "Every measure here is a ratio against a noise estimate, and each tool "
@@ -248,13 +288,13 @@ _register(
             "reliably; they do not transfer to another scanner or protocol as "
             "absolute numbers."
         ),
-        not_applicable={
+        modality_caveats={
             "dwi": (
-                "MRIQC writes none of this section's measures for diffusion data. "
-                "Diffusion signal is judged per shell — SNR, eddy CNR and "
-                "neighbouring-volume correlation, reduced to one row per session "
-                "by `core/qc_dwi.py` — and those measures have no guidance entries "
-                "on this page yet."
+                "Two tools at two grains: QSIPrep's numbers (neighbouring-DWI "
+                "correlation, eddy CNR) describe the whole preprocessed session, "
+                "MRIQC's (SNR, FBER) the session's worst run and shell. All of them "
+                "depend on the protocol, so a session is only ever compared with "
+                "sessions acquired with the same phase-encoding directions."
             ),
         },
     )
@@ -276,6 +316,9 @@ _register(
             "aqi",
             "aor",
             "gcor",
+            "eddy_mean_fd",
+            "max_rel_translation",
+            "max_rel_rotation",
         ),
         evidence=(
             EvidenceFigure(
@@ -318,6 +361,27 @@ _register(
                     "regressed away."
                 ),
             ),
+            EvidenceFigure(
+                key="dwi_carpetplot",
+                label="Diffusion carpet plot with eddy outliers and motion",
+                pattern="desc-carpetplot_dwi.svg",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "Each column is a volume and each row a slice; eddy marks the "
+                    "slices it replaced as outliers. Scattered marks are ordinary. "
+                    "Marks clustered in a few volumes that line up with spikes in "
+                    "the motion trace are motion; marks in the same slices across "
+                    "many volumes point at the scanner (vibration, a spike). One "
+                    "figure per distortion group: a session merged from two groups "
+                    "shows two."
+                ),
+                absent_means=(
+                    "QSIPrep draws this from eddy's output, so it is missing when "
+                    "the session was not preprocessed with eddy — or not "
+                    "preprocessed at all."
+                ),
+            ),
         ),
         not_applicable={
             "T1w": (
@@ -332,11 +396,14 @@ _register(
                 "during the acquisition — shows up as ringing and ghosting instead, "
                 "and is graded under Artifacts & inhomogeneity as `efc`."
             ),
+        },
+        modality_caveats={
             "dwi": (
-                "MRIQC's diffusion framewise displacement is not shown: it registers "
-                "volumes across shells, so the contrast between b-values reads as "
-                "millimetres of motion. Diffusion motion comes from QSIPrep's "
-                "eddy-based estimates, which duckbrain does not read yet."
+                "Motion here is eddy's, as QSIPrep reports it. MRIQC's diffusion "
+                "framewise displacement is not shown: it registers volumes across "
+                "shells, so the contrast between b-values reads as millimetres of "
+                "motion. QSIPrep zeroes motion at each run boundary, so a jump "
+                "between the runs of a merged session is in none of these numbers."
             ),
         },
     )
@@ -350,7 +417,7 @@ _register(
             "Is everything where it should be — distortion corrected, BOLD on the "
             "T1w, brain in the template?"
         ),
-        measures=("tpm_overlap_gm", "tpm_overlap_wm", "tpm_overlap_csf"),
+        measures=("tpm_overlap_gm", "tpm_overlap_wm", "tpm_overlap_csf", "t1_dice_distance"),
         evidence=(
             EvidenceFigure(
                 key="sdc",
@@ -478,6 +545,81 @@ _register(
                     "one."
                 ),
             ),
+            EvidenceFigure(
+                key="dwi_sdc",
+                label="Diffusion distortion correction, before and after",
+                pattern="desc-sdc_b0.svg",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "The b0 alternates between uncorrected and corrected under the "
+                    "anatomical contours (hover to play). Watch the frontal pole "
+                    "and the temporal lobes above the ear canals: correction should "
+                    "pull the stretched or compressed brain back inside the "
+                    "contours. One figure per distortion group."
+                ),
+                absent_means=(
+                    "QSIPrep writes this only when it applied susceptibility "
+                    "distortion correction, so its absence means the session was "
+                    "preprocessed **without** it. That is a finding: for a session "
+                    "acquired with reverse phase-encoding runs, the pair was not "
+                    "recognised as a fieldmap source."
+                ),
+            ),
+            EvidenceFigure(
+                key="dwi_coreg",
+                label="Diffusion to T1w coregistration",
+                pattern="desc-coreg_dwi.svg",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "Follow the white-matter contour around the ventricles and the "
+                    "corpus callosum, the sharpest edges in a b0. Agreement at one "
+                    "end of the brain and drift at the other is a rotation; a mask "
+                    "edge that misses cortex is residual distortion, which the "
+                    "distortion-correction figure should explain."
+                ),
+            ),
+            EvidenceFigure(
+                key="dwi_seg",
+                label="Brain mask and segmentation on QSIPrep's T1w",
+                pattern="desc-seg_mask.svg",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "QSIPrep runs its own anatomical workflow, independent of "
+                    "fMRIPrep's. The brain mask should follow the brain without "
+                    "clipping cortex, and the tissue boundaries should follow the "
+                    "tissue: every alignment figure above is drawn against them."
+                ),
+            ),
+            EvidenceFigure(
+                key="dwi_norm",
+                label="QSIPrep's T1w to template normalization",
+                pattern="t1w2mni.svg",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "Ventricles, corpus callosum and the outer cortical boundary "
+                    "should stay in register as the overlay alternates. Only "
+                    "matters for analyses done in template space."
+                ),
+            ),
+            EvidenceFigure(
+                key="dwi_scheme",
+                label="Gradient sampling scheme",
+                pattern="desc-samplingscheme_dwi.gif",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "The diffusion directions as points on a sphere, one shell per "
+                    "colour, after rotation for head motion. Each shell should "
+                    "cover the sphere evenly; a gap or a cluster means directions "
+                    "were lost or the table does not match the data. A flipped or "
+                    "swapped gradient axis does not show here or in an FA map — "
+                    "only in fibre orientations."
+                ),
+            ),
         ),
         caveat=(
             "The `tpm_overlap_*` numbers here measure overlap with template tissue "
@@ -486,17 +628,20 @@ _register(
             "A reviewer who sees the only three numbers in this domain will assume "
             "otherwise, so the distinction is stated rather than left to be inferred."
         ),
+        modality_caveats={
+            "dwi": (
+                "The one number here compares brain masks, so it catches a gross "
+                "failure and little else. A few millimetres of misregistration or "
+                "uncorrected distortion leaves it nearly unchanged; the figures are "
+                "the review."
+            ),
+        },
         not_applicable={
             "bold": (
                 "MRIQC computes no registration measure for functional data, so this "
                 "domain carries no numbers here. Alignment is reviewed visually, from "
                 "the per-run distortion-correction, coregistration and fieldmap "
                 "figures below — that is the section's purpose, not a gap in it."
-            ),
-            "dwi": (
-                "MRIQC computes no registration measure for diffusion data. Alignment "
-                "for DWI is reviewed from fMRIPrep's or QSIPrep's own reports, which "
-                "duckbrain does not read yet."
             ),
         },
     )
@@ -519,6 +664,42 @@ _register(
             "inu_med",
             "wm2max",
             "fwhm_avg",
+            "raw_num_bad_slices",
+            "efc_max",
+            "fa_nans_max",
+            "fa_degenerate_max",
+        ),
+        evidence=(
+            EvidenceFigure(
+                key="dwi_denoising",
+                label="Diffusion denoising, before and after",
+                pattern="desc-denoising_dwi.svg",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "One figure per acquired run (hover to play). Denoising should "
+                    "remove speckle and leave anatomy: edges that soften or vanish "
+                    "were signal, and a run that looks unlike its partners before "
+                    "denoising is the one to check against its MRIQC numbers."
+                ),
+            ),
+            EvidenceFigure(
+                key="dwi_biascorr",
+                label="Diffusion bias-field correction, before and after",
+                pattern="desc-biascorrpost_dwi.svg",
+                scope="session",
+                source="qsiprep",
+                look_for=(
+                    "Intensity should even out across the brain after correction, "
+                    "without new structure appearing. A field that brightens one "
+                    "edge of the brain strongly points at coil placement."
+                ),
+                absent_means=(
+                    "QSIPrep writes this when it ran bias-field correction after "
+                    "combining a distortion group's runs; its absence means that "
+                    "step was switched off or the session was not preprocessed."
+                ),
+            ),
         ),
         caveat=(
             "MRIQC writes `-1` for FBER and QI1 when an image has no usable "
@@ -526,12 +707,11 @@ _register(
             "That is a sentinel, not a catastrophic score, and it will sort to the "
             "extreme of any ranking and can trip the outlier fence on its own."
         ),
-        not_applicable={
+        modality_caveats={
             "dwi": (
-                "MRIQC writes none of this section's measures for diffusion data: its "
-                "diffusion EFC and FBER come per shell, and are reduced to a worst "
-                "shell per session by `core/qc_dwi.py`, whose measures have no "
-                "guidance entries on this page yet."
+                "Several of these are zero for nearly every session, which leaves "
+                "the outlier fence no spread: a single bad slice or failed voxel "
+                "is flagged. Read the value as well as the flag."
             ),
         },
     )

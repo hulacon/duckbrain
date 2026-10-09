@@ -1,4 +1,4 @@
-"""Find the fMRIPrep figures a review domain is looked at through.
+"""Find the fMRIPrep and QSIPrep figures a review domain is looked at through.
 
 :mod:`duckbrain.core.qc_domains` declares *which* figures answer a domain's
 question. This module finds them on disk for one selection, and says so out loud
@@ -23,6 +23,14 @@ the run key does not carry, so the anatomical figures on a session dataset are
 ``sub-03_acq-MPR_dseg.svg`` and a prefix join finds nothing. Instead every
 candidate is globbed by the figure's filename tail and then filtered on the BIDS
 entities both sides carry.
+
+**QSIPrep's figures sit one level deeper than fMRIPrep's.** fMRIPrep writes
+``sub-XX/figures/`` and puts the session in the filename; QSIPrep writes
+``sub-XX/ses-YY/figures/`` (measured on a real run) and ``sub-XX/figures/`` only
+for a sessionless dataset. Its reportlets also keep the ``dir-`` entity its data
+outputs drop — one denoising figure per acquired run, one distortion-correction
+figure per merged group — and that entity is left out of the match, so all of a
+session's are offered and labelled by direction.
 """
 
 from __future__ import annotations
@@ -109,6 +117,21 @@ def figures_dir(fmriprep_dir: Path | str, subject: str) -> Path:
     return Path(fmriprep_dir) / subject / "figures"
 
 
+def qsiprep_figures_dir(qsiprep_dir: Path | str, subject: str, session: str = "") -> Path:
+    """Return the directory holding one QSIPrep unit's figures.
+
+    ``<qsiprep>/<sub>/<ses>/figures`` for a session, ``<qsiprep>/<sub>/figures``
+    without one. QSIPrep's unit is the session, so unlike fMRIPrep the session
+    is in the path.
+    """
+    subject = subject if subject.startswith("sub-") else f"sub-{subject}"
+    root = Path(qsiprep_dir) / subject
+    if session:
+        session = session if session.startswith("ses-") else f"ses-{session}"
+        root = root / session
+    return root / "figures"
+
+
 def _matches(candidate: dict[str, str], target: dict[str, str], keys: tuple[str, ...]) -> bool:
     """True when every listed entity the *candidate* carries agrees with *target*.
 
@@ -120,7 +143,12 @@ def _matches(candidate: dict[str, str], target: dict[str, str], keys: tuple[str,
     return all(candidate[k] == target.get(k) for k in keys if k in candidate)
 
 
-def find_figure(fmriprep_dir: Path | str, figure: EvidenceFigure, run_key: str) -> EvidenceHit:
+def find_figure(
+    fmriprep_dir: Path | str,
+    figure: EvidenceFigure,
+    run_key: str,
+    qsiprep_dir: Path | str | None = None,
+) -> EvidenceHit:
     """Find every file matching *figure* for the selection named by *run_key*.
 
     Returns **all** matches rather than one. A subject can legitimately have
@@ -128,13 +156,21 @@ def find_figure(fmriprep_dir: Path | str, figure: EvidenceFigure, run_key: str) 
     multi-acquisition anatomical yields one segmentation figure per acquisition.
     Picking one and hiding the rest would be the silent choice; the viewer shows
     them and labels what distinguishes them.
+
+    The figure's ``source`` picks the tree. A QSIPrep figure asked for with no
+    *qsiprep_dir* is reported absent, like any other figure not on disk.
     """
     target = parse_entities(run_key)
     subject = target.get("sub")
     if not subject:
         return EvidenceHit(figure=figure, run_key=run_key)
 
-    directory = figures_dir(fmriprep_dir, subject)
+    if figure.source == "qsiprep":
+        if qsiprep_dir is None:
+            return EvidenceHit(figure=figure, run_key=run_key)
+        directory = qsiprep_figures_dir(qsiprep_dir, subject, target.get("ses", ""))
+    else:
+        directory = figures_dir(fmriprep_dir, subject)
     keys = RUN_ENTITIES if figure.scope == "run" else SUBJECT_ENTITIES
     # No guard around the glob: pathlib yields nothing for a directory that is
     # missing, unreadable, or not a directory at all, rather than raising. A
@@ -150,6 +186,7 @@ def collect(
     domain: ReviewDomain,
     run_key: str,
     modality: str = "bold",
+    qsiprep_dir: Path | str | None = None,
 ) -> list[EvidenceHit]:
     """Every figure *domain* is reviewed through, for this selection.
 
@@ -157,7 +194,10 @@ def collect(
     place in the list so the viewer reports it rather than rendering a shorter
     list the reviewer cannot tell from a complete one.
     """
-    return [find_figure(fmriprep_dir, figure, run_key) for figure in domain.evidence_for(modality)]
+    return [
+        find_figure(fmriprep_dir, figure, run_key, qsiprep_dir=qsiprep_dir)
+        for figure in domain.evidence_for(modality)
+    ]
 
 
 def subjects_with_figures(fmriprep_dir: Path | str) -> list[str]:

@@ -110,6 +110,7 @@ def project(tmp_path):
     # by accident of the path. Relying on that is what hid a cache key Streamlit
     # was discarding — see tests/test_streamlit_caches.py.
     qc_panels._load_metrics.clear()
+    qc_panels._load_dwi_sessions.clear()
     proj = tmp_path / "proj"
     scaffold_project(str(proj))
     save_project_config(str(proj), {"project": {"name": "qc test"}})
@@ -548,3 +549,119 @@ class TestTooFewRunsToFlag:
         at = _run(OVERVIEW)
         assert not at.exception
         assert not any("too few to flag" in i.value for i in at.info)
+
+
+# ---------------------------------------------------------------------------
+# Diffusion: one row per session, QSIPrep's figures and report
+# ---------------------------------------------------------------------------
+
+DWI_IQMS = {
+    "snr_cc_shell0": 8.0,
+    "snr_cc_shell2_worst": 2.0,
+    "efc_shell01": 0.52,
+    "fber_shell01": 1000.0,
+    "fa_nans": 0.0,
+    "fa_degenerate": 0.0,
+}
+
+QSIPREP_QC = {
+    "raw_neighbor_corr": 0.88,
+    "t1_neighbor_corr": 0.96,
+    "raw_num_bad_slices": 0.0,
+    "mean_fd": 0.3,
+    "max_rel_translation": 0.8,
+    "max_rel_rotation": 0.003,
+    "t1_dice_distance": 0.02,
+}
+
+
+def _write_diffusion(derivatives: Path):
+    """Two sessions: one four-direction session QSIPrep has run, one AP/PA it has not."""
+    mriqc = derivatives / "mriqc"
+    mriqc.mkdir(parents=True, exist_ok=True)
+    for sub, dirs in (("010", ("AP", "PA", "LR", "RL")), ("011", ("AP", "PA"))):
+        for d in dirs:
+            stem = f"sub-{sub}_ses-01_dir-{d}_dwi"
+            target = mriqc / f"sub-{sub}" / "ses-01" / "dwi"
+            target.mkdir(parents=True, exist_ok=True)
+            (target / f"{stem}.json").write_text(json.dumps(DWI_IQMS))
+            (mriqc / f"{stem}.html").write_text("<html><body>report</body></html>")
+
+    session = derivatives / "qsiprep" / "sub-010" / "ses-01"
+    (session / "dwi").mkdir(parents=True)
+    header = "\t".join(QSIPREP_QC)
+    values = "\t".join(str(v) for v in QSIPREP_QC.values())
+    (session / "dwi" / "sub-010_ses-01_desc-image_qc.tsv").write_text(f"{header}\n{values}\n")
+    (session / "figures").mkdir()
+    for tail in (
+        "dir-AP_desc-denoising_dwi.svg",
+        "dir-PA_desc-denoising_dwi.svg",
+        "dir-PAAP_desc-sdc_b0.svg",
+        "dir-RLLR_desc-sdc_b0.svg",
+    ):
+        (session / "figures" / f"sub-010_ses-01_{tail}").write_text(FIGURE_SVG)
+    (session / "sub-010_ses-01.html").write_text("<html><body>qsiprep</body></html>")
+
+
+@pytest.fixture
+def diffusion(project):
+    _write_fmriprep(project / "derivatives")
+    _write_diffusion(project / "derivatives")
+    return project
+
+
+DWI_SESSION = "sub-010_ses-01_dwi"
+
+
+class TestDiffusion:
+    def test_each_session_is_one_row(self, diffusion):
+        at = _run(INSPECT, modality="dwi")
+        assert not at.exception
+        assert _selectbox(at, "Run").options == [DWI_SESSION, "sub-011_ses-01_dwi"]
+
+    def test_the_page_says_the_unit_is_the_session(self, diffusion):
+        assert any("per **session**" in c for c in _captions(_run(INSPECT, modality="dwi")))
+
+    def test_qsiprep_figures_are_shown_and_fmriprep_figures_are_not(self, diffusion):
+        at = _run(INSPECT, modality="dwi", run=DWI_SESSION)
+        toggles = [t.label for t in at.toggle]
+        assert "Show Diffusion denoising, before and after" in toggles
+        assert "Show Diffusion distortion correction, before and after" in toggles
+        assert "Show Tissue segmentation on the T1w" not in toggles
+
+    def test_a_missing_qsiprep_figure_is_reported(self, diffusion):
+        at = _run(INSPECT, modality="dwi", run=DWI_SESSION)
+        assert any("Diffusion carpet plot" in c and "not on disk" in c for c in _captions(at))
+
+    def test_every_direction_and_the_session_report_are_offered(self, diffusion):
+        at = _run(INSPECT, modality="dwi", run=DWI_SESSION)
+        labels = {t.label for t in at.toggle if t.label.startswith("Open ")}
+        for d in ("AP", "PA", "LR", "RL"):
+            assert f"Open MRIQC — dir-{d}" in labels
+        assert "Open QSIPrep — this session" in labels
+
+    def test_a_large_figure_set_starts_closed(self, diffusion, monkeypatch):
+        monkeypatch.setattr(qc_panels, "AUTO_OPEN_MAX_BYTES", 1)
+        at = _run(INSPECT, modality="dwi", run=DWI_SESSION)
+        figure_toggles = [t for t in at.toggle if t.label.startswith("Show ")]
+        assert figure_toggles and not any(t.value for t in figure_toggles)
+        assert any("closed to begin with" in c for c in _captions(at))
+
+    def test_a_verdict_is_filed_under_the_session(self, diffusion):
+        at = _run(INSPECT, modality="dwi", run=DWI_SESSION)
+        [b for b in at.button if b.label == "Keep"][0].click().run()
+        assert not at.exception
+        written = list(_decisions_dir(diffusion).glob("*_decision.json"))
+        assert [p.name for p in written] == [f"{DWI_SESSION}_decision.json"]
+
+    def test_the_overview_carries_diffusion_columns(self, diffusion):
+        at = _run(OVERVIEW, modality="dwi")
+        assert not at.exception
+        columns = list(at.dataframe[0].value.columns)
+        for col in ("NDC (raw)", "Max translation", "Mean FD (eddy)", "Flags"):
+            assert col in columns, col
+        assert "Mean FD" not in columns and "tSNR" not in columns
+
+    def test_a_session_without_qsiprep_is_called_out(self, diffusion):
+        at = _run(OVERVIEW, modality="dwi")
+        assert any("1 of 2 sessions" in i.value for i in at.info)

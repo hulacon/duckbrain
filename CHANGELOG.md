@@ -10,6 +10,34 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **Diffusion on the QC pages, reviewed per session.** `dwi` is a fourth
+  modality on the Overview and Inspect pages. Each row is a session, built by
+  `core/qc_dwi.py` from QSIPrep's session QC table and MRIQC's runs (worst run,
+  worst shell), and its verdict is filed under `sub-XX_ses-YY_dwi`. All 14
+  session measures have guidance entries placed in the four review domains.
+  Outliers are judged only against sessions acquired with the same
+  phase-encoding directions. Below the `min_runs_for_flags` floor the IQR
+  fence stands down as it does everywhere, but the neighbouring-DWI
+  correlation keeps its two small-batch rules (DSI Studio's MAD fence and the
+  within-participant drop).
+- **QSIPrep's figures as evidence.** `EvidenceFigure` gains a `source`
+  (`fmriprep` | `qsiprep`) and a `session` scope. Diffusion is reviewed from
+  QSIPrep's session-level `figures/` only: carpet plot, distortion correction,
+  coregistration, brain mask, normalization, sampling scheme, denoising and
+  bias correction. Figures written per run or per distortion group are all
+  offered, labelled by `dir-`. A figure set over 20 MB (a four-direction
+  session's denoising figures, ~27 MB) starts closed even where the page opens
+  the others.
+- **The tools' own reports for a diffusion session.** Every MRIQC run report
+  of the session, one per direction, and QSIPrep's session report (either of
+  its two shapes). Previously the one-report-per-key map would have kept
+  whichever direction it read last.
+- **`ReviewDomain.modality_caveats`.** A modality can replace or withdraw a
+  domain's caveat. The `tpm_overlap_*` caveat on alignment is not true of
+  diffusion.
+
 ### Fixed
 
 - **Diffusion QC's `snr_dwi_min` no longer includes the b0.** MRIQC 24.x

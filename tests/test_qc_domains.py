@@ -139,11 +139,12 @@ class TestEntryQuality:
     def test_every_evidence_figure_says_what_to_look_for(self, fig):
         """A figure with no look_for is a picture with no review attached."""
         assert len(fig.look_for.split()) >= 20, f"{fig.key} look_for is too thin to act on"
-        assert fig.pattern.endswith((".svg", ".html"))
+        # .gif: QSIPrep draws its gradient sampling scheme as an animation.
+        assert fig.pattern.endswith((".svg", ".html", ".gif"))
 
     def test_an_invalid_evidence_scope_raises(self):
         with pytest.raises(ValueError, match="Invalid scope"):
-            EvidenceFigure(key="x", label="X", pattern="x.svg", scope="session", look_for="...")
+            EvidenceFigure(key="x", label="X", pattern="x.svg", scope="dataset", look_for="...")
 
     def test_alignment_states_what_its_numbers_do_not_mean(self):
         """tpm_overlap_* grades MRIQC's registration, not fMRIPrep's."""
@@ -208,16 +209,12 @@ class TestModalityProjection:
             ("T1w", "temporal"),
             ("T2w", "temporal"),
             ("bold", "alignment"),
-            ("dwi", "alignment"),
-            ("dwi", "temporal"),
-            ("dwi", "signal"),
-            ("dwi", "artifact"),
         ],
     )
     def test_an_empty_projection_explains_itself(self, modality, domain_key):
         """The silent-degradation rule, as an assertion.
 
-        These seven pairs are the ones with no measures. Each must state why in a
+        These three pairs are the ones with no measures. Each must state why in a
         sentence a reviewer can act on, not render blank.
         """
         assert measures_for(modality, domain_key) == []
@@ -267,3 +264,56 @@ class TestEvidence:
     def test_carpetplot_belongs_to_temporal(self):
         """FD, DVARS and the carpet are read together or not at all."""
         assert "carpetplot" in [e.key for e in get_domain("temporal").evidence]
+
+
+class TestDiffusion:
+    """Diffusion: per-session measures from ``core/qc_dwi.py``, QSIPrep figures."""
+
+    def test_every_domain_has_diffusion_measures(self):
+        """The four sentences that said 'no guidance entries yet' are retired."""
+        for domain in DOMAINS:
+            assert domain.measures_for("dwi"), domain.key
+
+    def test_diffusion_measures_are_exactly_the_session_table(self):
+        from duckbrain.core import qc_dwi
+
+        projected = [m for d in DOMAINS for m in d.measures_for("dwi")]
+        assert sorted(projected) == sorted(qc_dwi.MEASURE_KEYS)
+
+    def test_diffusion_is_reviewed_from_qsiprep_figures_only(self):
+        """fMRIPrep's anatomical figures describe a segmentation QSIPrep did not use."""
+        figures = [e for d in DOMAINS for e in d.evidence_for("dwi")]
+        assert figures
+        assert {e.source for e in figures} == {"qsiprep"}
+
+    @pytest.mark.parametrize("modality", ["bold", "T1w", "T2w"])
+    def test_qsiprep_figures_never_reach_another_modality(self, modality):
+        for domain in DOMAINS:
+            assert all(e.source == "fmriprep" for e in domain.evidence_for(modality))
+
+    def test_the_bold_projection_is_unchanged_by_the_qsiprep_figures(self):
+        keys = [e.key for e in get_domain("alignment").evidence_for("bold")]
+        assert not [k for k in keys if k.startswith("dwi_")]
+
+    def test_a_modality_caveat_replaces_the_general_one(self):
+        """The tpm_overlap caveat is about MRIQC's anat registration, not diffusion."""
+        alignment = get_domain("alignment")
+        assert "tpm_overlap" in alignment.caveat_for("bold")
+        assert "tpm_overlap" not in alignment.caveat_for("dwi")
+
+    def test_an_empty_modality_caveat_withdraws_it(self):
+        domain = ReviewDomain(
+            key="x", label="X", question="?", caveat="general", modality_caveats={"dwi": ""}
+        )
+        assert domain.caveat_for("dwi") is None
+        assert domain.caveat_for("bold") == "general"
+
+    def test_an_unknown_figure_source_is_rejected(self):
+        with pytest.raises(ValueError, match="Invalid source"):
+            EvidenceFigure(key="k", label="L", pattern="p", scope="run", look_for="l", source="x")
+
+    def test_a_qsiprep_absence_names_qsiprep(self):
+        fig = EvidenceFigure(
+            key="k", label="L", pattern="p", scope="session", look_for="l", source="qsiprep"
+        )
+        assert "QSIPrep" in fig.explain_absence()

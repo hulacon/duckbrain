@@ -83,6 +83,35 @@ class TestRegistryCoverage:
         # projections must be identical — an assertion, not an assumption.
         assert qc.iqm_columns("T1w") == qc.iqm_columns("T2w")
 
+    def test_every_diffusion_session_measure_is_documented_and_loaded(self):
+        """Diffusion's columns are ``qc_dwi``'s session table, not MRIQC keys.
+
+        Both directions at once: every column the session table builds has an
+        entry, and every entry tagged ``dwi`` is a column it builds — a ``dwi``
+        entry for a raw MRIQC key would render as a blank cell on every row.
+        """
+        from duckbrain.core import qc_dwi
+
+        documented = {g.key for g in guidance_for_modality("dwi")}
+        assert documented == set(qc_dwi.MEASURE_KEYS)
+        assert set(qc.iqm_columns("dwi")) == set(qc_dwi.MEASURE_KEYS)
+
+    def test_diffusion_flag_text_states_the_rules_qc_dwi_applies(self):
+        """The registry cannot import ``qc_dwi`` (a cycle), so the numbers are prose.
+
+        Pinned here instead: the NDC entries quote the MAD fence and the
+        within-participant drop ``flag_outliers`` uses, and every other diffusion
+        entry says it is fenced within a phase-encoding set.
+        """
+        from duckbrain.core import qc_dwi
+
+        for g in guidance_for_modality("dwi"):
+            if g.key in qc_dwi.NDC_MEASURES:
+                assert f"{qc_dwi.NDC_MAD_FENCE:g} x 1.4826 x MAD" in g.auto_flag, g.key
+                assert f"{qc_dwi.NDC_WITHIN_SUBJECT_DROP:g} below" in g.auto_flag, g.key
+            else:
+                assert "phase-encoding directions" in g.auto_flag, g.key
+
     def test_derived_motion_columns_are_documented(self):
         """mean_fd/pct_high_motion are computed by duckbrain, not by MRIQC."""
         assert undocumented_keys(sorted(qc.DERIVED_MOTION)) == []

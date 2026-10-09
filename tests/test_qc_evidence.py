@@ -315,3 +315,103 @@ class TestCollect:
             look_for="x" * 100,
         )
         assert not ev.find_figure(sessionless, made_up, "sub-010_task-rest_run-1_bold").found
+
+
+# ---------------------------------------------------------------------------
+# QSIPrep: session-level figures, one per run or per distortion group
+# ---------------------------------------------------------------------------
+
+#: A four-direction session as QSIPrep 26.0.0 writes it: denoising per acquired
+#: run, the post-merge figures per distortion group, the anatomical ones once.
+QSIPREP_SESSION = [
+    "dir-AP_desc-denoising_dwi.svg",
+    "dir-PA_desc-denoising_dwi.svg",
+    "dir-LR_desc-denoising_dwi.svg",
+    "dir-RL_desc-denoising_dwi.svg",
+    "dir-PAAP_desc-sdc_b0.svg",
+    "dir-RLLR_desc-sdc_b0.svg",
+    "dir-PAAP_desc-carpetplot_dwi.svg",
+    "dir-RLLR_desc-carpetplot_dwi.svg",
+    "desc-seg_mask.svg",
+]
+
+
+@pytest.fixture
+def qsiprep(tmp_path):
+    root = tmp_path / "qsiprep"
+    for ses in ("01", "02"):
+        figures = root / "sub-01" / f"ses-{ses}" / "figures"
+        figures.mkdir(parents=True)
+        for tail in QSIPREP_SESSION:
+            (figures / f"sub-01_ses-{ses}_{tail}").write_text("<svg/>")
+    return root
+
+
+def _dwi_figure(domain, key):
+    return next(e for e in get_domain(domain).evidence_for("dwi") if e.key == key)
+
+
+class TestQsiprepFigures:
+    def test_the_figures_directory_is_per_session(self, tmp_path):
+        assert ev.qsiprep_figures_dir(tmp_path, "01", "02") == (
+            tmp_path / "sub-01" / "ses-02" / "figures"
+        )
+        assert ev.qsiprep_figures_dir(tmp_path, "sub-01", "ses-02") == (
+            tmp_path / "sub-01" / "ses-02" / "figures"
+        )
+
+    def test_a_sessionless_unit_reads_the_subject_directory(self, tmp_path):
+        assert ev.qsiprep_figures_dir(tmp_path, "01") == tmp_path / "sub-01" / "figures"
+
+    def test_every_run_of_a_session_is_offered_and_labelled_by_direction(self, qsiprep):
+        hit = ev.find_figure(
+            "/no/fmriprep",
+            _dwi_figure("artifact", "dwi_denoising"),
+            "sub-01_ses-01_dwi",
+            qsiprep_dir=qsiprep,
+        )
+        assert sorted(hit.label_for(p) for p in hit.paths) == [
+            "dir-AP",
+            "dir-LR",
+            "dir-PA",
+            "dir-RL",
+        ]
+
+    def test_a_merged_session_shows_one_figure_per_group(self, qsiprep):
+        hit = ev.find_figure(
+            "/no/fmriprep",
+            _dwi_figure("alignment", "dwi_sdc"),
+            "sub-01_ses-01_dwi",
+            qsiprep_dir=qsiprep,
+        )
+        assert sorted(hit.label_for(p) for p in hit.paths) == ["dir-PAAP", "dir-RLLR"]
+
+    def test_another_sessions_figures_are_not_offered(self, qsiprep):
+        hit = ev.find_figure(
+            "/no/fmriprep",
+            _dwi_figure("alignment", "dwi_seg"),
+            "sub-01_ses-02_dwi",
+            qsiprep_dir=qsiprep,
+        )
+        assert [p.parent.parent.name for p in hit.paths] == ["ses-02"]
+
+    def test_without_a_qsiprep_tree_the_figure_is_absent_not_an_error(self, qsiprep):
+        hit = ev.find_figure(
+            "/no/fmriprep", _dwi_figure("alignment", "dwi_sdc"), "sub-01_ses-01_dwi"
+        )
+        assert not hit.found
+        assert hit.explain_absence()
+
+    def test_collect_keeps_absent_qsiprep_figures_in_place(self, qsiprep):
+        hits = ev.collect(
+            "/no/fmriprep",
+            get_domain("alignment"),
+            "sub-01_ses-01_dwi",
+            modality="dwi",
+            qsiprep_dir=qsiprep,
+        )
+        assert [h.figure.key for h in hits] == [
+            e.key for e in get_domain("alignment").evidence_for("dwi")
+        ]
+        found = {h.figure.key for h in hits if h.found}
+        assert found == {"dwi_sdc", "dwi_seg"}
