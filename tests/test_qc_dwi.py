@@ -90,6 +90,15 @@ class TestSessionRows:
         assert row["snr_b0_min"] == pytest.approx(6.5)
         assert row["snr_dwi_min"] == pytest.approx(1.5)
 
+    def test_diffusion_snr_skips_mriqcs_b0_duplicate_shell(self, trees):
+        # MRIQC 24.x's snr_cc_shell1_* is the b0 again; it must not set the
+        # diffusion-weighted minimum.
+        mriqc, qsiprep = trees
+        _mriqc_run(mriqc, "01", "01", "AP", snr_cc_shell1_worst=0.5, snr_cc_shell2_worst=2.0)
+        _mriqc_run(mriqc, "01", "01", "PA", snr_cc_shell1_worst=0.5, snr_cc_shell12_worst=1.2)
+        row = qc_dwi.load_session_metrics(mriqc, qsiprep).iloc[0]
+        assert row["snr_dwi_min"] == pytest.approx(1.2)
+
     def test_qsiprep_measures_join_the_same_session_row(self, trees):
         mriqc, qsiprep = trees
         _mriqc_run(mriqc, "01", "01", "AP")

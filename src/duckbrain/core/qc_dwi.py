@@ -20,6 +20,14 @@ Per-shell measures are reduced the same way before the runs are: MRIQC writes
 registry of fixed measure names can only carry them as "worst shell". The
 per-shell values are in :func:`mriqc_runs` too.
 
+MRIQC 24.x numbers its corpus-callosum SNR one shell off. Its list of shell
+data starts with the b0 while its list of b-values does not, so
+``snr_cc_shell1_*`` is the b0 a second time (best equals worst),
+``snr_cc_shell2_*`` is the lowest diffusion shell, and the highest shell is
+never reported. ``snr_dwi_min`` therefore reads shell 2 and up only: the b0
+is not a diffusion-weighted value, whatever its key says. The
+``efc_shellNN`` and ``fber_shellNN`` keys are numbered correctly (b0 first).
+
 Why the session key needs no new entity
 ---------------------------------------
 :func:`~duckbrain.core.qc_report.build_run_key` keys on ``sub``, ``ses``,
@@ -146,7 +154,8 @@ SESSION_MEASURES: tuple[SessionMeasure, ...] = (
     SessionMeasure("t1_dice_distance", QSIPREP_SOURCE, r"t1_dice_distance", "max"),
     # MRIQC: one row per dir- run, reduced to the worst run.
     SessionMeasure("snr_b0_min", MRIQC_SOURCE, r"snr_cc_shell0", "min"),
-    SessionMeasure("snr_dwi_min", MRIQC_SOURCE, r"snr_cc_shell[1-9]\d*_worst", "min"),
+    # shell1 is the b0 again in MRIQC 24.x (see the module docstring).
+    SessionMeasure("snr_dwi_min", MRIQC_SOURCE, r"snr_cc_shell(?:[2-9]|[1-9]\d+)_worst", "min"),
     SessionMeasure("efc_max", MRIQC_SOURCE, r"efc_shell\d+", "max"),
     SessionMeasure("fber_min", MRIQC_SOURCE, r"fber_shell\d+", "min"),
     SessionMeasure("fa_nans_max", MRIQC_SOURCE, r"fa_nans", "max"),

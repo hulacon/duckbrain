@@ -12,6 +12,11 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Diffusion QC's `snr_dwi_min` no longer includes the b0.** MRIQC 24.x
+  numbers its corpus-callosum SNR one shell off: `snr_cc_shell1_*` is the b0
+  a second time, and the highest diffusion shell is never reported. The
+  diffusion-weighted minimum now reads shell 2 and up.
+
 - **Diffusion QC no longer reads MRIQC's `ndc`.** MRIQC 24.x computes its
   neighbouring-DWI correlation on the wrong axis: it masks the series to a
   voxels-by-volumes array and then indexes it with volume numbers, so the value
