@@ -79,14 +79,15 @@ class TestSessionRows:
 
     def test_each_measure_takes_the_worst_run_and_the_worst_shell(self, trees):
         mriqc, qsiprep = trees
-        _mriqc_run(mriqc, "01", "01", "AP", ndc=0.95, efc_shell02=0.60, snr_cc_shell2_worst=1.5)
-        _mriqc_run(mriqc, "01", "01", "PA", ndc=0.40, fber_shell02=500.0)
+        _mriqc_run(
+            mriqc, "01", "01", "AP", snr_cc_shell0=9.0, efc_shell02=0.60, snr_cc_shell2_worst=1.5
+        )
+        _mriqc_run(mriqc, "01", "01", "PA", snr_cc_shell0=6.5, fber_shell02=500.0)
         row = qc_dwi.load_session_metrics(mriqc, qsiprep).iloc[0]
-        assert row["ndc_min"] == pytest.approx(0.40)
         assert row["efc_max"] == pytest.approx(0.60)
         assert row["fber_min"] == pytest.approx(500.0)
         # b0 SNR is kept apart from the diffusion-weighted shells.
-        assert row["snr_b0_min"] == pytest.approx(8.0)
+        assert row["snr_b0_min"] == pytest.approx(6.5)
         assert row["snr_dwi_min"] == pytest.approx(1.5)
 
     def test_qsiprep_measures_join_the_same_session_row(self, trees):
@@ -109,13 +110,26 @@ class TestSessionRows:
         _qsiprep_output(qsiprep, "02", "01")
         df = qc_dwi.load_session_metrics(mriqc, qsiprep).set_index("sub")
         assert pd.isna(df.loc["01", "raw_neighbor_corr"])
-        assert pd.isna(df.loc["02", "ndc_min"])
+        assert pd.isna(df.loc["02", "snr_b0_min"])
         assert df.loc["02", "pe_dirs"] == ""
 
     def test_mriqc_diffusion_motion_is_not_surfaced(self):
         # MRIQC's diffusion FD registers across shells and reports contrast as
         # displacement; see the module docstring.
         assert not [k for k in qc_dwi.MEASURE_KEYS if k.startswith("fd_")]
+
+    def test_mriqc_ndc_is_not_read(self, trees):
+        # MRIQC 24.x indexes voxels with volume numbers in its NDC; see the
+        # module docstring. NDC comes from QSIPrep alone.
+        mriqc, qsiprep = trees
+        _mriqc_run(mriqc, "01", "01", "AP", ndc=0.10)
+        row = qc_dwi.load_session_metrics(mriqc, qsiprep).iloc[0]
+        assert not [c for c in row.index if "ndc" in c]
+        assert not [
+            m
+            for m in qc_dwi.SESSION_MEASURES
+            if m.source == qc_dwi.MRIQC_SOURCE and m.columns_in(["ndc"])
+        ]
 
     def test_a_sessionless_project_keys_without_an_empty_session(self, trees):
         mriqc, qsiprep = trees
@@ -130,7 +144,10 @@ class TestSessionRows:
 
 def _sessions(rows):
     return pd.DataFrame(
-        [{"sub": s, "ses": ses, "pe_dirs": pe, "ndc_min": ndc} for s, ses, pe, ndc in rows]
+        [
+            {"sub": s, "ses": ses, "pe_dirs": pe, "raw_neighbor_corr": ndc}
+            for s, ses, pe, ndc in rows
+        ]
     )
 
 
@@ -148,7 +165,7 @@ class TestFlagOutliers:
                 ("06", "01", "AP+PA", 0.42),
             ]
         )
-        flagged = qc_dwi.flag_outliers(df, ["ndc_min"]).set_index("sub")
+        flagged = qc_dwi.flag_outliers(df, ["raw_neighbor_corr"]).set_index("sub")
         assert flagged["is_outlier"].to_dict() == {
             "01": False,
             "02": False,
@@ -166,8 +183,8 @@ class TestFlagOutliers:
                 ("02", "01", "AP+PA", 0.83),
             ]
         )
-        flagged = qc_dwi.flag_outliers(df, ["ndc_min"])
-        assert flagged["ndc_min_outlier"].tolist() == [False, True, False]
+        flagged = qc_dwi.flag_outliers(df, ["raw_neighbor_corr"])
+        assert flagged["raw_neighbor_corr_outlier"].tolist() == [False, True, False]
 
     def test_sessions_are_only_compared_within_their_protocol(self):
         # The two-direction session would sit far below the four-direction
@@ -180,15 +197,15 @@ class TestFlagOutliers:
                 ("01", "02", "AP+PA", 0.60),
             ]
         )
-        flagged = qc_dwi.flag_outliers(df, ["ndc_min"])
+        flagged = qc_dwi.flag_outliers(df, ["raw_neighbor_corr"])
         assert not flagged["is_outlier"].any()
 
     def test_other_measures_keep_the_iqr_fence(self):
         df = _sessions([(f"{i:02d}", "01", "AP+PA", 0.95) for i in range(1, 7)])
         df["efc_max"] = [0.50, 0.51, 0.50, 0.52, 0.51, 0.90]
-        flagged = qc_dwi.flag_outliers(df, ["ndc_min", "efc_max"])
+        flagged = qc_dwi.flag_outliers(df, ["raw_neighbor_corr", "efc_max"])
         assert flagged["efc_max_outlier"].tolist() == [False] * 5 + [True]
-        assert not flagged["ndc_min_outlier"].any()
+        assert not flagged["raw_neighbor_corr_outlier"].any()
 
     def test_an_empty_table_passes_through(self):
-        assert qc_dwi.flag_outliers(pd.DataFrame(), ["ndc_min"]).empty
+        assert qc_dwi.flag_outliers(pd.DataFrame(), ["raw_neighbor_corr"]).empty

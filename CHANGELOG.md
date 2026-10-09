@@ -12,6 +12,14 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Diffusion QC no longer reads MRIQC's `ndc`.** MRIQC 24.x computes its
+  neighbouring-DWI correlation on the wrong axis: it masks the series to a
+  voxels-by-volumes array and then indexes it with volume numbers, so the value
+  correlates a few voxels at the edge of the brain mask. It can mark a good run
+  as collapsed, and the session table's `ndc_min` passed that straight into the
+  outlier flags. NDC now comes from QSIPrep's `raw_neighbor_corr` and
+  `t1_neighbor_corr` only.
+
 - **The drafted expectations on the Project page are readable.** The draft
   was shown with Python syntax colours, which drew its quoted names in a pale
   green too faint to read against the code background (2.88:1, under the

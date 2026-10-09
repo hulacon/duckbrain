@@ -220,8 +220,10 @@ be *exercised* rather than stressed.
   file). Landed: `core/qc_dwi.py` — one row per session from QSIPrep's
   `image_qc` plus MRIQC's per-run IQMs reduced to the worst run, outliers judged
   within a phase-encoding set only, NDC by DSI Studio's MAD rule plus the
-  within-subject 0.1 drop (the IQR fence missed two collapsed sessions of six on
-  real data); and `fd_*` untagged from `dwi` in the guidance registry, because
+  within-subject 0.1 drop (the IQR fence misses two collapsed sessions of six);
+  MRIQC's `ndc` not read at all (MRIQC 24.x indexes voxels with volume numbers,
+  so its value tracks the edge of the brain mask, not the data; NDC comes from
+  QSIPrep alone); and `fd_*` untagged from `dwi` in the guidance registry, because
   MRIQC's diffusion FD reads cross-shell contrast as millimetres of motion.
   **Remaining:** guidance entries for the `qc_dwi.MEASURE_KEYS` and their domain
   assignment (no registry entry applies to `dwi` any more — `gsr_x`/`gsr_y`/

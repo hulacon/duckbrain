@@ -38,6 +38,18 @@ read as displacement: on a real multi-shell dataset every run reported a mean
 FD of several millimetres and over 90% of volumes "high motion". Motion for
 diffusion comes from QSIPrep's eddy-based estimates instead.
 
+MRIQC's ``ndc`` (neighbouring-DWI correlation). In MRIQC 24.x the function
+masks the 4D series first, which leaves a voxels-by-volumes array, and then
+indexes that array with *volume* numbers, so each "volume" it correlates is one
+voxel's signal across the series. The value is therefore the correlation of a
+few voxels at the edge of the brain mask, and swings with small changes to that
+mask: on real data a correctly indexed NDC stayed within ±0.03 across three
+masks while MRIQC's moved by up to 0.27, and it flagged runs whose correctly
+computed NDC sat in the middle of the cohort. Upstream MRIQC has since fixed the
+indexing, but outputs from the affected releases carry the bad value with no
+marker, so it is not read at all. NDC for diffusion comes from QSIPrep's
+``raw_neighbor_corr`` and ``t1_neighbor_corr`` instead.
+
 Why outliers are judged within a protocol
 -----------------------------------------
 Neighbouring-volume correlation depends on the acquisition — b-values, how
@@ -84,7 +96,7 @@ NDC_MAD_FENCE = 3.0
 
 #: The session columns that are neighbouring-DWI correlations, and so take the
 #: NDC rules rather than the IQR fence.
-NDC_MEASURES = ("raw_neighbor_corr", "t1_neighbor_corr", "ndc_min")
+NDC_MEASURES = ("raw_neighbor_corr", "t1_neighbor_corr")
 
 
 @dataclass(frozen=True)
@@ -133,7 +145,6 @@ SESSION_MEASURES: tuple[SessionMeasure, ...] = (
     SessionMeasure("max_rel_rotation", QSIPREP_SOURCE, r"max_rel_rotation", "max"),
     SessionMeasure("t1_dice_distance", QSIPREP_SOURCE, r"t1_dice_distance", "max"),
     # MRIQC: one row per dir- run, reduced to the worst run.
-    SessionMeasure("ndc_min", MRIQC_SOURCE, r"ndc", "min"),
     SessionMeasure("snr_b0_min", MRIQC_SOURCE, r"snr_cc_shell0", "min"),
     SessionMeasure("snr_dwi_min", MRIQC_SOURCE, r"snr_cc_shell[1-9]\d*_worst", "min"),
     SessionMeasure("efc_max", MRIQC_SOURCE, r"efc_shell\d+", "max"),
