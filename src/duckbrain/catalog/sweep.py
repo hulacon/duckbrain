@@ -60,33 +60,48 @@ def read_provenance(root: pathlib.Path, dataset: pathlib.Path) -> dict[str, Any]
     """Provenance from dataset_description.json: pipeline, version, sources.
 
     Sources (SourceDatasets URLs, written tree-relative) are resolved to
-    root-relative paths; the raw dataset resolves to ``raw``."""
+    root-relative paths; the raw dataset resolves to ``raw``. A URL that does
+    not resolve to an existing directory under *root* is kept as written and
+    also listed under ``unresolved_sources`` — resolution is against the
+    dataset's own directory, so a root-relative ``derivatives/x`` or a
+    ``bids:`` URI lands on a path inside this dataset that is not its source.
+    Valid JSON of the wrong shape is a ``provenance_error``, like invalid JSON:
+    this runs outside the sweep's per-dataset ``try``."""
     dd = dataset / "dataset_description.json"
     if not dd.exists():
         return {}
     try:
         meta = json.loads(dd.read_text())
+        generated_by = (meta.get("GeneratedBy") or [{}])[0]
+        urls = [str(src.get("URL", "")) for src in meta.get("SourceDatasets") or []]
+        prov = {
+            "ds_name": meta.get("Name"),
+            "dataset_type": meta.get("DatasetType"),
+            "pipeline": generated_by.get("Name"),
+            "pipeline_version": generated_by.get("Version"),
+        }
     except Exception as exc:
         return {"provenance_error": f"{type(exc).__name__}: {exc}"}
-    generated_by = (meta.get("GeneratedBy") or [{}])[0]
     sources: list[str] = []
-    for src in meta.get("SourceDatasets") or []:
-        url = str(src.get("URL", ""))
+    unresolved: list[str] = []
+    for url in urls:
         if "://" in url or url.startswith("doi:"):
             sources.append(url)  # DOI/remote URL: keep verbatim
             continue
         try:
-            resolved = (dataset / url).resolve().relative_to(root)
-            sources.append("raw" if str(resolved) == "." else str(resolved))
+            target = (dataset / url).resolve()
+            resolved = target.relative_to(root)
         except (ValueError, OSError):
-            sources.append(url)  # unresolvable: keep verbatim
-    return {
-        "ds_name": meta.get("Name"),
-        "dataset_type": meta.get("DatasetType"),
-        "pipeline": generated_by.get("Name"),
-        "pipeline_version": generated_by.get("Version"),
-        "sources": ";".join(sources) or None,
-    }
+            target = None
+        if target is None or not target.is_dir():
+            sources.append(url)  # unresolvable: keep verbatim, and say so
+            unresolved.append(url)
+            continue
+        sources.append("raw" if str(resolved) == "." else str(resolved))
+    prov["sources"] = ";".join(sources) or None
+    if unresolved:
+        prov["unresolved_sources"] = unresolved
+    return prov
 
 
 def run_sweep(
@@ -125,7 +140,14 @@ def run_sweep(
             "has_dataset_description": (dataset / "dataset_description.json").exists(),
             **read_provenance(root, dataset),
         }
-        if any(rel == ex or rel.startswith(ex.rstrip("/") + "/") for ex in exclude):
+        if "provenance_error" in entry:
+            print(
+                f"    WARN  {rel}: unreadable provenance: {entry['provenance_error']}", flush=True
+            )
+        if "unresolved_sources" in entry:
+            unresolved = ", ".join(entry["unresolved_sources"])
+            print(f"    WARN  {rel}: SourceDatasets not found: {unresolved}", flush=True)
+        if any(rel == ex.rstrip("/") or rel.startswith(ex.rstrip("/") + "/") for ex in exclude):
             entry["skipped"] = "excluded"
             report["datasets"].append(entry)
             print(f"    skip  {rel}  (excluded)", flush=True)
@@ -201,8 +223,12 @@ def run_sweep(
     report_path.write_text(json.dumps(report, indent=2))
     ok = sum(1 for d in report["datasets"] if "rows" in d)
     fail = sum(1 for d in report["datasets"] if "error" in d)
+    warn = sum(
+        1 for d in report["datasets"] if "provenance_error" in d or "unresolved_sources" in d
+    )
     print(
-        f"\n{ok} datasets indexed, {fail} failed, {n_files} rows total "
+        f"\n{ok} datasets indexed, {fail} failed, {warn} with provenance warnings, "
+        f"{n_files} rows total "
         f"-> {db_path}\nreport: {report_path}",
         flush=True,
     )
