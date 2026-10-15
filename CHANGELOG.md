@@ -10,6 +10,8 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-10-15
+
 ### Added
 
 - **Diffusion on the QC pages, reviewed per session.** `dwi` is a fourth
@@ -52,6 +54,27 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
   as collapsed, and the session table's `ndc_min` passed that straight into the
   outlier flags. NDC now comes from QSIPrep's `raw_neighbor_corr` and
   `t1_neighbor_corr` only.
+
+- **The catalog no longer fabricates or hides `SourceDatasets` provenance.**
+  These change what a rebuilt catalog contains; nothing duckbrain writes into a
+  dataset changes. The catalog does not record duckbrain's own version (the
+  sweep report records `bids2table_version` and `duckdb_version`), so a rebuild
+  will not show which engine produced it.
+  - `datasets.sources` holds a source's URL as written when it does not resolve
+    to an existing directory under the root. It used to hold a path invented by
+    resolving the URL against the dataset's own folder, so a root-relative
+    `derivatives/x` became `derivatives/y/derivatives/x`.
+  - Such sources are listed under `unresolved_sources` in the sweep report
+    (`catalog_sweep_report.json` and `sweep_meta`), printed as a warning, and
+    counted in the run summary. No table schema changed.
+  - A valid BIDS URI, `bids:<name>:<path>`, resolves through `DatasetLinks`; an
+    empty `<name>` means the dataset itself. A malformed `bids:` string is
+    reported as unresolved.
+  - A `dataset_description.json` that is valid JSON of the wrong shape (for
+    example `GeneratedBy` as an object) is a per-dataset provenance error. It
+    used to abort the whole sweep.
+  - An exclude entry with a trailing slash (`derivatives/x/`) excludes that
+    dataset. It used to exclude only its children.
 
 - **The drafted expectations on the Project page are readable.** The draft
   was shown with Python syntax colours, which drew its quoted names in a pale
@@ -2049,7 +2072,8 @@ Notable bugs caught by live validation rather than unit tests:
 - Released under **GPL-3.0-or-later**. Supersedes an unbacked `license = "MIT"`
   claim in `pyproject.toml` (no `LICENSE` file had ever existed).
 
-[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/hulacon/duckbrain/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/hulacon/duckbrain/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/hulacon/duckbrain/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/hulacon/duckbrain/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/hulacon/duckbrain/compare/v0.6.0...v0.7.0
