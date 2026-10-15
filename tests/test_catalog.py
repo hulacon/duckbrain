@@ -295,6 +295,102 @@ def test_read_provenance_shapes(tmp_path: Path) -> None:
     assert sweep.read_provenance(tmp_path, ds2)["sources"] == "doi:10.1/x;../../../outside"
 
 
+def test_read_provenance_flags_a_source_that_resolves_to_nothing(tmp_path: Path) -> None:
+    # Each URL is resolved against the dataset's own directory. A root-relative
+    # path or a malformed `bids:` URI therefore lands inside this dataset, at a
+    # path that does not exist — and used to be kept as if it were the source.
+    (tmp_path / "derivatives" / "x").mkdir(parents=True)
+    ds = tmp_path / "derivatives" / "y"
+    urls = ["../x", "derivatives/x", "bids:derivatives/x", "../../../outside", "doi:10.1/x"]
+    _write(
+        ds / "dataset_description.json",
+        json.dumps({"SourceDatasets": [{"URL": u} for u in urls]}),
+    )
+    prov = sweep.read_provenance(tmp_path, ds)
+    # tree-relative resolves; the rest stay as written, never as a guessed path
+    assert prov["sources"] == (
+        "derivatives/x;derivatives/x;bids:derivatives/x;../../../outside;doi:10.1/x"
+    )
+    assert prov["unresolved_sources"] == [
+        "derivatives/x",
+        "bids:derivatives/x",
+        "../../../outside",
+    ]
+
+
+def test_read_provenance_resolves_bids_uris_through_dataset_links(tmp_path: Path) -> None:
+    # `bids:<name>:<path>` names its dataset through DatasetLinks; an empty name
+    # is the dataset itself. A valid URI must resolve, not be flagged.
+    (tmp_path / "derivatives" / "x").mkdir(parents=True)
+    ds = tmp_path / "derivatives" / "y"
+    _write(
+        ds / "dataset_description.json",
+        json.dumps(
+            {
+                "DatasetLinks": {"raw": "../..", "fp": str(tmp_path / "derivatives" / "x")},
+                "SourceDatasets": [
+                    {"URL": "bids:raw:"},
+                    {"URL": "bids:fp:"},
+                    {"URL": "bids:raw:derivatives/x"},
+                    {"URL": "bids::"},
+                    {"URL": "bids:nolink:"},
+                    {"URL": "bids:derivatives/x"},
+                ],
+            }
+        ),
+    )
+    prov = sweep.read_provenance(tmp_path, ds)
+    assert prov["sources"] == (
+        "raw;derivatives/x;derivatives/x;derivatives/y;bids:nolink:;bids:derivatives/x"
+    )
+    assert prov["unresolved_sources"] == ["bids:nolink:", "bids:derivatives/x"]
+
+
+def test_read_provenance_survives_a_misshapen_description(tmp_path: Path) -> None:
+    # Valid JSON of the wrong shape must be an error value like invalid JSON is:
+    # read_provenance runs outside the sweep's per-dataset try, so raising here
+    # aborted the whole sweep instead of recording one dataset's failure.
+    for i, meta in enumerate(
+        [{"GeneratedBy": {"Name": "x"}}, {"SourceDatasets": ["../x"]}, ["not", "a", "dict"]]
+    ):
+        ds = tmp_path / f"d{i}"
+        _write(ds / "dataset_description.json", json.dumps(meta))
+        assert "provenance_error" in sweep.read_provenance(tmp_path, ds)
+
+
+def test_sweep_reports_unresolved_sources_and_provenance_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write(tmp_path / "dataset_description.json", json.dumps({"Name": "r", "BIDSVersion": "1.8"}))
+    _write(tmp_path / "sub-01" / "ses-01" / "anat" / "sub-01_ses-01_T1w.nii.gz")
+    _write(
+        tmp_path / "derivatives" / "y" / "dataset_description.json",
+        json.dumps({"Name": "y", "SourceDatasets": [{"URL": "bids:raw"}]}),
+    )
+    _write(
+        tmp_path / "derivatives" / "z" / "dataset_description.json",
+        json.dumps({"Name": "z", "GeneratedBy": {"Name": "not-a-list"}}),
+    )
+    report = sweep.run_sweep(tmp_path, tmp_path / "inventory")
+    by_ds = {d["dataset"]: d for d in report["datasets"]}
+    assert by_ds["derivatives/y"]["unresolved_sources"] == ["bids:raw"]
+    assert "provenance_error" in by_ds["derivatives/z"]
+    out = capsys.readouterr().out
+    assert "derivatives/y" in out and "bids:raw" in out
+    assert "derivatives/z" in out and "provenance" in out
+
+
+def test_exclude_with_a_trailing_slash_still_excludes(tmp_path: Path) -> None:
+    _write(tmp_path / "dataset_description.json", json.dumps({"Name": "r", "BIDSVersion": "1.8"}))
+    _write(
+        tmp_path / "derivatives" / "x" / "dataset_description.json",
+        json.dumps({"Name": "x", "BIDSVersion": "1.8"}),
+    )
+    report = sweep.run_sweep(tmp_path, tmp_path / "inventory", exclude=["derivatives/x/"])
+    by_ds = {d["dataset"]: d for d in report["datasets"]}
+    assert by_ds["derivatives/x"].get("skipped") == "excluded"
+
+
 # ---- expectations -----------------------------------------------------------
 
 
