@@ -318,6 +318,34 @@ def test_read_provenance_flags_a_source_that_resolves_to_nothing(tmp_path: Path)
     ]
 
 
+def test_read_provenance_resolves_bids_uris_through_dataset_links(tmp_path: Path) -> None:
+    # `bids:<name>:<path>` names its dataset through DatasetLinks; an empty name
+    # is the dataset itself. A valid URI must resolve, not be flagged.
+    (tmp_path / "derivatives" / "x").mkdir(parents=True)
+    ds = tmp_path / "derivatives" / "y"
+    _write(
+        ds / "dataset_description.json",
+        json.dumps(
+            {
+                "DatasetLinks": {"raw": "../..", "fp": str(tmp_path / "derivatives" / "x")},
+                "SourceDatasets": [
+                    {"URL": "bids:raw:"},
+                    {"URL": "bids:fp:"},
+                    {"URL": "bids:raw:derivatives/x"},
+                    {"URL": "bids::"},
+                    {"URL": "bids:nolink:"},
+                    {"URL": "bids:derivatives/x"},
+                ],
+            }
+        ),
+    )
+    prov = sweep.read_provenance(tmp_path, ds)
+    assert prov["sources"] == (
+        "raw;derivatives/x;derivatives/x;derivatives/y;bids:nolink:;bids:derivatives/x"
+    )
+    assert prov["unresolved_sources"] == ["bids:nolink:", "bids:derivatives/x"]
+
+
 def test_read_provenance_survives_a_misshapen_description(tmp_path: Path) -> None:
     # Valid JSON of the wrong shape must be an error value like invalid JSON is:
     # read_provenance runs outside the sweep's per-dataset try, so raising here

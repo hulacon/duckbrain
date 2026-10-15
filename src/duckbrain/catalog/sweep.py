@@ -60,11 +60,12 @@ def read_provenance(root: pathlib.Path, dataset: pathlib.Path) -> dict[str, Any]
     """Provenance from dataset_description.json: pipeline, version, sources.
 
     Sources (SourceDatasets URLs, written tree-relative) are resolved to
-    root-relative paths; the raw dataset resolves to ``raw``. A URL that does
+    root-relative paths; the raw dataset resolves to ``raw``. A BIDS URI
+    (``bids:<name>:<path>``) resolves through ``DatasetLinks``. A URL that does
     not resolve to an existing directory under *root* is kept as written and
     also listed under ``unresolved_sources`` — resolution is against the
     dataset's own directory, so a root-relative ``derivatives/x`` or a
-    ``bids:`` URI lands on a path inside this dataset that is not its source.
+    malformed ``bids:`` URI lands on a path inside this dataset that is not its source.
     Valid JSON of the wrong shape is a ``provenance_error``, like invalid JSON:
     this runs outside the sweep's per-dataset ``try``."""
     dd = dataset / "dataset_description.json"
@@ -74,6 +75,9 @@ def read_provenance(root: pathlib.Path, dataset: pathlib.Path) -> dict[str, Any]
         meta = json.loads(dd.read_text())
         generated_by = (meta.get("GeneratedBy") or [{}])[0]
         urls = [str(src.get("URL", "")) for src in meta.get("SourceDatasets") or []]
+        links = meta.get("DatasetLinks") or {}
+        if not isinstance(links, dict):
+            raise TypeError(f"DatasetLinks is a {type(links).__name__}, not an object")
         prov = {
             "ds_name": meta.get("Name"),
             "dataset_type": meta.get("DatasetType"),
@@ -88,11 +92,23 @@ def read_provenance(root: pathlib.Path, dataset: pathlib.Path) -> dict[str, Any]
         if "://" in url or url.startswith("doi:"):
             sources.append(url)  # DOI/remote URL: keep verbatim
             continue
-        try:
-            target = (dataset / url).resolve()
-            resolved = target.relative_to(root)
-        except (ValueError, OSError):
-            target = None
+        path: pathlib.Path | None = dataset / url
+        if url.startswith("bids:"):
+            # bids:<name>:<path> — <name> is a DatasetLinks key, empty for this
+            # dataset. Anything else (`bids:derivatives/x`) is not a BIDS URI.
+            name, colon, rest = url[len("bids:") :].partition(":")
+            link = str(links.get(name, "")) if name else "."
+            if "://" in link or link.startswith("doi:"):
+                sources.append(url)  # links to a remote dataset: keep verbatim
+                continue
+            path = dataset / link / rest if colon and link else None
+        target: pathlib.Path | None = None
+        if path is not None:
+            try:
+                target = path.resolve()
+                resolved = target.relative_to(root)
+            except (ValueError, OSError):
+                target = None
         if target is None or not target.is_dir():
             sources.append(url)  # unresolvable: keep verbatim, and say so
             unresolved.append(url)
