@@ -33,8 +33,16 @@ def _get(app, path, cookie=None, method="GET"):
         "root_path": "",
     }
     sent: list[dict] = []
+    requested = False
 
     async def receive():
+        # Like a real server: the request once, then block until disconnect.
+        # starlette 1.8's FileResponse loops on receive() while it streams, so
+        # a receive that never suspends starves the stream and spins forever.
+        nonlocal requested
+        if requested:
+            await asyncio.Event().wait()
+        requested = True
         return {"type": "http.request", "body": b"", "more_body": False}
 
     async def send(message):
