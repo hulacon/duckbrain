@@ -229,7 +229,74 @@ def _covers(found: str, expected: str) -> bool:
     return all(e.get(entity) == value for entity, value in _entities(found).items())
 
 
-def _grade_merged(expected: set[str], found: set[str], subtree_exists: bool) -> Status:
+def _dwi_volumes(image: Path) -> int | None:
+    """Volumes in a DWI series, read off its ``.bval`` sidecar (one b-value each).
+
+    The sidecar rather than the NIfTI header: BIDS and QSIPrep both write one
+    beside every series, and a few bytes of text are cheaper than a header read
+    through a gzip stream. ``None`` when there is no sidecar to read (a top-level
+    inherited ``dwi.bval`` is not followed), and the caller then cannot check
+    rather than guessing.
+    """
+    try:
+        return len((image.parent / f"{image.name.split('.')[0]}.bval").read_text().split())
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _merged_coverage(
+    expected: dict[str, int | None], found: list[tuple[str, int | None]], divisor: int = 1
+) -> set[str]:
+    """The *expected* keys some *found* output accounts for, by name and by volume.
+
+    Both maps carry a volume count (:func:`_dwi_volumes`) beside each key. By
+    name, a found key covers every expected key it is coarser than
+    (:func:`_covers`). By volume, it must also hold at least what those inputs
+    did, divided by *divisor*: 1 when outputs concatenate their inputs, 2 under
+    ``--distortion-group-merge average``. An output short of that covers
+    **none** of its inputs. Which of them it lost cannot be told apart, so none
+    is credited.
+
+    That second half is what filenames alone cannot see. QSIPrep 26.0.0 grouped
+    a four-PE session's LR/RL runs under the same name as its AP/PA runs and
+    dropped them (2026-09-25, the reason for ``patch_grouping``). The output
+    kept the session-level name, so by name it covered all four runs; it held
+    108 of their 216 volumes.
+
+    Where either side has no count, the check stands down to the name test
+    alone. Then the board claims no more than it did before the counts existed.
+    """
+    covered: set[str] = set()
+    for key, volumes in found:
+        mine = {e for e in expected if _covers(key, e)}
+        counts = [expected[e] for e in mine]
+        known = [c for c in counts if c is not None]
+        if volumes is not None and len(known) == len(counts) and volumes * divisor < sum(known):
+            continue
+        covered |= mine
+    return covered
+
+
+def _qsiprep_merge_divisor(config: Config) -> int:
+    """Input volumes per output volume under the project's QSIPrep merge mode.
+
+    2 when ``[qsiprep] extra_flags`` asks for ``--distortion-group-merge
+    average``, which averages opposing-PE pairs into one volume each; 1 for
+    ``concat``, ``none`` and the default. Read from config, so a launch whose
+    flags were overridden in the GUI is graded against the config's mode. An
+    ``average`` override therefore grades PARTIAL, a false alarm and never a
+    false COMPLETE.
+    """
+    flags = str(config.get("qsiprep", {}).get("extra_flags", "")).replace("=", " ").split()
+    for flag, value in zip(flags, flags[1:], strict=False):
+        if flag == "--distortion-group-merge":
+            return 2 if value == "average" else 1
+    return 1
+
+
+def _grade_merged(
+    expected: set[str], covered: set[str], found_any: bool, subtree_exists: bool
+) -> Status:
     """:func:`_grade` for a stage whose outputs may be **coarser** than its inputs.
 
     QSIPrep concatenates DWI scans that share a warped space before head-motion
@@ -239,23 +306,25 @@ def _grade_merged(expected: set[str], found: set[str], subtree_exists: bool) -> 
     because all of them are one-output-per-input; against a merged output it is
     false *forever* — a completely successful run grades PARTIAL, which
     ``pipeline.stage_runnable`` reads as "not done", so the cockpit invites a
-    re-run that produces exactly the same result.
+    re-run that produces exactly the same result. So *covered* is computed by
+    :func:`_merged_coverage` instead: coarser names count, and volume counts
+    catch the dropped run that a coarser name hides.
 
-    **The honest cost, which is a real limit on what the board can claim rather
-    than a bug to paper over:** coarsening means a genuinely dropped run inside a
-    merged group cannot be detected from filenames. There is no per-input
-    artifact to fall back on — QSIPrep's ``desc-confounds_timeseries.tsv`` and
-    ``desc-image_qc.tsv`` are per-*output* and merge too. Declaring the runs a
-    session should have is what ``[expected]`` is for (``#16``).
+    **The limit that remains:** a dropped run is caught only when both sides
+    have ``.bval`` sidecars. And an output that keeps its volume count while
+    holding the wrong volumes is beyond any count. QSIPrep's
+    ``desc-confounds_timeseries.tsv`` and ``desc-image_qc.tsv`` are per-*output*
+    and merge too. Declaring the runs a session should have is what
+    ``[expected]`` is for (``#16``).
 
     **The rejected alternative, recorded so it is not re-proposed:** forcing
     ``--separate-all-dwis`` to restore 1:1 tracking. That trades preprocessing
     quality — less data for head-motion correction — for the convenience of a
     status column. The tail wagging the dog, and a silent science change at that.
     """
-    if expected and all(any(_covers(f, e) for f in found) for e in expected):
+    if expected and expected <= covered:
         return Status.COMPLETE
-    if found or subtree_exists:
+    if found_any or subtree_exists:
         return Status.PARTIAL
     return Status.MISSING
 
@@ -849,17 +918,41 @@ def _freesurfer_status(config: Config, subject: str, session: str) -> Status:
     return Status.MISSING
 
 
-def _qsiprep_dwi_keys(root: Path, subject: str, session: str) -> set[str]:
-    """Acquisition keys of the preprocessed DWI images QSIPrep wrote for this unit.
+def _qsiprep_dwi_outputs(root: Path, subject: str, session: str) -> list[tuple[str, int | None]]:
+    """Acquisition key and volume count of each preprocessed DWI image QSIPrep wrote.
 
     ``space-``/``desc-`` are representation, not identity, so ``_entity_key``
     strips them and ``sub-01_ses-01_space-ACPC_desc-preproc_dwi.nii.gz`` keys to
     the acquisition it came from — coarsened by any merge, which
-    :func:`_grade_merged` is what handles.
+    :func:`_merged_coverage` is what handles. One entry per image, not per key:
+    two output spaces of one merge share a key and are each checked.
     """
-    return _found_keys(
-        root, _fmt("{ss}/**/dwi/sub-{sub}*_desc-preproc_dwi.nii.gz", subject, session)
-    )
+    pattern = _fmt("{ss}/**/dwi/sub-{sub}*_desc-preproc_dwi.nii.gz", subject, session)
+    try:
+        images = [p for p in root.glob(pattern) if p.is_file() and p.stat().st_size > 0]
+    except (OSError, ValueError):
+        return []
+    return [(_entity_key(p.name), _dwi_volumes(p)) for p in images]
+
+
+def _qsiprep_coverage(
+    config: Config, subject: str, session: str
+) -> tuple[set[str], set[str], bool]:
+    """The unit's expected DWI keys, those QSIPrep's outputs cover, and whether any exist.
+
+    Shared by :func:`_qsiprep_status` and :func:`run_progress`, so the grade
+    and the ``n/N`` beside it cannot disagree.
+    """
+    from .qsiprep import get_dwi_runs
+
+    paths = config["paths"]
+    expected = {
+        _entity_key(p.name): _dwi_volumes(p)
+        for p in get_dwi_runs(paths["bids_dir"], subject, session)
+    }
+    found = _qsiprep_dwi_outputs(Path(paths["derivatives_dir"]) / "qsiprep", subject, session)
+    covered = _merged_coverage(expected, found, _qsiprep_merge_divisor(config))
+    return set(expected), covered, bool(found)
 
 
 def _qsiprep_report_present(root: Path, subject: str, session: str) -> bool:
@@ -900,20 +993,16 @@ def _qsiprep_status(config: Config, subject: str, session: str) -> Status:
     the workflow is still running, and the report is the only per-unit artifact
     QSIPrep writes at the end.
     """
-    from .qsiprep import get_dwi_runs
-
-    paths = config["paths"]
-    expected = {_entity_key(p.name) for p in get_dwi_runs(paths["bids_dir"], subject, session)}
+    expected, covered, found_any = _qsiprep_coverage(config, subject, session)
     if not expected:
         return Status.NA
 
-    root = Path(paths["derivatives_dir"]) / "qsiprep"
+    root = Path(config["paths"]["derivatives_dir"]) / "qsiprep"
     if not root.is_dir():
         return Status.MISSING
 
-    found = _qsiprep_dwi_keys(root, subject, session)
     subtree_exists = _has_match(root, _fmt("{ss}", subject, session))
-    grade = _grade_merged(expected, found, subtree_exists)
+    grade = _grade_merged(expected, covered, found_any, subtree_exists)
     if grade is Status.COMPLETE and not _qsiprep_report_present(root, subject, session):
         return Status.PARTIAL
     return grade
@@ -1048,17 +1137,13 @@ def run_progress(config: Config, stage: str, subject: str, session: str) -> tupl
     elif stage == "mriqc":
         expected, found = _mriqc_expected_found(config, subject, session)
     elif stage == "qsiprep":
-        # Counted through `_covers`, not set intersection, for the same reason
-        # `_qsiprep_status` grades through `_grade_merged` — a merged output is
-        # coarser than the runs it covers, so an identity count would report 0/4
-        # beside a COMPLETE cell.
-        from .qsiprep import get_dwi_runs
-
-        expected = {_entity_key(p.name) for p in get_dwi_runs(paths["bids_dir"], subject, session)}
-        found = _qsiprep_dwi_keys(Path(paths["derivatives_dir"]) / "qsiprep", subject, session)
+        # Counted through `_qsiprep_coverage`, not set intersection, because a
+        # merged output is coarser than the runs it covers: an identity count
+        # would report 0/4 beside a COMPLETE cell. The grade reads the same helper.
+        expected, covered, _ = _qsiprep_coverage(config, subject, session)
         if not expected:
             return None
-        return sum(any(_covers(f, e) for f in found) for e in expected), len(expected)
+        return len(covered), len(expected)
     else:
         return None
 

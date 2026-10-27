@@ -121,6 +121,17 @@ detected from filenames**. There is no per-input artifact to fall back on —
 merge too. This is a real limit on what the board can claim, not a bug to paper
 over, and it is the kind of thing `[expected]` exists for.
 
+**Narrowed with volume counts (`surveyor._merged_coverage`).** The miss was
+real, not hypothetical. QSIPrep 26.0.0 grouped a four-PE session's LR/RL runs
+under the AP/PA name and dropped them. The session-level output covered all
+four runs by name and graded COMPLETE, but it held 108 of their 216 volumes.
+The volume count does not merge away: each image's `.bval` sidecar lists one
+b-value per volume. So an output now covers its inputs only if it holds at
+least their summed volumes (half that under `--distortion-group-merge
+average`). Otherwise it covers none of them. The check stands down when
+either side lacks a sidecar, and it cannot see an output with the right count
+but the wrong volumes.
+
 **Rejected fix, recorded so it isn't re-proposed:** forcing `--separate-all-dwis`
 to restore 1:1 tracking. That trades preprocessing quality — less data for
 head-motion correction — for the convenience of duckbrain's status column. The

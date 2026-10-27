@@ -10,6 +10,16 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **QSIPrep no longer grades COMPLETE when a merge dropped runs.** A merged
+  output used to cover every input its name was coarser than. Now it must also
+  hold their volumes, counted from the `.bval` sidecars, halved under
+  `--distortion-group-merge average`. Without that check, the four-PE
+  sessions whose LR/RL group QSIPrep 26.0.0 dropped graded COMPLETE at half
+  their volumes. Now they grade PARTIAL, and `run_progress` says `0/4`. Where
+  a sidecar is missing, grading falls back to names as before.
+
 ## [0.8.2] — 2026-10-15
 
 ### Added

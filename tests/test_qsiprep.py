@@ -352,6 +352,75 @@ def test_an_unmerged_run_per_input_still_grades_complete(tmp_path):
     assert _survey(config) == Status.COMPLETE.value
 
 
+_FOUR_PE = ("dir-AP_run-1", "dir-PA_run-1", "dir-LR_run-1", "dir-RL_run-1")
+_MERGED = "sub-01_ses-01_space-ACPC_desc-preproc_dwi"
+
+
+def _bval(path, volumes):
+    """A ``.bval`` sidecar holding *volumes* b-values — all the volume check reads."""
+    _touch(path, " ".join(["0"] + ["1000"] * (volumes - 1)) + "\n")
+
+
+def _four_pe_with_bvals(tmp_path, *, per_run=3, **project):
+    config = _project(tmp_path, dwi=_FOUR_PE, **project)
+    for name in _FOUR_PE:
+        _bval(tmp_path / "sub-01" / "ses-01" / "dwi" / f"sub-01_ses-01_{name}_dwi.bval", per_run)
+    return config
+
+
+def _merged_output(tmp_path, volumes):
+    _finished(tmp_path, f"{_MERGED}.nii.gz")
+    dwi = tmp_path / "derivatives" / "qsiprep" / "sub-01" / "ses-01" / "dwi"
+    _bval(dwi / f"{_MERGED}.bval", volumes)
+
+
+def test_a_merged_output_missing_volumes_covers_nothing(tmp_path):
+    """The case filenames cannot see. QSIPrep 26.0.0 grouped a four-PE session's
+    LR/RL runs under the AP/PA name and dropped them. The session-level output
+    still covers all four runs by name, but it holds half their volumes. Which
+    runs it lost cannot be told from the output, so none is credited, and the
+    count says so too."""
+    config = _four_pe_with_bvals(tmp_path)
+    _merged_output(tmp_path, volumes=6)
+    assert _survey(config) == Status.PARTIAL.value
+    assert run_progress(config, "qsiprep", "01", "01") == (0, 4)
+
+
+def test_a_merged_output_holding_every_volume_is_complete(tmp_path):
+    config = _four_pe_with_bvals(tmp_path)
+    _merged_output(tmp_path, volumes=12)
+    assert _survey(config) == Status.COMPLETE.value
+    assert run_progress(config, "qsiprep", "01", "01") == (4, 4)
+
+
+@pytest.mark.parametrize(
+    "flags", ["--distortion-group-merge average", "--distortion-group-merge=average"]
+)
+def test_an_averaged_merge_owes_half_the_volumes(tmp_path, flags):
+    """``average`` folds each opposing-PE pair into one volume. Half is then the
+    complete output, so the check divides rather than flagging every averaged
+    session. Both spellings of the flag are read."""
+    config = _four_pe_with_bvals(tmp_path)
+    config["qsiprep"]["extra_flags"] = flags
+    _merged_output(tmp_path, volumes=6)
+    assert _survey(config) == Status.COMPLETE.value
+
+
+def test_concat_owes_every_volume(tmp_path):
+    config = _four_pe_with_bvals(tmp_path)
+    config["qsiprep"]["extra_flags"] = "--distortion-group-merge concat"
+    _merged_output(tmp_path, volumes=6)
+    assert _survey(config) == Status.PARTIAL.value
+
+
+def test_without_input_sidecars_the_volume_check_stands_down(tmp_path):
+    """No count on one side means nothing to compare: the grade falls back to
+    names alone, so it claims no more than it did before counts existed."""
+    config = _project(tmp_path, dwi=_FOUR_PE)
+    _merged_output(tmp_path, volumes=6)
+    assert _survey(config) == Status.COMPLETE.value
+
+
 def test_images_without_the_report_are_still_partial(tmp_path):
     """The images land while the workflow is still running. The report is the
     only per-unit artifact QSIPrep writes at the end, so it is what separates
