@@ -43,7 +43,9 @@ are still described there; the rest is unscheduled ·
 [`#30`](#30) GUI eyeball queue (batch these; don't check one at a time) ·
 [`#46`](#46) — tree comparator (conversion validation + duplicate audit, one
 digest core) — **not scheduled**; shape to be decided once the first
-adopting lab's needs are clear
+adopting lab's needs are clear ·
+[`#48`](#48) — the coverage shadow at the cluster seam (seven test-or-delete
+sub-items) — **not scheduled**
 
 **Below the queue, unscheduled, and not closed either:**
 [`#5`](#5) standing config / mapping decisions ·
@@ -1969,6 +1971,114 @@ duckbrain.compare` (the `duckbrain.catalog` precedent) makes it a durable
 capability every adopting lab gets. Lean module — the audit half is an
 adoption-era need, not specific to one lab — but decide after the meeting
 shows what the adopting lab actually asks for.
+
+---
+
+<a id="48"></a>
+## #48 — the coverage shadow at the cluster seam
+
+First filed 2026-08-21 against `87d3794`, on a branch that never merged (its id,
+`#46`, went to the tree comparator meanwhile). **Re-measured 2026-10-27 against
+`d452de9`**, on a Talapas compute node: 92% total against a `fail_under` of 90.
+The headline number is healthy, so this item is not "raise the floor". It is
+about *where* the misses sit, which is neither uniform nor random.
+
+**They cluster at the boundary between duckbrain and the cluster.** Every
+function that shells out to `sbatch`/`sacct`/`squeue`/`sinfo` or builds a
+container command line is stubbed at its seam by the tests that exercise its
+callers. The seam itself is then never executed by a test. The suite proves the
+orchestration around these functions is right and says nothing about the
+functions themselves, which are the ones whose output runs for hours on a
+compute node. These names are patched in `tests/` and never called there:
+`slurm.monitor.list_jobs`, `job_history` and `known_partitions`;
+`slurm.submit.export_script`; `core.fmriprep.find_fs_license`.
+
+Lowest-covered modules outside the GUI pages (2026-10-27; August in brackets):
+`slurm/submit.py` 62% (62), `core/mriqc.py` 70% (70), `core/fmriprep.py` 82%
+(62), `slurm/monitor.py` 84% (70). **`monitor.py`'s rise is the environment,
+not the tests:** a compute node has `squeue`/`sacct`, so the parsers ran against
+the live scheduler. In CI, or anywhere without SLURM, they are back in the
+shadow. The number moves with the machine, and that is this item's point.
+
+### #48.1 — the `--parsable2` parsers
+
+`list_jobs` and `job_history` parse pipe-delimited `squeue`/`sacct` output
+behind a `len(parts) >= N` guard (8 and 11), and `job_history` also drops
+sub-steps by testing `"." in parts[0]`. No test feeds them a fixture. Even with
+the live scheduler, the short-row arms never ran (`monitor.py` branches
+198→196 and 308→306). A short field count does not raise; it drops the row. So
+a `--format` string that loses a column, or a job name containing `|`, empties
+the cockpit's job list instead of erroring. That is the silently-degrading
+shape `CLAUDE.md` names, in the code the GUI's monitoring rests on.
+
+Cheap to pin: they take `subprocess.run` output and nothing else. Real
+`--parsable2` lines plus a monkeypatched `subprocess.run` cover both, including
+the short-row and sub-step arms.
+
+### #48.2 — `build_fmriprep_command`'s optional flags
+
+The `anat_only`, `derivatives` and `bids_filter_file` arms and `extra_args`
+(`fmriprep.py` lines 336, 339, 342, 349) have only ever been measured with the
+flag off. `--derivatives` matters most. Reuse-anat pointed at a tree with no
+anat is the silent no-op that cost a real fMRIPrep run, and
+`has_anat_derivatives` exists to gate it. The gate is well tested; the command
+line it gates is not. `build_mriqc_command` has the same shape, at 70%. Both are
+pure functions returning a `list[str]`, so a table-driven test of the exact argv
+per flag combination closes both.
+
+### #48.3 — `find_fs_license`'s fallback chain
+
+After config come three tiers: `$FREESURFER_HOME/license.txt`, then
+`$FS_LICENSE`, then `~/license.txt` (`fmriprep.py` 404–415). None is executed:
+seven tests name the function and every one replaces it. A missing FreeSurfer
+license is a job that dies minutes in, so the tier order is worth a test per
+tier with `monkeypatch.setenv` and `tmp_path`.
+
+### #48.4 — NORDIC staging with a source directory absent
+
+In `nordic.build_nordic_bids_input` (formerly `stage_nordic_bids_input`), the
+`is_dir()` guards on the NORDIC func, raw func and raw fmap directories are
+one-directional (branches 288→297, 297→303, 303→311). No test stages a unit
+with one of them missing. The function's output *is* the BIDS tree fMRIPrep
+reads, so a missing source directory gives a quietly incomplete input rather
+than a failure. That is the same rule as above, on `#5b`'s `use_nordic` path.
+
+### #48.5 — the `[expected]` shortfall arm
+
+`checks.py:166`, the `elif len(found) < count:` arm of the roster check, has
+never run (branch 166→177). `[expected]` is the **only** independent statement
+of intent in a project (`docs/sanity-checks.md`). This is the arm that fires
+when a study is short of its declared participants, the case the section exists
+for. The `missing`/`extra` arms beside it are covered.
+
+### #48.6 — the Data Ingestion page's action paths
+
+`gui/views/2_Data_Ingestion.py` is **57%**, and the missing part is not
+decoration. Lines 244–355 (the *Ingest Selected Sessions* body: symlink vs.
+copy, collision reporting, error reporting) and 395–419 (the *Sort DICOMs*
+body) are the page's only two write actions, and neither is exercised.
+`gui/views/4_Preprocessing.py` is the pattern: it declares, and its logic lives
+in `gui/preproc_panels.py`, where a test can reach it. Ingestion holds its logic
+inline. The fix is to lift the two button bodies into `gui/` helpers; testing
+them in place is not really available.
+
+### #48.7 — two dead functions, not two untested ones
+
+`slurm.submit.submit_with_dependency` (`submit.py` 129–151) and `slurm.monitor.job_status` (227–250) have **no caller in `src/`**.
+`submit_with_dependency`'s only other mention is `PLAN.md`'s original design
+sketch. duckbrain chains stages by gating on dependency completeness
+(`pipeline.stage_runnable`), not by SLURM `--dependency`. Delete both rather than
+test them. Coverage rises either way, but only deleting is true.
+
+### Not part of this item, but found alongside
+
+`tests/test_ingestion.py::test_unreadable_session_folder_is_kept_with_a_note`
+**fails when the suite runs as root.** It `chmod 0o000`s a directory and
+expects `discover_sessions` to be unable to read it, and root reads it anyway.
+It is a test asserting a property of the machine, the failure that cost four
+red commits on 2026-08-03. CI does not catch this form because GitHub runners
+are not root. Guard it with `pytest.mark.skipif(os.geteuid() == 0)`. Still
+unguarded 2026-10-27.
 
 ---
 
