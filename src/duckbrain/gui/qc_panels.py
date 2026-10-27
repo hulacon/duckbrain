@@ -452,6 +452,12 @@ def scope_bar(config: Config, *, with_run: bool = True) -> Scope | None:
                 float(settings["fd_threshold"]),
                 _fingerprint_of(fmriprep_dir, qc_report.CONFOUNDS_GLOB),
             )
+            unreadable = motion_df.attrs.get("unreadable", [])
+            if unreadable:
+                st.warning(
+                    f"{len(unreadable)} fMRIPrep confounds file(s) could not be read, so "
+                    "their runs have no motion numbers: " + "; ".join(unreadable)
+                )
         runs = qc_report.build_run_rows(
             metrics_df,
             modality,

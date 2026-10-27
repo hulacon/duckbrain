@@ -12,6 +12,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **The motion summary names the confounds files it could not read.**
+  `qc.summarize_motion` used to drop a confounds TSV that failed to parse
+  without a word, so its run looked absent rather than broken. It now lists
+  each one in `attrs["unreadable"]` with its error and raises a
+  `RuntimeWarning`, and the QC page shows a warning banner. Files without a
+  `framewise_displacement` column (older fMRIPrep) are still skipped
+  silently: they were read and have nothing to summarise.
 - **QSIPrep no longer grades COMPLETE when a merge dropped runs.** A merged
   output used to cover every input its name was coarser than. Now it must also
   hold their volumes, counted from the `.bval` sidecars, halved under

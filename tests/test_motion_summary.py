@@ -121,3 +121,40 @@ class TestNarrowedRead:
         assert callable(selector), "a list selector raises on the older no-FD confounds"
         header = ["framewise_displacement", *OTHER_COLUMNS]
         assert [c for c in header if selector(c)] == ["framewise_displacement"]
+
+
+class TestUnreadable:
+    """`D33`: a confounds file that failed to parse used to vanish from the
+    summary, so its run looked like a run that never existed. Now it is named."""
+
+    def test_an_unreadable_file_is_named_and_the_rest_still_summarised(self, tmp_path):
+        good = _confounds(
+            tmp_path / "sub-01" / "func",
+            "sub-01_task-rest_desc-confounds_timeseries.tsv",
+            [0.1, 0.3],
+        )
+        bad = good.parent / "sub-01_task-motor_desc-confounds_timeseries.tsv"
+        bad.write_text("")  # empty: pandas raises EmptyDataError
+
+        with pytest.warns(RuntimeWarning, match="1 confounds file"):
+            df = qc.summarize_motion(tmp_path)
+
+        assert df["task"].tolist() == ["rest"]
+        assert len(df.attrs["unreadable"]) == 1
+        assert df.attrs["unreadable"][0].startswith(f"{bad}: EmptyDataError")
+
+    def test_a_clean_tree_reports_nothing_unreadable(self, tmp_path):
+        _confounds(
+            tmp_path / "sub-01" / "func",
+            "sub-01_task-rest_desc-confounds_timeseries.tsv",
+            [0.1, 0.3],
+        )
+        assert qc.summarize_motion(tmp_path).attrs["unreadable"] == []
+
+    def test_a_file_without_framewise_displacement_is_not_unreadable(self, tmp_path):
+        """Older fMRIPrep confounds lack the column by design; that skip stays
+        silent, since the file was read and simply has nothing to summarise."""
+        func = tmp_path / "sub-01" / "func"
+        func.mkdir(parents=True)
+        (func / "sub-01_task-rest_desc-confounds_timeseries.tsv").write_text("csf\n1.0\n")
+        assert qc.summarize_motion(tmp_path).attrs["unreadable"] == []

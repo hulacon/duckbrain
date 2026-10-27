@@ -286,10 +286,15 @@ def summarize_motion(
     Returns
     -------
     pd.DataFrame
-        One row per run with mean_fd, max_fd, pct_high_motion.
+        One row per run with mean_fd, max_fd, pct_high_motion. A confounds
+        file that could not be read has no row. It is named instead, in
+        ``attrs["unreadable"]`` (``"<path>: <error>"`` each) and in a
+        ``RuntimeWarning``, so a missing run reads as a failed read rather than
+        as a run that was never there.
     """
     confounds_dir = Path(confounds_dir)
     rows = []
+    unreadable: list[str] = []
 
     for tsv_path in sorted(confounds_dir.rglob("*_desc-confounds_timeseries.tsv")):
         try:
@@ -316,10 +321,19 @@ def summarize_motion(
             row["pct_high_motion"] = (fd > fd_threshold).mean() * 100
             row["n_volumes"] = len(fd)
             rows.append(row)
-        except Exception:
-            continue
+        except Exception as exc:
+            unreadable.append(f"{tsv_path}: {type(exc).__name__}: {exc}")
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+    summary = pd.DataFrame(rows) if rows else pd.DataFrame()
+    if unreadable:
+        warnings.warn(
+            f"{len(unreadable)} confounds file(s) could not be read and are missing "
+            f"from the motion summary: {'; '.join(unreadable)}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    summary.attrs["unreadable"] = unreadable
+    return summary
 
 
 # ---- QC Decisions ----
