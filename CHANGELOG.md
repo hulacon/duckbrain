@@ -10,6 +10,18 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ## [Unreleased]
 
+### Added
+
+- **A guide to reviewing the GUI off the cluster, `docs/off-cluster.md`.**
+  It is for people with no Talapas account who want to read the screens,
+  try the controls and report what confuses them. The guide installs
+  duckbrain on a laptop and fetches a public demo dataset (OpenNeuro
+  ds000102 with its published MRIQC and fMRIPrep outputs, about 400 MB).
+  It then lists what each page does without SLURM or containers: QC review
+  works fully, and Submit fails for each subject naming the missing
+  `sbatch`. Running duckbrain off the cluster is still unsupported; this is
+  for review only.
+
 ### Fixed
 
 - **The motion summary names the confounds files it could not read.**
