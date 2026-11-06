@@ -322,6 +322,10 @@ session card, in case a page asks for it.
 
 ## 5. Your first project
 
+> **Opening a project someone else already set up?** Most of this section
+> is done for you. Read [Joining a project](docs/joining-a-project.md) first:
+> it covers what you can skip and how to avoid running a step twice.
+
 Once the GUI is open, the intended flow is:
 
 1. **Setup** — choose your project directory; set SLURM account and the

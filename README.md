@@ -11,6 +11,9 @@ config, launch, and your first project, in order. **New to cluster computing,
 the command line, or GitHub altogether?** Start one step earlier with
 [New to Talapas?](docs/new-to-talapas.md) — the concepts in plain words, the
 canonical tutorials, and the setup decisions to check with your PI first.
+**Joining a project a labmate already set up?** Read
+[Joining a project](docs/joining-a-project.md) instead of the Quickstart's
+setup steps.
 
 ## Pipeline Overview
 
