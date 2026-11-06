@@ -9,6 +9,10 @@
 #SBATCH --mail-type={{ slurm.mail_type }}
 {% endif %}{% if slurm.account %}#SBATCH --account={{ slurm.account }}
 {% endif %}
+{# Group-writable output: under the common umask 022, every file this job writes
+   is read-only to the project's other members. The first command, right after
+   the #SBATCH block (sbatch stops reading directives at the first command). #}
+umask 0002
 echo "=== dcm2bids: sub-{{ subject }}{% if session %} ses-{{ session }}{% endif %} ==="
 echo "Started: $(date)"
 echo "Node: $(hostname)"

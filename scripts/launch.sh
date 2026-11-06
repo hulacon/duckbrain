@@ -10,6 +10,12 @@
 
 set -euo pipefail
 
+# Group-writable output. The GUI writes into the project (its config, QC
+# decisions, submitted sbatch scripts), and Slurm creates each job's log with
+# this process's umask. Under the common 022, a second project member's files
+# are read-only to everyone else on the project.
+umask 0002
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 

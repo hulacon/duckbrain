@@ -24,6 +24,14 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Files a project member creates stay writable by the rest of the
+  project.** Every sbatch template now runs `umask 0002` as its first
+  command, and so do both GUI launchers (`scripts/launch.sh` and the
+  OnDemand script). Slurm creates a job's log with the submitting process's
+  umask, so the launchers need it too. Before this, anyone whose login umask
+  was the common `022` wrote derivatives, logs, QC decisions and project
+  config that the rest of their PIRG could read but not change. That matters
+  as soon as a second person opens a shared project.
 - **The motion summary names the confounds files it could not read.**
   `qc.summarize_motion` used to drop a confounds TSV that failed to parse
   without a word, so its run looked absent rather than broken. It now lists

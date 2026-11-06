@@ -846,3 +846,49 @@ def test_recon_runs_under_staging_never_the_import_dir():
     assert 'export SUBJECTS_DIR="$SUBJECTS_DIR_STAGING"' in script
     # recon-all is invoked from the pinned install, not bare PATH.
     assert "/packages/freesurfer/8.2.0/bin/recon-all" in script
+
+
+# ---- umask: output a project's other members can still write -----------------
+
+
+def _first_command(script):
+    """The first line bash executes: not blank, not a comment, not a directive."""
+    return next(
+        line.strip()
+        for line in script.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
+def test_every_template_has_a_default_context():
+    """The umask sweep below renders each template; a new one must join it."""
+    from duckbrain.slurm.templates import _get_templates_dir
+
+    stems = {p.name.removesuffix(".sbatch.j2") for p in _get_templates_dir().glob("*.sbatch.j2")}
+    assert stems == set(_TEMPLATE_DEFAULTS)
+
+
+@pytest.mark.parametrize("step", sorted(_TEMPLATE_DEFAULTS))
+def test_a_job_sets_a_group_writable_umask_before_anything_else(step):
+    """Under the common umask 022, everything a second project member's job
+    writes is read-only to the rest of the group. The umask must be the first
+    command: after the #SBATCH block (sbatch stops reading directives at the
+    first command), before anything creates a file.
+    """
+    ctx = build_context(_cfg(), step, **_TEMPLATE_DEFAULTS[step])
+    assert _first_command(render_sbatch(step, ctx)) == "umask 0002"
+
+
+@pytest.mark.parametrize("launcher", ["scripts/launch.sh", "ondemand/template/script.sh.erb"])
+def test_the_gui_launchers_set_a_group_writable_umask_before_serving(launcher):
+    """The GUI writes into the project itself (project config, QC decisions,
+    submitted sbatch scripts), and Slurm creates each job's --output log with
+    the submitting process's umask, before the job script's own umask runs.
+    """
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / launcher).read_text()
+    lines = [line.strip() for line in text.splitlines()]
+    assert "umask 0002" in lines
+    serve = next(i for i, line in enumerate(lines) if line.startswith("streamlit run"))
+    assert lines.index("umask 0002") < serve

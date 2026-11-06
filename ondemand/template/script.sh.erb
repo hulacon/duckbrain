@@ -5,6 +5,12 @@
 
 set -x
 
+# Group-writable output. The GUI writes into the project (its config, QC
+# decisions, submitted sbatch scripts), and Slurm creates each job's log with
+# this process's umask. Under the common 022, a second project member's files
+# are read-only to everyone else on the project.
+umask 0002
+
 # Resolve the install dir at runtime so shell tokens in the form value expand.
 # Handles the legacy `%{ENV:USER}` default (which OOD does NOT interpolate),
 # plus $USER / ${USER} / ~ in whatever the user typed.
