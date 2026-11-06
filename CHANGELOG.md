@@ -12,6 +12,28 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Added
 
+- **A project's Status board shows every member's jobs.** Every job now
+  carries the project's tag as its Slurm comment
+  (`#SBATCH --comment=duckbrain:<project>-<hash>`). When the project config
+  names a Slurm `account`, the board asks Slurm for the whole account and
+  keeps the jobs with this project's tag, whoever submitted them. A cell a
+  labmate is running reads running, names who submitted it, and offers no
+  Run button. Cancel is offered only on your own jobs. The all-jobs panel
+  gains a User column and lists this project's jobs from everyone plus your
+  own from anywhere. This also fixes a bug where another of your projects'
+  identically named job (`fmriprep_04_01`) showed up on this project's board.
+  Jobs submitted before the tag existed still count when they are yours or
+  when this project's submission log recorded their id. Without an account
+  configured, the board shows your own jobs as before.
+- **Launching re-checks Slurm first.** `advance_one` refuses a launch when
+  this project already has the same job queued or running, and names who
+  submitted it. This closes the gap left by a board that can be minutes old.
+  If Slurm cannot be asked, the launch goes ahead.
+- **The submission log records who submitted each job.** New `user` column
+  in `code/logs/submissions.tsv` (older logs gain it, empty for their old
+  rows), and a `user` field in each `requests/<job_id>.json`. Appends and
+  the header migration are serialised with a lock file, so two members'
+  GUIs cannot lose each other's rows.
 - **A guide to reviewing the GUI off the cluster, `docs/off-cluster.md`.**
   It is for people with no Talapas account who want to read the screens,
   try the controls and report what confuses them. The guide installs

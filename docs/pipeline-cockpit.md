@@ -46,6 +46,12 @@ resuming after significant drift.
    - `dcm2bids_{tag}` — `gui/views/3_BIDS_Conversion.py`
    - `fmriprep_{tag}`, `nordic_{tag}`, `mriqc_{tag}` — `gui/views/4_Preprocessing.py`
    This string maps a surveyor cell ↔ a squeue/sacct row with no new plumbing.
+   **The name is per unit, not per project.** Two projects with a `sub-04`
+   submit identical names, so the name alone cannot say whose a job is. Each
+   job therefore also carries the project's tag as its Slurm comment
+   (`config.project_job_comment`), and `pipeline.belongs_to_project` scopes
+   the board by it. That is what lets the board query a whole Slurm account
+   and show every project member's jobs (2026-11).
 
 2. **Every SLURM stage's submit action is the same trio**, differing only in how
    the context is assembled:
@@ -66,7 +72,9 @@ resuming after significant drift.
    - `job_history(user=None, days=7) -> list[JobInfo]` — sacct (completed/failed,
      carries `exit_code`, `state`, `end_time`).
    - `JobInfo` fields: `job_id, name, state, partition, time_used, time_limit,
-     nodes, reason, submit_time, start_time, end_time, exit_code`.
+     nodes, reason, submit_time, start_time, end_time, exit_code, user, comment`.
+   - Both queries also take `account=` (every user's jobs on that account);
+     the board passes the project's `[slurm] account`.
    The `name` field is what we join on `{step}_{tag}`.
 
 5. **Ingestion is the exception — it does NOT submit a SLURM job.** It runs

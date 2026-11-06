@@ -21,7 +21,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +30,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import pandas as pd
 
-from ..slurm.monitor import JobInfo, job_history, list_jobs
+from ..slurm.monitor import JobInfo, current_user, job_history, list_jobs
 from ..slurm.submit import archived_script_path, export_script, submit_job
 from ..slurm.templates import build_context, render_sbatch
 from .surveyor import STAGES, Status, survey_project
@@ -843,6 +844,34 @@ def _fsaverage_preflight(config: Config, stage: str, params: JobParams) -> None:
         raise PipelineError(str(exc)) from exc
 
 
+def _refuse_if_already_active(config: Config, job_name: str) -> None:
+    """Raise if this project already has *job_name* queued or running.
+
+    The board's run gate reads a survey that can be minutes old, and two people
+    can open the same cell; this asks Slurm again at the moment of submitting.
+    It narrows the window to the seconds between this query and ``sbatch``; it
+    does not close it. Where Slurm cannot be asked, it does not block: the board's
+    gate still stands, and refusing every submission because ``squeue`` hiccupped
+    would be worse.
+    """
+    from ..config import project_job_comment
+
+    account = _slurm_account(config)
+    try:
+        jobs = list_jobs(account=account or None, name=job_name)
+    except Exception:
+        return
+    tag, me = project_job_comment(config), current_user()
+    ledger = _ledger_job_ids(config) if account else set()
+    for j in jobs:
+        if j.name == job_name and belongs_to_project(j, tag, ledger, me):
+            who = "you" if j.user in ("", me) else j.user
+            raise PipelineError(
+                f"{job_name} is already {j.state.lower()} as job {j.job_id}, submitted "
+                f"by {who}. Wait for it to finish, or cancel it, before launching again."
+            )
+
+
 def advance_one(
     config: Config,
     stage: str,
@@ -909,6 +938,7 @@ def advance_one(
     if export_only:
         return str(export_script(script, Path(log_dir) / f"{job_name}.sbatch"))
 
+    _refuse_if_already_active(config, job_name)
     job_id = submit_job(script, job_name, scripts_dir=log_dir)
     # Durable record of what we launched — survives past sacct's ~7-day window
     # and is independent of the ephemeral Job Monitor. Never let logging failure
@@ -970,6 +1000,9 @@ _SUBMISSION_COLUMNS = [
     "job_id",
     "script_path",
     "request_path",
+    # Who submitted it. Last so a reader that indexes columns by position keeps
+    # working; the header migration adds it to older logs, empty for their rows.
+    "user",
 ]
 
 # Columns renamed since logs were first written. The migration maps rows by *name*,
@@ -1234,6 +1267,7 @@ def record_request(
         "subject": subject,
         "session": session,
         "job_id": str(job_id),
+        "user": current_user(),
         "request": request,
     }
     path = request_path_for(config, job_id)
@@ -1268,23 +1302,61 @@ def record_submission(
     """
     path = _submission_log_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
+    with _log_lock(path):
+        return _append_submission(
+            path,
+            [
+                subject,
+                session,
+                stage,
+                tool,
+                tool_version,
+                runtime,
+                code_source,
+                input_variant,
+                str(job_id),
+                script_path,
+                request_path,
+                current_user(),
+            ],
+        )
+
+
+@contextmanager
+def _log_lock(path: Path) -> Iterator[None]:
+    """Hold an exclusive lock on ``<path>.lock`` (best effort).
+
+    Two people's GUIs append to one project's log. The append alone is a single
+    small write, but the header migration replaces the file, and an append
+    landing during that replace goes to the old file and is lost. POSIX
+    ``lockf`` is coherent across GPFS nodes. If locking is not possible, the
+    write goes ahead unlocked: losing a record to a race is less bad than
+    losing it to a lock that cannot be taken.
+    """
+    import fcntl
+
+    lock = path.with_name(path.name + ".lock")
+    try:
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o664)
+    except OSError:
+        yield
+        return
+    try:
+        try:
+            fcntl.lockf(fd, fcntl.LOCK_EX)
+        except OSError:
+            pass
+        yield
+    finally:
+        os.close(fd)
+
+
+def _append_submission(path: Path, fields: list[str]) -> Path:
+    """Append one row (after the timestamp) under an up-to-date header."""
     _migrate_log_header(path)
     write_header = not path.exists()
     ts = datetime.now().isoformat(timespec="seconds")
-    row = [
-        ts,
-        subject,
-        session,
-        stage,
-        tool,
-        tool_version,
-        runtime,
-        code_source,
-        input_variant,
-        str(job_id),
-        script_path,
-        request_path,
-    ]
+    row = [ts, *fields]
     with open(path, "a") as f:
         if write_header:
             f.write("\t".join(_SUBMISSION_COLUMNS) + "\n")
@@ -1378,7 +1450,46 @@ class JobIndex(TypedDict):
     history: list[JobInfo]
 
 
-def _job_state_maps() -> tuple[dict[str, str], dict[str, JobInfo], list[JobInfo], list[JobInfo]]:
+def _slurm_account(config: Config) -> str:
+    """The project's Slurm account, or ``""`` when the project names none."""
+    return str((config.get("slurm") or {}).get("account") or "")
+
+
+def _ledger_job_ids(config: Config) -> set[str]:
+    """Job ids this project's submission log recorded (best effort)."""
+    try:
+        return set(read_submissions(config)["job_id"].astype(str))
+    except Exception:
+        return set()
+
+
+def _base_job_id(job_id: str) -> str:
+    """``12345`` for ``12345``, ``12345_3`` or ``12345.batch``."""
+    return str(job_id).split("_")[0].split(".")[0]
+
+
+def belongs_to_project(job: JobInfo, tag: str, ledger_ids: set[str], me: str) -> bool:
+    """Whether *job* is one of this project's, whoever submitted it.
+
+    A tagged job (any ``duckbrain:`` comment) belongs exactly when its tag is
+    this project's: that is what keeps another project's identically named
+    ``fmriprep_04_01`` off this board. Untagged jobs predate the tag. They
+    belong if this project's submission log recorded their id, or if they are
+    the viewer's own, which is what the board showed before it could see
+    anyone else's, so nothing it used to show disappears.
+    """
+    from ..config import JOB_COMMENT_PREFIX
+
+    if job.comment.startswith(JOB_COMMENT_PREFIX):
+        return job.comment == tag
+    if _base_job_id(job.job_id) in ledger_ids:
+        return True
+    return not job.user or job.user == me
+
+
+def _job_state_maps(
+    config: Config | None = None,
+) -> tuple[dict[str, str], dict[str, JobInfo], list[JobInfo], list[JobInfo]]:
     """Build name→state lookups from squeue (active) and sacct (recent history).
 
     Returns ``(active, latest, active_jobs, hist)`` — the first two are the
@@ -1386,6 +1497,14 @@ def _job_state_maps() -> tuple[dict[str, str], dict[str, JobInfo], list[JobInfo]
     :class:`JobInfo` lists (so a single squeue/sacct pull can also feed the
     cockpit's per-cell job detail + the all-jobs panel without querying twice).
     Degrades to empty maps/lists when SLURM isn't reachable (e.g. off-cluster).
+
+    **Scoped to the project, not to the viewer.** When the project names a
+    Slurm account, both queries cover every user's jobs on it, and only this
+    project's (:func:`belongs_to_project`) reach the name-keyed maps. So a cell
+    a labmate is running reads running for everyone, and cannot be launched a
+    second time from here. The raw lists keep the viewer's own jobs from other
+    projects too, because the all-jobs panel is the viewer's catch-all. With no
+    account configured it falls back to the viewer's own jobs, as before.
 
     History reduces to the **latest attempt per job name**, not to a pair of
     unordered "has failed" / "has completed" sets. Those sets discarded order
@@ -1395,22 +1514,41 @@ def _job_state_maps() -> tuple[dict[str, str], dict[str, JobInfo], list[JobInfo]
     test that was supposed to pin this asserted the failed-then-completed case,
     which an order-insensitive implementation passes either way round.
     """
+    from ..config import project_job_comment
+
+    config = config or {}
+    account = _slurm_account(config)
+    scope = {"account": account} if account else {}
     try:
-        active_jobs = list_jobs()
+        active_all = list_jobs(**scope)
     except Exception:
-        active_jobs = []
+        active_all = []
     try:
-        hist = job_history(days=7)
+        hist_all = job_history(days=7, **scope)
     except Exception:
-        hist = []
+        hist_all = []
+
+    me = current_user()
+    tag = project_job_comment(config)
+    ledger = _ledger_job_ids(config) if account else set()
+
+    def mine_or_ours(j: JobInfo) -> bool:
+        return belongs_to_project(j, tag, ledger, me) or j.user == me
+
+    active_jobs = [j for j in active_all if mine_or_ours(j)]
+    hist = [j for j in hist_all if mine_or_ours(j)]
 
     active: dict[str, str] = {}
     for j in active_jobs:
+        if not belongs_to_project(j, tag, ledger, me):
+            continue
         st = _norm_state(j.state)
         active[j.name] = "queued" if st in _QUEUED_STATES else "running"
 
     latest: dict[str, JobInfo] = {}
     for j in hist:
+        if not belongs_to_project(j, tag, ledger, me):
+            continue
         prev = latest.get(j.name)
         if prev is None or _attempt_order(j) >= _attempt_order(prev):
             latest[j.name] = j
@@ -1437,7 +1575,7 @@ def survey_live(
     all-jobs panel without querying SLURM again. Default returns just the matrix.
     """
     matrix = survey_project(config)
-    active, latest, active_jobs, hist = _job_state_maps()
+    active, latest, active_jobs, hist = _job_state_maps(config)
 
     overlay_stages = [s for s in STAGES if STAGE_SPECS.get(s) and STAGE_SPECS[s].is_slurm]
     for stage in overlay_stages:

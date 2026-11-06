@@ -375,6 +375,7 @@ def _job_popover(
         bits = [f"job `{job_id}`"]
         if info is not None:
             for label, val in (
+                ("by", info.user),
                 ("state", info.state),
                 ("node", info.nodes),
                 ("elapsed", info.time_used),
@@ -425,6 +426,11 @@ def _job_popover(
             key=f"rerun_{stage}_{sub}_{ses}",
         ):
             _launch(stage, sub, ses, config, params, verb="Re-submitted")
+    elif job_state in ("running", "queued") and job_id and _someone_elses(info):
+        # The board shows every project member's jobs, but scancel only works on
+        # your own: say whose it is instead of offering a button that fails.
+        st.divider()
+        st.caption(f"Submitted by {info.user}. Only they can cancel it." if info else "")
     elif job_state in ("running", "queued") and job_id:
         # An in-flight job can be cancelled here (scancel), behind a confirm tick.
         st.divider()
@@ -446,6 +452,13 @@ def _job_popover(
                 st.rerun()
             except Exception as e:
                 show_error("Could not cancel", e)
+
+
+def _someone_elses(info: JobInfo | None) -> bool:
+    """Whether a job on the board was submitted by another user."""
+    from duckbrain.slurm.monitor import current_user
+
+    return info is not None and bool(info.user) and info.user != current_user()
 
 
 def _queue_headroom(config: Config, n: int, queued: int) -> str:
@@ -811,7 +824,9 @@ def _all_jobs_section(jobs: JobIndex, config: Config) -> None:
     ):
         st.caption(
             "The board is organized by unit × stage; this catches every job — "
-            "including ones not tied to a cell — and looks up any job's log."
+            "including ones not tied to a cell — and looks up any job's log. "
+            "It lists this project's jobs from everyone on its Slurm account, "
+            "plus your own jobs from anywhere."
         )
         st.markdown("**Active** (squeue)")
         if active:
@@ -821,6 +836,7 @@ def _all_jobs_section(jobs: JobIndex, config: Config) -> None:
                         {
                             "Job ID": j.job_id,
                             "Name": j.name,
+                            "User": j.user,
                             "State": j.state,
                             "Partition": j.partition,
                             "Time": j.time_used,
@@ -844,6 +860,7 @@ def _all_jobs_section(jobs: JobIndex, config: Config) -> None:
                     {
                         "Job ID": j.job_id,
                         "Name": j.name,
+                        "User": j.user,
                         "State": j.state,
                         "Elapsed": j.time_used,
                         "Start": j.start_time,

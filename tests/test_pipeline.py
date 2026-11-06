@@ -1508,10 +1508,10 @@ def test_an_older_log_gains_the_script_and_request_columns(tmp_path):
     )
 
     lines = log.read_text().strip().splitlines()
-    assert lines[0].split("\t")[-2:] == ["script_path", "request_path"]
+    assert lines[0].split("\t")[-3:] == ["script_path", "request_path", "user"]
     assert lines[1].split("\t")[9] == "900"  # the old row kept its job id
-    assert lines[1].split("\t")[-2:] == ["", ""]  # ...and fills the new fields empty
-    assert lines[2].split("\t")[-2:] == ["/s.sbatch", "/r.json"]
+    assert lines[1].split("\t")[-3:] == ["", "", ""]  # ...and fills the new fields empty
+    assert lines[2].split("\t")[-3:-1] == ["/s.sbatch", "/r.json"]
 
 
 # ---- freesurfer stage (external recon, docs/pipeline-extras.md §9) -----------

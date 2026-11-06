@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=fmriprep_{{ subject }}{% if session %}_{{ session }}{% endif %}
+#SBATCH --comment={{ job_comment }}
 #SBATCH --partition={{ slurm.partition }}
 #SBATCH --time={{ slurm.time }}
 #SBATCH --cpus-per-task={{ slurm.cpus }}

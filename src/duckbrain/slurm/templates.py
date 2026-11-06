@@ -90,7 +90,7 @@ def build_context(config: Config, step: str, **extra: Any) -> TemplateContext:
     Merges the full config with per-step SLURM overrides and any
     additional keyword arguments (subject, session, etc.).
     """
-    from ..config import get_slurm_resources, unit_work_dir
+    from ..config import get_slurm_resources, project_job_comment, unit_work_dir
     from ..core.containers import isolation_flags_sh
 
     slurm = get_slurm_resources(config, step)
@@ -123,4 +123,7 @@ def build_context(config: Config, step: str, **extra: Any) -> TemplateContext:
     context["work_dir"] = unit_work_dir(
         config, step, str(context.get("subject") or ""), str(context.get("session") or "")
     )
+    # The project's tag on the job (`#SBATCH --comment`), set here for the same
+    # reason: one derivation, and `extra` cannot supply another.
+    context["job_comment"] = project_job_comment(config)
     return context

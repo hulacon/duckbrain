@@ -24,6 +24,27 @@ class JobInfo:
     start_time: str = ""
     end_time: str = ""
     exit_code: str = ""
+    #: Who submitted it. Empty when the source did not say (an older caller).
+    user: str = ""
+    #: Slurm's job comment: duckbrain's project tag (``config.project_job_comment``),
+    #: or whatever a job submitted by other means carries, or empty.
+    comment: str = ""
+
+
+def current_user() -> str:
+    """The login name Slurm knows this process as."""
+    import getpass
+
+    try:
+        return os.environ.get("USER") or getpass.getuser()
+    except Exception:  # no passwd entry and no LOGNAME/USER/USERNAME set
+        return ""
+
+
+def _comment(raw: str) -> str:
+    """squeue prints an unset comment as ``(null)``; sacct prints nothing."""
+    raw = raw.strip()
+    return "" if raw == "(null)" else raw
 
 
 def cancel_job(job_id: str) -> None:
@@ -159,31 +180,36 @@ def is_submit_limit_rejection(message: str) -> bool:
     return any(marker in lowered for marker in _LIMIT_REJECTIONS)
 
 
-def list_jobs(user: str | None = None) -> list[JobInfo]:
+def list_jobs(
+    user: str | None = None, account: str | None = None, name: str | None = None
+) -> list[JobInfo]:
     """List pending/running jobs from squeue.
 
     Parameters
     ----------
     user : str, optional
-        Username to filter. Defaults to current user.
+        Username to filter. Defaults to the current user. Ignored when *account*
+        is given.
+    account : str, optional
+        A Slurm account: list **every user's** jobs charged to it. This is what
+        lets a project see jobs its other members submitted; nothing narrower
+        than an account can be asked of squeue for that. Callers then keep their
+        own project's jobs by the job comment.
+    name : str, optional
+        Only jobs with exactly this job name.
 
     Returns
     -------
     list[JobInfo]
-        Active jobs.
+        Active jobs. Empty if squeue cannot be run or fails.
     """
-    if user is None:
-        user = os.environ.get("USER", "")
-
+    scope = ["-A", account] if account else ["-u", user or current_user()]
+    if name:
+        scope += ["-n", name]
     result = subprocess.run(
-        [
-            "squeue",
-            "-u",
-            user,
-            "-o",
-            "%i|%j|%T|%P|%M|%l|%N|%R",
-            "--noheader",
-        ],
+        # The comment is the last field: it is free text, and anything after it
+        # would shift if it held the separator.
+        ["squeue", *scope, "-o", "%i|%j|%T|%P|%M|%l|%N|%R|%u|%k", "--noheader"],
         capture_output=True,
         text=True,
         check=False,
@@ -206,6 +232,8 @@ def list_jobs(user: str | None = None) -> list[JobInfo]:
                     time_limit=parts[5].strip(),
                     nodes=parts[6].strip(),
                     reason=parts[7].strip(),
+                    user=parts[8].strip() if len(parts) > 8 else "",
+                    comment=_comment("|".join(parts[9:])),
                 )
             )
 
@@ -262,35 +290,40 @@ def job_status(job_id: str) -> JobInfo | None:
     )
 
 
-def job_history(user: str | None = None, days: int = 7) -> list[JobInfo]:
+def job_history(
+    user: str | None = None, days: int = 7, account: str | None = None
+) -> list[JobInfo]:
     """Query sacct for recent job history.
 
     Parameters
     ----------
     user : str, optional
-        Username. Defaults to current user.
+        Username. Defaults to the current user. Ignored when *account* is given.
     days : int
         How many days back to look.
+    account : str, optional
+        A Slurm account: **every user's** jobs charged to it (``--allusers``).
+        Needs a cluster that lets users read each other's accounting
+        (``PrivateData`` without ``jobs``); where it does not, sacct returns
+        only the caller's own, which is the old behaviour.
 
     Returns
     -------
     list[JobInfo]
     """
-    if user is None:
-        user = os.environ.get("USER", "")
-
     from datetime import datetime, timedelta
 
     start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    scope = ["--allusers", "--accounts", account] if account else ["-u", user or current_user()]
 
     result = subprocess.run(
         [
             "sacct",
-            "-u",
-            user,
+            *scope,
             "--starttime",
             start_date,
-            "--format=JobID,JobName,State,Partition,Elapsed,Timelimit,NodeList,Submit,Start,End,ExitCode",
+            # Comment last, for the reason given in list_jobs.
+            "--format=JobID,JobName,State,Partition,Elapsed,Timelimit,NodeList,Submit,Start,End,ExitCode,User,Comment",
             "--parsable2",
             "--noheader",
         ],
@@ -322,6 +355,8 @@ def job_history(user: str | None = None, days: int = 7) -> list[JobInfo]:
                     start_time=parts[8],
                     end_time=parts[9],
                     exit_code=parts[10],
+                    user=parts[11] if len(parts) > 11 else "",
+                    comment=_comment("|".join(parts[12:])),
                 )
             )
 

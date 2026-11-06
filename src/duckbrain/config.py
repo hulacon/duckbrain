@@ -217,11 +217,43 @@ def unit_work_dir(config: Config, step: str, subject: str = "", session: str = "
     """
     paths = config.get("paths", {})
     base = str(paths.get("work_dir") or "/tmp").rstrip("/") or "/tmp"
-    project_dir = str(paths.get("bids_dir") or "")
+    unit = f"sub-{subject}" + (f"_ses-{session}" if session else "") if subject else "all"
+    return f"{base}/duckbrain-{_scratch_owner()}-{project_key(config)}/{step}_{unit}"
+
+
+def project_key(config: Config) -> str:
+    """A short, stable name for the project: ``<basename>-<8 hex digits>``.
+
+    The digest is of the project directory (``[paths] bids_dir``) and is what
+    separates two projects; the basename is only there so a person can tell
+    which project it is. Safe to put in a directory name, a shell word and an
+    ``#SBATCH`` line: nothing outside ``[A-Za-z0-9._-]``.
+
+    One definition for every place a project has to recognise its own things
+    among other projects': node-local scratch (:func:`unit_work_dir`) and the
+    tag on every job it submits (:func:`project_job_comment`).
+    """
+    project_dir = str(config.get("paths", {}).get("bids_dir") or "")
     slug = _SCRATCH_UNSAFE.sub("-", Path(project_dir).name)[:32].strip("-.") or "project"
     digest = hashlib.blake2b(project_dir.encode("utf-8"), digest_size=4).hexdigest()
-    unit = f"sub-{subject}" + (f"_ses-{session}" if session else "") if subject else "all"
-    return f"{base}/duckbrain-{_scratch_owner()}-{slug}-{digest}/{step}_{unit}"
+    return f"{slug}-{digest}"
+
+
+#: Prefix of the Slurm job comment that marks a job as one of a project's.
+JOB_COMMENT_PREFIX = "duckbrain:"
+
+
+def project_job_comment(config: Config) -> str:
+    """The ``--comment`` every job this project submits carries.
+
+    Job names (``fmriprep_04_01``) are per unit and stage, not per project, so
+    two projects with a ``sub-04`` submit identically named jobs. The comment
+    is what lets a project pick its own jobs out of a whole Slurm account,
+    whoever submitted them. Slurm keeps it in accounting on this cluster
+    (``AccountingStoreFlags=job_comment``), so ``sacct`` reads it back after
+    the job ends, not only ``squeue`` while it runs.
+    """
+    return f"{JOB_COMMENT_PREFIX}{project_key(config)}"
 
 
 def load_config(

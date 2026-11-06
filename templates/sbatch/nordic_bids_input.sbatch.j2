@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=nordic_bids_{{ subject }}_{{ session }}
+#SBATCH --comment={{ job_comment }}
 #SBATCH --partition={{ slurm.partition }}
 #SBATCH --time=01:00:00
 #SBATCH --cpus-per-task=1

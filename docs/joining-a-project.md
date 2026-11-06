@@ -66,19 +66,24 @@ has any.
 
 ## Working alongside someone else
 
-**The Status board does not see their jobs.** Live job state comes from
-`squeue` for *your* user only. While your labmate's fMRIPrep job for a
-session is running, that session looks idle to you, and nothing stops you
-from launching the same step a second time. Two jobs writing one derivative
-folder are not safe. Before you launch anything, check the whole account:
+**The Status board shows everyone's jobs on the project.** When the project
+config names a Slurm `account` (`[slurm] account`), the board asks Slurm for
+every user's jobs on that account and keeps the ones carrying this project's
+tag. Every job duckbrain submits carries the tag as its Slurm comment. So a
+session your labmate is processing reads *running* for you too, its cell says
+who submitted it, and its Run button is gone. Launching also re-checks Slurm
+at the moment of submitting, and refuses if someone on the project already has
+that job queued or running.
 
-```bash
-squeue -A <account> -o "%.10i %.20j %.8u %.10T %.10M"
-```
+Two limits:
+- **Without an account in the project config, you see only your own jobs.**
+  Ask the owner to set one.
+- **You can cancel only your own jobs.** A labmate's job shows who submitted
+  it instead of a Cancel button.
 
-Job names follow `<step>_<subject>[_<session>]`, so a matching name means
-someone already has it. Agree with your labmate on who runs which subjects or
-steps.
+Still agree with your labmate on who runs which subjects or steps. The
+re-check makes a double launch unlikely, but two clicks within the same few
+seconds can still both go through.
 
 **Files you create must stay writable by the group.** duckbrain's launchers
 and job scripts set `umask 0002`, so everything they write is group-writable.
@@ -91,10 +96,11 @@ change or remove them, and only you can fix that.
 
 | Per person | Shared by everyone on the project |
 |---|---|
-| Your Slurm jobs and their live state on Status | The project config, `code/duckbrain.toml` |
+| Cancelling a job (only its submitter can) | The project config, `code/duckbrain.toml` |
 | Your node-local scratch (the path contains your username) | Job logs and submitted scripts in `code/logs/` |
 | Your recent-projects list | Everything under `derivatives/` |
 | | QC decisions. Each one records who made it. |
+| | The Status board's jobs, and the submission log (`code/logs/submissions.tsv`), which records who submitted each one |
 
 ## When something goes wrong
 

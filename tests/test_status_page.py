@@ -472,6 +472,38 @@ def test_running_cell_cancel_gated_and_invokes_scancel(project, monkeypatch):
     assert cancelled.get("id") == "55123"
 
 
+def test_a_labmates_job_shows_its_owner_and_offers_no_cancel(project, monkeypatch):
+    """The board sees every member's jobs on the project's account; scancel only
+    works on your own, so another member's job says whose it is instead."""
+    from duckbrain.config import load_config, project_job_comment, save_project_config
+
+    save_project_config(str(project), {"slurm": {"account": "lab"}})
+    tag = project_job_comment(load_config(project_dir=str(project)))
+    from duckbrain.core.pipeline import record_submission
+
+    record_submission(load_config(project_dir=str(project)), "fmriprep", "01", "", "55124")
+    monkeypatch.setenv("USER", "me")
+    job = JobInfo(
+        job_id="55124",
+        name="fmriprep_01",
+        state="RUNNING",
+        partition="c",
+        user="alice",
+        comment=tag,
+    )
+    monkeypatch.setattr(P, "list_jobs", lambda **kw: [job])
+    monkeypatch.setattr(P, "job_history", lambda days=7, **kw: [])
+
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    _open_cell(at, "fmriprep", "01")
+    caps = [c.value for c in at.caption]
+    assert any("by alice" in c for c in caps)
+    assert any("Only they can cancel" in c for c in caps)
+    assert "cancel_fmriprep_01_" not in _btn_keys(at)
+    assert "runbtn_fmriprep_01_" not in _btn_keys(at)  # still no double launch
+
+
 def test_all_jobs_panel_lists_orphan_jobs(project, monkeypatch):
     # A job whose name maps to no board cell must still appear in the all-jobs panel.
     monkeypatch.setattr(

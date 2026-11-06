@@ -892,3 +892,13 @@ def test_the_gui_launchers_set_a_group_writable_umask_before_serving(launcher):
     assert "umask 0002" in lines
     serve = next(i for i, line in enumerate(lines) if line.startswith("streamlit run"))
     assert lines.index("umask 0002") < serve
+
+
+@pytest.mark.parametrize("step", sorted(_TEMPLATE_DEFAULTS))
+def test_every_job_carries_the_projects_tag(step):
+    """The Status board picks a project's jobs out of a whole Slurm account by
+    this comment, so a template without it is a job no other member can see."""
+    from duckbrain.config import project_job_comment
+
+    ctx = build_context(_cfg(), step, **_TEMPLATE_DEFAULTS[step])
+    assert f"#SBATCH --comment={project_job_comment(_cfg())}\n" in render_sbatch(step, ctx)
