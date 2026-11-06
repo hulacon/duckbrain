@@ -46,6 +46,13 @@ actual checkout (e.g. `v0.1.0-3-gabc1234`), not the release number below — see
 
 ### Fixed
 
+- **Saving settings no longer deletes the comments in a config file.**
+  Every GUI save (Setup, task and fieldmap mappings, expectations, series
+  types) re-wrote `code/duckbrain.toml` from scratch, so any comment explaining
+  why a value was chosen disappeared on the next save. The writer now
+  updates the existing file in place with `tomlkit` instead of `tomli-w`.
+  Changed values are replaced, removed keys go, comments stay, and a save
+  that changes nothing leaves the file byte for byte as it was.
 - **Files a project member creates stay writable by the rest of the
   project.** Every sbatch template now runs `umask 0002` as its first
   command, and so do both GUI launchers (`scripts/launch.sh` and the

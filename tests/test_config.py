@@ -684,6 +684,88 @@ def test_clearing_every_owned_key_drops_the_section(tmp_path):
     assert "dcm_source" not in _load_toml(project_config_path(tmp_path))
 
 
+# ---- a save keeps the file's comments ------------------------------------------
+
+_COMMENTED = """\
+# Project config, annotated by hand.
+
+[project]
+name = "study"
+# A string on purpose: the reason lives here.
+use_sessions = "true"
+
+[paths]
+# Must stay short: a deep tool path overflows past ~200 characters.
+work_dir = "/scratch/s"  # shared, so a killed job resumes
+
+[slurm]
+account = "lab"
+partition = "compute"
+# Hand-tuned after an out-of-memory kill.
+[slurm.overrides.fmriprep]
+mem = "96G"
+"""
+
+
+def _commented_project(tmp_path):
+    from duckbrain.config import project_config_path
+
+    path = project_config_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(_COMMENTED)
+    return path
+
+
+def _comments(text):
+    return [line[line.index("#") :] for line in text.splitlines() if "#" in line]
+
+
+def test_a_setup_save_keeps_every_comment(tmp_path):
+    """A project config is shared and annotated; one Save must not strip it.
+
+    The writer used to re-serialise the whole file from a dict, so every comment
+    went: including the ones that say why a value is what it is, which are the
+    only record of it once a second person opens the project.
+    """
+    from duckbrain.config import _load_toml, save_project_config
+
+    path = _commented_project(tmp_path)
+    save_project_config(
+        tmp_path,
+        {"project": {"name": "study", "use_sessions": "true"}, "slurm": {"partition": "long"}},
+        owned={"project": ("name", "use_sessions"), "slurm": ("account", "partition")},
+    )
+
+    assert _comments(path.read_text()) == _comments(_COMMENTED)
+    stored = _load_toml(path)
+    assert stored["slurm"]["partition"] == "long"
+    assert "account" not in stored["slurm"]
+    assert stored["slurm"]["overrides"]["fmriprep"]["mem"] == "96G"
+    assert stored["paths"]["work_dir"] == "/scratch/s"
+
+
+def test_an_unchanged_save_leaves_the_file_byte_identical(tmp_path):
+    from duckbrain.config import _load_toml, save_project_config
+
+    path = _commented_project(tmp_path)
+    save_project_config(tmp_path, _load_toml(path))
+
+    assert path.read_text() == _COMMENTED
+
+
+def test_a_wholesale_section_replace_keeps_comments_on_surviving_keys(tmp_path):
+    """Unowned sections are still replaced, but by reconcile, not by rewrite."""
+    from duckbrain.config import _load_toml, save_project_config
+
+    path = _commented_project(tmp_path)
+    save_project_config(tmp_path, {"paths": {"work_dir": "/scratch/t"}})
+
+    text = path.read_text()
+    assert "# Must stay short" in text
+    assert "# shared, so a killed job resumes" in text
+    assert _load_toml(path)["paths"] == {"work_dir": "/scratch/t"}
+
+
 def test_project_partition_reaches_every_stage(tmp_path, monkeypatch):
     """A project's partition is site policy and must beat the shipped defaults.
 

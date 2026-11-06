@@ -22,7 +22,7 @@ import getpass
 import hashlib
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -401,14 +401,52 @@ def tool_mem_gb(config: Config, step: str, alloc_gb: int | None = None) -> int:
 
 
 def _dump_toml(path: str | Path, data: Config) -> Path:
-    """Write *data* to a TOML file, creating parent dirs."""
-    import tomli_w
+    """Write *data* to a TOML file, keeping the comments of the file it replaces.
+
+    The file ends up holding exactly *data*; what survives is the annotation.
+    A project config is shared and hand-annotated: its comments are often the
+    only record of why a value is what it is. A writer that re-serialises from a
+    dict deletes them on every GUI save, and the save still reports success.
+    So the existing file is parsed with its comments and *data* reconciled into
+    it (:func:`_reconcile_toml`): changed values are replaced in place, removed
+    keys go, and a file whose values did not change is rewritten byte for byte.
+    """
+    import tomlkit
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "wb") as f:
-        tomli_w.dump(data, f)
+    doc = tomlkit.parse(path.read_text()) if path.exists() else tomlkit.document()
+    _reconcile_toml(doc, data)
+    path.write_text(tomlkit.dumps(doc))
     return path
+
+
+def _reconcile_toml(target: MutableMapping[str, Any], data: Mapping[str, Any]) -> None:
+    """Make the tomlkit container *target* hold exactly *data*, in place.
+
+    Tables recurse, so the comments inside a table survive a change to one of
+    its keys. A value that compares equal is left alone, which keeps its
+    original spelling (quoting, inline comment). Anything else is assigned
+    whole. A comment line standing above a removed key stays behind: tomlkit
+    keeps it as a separate item, and an orphaned note is easier to notice and
+    delete than a lost one is to recover.
+    """
+    for key in [k for k in target if k not in data]:
+        del target[key]
+    for key, value in data.items():
+        current = target.get(key)
+        if isinstance(value, Mapping) and isinstance(current, MutableMapping):
+            _reconcile_toml(current, value)
+        elif key in target and _plain(current) == value:
+            continue
+        else:
+            target[key] = value
+
+
+def _plain(item: Any) -> Any:
+    """A tomlkit item as plain Python, for comparing against incoming data."""
+    unwrap = getattr(item, "unwrap", None)
+    return unwrap() if callable(unwrap) else item
 
 
 def _save_sections(

@@ -50,7 +50,7 @@ dependencies:
   - nibabel
   - plotly
   - pydicom
-  - tomli-w
+  - tomlkit
 
   # pip itself, so the section below runs inside the env.
   - pip

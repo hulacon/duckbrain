@@ -38,7 +38,9 @@ dependencies = [
     # setup_env.sh's shadowing check names its packages explicitly and is not
     # tripped by that.
     "bidsschematools>=1.1",
-    "tomli-w>=1.0",
+    # Writes config while keeping its comments (`config._dump_toml`): a project
+    # config is shared and hand-annotated, and tomli-w re-serialised it bare.
+    "tomlkit>=0.12",
 ]
 
 [project.optional-dependencies]

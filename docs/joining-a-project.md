@@ -60,9 +60,8 @@ recently opened projects.
 your form values into `<project_dir>/code/duckbrain.toml`. That file is the
 project's, not yours: it changes settings for everyone, starting with their
 next job. If a value looks wrong, ask the owner before you change it. The
-comments in the file often say why a value is what it is, and a save from the
-GUI currently drops every one of them. Copy the file aside before saving if it
-has any.
+comments in the file often say why a value is what it is. (A save keeps those
+comments, but it cannot keep your labmate's reason for a value you overwrite.)
 
 ## Working alongside someone else
 
